@@ -33,7 +33,8 @@ export function LoginPage() {
       return
     }
 
-    navigate("/", { replace: true })
+    // 👉 REDIRECIONA PRA ÁREA LOGADA
+    navigate("/page1", { replace: true })
   }
 
   return (
@@ -52,7 +53,7 @@ export function LoginPage() {
         <div className="space-y-3">
           <input
             type="text"
-            placeholder="Usuário"
+            placeholder="Usuário ou email"
             value={usuario}
             onChange={(e) => setUsuario(e.target.value)}
             className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
