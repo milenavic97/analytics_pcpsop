@@ -20,17 +20,25 @@
   }
 
   [data-theme="dark"] {
-    --bg-primary:    #0B1120;
-    --bg-secondary:  #111827;
-    --bg-sidebar:    #0F2440;
-    --bg-sidebar-hover: #1B3A5C;
-    --bg-sidebar-active: #234873;
-    --text-primary:  #F1F5F9;
-    --text-secondary:#94A3B8;
-    --text-sidebar:  #94A3B8;
+    /* Fundo geral: azul muito escuro */
+    --bg-primary:    #0D1117;
+    --bg-secondary:  #161B22;
+
+    /* Sidebar: azul médio bem distinto — contraste claro com o fundo */
+    --bg-sidebar:    #1F4068;
+    --bg-sidebar-hover: #2A5298;
+    --bg-sidebar-active: #1B6CA8;
+
+    /* Textos */
+    --text-primary:  #E6EDF3;
+    --text-secondary:#7D8590;
+    --text-sidebar:  #CDD9E5;
     --text-sidebar-active: #FFFFFF;
-    --border:        rgba(255,255,255,0.08);
-    --card-shadow:   0 1px 3px rgba(0,0,0,0.4);
+
+    /* Bordas */
+    --border:        rgba(255,255,255,0.10);
+
+    --card-shadow:   0 1px 4px rgba(0,0,0,0.6);
   }
 
   * { box-sizing: border-box; }
@@ -57,7 +65,7 @@
     box-shadow: var(--card-shadow);
     transition: box-shadow 0.2s;
   }
-  .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+  .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
 
   .card-label {
     font-size: 11px;
