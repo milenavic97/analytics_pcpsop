@@ -31,6 +31,8 @@ interface LinhaResumo {
   linha: "L1" | "L2"
   realizado: number | null
   planejado: number
+  planejado_v1?: number | null
+  versao_planejada?: string | null
   previsto: number | null
   orcado: number
   atingimento: number | null
@@ -53,6 +55,8 @@ interface ChartPoint {
   mesLabel: string
   linha: "L1" | "L2"
   planejado: number
+  planejado_v1: number | null
+  versao_planejada: string | null
   realizado: number | null
   orcado: number
   atingimento: number | null
@@ -65,6 +69,7 @@ const TUBETES_POR_CAIXA = 500
 const COR_REAL = "#27336D"
 const COR_PLANEJADO = "#D7DCE7"
 const COR_ORCADO = "#E56A1C"
+const COR_V1 = "#6A7FC0"
 const COR_ATINGIMENTO = "#8FA0B8"
 const COR_VERDE = "#2E7D32"
 const COR_AMARELO = "#CA8A04"
@@ -114,6 +119,8 @@ function buildLinhaData(data: ProjecaoLiberacoesResponse, linha: "L1" | "L2"): C
       mesLabel: MES_LABELS[mes - 1],
       linha,
       planejado: Number(row?.planejado || 0),
+      planejado_v1: row?.planejado_v1 ?? null,
+      versao_planejada: row?.versao_planejada ?? null,
       realizado: row?.realizado ?? null,
       orcado: Number(row?.orcado || 0),
       atingimento: row?.atingimento ?? null,
@@ -135,9 +142,11 @@ function getPctMax(data: ChartPoint[]) {
 }
 
 const PlannedLabel = (props: any) => {
-  const { x, y, width, value } = props
+  const { x, y, width, value, payload } = props
 
   if (!value || Number(value) <= 0) return null
+
+  const versao = payload?.versao_planejada ? `V${payload.versao_planejada}` : ""
 
   return (
     <text
@@ -148,7 +157,7 @@ const PlannedLabel = (props: any) => {
       fontWeight={600}
       fill="#6B7280"
     >
-      {fmt(value)}
+      {versao ? `${fmt(value)} · ${versao}` : fmt(value)}
     </text>
   )
 }
@@ -229,6 +238,39 @@ const MetaMarker = (props: any) => {
   )
 }
 
+const V1Marker = (props: any) => {
+  const { cx, cy, payload, showV1 } = props
+
+  if (!showV1) return null
+  if (!payload || payload.planejado_v1 === null || payload.planejado_v1 === undefined) return null
+  if (Number(payload.planejado_v1) <= 0) return null
+
+  return (
+    <g>
+      <line
+        x1={cx - 18}
+        y1={cy}
+        x2={cx + 18}
+        y2={cy}
+        stroke={COR_V1}
+        strokeWidth={3}
+        strokeLinecap="round"
+      />
+      <circle cx={cx} cy={cy} r={4} fill={COR_V1} />
+      <text
+        x={cx}
+        y={cy - 9}
+        textAnchor="middle"
+        fontSize={10}
+        fontWeight={700}
+        fill={COR_V1}
+      >
+        {fmt(payload.planejado_v1)}
+      </text>
+    </g>
+  )
+}
+
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload || !payload.length) return null
 
@@ -243,7 +285,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         padding: "10px 12px",
         boxShadow: "0 8px 20px rgba(0,0,0,0.10)",
         fontSize: 12,
-        minWidth: 180,
+        minWidth: 210,
       }}
     >
       <div
@@ -258,8 +300,17 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
       <div style={{ display: "grid", gap: 4 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-          <span style={{ color: "var(--text-secondary)" }}>Planejado</span>
+          <span style={{ color: "var(--text-secondary)" }}>
+            Planejado {row?.versao_planejada ? `(V${row.versao_planejada})` : ""}
+          </span>
           <strong style={{ color: "var(--text-primary)" }}>{fmt(row?.planejado)} cx</strong>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <span style={{ color: "var(--text-secondary)" }}>V1 do mês</span>
+          <strong style={{ color: COR_V1 }}>
+            {row?.planejado_v1 ? `${fmt(row.planejado_v1)} cx` : "-"}
+          </strong>
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
@@ -285,7 +336,25 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   )
 }
 
-function PercentBand({ data }: { data: ChartPoint[] }) {
+function PercentBand({
+  data,
+  visible,
+}: {
+  data: ChartPoint[]
+  visible: boolean
+}) {
+  if (!visible) {
+    return (
+      <div
+        style={{
+          height: 48,
+          marginLeft: Y_AXIS_WIDTH + CHART_LEFT,
+          marginRight: CHART_RIGHT,
+        }}
+      />
+    )
+  }
+
   const pctMax = getPctMax(data)
 
   const points = data
@@ -371,11 +440,19 @@ function PercentBand({ data }: { data: ChartPoint[] }) {
 function LinhaChart({
   titulo,
   data,
+  showPlanejado,
+  showRealizado,
   showOrcado,
+  showV1,
+  showAtingimento,
 }: {
   titulo: string
   data: ChartPoint[]
+  showPlanejado: boolean
+  showRealizado: boolean
   showOrcado: boolean
+  showV1: boolean
+  showAtingimento: boolean
 }) {
   return (
     <div
@@ -413,7 +490,7 @@ function LinhaChart({
         </p>
       </div>
 
-      <PercentBand data={data} />
+      <PercentBand data={data} visible={showAtingimento} />
 
       <div style={{ height: 245 }}>
         <ResponsiveContainer width="100%" height="100%">
@@ -444,31 +521,45 @@ function LinhaChart({
 
             <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(39,51,109,0.04)" }} />
 
-            <Bar
-              dataKey="planejado"
-              fill={COR_PLANEJADO}
-              radius={[6, 6, 0, 0]}
-              barSize={50}
-              isAnimationActive={false}
-            >
-              <LabelList content={PlannedLabel} />
-            </Bar>
+            {showPlanejado && (
+              <Bar
+                dataKey="planejado"
+                fill={COR_PLANEJADO}
+                radius={[6, 6, 0, 0]}
+                barSize={50}
+                isAnimationActive={false}
+              >
+                <LabelList content={PlannedLabel} />
+              </Bar>
+            )}
 
-            <Bar
-              dataKey="realizado"
-              fill={COR_REAL}
-              radius={[6, 6, 0, 0]}
-              barSize={38}
-              isAnimationActive={false}
-            >
-              <LabelList content={RealizedLabel} />
-            </Bar>
+            {showRealizado && (
+              <Bar
+                dataKey="realizado"
+                fill={COR_REAL}
+                radius={[6, 6, 0, 0]}
+                barSize={38}
+                isAnimationActive={false}
+              >
+                <LabelList content={RealizedLabel} />
+              </Bar>
+            )}
 
             <Line
               type="linear"
               dataKey="orcado"
               stroke="transparent"
               dot={<MetaMarker showOrcado={showOrcado} />}
+              activeDot={false}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+
+            <Line
+              type="linear"
+              dataKey="planejado_v1"
+              stroke="transparent"
+              dot={<V1Marker showV1={showV1} />}
               activeDot={false}
               connectNulls={false}
               isAnimationActive={false}
@@ -504,6 +595,7 @@ function LegendToggleItem({
         padding: 0,
         cursor: "pointer",
         opacity: active ? 1 : 0.45,
+        textDecoration: active ? "none" : "line-through",
       }}
       title={active ? "Clique para ocultar" : "Clique para mostrar"}
     >
@@ -518,7 +610,12 @@ function LegendToggleItem({
 export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
   const [data, setData] = useState<ProjecaoLiberacoesResponse | null>(null)
   const [loading, setLoading] = useState(false)
+
+  const [showPlanejado, setShowPlanejado] = useState(true)
+  const [showRealizado, setShowRealizado] = useState(true)
   const [showOrcado, setShowOrcado] = useState(true)
+  const [showV1, setShowV1] = useState(true)
+  const [showAtingimento, setShowAtingimento] = useState(true)
 
   useEffect(() => {
     if (!open) return
@@ -608,7 +705,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
             </h2>
 
             <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-              Comparativo por linha: planejado, realizado, orçado e atingimento mensal.
+              Comparativo por linha: planejado por última versão mensal, V1, realizado, orçado e atingimento.
             </p>
           </div>
 
@@ -681,7 +778,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   </p>
 
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-                    {fmt(totalRealTb)} tb
+                    {fmt(totalRealTb)} tubetes
                   </p>
                 </div>
 
@@ -695,7 +792,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   </p>
 
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-                    {fmt(totalPrevistoTb)} tb
+                    {fmt(totalPrevistoTb)} tubetes
                   </p>
                 </div>
 
@@ -709,7 +806,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   </p>
 
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-                    {fmt(totalProjetadoTb)} tb · {fmtPct(data.pct_atingimento)} do orçado
+                    {fmt(totalProjetadoTb)} tubetes · {fmtPct(data.pct_atingimento)} do orçado
                   </p>
                 </div>
               </div>
@@ -720,19 +817,42 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                 </p>
 
                 <div style={{ display: "flex", gap: 18, marginBottom: 12, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 14, height: 12, borderRadius: 3, background: COR_PLANEJADO }} />
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                      Planejado
-                    </span>
-                  </div>
+                  <LegendToggleItem
+                    active={showPlanejado}
+                    onClick={() => setShowPlanejado((prev) => !prev)}
+                    marker={<span style={{ width: 14, height: 12, borderRadius: 3, background: COR_PLANEJADO }} />}
+                  >
+                    Planejado · última versão do mês
+                  </LegendToggleItem>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 14, height: 12, borderRadius: 3, background: COR_REAL }} />
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                      Realizado
-                    </span>
-                  </div>
+                  <LegendToggleItem
+                    active={showRealizado}
+                    onClick={() => setShowRealizado((prev) => !prev)}
+                    marker={<span style={{ width: 14, height: 12, borderRadius: 3, background: COR_REAL }} />}
+                  >
+                    Realizado
+                  </LegendToggleItem>
+
+                  <LegendToggleItem
+                    active={showV1}
+                    onClick={() => setShowV1((prev) => !prev)}
+                    marker={
+                      <svg width="26" height="10">
+                        <line
+                          x1="2"
+                          y1="5"
+                          x2="24"
+                          y2="5"
+                          stroke={COR_V1}
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                        />
+                        <circle cx="13" cy="5" r="3.5" fill={COR_V1} />
+                      </svg>
+                    }
+                  >
+                    V1 do mês
+                  </LegendToggleItem>
 
                   <LegendToggleItem
                     active={showOrcado}
@@ -754,34 +874,45 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                     Orçado
                   </LegendToggleItem>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <svg width="26" height="10">
-                      <line
-                        x1="2"
-                        y1="5"
-                        x2="24"
-                        y2="5"
-                        stroke={COR_ATINGIMENTO}
-                        strokeWidth="2"
-                      />
-                      <circle cx="13" cy="5" r="3.5" fill={COR_ATINGIMENTO} />
-                    </svg>
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                      % Ating. Real vs. Planejado
-                    </span>
-                  </div>
+                  <LegendToggleItem
+                    active={showAtingimento}
+                    onClick={() => setShowAtingimento((prev) => !prev)}
+                    marker={
+                      <svg width="26" height="10">
+                        <line
+                          x1="2"
+                          y1="5"
+                          x2="24"
+                          y2="5"
+                          stroke={COR_ATINGIMENTO}
+                          strokeWidth="2"
+                        />
+                        <circle cx="13" cy="5" r="3.5" fill={COR_ATINGIMENTO} />
+                      </svg>
+                    }
+                  >
+                    % Ating. Real vs. Planejado
+                  </LegendToggleItem>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
                   <LinhaChart
                     titulo="Linha 1 — Realizado vs. Planejado vs. Orçado"
                     data={linha1Data}
+                    showPlanejado={showPlanejado}
+                    showRealizado={showRealizado}
                     showOrcado={showOrcado}
+                    showV1={showV1}
+                    showAtingimento={showAtingimento}
                   />
                   <LinhaChart
                     titulo="Linha 2 — Realizado vs. Planejado vs. Orçado"
                     data={linha2Data}
+                    showPlanejado={showPlanejado}
+                    showRealizado={showRealizado}
                     showOrcado={showOrcado}
+                    showV1={showV1}
+                    showAtingimento={showAtingimento}
                   />
                 </div>
               </div>
@@ -797,7 +928,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   background: "var(--bg-primary)",
                 }}
               >
-                Valores principais em caixas. Referência: 1 caixa contém 500 tubetes.
+                Valores principais em caixas. Planejado usa a última versão disponível de cada mês/linha. Referência: 1 caixa contém 500 tubetes.
               </div>
             </>
           )}
