@@ -3,7 +3,7 @@ import { useParams, NavLink } from "react-router-dom"
 import {
   Upload, Download, CheckCircle, XCircle, Clock, AlertCircle,
   Package, CalendarCheck, TrendingUp, ShoppingCart,
-  PackageCheck, Warehouse, Factory,
+  PackageCheck, Warehouse, Factory, BarChart3, ClipboardList, DollarSign,
 } from "lucide-react"
 import { BASES } from "@/data/bases"
 import { uploadBase, getUploadStatus, getDados, inserirRegistro, atualizarRegistro, excluirRegistros } from "@/services/api"
@@ -12,7 +12,7 @@ import { RowModal } from "@/components/ui/RowModal"
 
 const ICON_MAP: Record<string, React.ElementType> = {
   Package, CalendarCheck, TrendingUp, ShoppingCart,
-  PackageCheck, Warehouse, Factory,
+  PackageCheck, Warehouse, Factory, BarChart3, ClipboardList, DollarSign,
 }
 
 type StatusLocal = { status: string; nome_arquivo?: string; total_registros?: number }
@@ -30,6 +30,7 @@ export function DadosPage() {
 
   return (
     <div className="flex h-full" style={{ background: "var(--bg-primary)" }}>
+      {/* Sidebar */}
       <div
         className="flex-shrink-0 py-4 px-2"
         style={{ width: 224, borderRight: "1px solid var(--border)", background: "var(--bg-secondary)" }}
@@ -61,6 +62,7 @@ export function DadosPage() {
         })}
       </div>
 
+      {/* Conteúdo */}
       <div className="flex-1 overflow-y-auto p-6">
         {!base ? (
           <div
@@ -79,14 +81,14 @@ export function DadosPage() {
 }
 
 function BaseDetail({ base }: { base: typeof BASES[0] }) {
-  const [status, setStatus]           = useState<StatusLocal>({ status: "sem_dados" })
-  const [uploading, setUploading]     = useState(false)
-  const [resultado, setResultado]     = useState<{ total: number; erros: string[] } | null>(null)
-  const [dados, setDados]             = useState<Record<string, unknown>[]>([])
-  const [total, setTotal]             = useState(0)
-  const [page, setPage]               = useState(1)
-  const [loading, setLoading]         = useState(false)
-  const [modalAberto, setModalAberto] = useState(false)
+  const [status, setStatus]               = useState<StatusLocal>({ status: "sem_dados" })
+  const [uploading, setUploading]         = useState(false)
+  const [resultado, setResultado]         = useState<{ total: number; erros: string[] } | null>(null)
+  const [dados, setDados]                 = useState<Record<string, unknown>[]>([])
+  const [total, setTotal]                 = useState(0)
+  const [page, setPage]                   = useState(1)
+  const [loading, setLoading]             = useState(false)
+  const [modalAberto, setModalAberto]     = useState(false)
   const [linhaEditando, setLinhaEditando] = useState<Record<string, unknown> | undefined>()
   const inputRef = useRef<HTMLInputElement>(null)
   const Icon = ICON_MAP[base.icone] || Package
@@ -156,9 +158,18 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
     }
   }
 
-  const colunas = dados.length > 0
-    ? Object.keys(dados[0]).filter(c => c !== "id" && c !== "created_at")
-    : base.colunas
+  // Se a base tem colunasVisiveis, usa só essas chaves (com labels definidos)
+  // Senão, deriva do primeiro registro (excluindo id e created_at)
+  const colunas: string[] = base.colunasVisiveis
+    ? base.colunasVisiveis.map(c => c.key)
+    : dados.length > 0
+      ? Object.keys(dados[0]).filter(c => c !== "id" && c !== "created_at")
+      : base.colunas
+
+  // Mapa de label personalizado por chave (usado no DataTable)
+  const colunasLabels: Record<string, string> | undefined = base.colunasVisiveis
+    ? Object.fromEntries(base.colunasVisiveis.map(c => [c.key, c.label]))
+    : undefined
 
   return (
     <div className="space-y-6 fade-in">
@@ -254,6 +265,7 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
       {/* Tabela */}
       <DataTable
         colunas={colunas}
+        colunasLabels={colunasLabels}
         dados={dados}
         total={total}
         page={page}
