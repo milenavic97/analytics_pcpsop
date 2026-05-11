@@ -1,11 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { ProtectedRoute } from "./components/ProtectedRoute"
-import { Layout } from "./components/Layout"
 import { LoginPage } from "./pages/Login"
 import { OverviewPage } from "./pages/Overview"
-import { OrdensPage } from "./pages/Ordens"
 import { ProducaoPage } from "./pages/Producao"
 import { DadosPage } from "./pages/Dados"
+import { OrdensPage } from "./pages/Ordens"
+import { Layout } from "./components/layout/Layout"
 
 export default function App() {
   return (
@@ -14,7 +14,7 @@ export default function App() {
         {/* LOGIN */}
         <Route path="/login" element={<LoginPage />} />
 
-        {/* SISTEMA — com layout + sidebar */}
+        {/* SISTEMA COM LAYOUT */}
         <Route
           element={
             <ProtectedRoute>
@@ -22,9 +22,16 @@ export default function App() {
             </ProtectedRoute>
           }
         >
+          {/* Overview */}
           <Route path="/overview" element={<OverviewPage />} />
+
+          {/* Produção */}
+          <Route path="/producao/*" element={<ProducaoPage />} />
+
+          {/* Ordens de Produção */}
           <Route path="/ordens" element={<OrdensPage />} />
-          <Route path="/producao" element={<ProducaoPage />} />
+
+          {/* Dados (IMPORTANTE) */}
           <Route path="/dados" element={<DadosPage />} />
           <Route path="/dados/:baseId" element={<DadosPage />} />
         </Route>
