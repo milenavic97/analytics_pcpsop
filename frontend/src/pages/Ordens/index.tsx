@@ -340,29 +340,42 @@ function GargaloTags({ gargalos }: { gargalos: Gargalo[] }) {
     return <span className="text-xs" style={{ color: "var(--text-secondary)" }}>—</span>
   }
 
-  return (
-    <div className="flex w-full max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap">
-      {gargalos.map((gargalo, idx) => {
-        const isFalta = gargalo.status === "falta"
-        const label = `${gargalo.descricao}${gargalo.codigo_comp ? ` (${gargalo.codigo_comp})` : ""}`
+  const labels = gargalos.map(g => `${g.descricao}${g.codigo_comp ? ` (${g.codigo_comp})` : ""}`)
+  const tooltipText = labels.join("\n")
+  const primeiro = gargalos[0]
+  const primeiroLabel = labels[0]
+  const qtdRestante = Math.max(0, gargalos.length - 1)
+  const isFalta = primeiro.status === "falta"
 
-        return (
-          <Tooltip key={`${gargalo.codigo_comp || gargalo.descricao}-${idx}`} text={label}>
-            <span
-              className="inline-flex shrink-0 max-w-none items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
-              style={{
-                background: isFalta ? "#FEF2F2" : "#FFFBEB",
-                border: `1px solid ${isFalta ? "#FECACA" : "#FDE68A"}`,
-                color: isFalta ? "#B91C1C" : "#92400E",
-              }}
-            >
-              <AlertOctagon size={10} className="flex-shrink-0" />
-              <span className="whitespace-nowrap">{label}</span>
-            </span>
-          </Tooltip>
-        )
-      })}
-    </div>
+  return (
+    <Tooltip text={tooltipText}>
+      <div className="flex w-full max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap">
+        <span
+          className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
+          style={{
+            background: isFalta ? "#FEF2F2" : "#FFFBEB",
+            border: `1px solid ${isFalta ? "#FECACA" : "#FDE68A"}`,
+            color: isFalta ? "#B91C1C" : "#92400E",
+          }}
+        >
+          <AlertOctagon size={10} className="shrink-0" />
+          <span className="min-w-0 truncate">{primeiroLabel}</span>
+        </span>
+
+        {qtdRestante > 0 && (
+          <span
+            className="inline-flex shrink-0 items-center rounded-full px-2 py-1 text-[10px] font-bold leading-none"
+            style={{
+              background: "#F8FAFC",
+              border: "1px solid #CBD5E1",
+              color: "#475569",
+            }}
+          >
+            +{qtdRestante}
+          </span>
+        )}
+      </div>
+    </Tooltip>
   )
 }
 
@@ -374,7 +387,7 @@ function Tooltip({ text, children }: { text: string; children: React.ReactNode }
       {children}
       {show && text && (
         <div className="absolute z-50 bottom-full left-0 mb-2 rounded-lg px-3 py-2 text-xs shadow-xl pointer-events-none"
-          style={{ background: "var(--bg-sidebar)", color: "#fff", maxWidth: 300, whiteSpace: "normal" }}>
+          style={{ background: "var(--bg-sidebar)", color: "#fff", maxWidth: 420, whiteSpace: "pre-line" }}>
           {text}
           <div className="absolute top-full left-4 w-0 h-0"
             style={{ borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "5px solid var(--bg-sidebar)" }} />
