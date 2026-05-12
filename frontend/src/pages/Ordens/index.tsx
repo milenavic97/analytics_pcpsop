@@ -341,7 +341,7 @@ function GargaloTags({ gargalos }: { gargalos: Gargalo[] }) {
   }
 
   return (
-    <div className="flex w-full max-w-full flex-wrap items-center gap-1.5">
+    <div className="flex w-full max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap">
       {gargalos.map((gargalo, idx) => {
         const isFalta = gargalo.status === "falta"
         const label = `${gargalo.descricao}${gargalo.codigo_comp ? ` (${gargalo.codigo_comp})` : ""}`
@@ -349,7 +349,7 @@ function GargaloTags({ gargalos }: { gargalos: Gargalo[] }) {
         return (
           <Tooltip key={`${gargalo.codigo_comp || gargalo.descricao}-${idx}`} text={label}>
             <span
-              className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
+              className="inline-flex shrink-0 max-w-none items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
               style={{
                 background: isFalta ? "#FEF2F2" : "#FFFBEB",
                 border: `1px solid ${isFalta ? "#FECACA" : "#FDE68A"}`,
@@ -357,7 +357,7 @@ function GargaloTags({ gargalos }: { gargalos: Gargalo[] }) {
               }}
             >
               <AlertOctagon size={10} className="flex-shrink-0" />
-              <span className="min-w-0 truncate">{label}</span>
+              <span className="whitespace-nowrap">{label}</span>
             </span>
           </Tooltip>
         )
