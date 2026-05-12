@@ -180,9 +180,7 @@ Restante após esta OP: ${restante}
 Entrega prevista: ${entrega}
 Fornecedor: ${fornecedor}
 Comprador: ${comprador}`
-  }).join("
-
-")
+  }).join("\n\n")
 }
 
 function tipoProduto(linha: string) {
