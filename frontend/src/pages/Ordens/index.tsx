@@ -52,8 +52,8 @@ const PRODUTO_COL_MIN = 80
 const PRODUTO_COL_MAX = 600
 const PRODUTO_COL_DEFAULT = 160
 const GARGALO_COL_MIN = 120
-const GARGALO_COL_MAX = 520
-const GARGALO_COL_DEFAULT = 250
+const GARGALO_COL_MAX = 900
+const GARGALO_COL_DEFAULT = 300
 
 const LINHA_LABEL: Record<string, string> = {
   ENVASE_L1: "Envase L1",
@@ -255,7 +255,7 @@ function GargaloTag({ gargalo }: { gargalo?: Gargalo | null }) {
   return (
     <Tooltip text={label}>
       <span
-        className="inline-flex max-w-[230px] items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
+        className="inline-flex w-full max-w-full items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
         style={{
           background: isFalta ? "#FEF2F2" : "#FFFBEB",
           border: `1px solid ${isFalta ? "#FECACA" : "#FDE68A"}`,
@@ -263,7 +263,7 @@ function GargaloTag({ gargalo }: { gargalo?: Gargalo | null }) {
         }}
       >
         <AlertOctagon size={10} className="flex-shrink-0" />
-        <span className="truncate">{label}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
       </span>
     </Tooltip>
   )
@@ -1050,7 +1050,7 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", cursor: isAnyResizing ? "col-resize" : undefined }}>
       <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
-        <table className="w-full min-w-[1120px] border-separate border-spacing-0">
+        <table className="w-full border-separate border-spacing-0" style={{ minWidth: Math.max(1120, produtoColWidth + gargaloColWidth + 900) }}>
           <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
             <tr style={{ background: TABLE_HEADER_BG }}>
               <th className="pl-3 py-3 w-8">
