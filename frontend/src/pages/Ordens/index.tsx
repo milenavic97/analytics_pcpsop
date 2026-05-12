@@ -118,6 +118,32 @@ function getQtdComprasPendente(comp: unknown): number {
   return toNumber((comp as { qtd_compras_pendente?: number })?.qtd_compras_pendente)
 }
 
+function getQtdCompraTotal(c: CompraAberta): number {
+  const original = toNumber(c.quantidade_pendente_original)
+  if (original > 0) return original
+
+  const utilizada = toNumber(c.quantidade_utilizada)
+  const restante = toNumber(c.quantidade_pendente_restante)
+  if (utilizada > 0 || restante > 0) return utilizada + restante
+
+  return toNumber(c.quantidade_pendente)
+}
+
+function getQtdComprasTotal(comp: unknown): number {
+  const direto = toNumber((comp as { qtd_compras_total?: number })?.qtd_compras_total)
+  if (direto > 0) return direto
+
+  return getComprasAbertas(comp).reduce((acc, c) => acc + getQtdCompraTotal(c), 0)
+}
+
+function getQtdCompraUsada(comp: unknown): number {
+  const compras = getComprasAbertas(comp)
+  const usada = compras.reduce((acc, c) => acc + toNumber(c.quantidade_utilizada), 0)
+  if (usada > 0) return usada
+
+  return getQtdComprasPendente(comp)
+}
+
 function getMenorDataEntregaCompra(comp: unknown): string | null {
   const direto = (comp as { menor_data_entrega_compra?: string | null })?.menor_data_entrega_compra
   if (direto) return direto
@@ -168,6 +194,7 @@ function tooltipCompras(compras: CompraAberta[]) {
   return compras.map(c => {
     const pedido = c.pedido_numero || "—"
     const sc = c.sc_numero || "—"
+    const qtdTotal = fmt(getQtdCompraTotal(c))
     const qtdUsada = fmt(c.quantidade_utilizada ?? c.quantidade_pendente)
     const restante = fmt(c.quantidade_pendente_restante)
     const entrega = fmtData(c.data_prevista_entrega)
@@ -175,6 +202,7 @@ function tooltipCompras(compras: CompraAberta[]) {
     const comprador = c.comprador_nome || "—"
 
     return `Pedido: ${pedido} | SC: ${sc}
+Qtd. total da compra: ${qtdTotal}
 Qtd. usada nesta OP: ${qtdUsada}
 Restante após esta OP: ${restante}
 Entrega prevista: ${entrega}
@@ -1195,7 +1223,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                 <>
                   <p className="card-label">Componentes necessários</p>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[1180px]">
+                    <table className="w-full text-xs min-w-[1280px]">
                       <thead>
                         <tr style={{ borderBottom: "1px solid var(--border)" }}>
                           {[
@@ -1206,6 +1234,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                             "Saldo Atual",
                             "Saldo Restante",
                             "Saldo 98",
+                            "Compra total",
                             "Compra usada",
                             "Entrega",
                             "Abre no prazo?",
@@ -1225,7 +1254,8 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const saldoRestante = Number((comp as { saldo_restante?: number }).saldo_restante ?? (comp.saldo_01 - comp.necessario))
                           const componenteGargalante = isComponenteGargalante(compRecord)
                           const comprasComp = getComprasAbertas(comp)
-                          const qtdComprasPendente = getQtdComprasPendente(comp)
+                          const qtdComprasTotal = getQtdComprasTotal(comp)
+                          const qtdCompraUsada = getQtdCompraUsada(comp)
                           const dataEntregaCompra = getMenorDataEntregaCompra(comp)
                           const statusCompra = getStatusCompra(comp)
                           const compraCfg = compraStatusConfig(statusCompra)
@@ -1244,8 +1274,11 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                                 title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
                                 {comp.saldo_98 > 0 ? `Quarentena: ${fmt(comp.saldo_98)}` : "—"}
                               </td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdComprasPendente > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
-                                {qtdComprasPendente > 0 ? fmt(qtdComprasPendente) : "—"}
+                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdComprasTotal > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
+                                {qtdComprasTotal > 0 ? fmt(qtdComprasTotal) : "—"}
+                              </td>
+                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdCompraUsada > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
+                                {qtdCompraUsada > 0 ? fmt(qtdCompraUsada) : "—"}
                               </td>
                               <td className="py-2 pr-4" style={{ color: dataEntregaCompra ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
                                 {fmtData(dataEntregaCompra)}
