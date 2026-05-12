@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react"
 import { useLocation } from "react-router-dom"
 import {
   Send,
-  MessageSquareText,
+ MessageSquareText,
   Sparkles,
   X,
   Minimize2,
@@ -28,14 +28,19 @@ function nowTime() {
 
 function getMesAtual() {
   const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+
+  return `${now.getFullYear()}-${String(
+    now.getMonth() + 1
+  ).padStart(2, "0")}`
 }
 
 function detectPage(pathname: string): string {
   if (pathname.startsWith("/ordens")) return "ordens"
   if (pathname.startsWith("/producao")) return "producao"
   if (pathname.startsWith("/dados")) return "dados"
-  if (pathname.startsWith("/overview") || pathname === "/") return "overview"
+  if (pathname.startsWith("/overview") || pathname === "/")
+    return "overview"
+
   return "geral"
 }
 
@@ -54,17 +59,25 @@ const SUGESTOES: Record<string, string[]> = {
     "Quais podem abrir agora?",
     "OPs em quarentena",
   ],
+
   overview: [
     "Como estão as liberações?",
     "Como está o faturamento?",
     "Resumo executivo do mês",
   ],
+
   producao: [
     "Paradas da L1",
     "Paradas da L2",
     "Qual linha tem mais perdas?",
   ],
-  geral: ["Resumo geral", "OPs críticas do mês", "Como está o faturamento?"],
+
+  geral: [
+    "Resumo geral",
+    "OPs críticas do mês",
+    "Como está o faturamento?",
+  ],
+
   dados: ["Como usar esta aba?"],
 }
 
@@ -73,7 +86,12 @@ function renderText(text: string, isUser: boolean) {
     <span key={li} className="block">
       {line.split("**").map((part, i) =>
         i % 2 === 1 ? (
-          <strong key={i} style={{ color: isUser ? "#fff" : "#1B3A5C" }}>
+          <strong
+            key={i}
+            style={{
+              color: isUser ? "#fff" : "#1B3A5C",
+            }}
+          >
             {part}
           </strong>
         ) : (
@@ -84,21 +102,35 @@ function renderText(text: string, isUser: boolean) {
   ))
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+}: {
+  message: ChatMessage
+}) {
   const isUser = message.role === "user"
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div
+      className={`flex ${
+        isUser ? "justify-end" : "justify-start"
+      }`}
+    >
       <div
         className="max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm"
         style={{
           background: isUser ? "#1B3A5C" : "#FFFFFF",
           color: isUser ? "#FFFFFF" : "var(--text-primary)",
-          border: isUser ? "none" : "1px solid var(--border)",
+          border: isUser
+            ? "none"
+            : "1px solid var(--border)",
         }}
       >
         {renderText(message.text, isUser)}
-        <div className="mt-2 text-[11px]" style={{ opacity: 0.6 }}>
+
+        <div
+          className="mt-2 text-[11px]"
+          style={{ opacity: 0.6 }}
+        >
           {message.time}
         </div>
       </div>
@@ -111,6 +143,7 @@ export function PCPChat() {
 
   const [open, setOpen] = useState(false)
   const [minimized, setMinimized] = useState(false)
+
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -126,11 +159,13 @@ export function PCPChat() {
   ])
 
   const bottomRef = useRef<HTMLDivElement>(null)
+
   const page = detectPage(location.pathname)
-  const sugestoes = SUGESTOES[page] || SUGESTOES.geral
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    bottomRef.current?.scrollIntoView({
+      behavior: "smooth",
+    })
   }, [messages])
 
   async function handleSend(texto?: string) {
@@ -145,7 +180,11 @@ export function PCPChat() {
       time: nowTime(),
     }
 
-    setMessages((prev) => [...prev, userMsg])
+    setMessages((prev) => [
+      ...prev,
+      userMsg,
+    ])
+
     setInput("")
     setLoading(true)
 
@@ -158,24 +197,36 @@ export function PCPChat() {
           text: m.text,
         }))
 
-      const res = await fetch(`${API_URL}/chat/mensagem`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          mensagem: pergunta,
-          pagina: page,
-          mes_ref: getMesAtual(),
-          historico,
-        }),
-      })
+      const res = await fetch(
+        `${API_URL}/chat/mensagem`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            mensagem: pergunta,
+            pagina: page,
+            mes_ref: getMesAtual(),
+            historico,
+          }),
+        }
+      )
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({
-          detail: `Erro ${res.status}`,
-        }))
-        throw new Error(err.detail || `Erro ${res.status}`)
+        const err = await res
+          .json()
+          .catch(() => ({
+            detail: `Erro ${res.status}`,
+          }))
+
+        throw new Error(
+          err.detail ||
+            `Erro ${res.status}`
+        )
       }
 
       const data = await res.json()
@@ -185,12 +236,17 @@ export function PCPChat() {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: data.resposta || "Sem resposta.",
+          text:
+            data.resposta ||
+            "Sem resposta.",
           time: nowTime(),
         },
       ])
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Erro desconhecido"
+      const msg =
+        e instanceof Error
+          ? e.message
+          : "Erro desconhecido"
 
       setMessages((prev) => [
         ...prev,
@@ -206,6 +262,9 @@ export function PCPChat() {
     }
   }
 
+  const sugestoes =
+    SUGESTOES[page] || SUGESTOES.geral
+
   return (
     <>
       {!open && (
@@ -214,69 +273,89 @@ export function PCPChat() {
             setOpen(true)
             setMinimized(false)
           }}
-          className="fixed right-6 top-[72px] z-[999] flex h-14 w-14 items-center justify-center rounded-full shadow-2xl transition-all hover:scale-[1.05]"
+          className="fixed right-[128px] top-4 z-[999] flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition-all hover:scale-[1.05]"
           style={{
             background: "#1B3A5C",
             color: "#FFFFFF",
-            boxShadow: "0 10px 25px rgba(15,23,42,0.25)",
           }}
           title="Abrir PCP Chat"
         >
-          <MessageSquareText size={22} />
+          <MessageSquareText size={18} />
         </button>
       )}
 
       {open && minimized && (
         <button
-          onClick={() => setMinimized(false)}
-          className="fixed right-6 top-[72px] z-[999] flex h-14 w-14 items-center justify-center rounded-full shadow-2xl transition-all hover:scale-[1.05]"
+          onClick={() =>
+            setMinimized(false)
+          }
+          className="fixed right-[128px] top-4 z-[999] flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition-all hover:scale-[1.05]"
           style={{
             background: "#1B3A5C",
             color: "#FFFFFF",
-            boxShadow: "0 10px 25px rgba(15,23,42,0.25)",
           }}
           title="Abrir PCP Chat"
         >
-          <MessageSquareText size={22} />
+          <MessageSquareText size={18} />
         </button>
       )}
 
       {open && !minimized && (
         <div
-          className="fixed right-6 top-[72px] z-[999] flex h-[680px] w-[460px] flex-col overflow-hidden rounded-2xl border shadow-2xl"
+          className="fixed right-6 top-16 z-[999] flex h-[680px] w-[460px] flex-col overflow-hidden rounded-2xl border shadow-2xl"
           style={{
             background: "#FFFFFF",
-            borderColor: "var(--border)",
+            borderColor:
+              "var(--border)",
           }}
         >
           <div
             className="flex items-center justify-between px-5 py-4"
-            style={{ background: "#1B3A5C", color: "#FFFFFF" }}
+            style={{
+              background: "#1B3A5C",
+              color: "#FFFFFF",
+            }}
           >
             <div className="flex items-center gap-3">
               <div
                 className="flex h-10 w-10 items-center justify-center rounded-full"
-                style={{ background: "rgba(255,255,255,0.14)" }}
+                style={{
+                  background:
+                    "rgba(255,255,255,0.14)",
+                }}
               >
                 <MessageSquareText size={20} />
               </div>
 
               <div>
-                <h2 className="text-sm font-bold">PCP Chat</h2>
+                <h2 className="text-sm font-bold">
+                  PCP Chat
+                </h2>
+
                 <p
                   className="text-xs"
-                  style={{ color: "rgba(255,255,255,0.75)" }}
+                  style={{
+                    color:
+                      "rgba(255,255,255,0.75)",
+                  }}
                 >
-                  {PAGE_LABELS[page] || "PCP"} · IA ativa
+                  {PAGE_LABELS[page] ||
+                    "PCP"}{" "}
+                  · IA ativa
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setMinimized(true)}
+                onClick={() =>
+                  setMinimized(true)
+                }
                 className="flex h-9 w-9 items-center justify-center rounded-full"
-                style={{ background: "rgba(255,255,255,0.12)" }}
+                style={{
+                  background:
+                    "rgba(255,255,255,0.12)",
+                }}
               >
                 <Minimize2 size={16} />
               </button>
@@ -287,7 +366,10 @@ export function PCPChat() {
                   setMinimized(false)
                 }}
                 className="flex h-9 w-9 items-center justify-center rounded-full"
-                style={{ background: "rgba(255,255,255,0.12)" }}
+                style={{
+                  background:
+                    "rgba(255,255,255,0.12)",
+                }}
               >
                 <X size={16} />
               </button>
@@ -296,10 +378,15 @@ export function PCPChat() {
 
           <div
             className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
-            style={{ background: "#F8FAFC" }}
+            style={{
+              background: "#F8FAFC",
+            }}
           >
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+              />
             ))}
 
             {loading && (
@@ -308,8 +395,10 @@ export function PCPChat() {
                   className="rounded-2xl px-4 py-3 text-sm"
                   style={{
                     background: "#FFFFFF",
-                    border: "1px solid var(--border)",
-                    color: "var(--text-secondary)",
+                    border:
+                      "1px solid var(--border)",
+                    color:
+                      "var(--text-secondary)",
                   }}
                 >
                   <span className="animate-pulse">
@@ -322,38 +411,49 @@ export function PCPChat() {
             <div ref={bottomRef} />
           </div>
 
-          {messages.length <= 1 && !loading && (
-            <div
-              className="flex flex-wrap gap-2 px-4 pb-2"
-              style={{ background: "#F8FAFC" }}
-            >
-              {sugestoes.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => handleSend(s)}
-                  className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-slate-100"
-                  style={{
-                    borderColor: "var(--border)",
-                    color: "var(--text-secondary)",
-                    background: "#fff",
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
+          {messages.length <= 1 &&
+            !loading && (
+              <div
+                className="flex flex-wrap gap-2 px-4 pb-2"
+                style={{
+                  background: "#F8FAFC",
+                }}
+              >
+                {sugestoes.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() =>
+                      handleSend(s)
+                    }
+                    className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-slate-100"
+                    style={{
+                      borderColor:
+                        "var(--border)",
+                      color:
+                        "var(--text-secondary)",
+                      background: "#fff",
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
 
           <div
             className="border-t p-3"
             style={{
-              borderColor: "var(--border)",
+              borderColor:
+                "var(--border)",
               background: "#FFFFFF",
             }}
           >
             <div
               className="flex items-center gap-2 rounded-2xl border p-2"
-              style={{ borderColor: "var(--border)" }}
+              style={{
+                borderColor:
+                  "var(--border)",
+              }}
             >
               <div
                 className="flex h-10 w-10 items-center justify-center rounded-xl"
@@ -367,9 +467,12 @@ export function PCPChat() {
 
               <input
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) =>
+                  setInput(e.target.value)
+                }
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSend()
+                  if (e.key === "Enter")
+                    handleSend()
                 }}
                 placeholder="Ex: o que está faltando?"
                 className="flex-1 bg-transparent text-sm outline-none"
@@ -377,8 +480,13 @@ export function PCPChat() {
               />
 
               <button
-                onClick={() => handleSend()}
-                disabled={!input.trim() || loading}
+                onClick={() =>
+                  handleSend()
+                }
+                disabled={
+                  !input.trim() ||
+                  loading
+                }
                 className="flex h-10 w-10 items-center justify-center rounded-xl disabled:opacity-40"
                 style={{
                   background: "#1B3A5C",
@@ -391,7 +499,10 @@ export function PCPChat() {
 
             <div
               className="mt-2 flex items-center justify-center gap-1 text-[11px]"
-              style={{ color: "var(--text-secondary)" }}
+              style={{
+                color:
+                  "var(--text-secondary)",
+              }}
             >
               <ShieldCheck size={12} />
               Respostas baseadas nos dados reais
