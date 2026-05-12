@@ -28,7 +28,10 @@ function nowTime() {
 
 function getMesAtual() {
   const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+
+  return `${now.getFullYear()}-${String(
+    now.getMonth() + 1
+  ).padStart(2, "0")}`
 }
 
 function detectPage(pathname: string): string {
@@ -99,17 +102,27 @@ function renderText(text: string, isUser: boolean) {
   ))
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+}: {
+  message: ChatMessage
+}) {
   const isUser = message.role === "user"
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div
+      className={`flex ${
+        isUser ? "justify-end" : "justify-start"
+      }`}
+    >
       <div
         className="max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm"
         style={{
           background: isUser ? "#1B3A5C" : "#FFFFFF",
           color: isUser ? "#FFFFFF" : "var(--text-primary)",
-          border: isUser ? "none" : "1px solid var(--border)",
+          border: isUser
+            ? "none"
+            : "1px solid var(--border)",
         }}
       >
         {renderText(message.text, isUser)}
@@ -145,6 +158,17 @@ export function PCPChat() {
     },
   ])
 
+  const [position, setPosition] = useState({
+    x: window.innerWidth - 500,
+    y: 80,
+  })
+
+  const dragRef = useRef({
+    dragging: false,
+    offsetX: 0,
+    offsetY: 0,
+  })
+
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const page = detectPage(location.pathname)
@@ -154,6 +178,42 @@ export function PCPChat() {
       behavior: "smooth",
     })
   }, [messages])
+
+  function startDrag(e: React.MouseEvent) {
+    dragRef.current.dragging = true
+
+    dragRef.current.offsetX =
+      e.clientX - position.x
+
+    dragRef.current.offsetY =
+      e.clientY - position.y
+
+    document.addEventListener("mousemove", onDrag)
+    document.addEventListener("mouseup", stopDrag)
+  }
+
+  function onDrag(e: MouseEvent) {
+    if (!dragRef.current.dragging) return
+
+    setPosition({
+      x: e.clientX - dragRef.current.offsetX,
+      y: e.clientY - dragRef.current.offsetY,
+    })
+  }
+
+  function stopDrag() {
+    dragRef.current.dragging = false
+
+    document.removeEventListener(
+      "mousemove",
+      onDrag
+    )
+
+    document.removeEventListener(
+      "mouseup",
+      stopDrag
+    )
+  }
 
   async function handleSend(texto?: string) {
     const pergunta = (texto || input).trim()
@@ -181,30 +241,23 @@ export function PCPChat() {
           text: m.text,
         }))
 
-      const res = await fetch(`${API_URL}/chat/mensagem`, {
-        method: "POST",
+      const res = await fetch(
+        `${API_URL}/chat/mensagem`,
+        {
+          method: "POST",
 
-        headers: {
-          "Content-Type": "application/json",
-        },
+          headers: {
+            "Content-Type": "application/json",
+          },
 
-        body: JSON.stringify({
-          mensagem: pergunta,
-          pagina: page,
-          mes_ref: getMesAtual(),
-          historico,
-        }),
-      })
-
-      if (!res.ok) {
-        const err = await res
-          .json()
-          .catch(() => ({
-            detail: `Erro ${res.status}`,
-          }))
-
-        throw new Error(err.detail || `Erro ${res.status}`)
-      }
+          body: JSON.stringify({
+            mensagem: pergunta,
+            pagina: page,
+            mes_ref: getMesAtual(),
+            historico,
+          }),
+        }
+      )
 
       const data = await res.json()
 
@@ -213,22 +266,19 @@ export function PCPChat() {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: data.resposta || "Sem resposta.",
+          text:
+            data.resposta ||
+            "Sem resposta.",
           time: nowTime(),
         },
       ])
-    } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : "Erro desconhecido"
-
+    } catch (e) {
       setMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: `Não foi possível obter resposta: ${msg}`,
+          text: "Erro ao consultar IA.",
           time: nowTime(),
         },
       ])
@@ -248,7 +298,7 @@ export function PCPChat() {
             setOpen(true)
             setMinimized(false)
           }}
-          className="fixed bottom-20 right-5 z-[999] flex items-center gap-3 rounded-full px-4 py-3 shadow-2xl transition-all hover:scale-[1.02] md:bottom-10 md:right-6"
+          className="fixed bottom-6 right-6 z-[999] flex items-center gap-3 rounded-full px-4 py-3 shadow-2xl"
           style={{
             background: "#1B3A5C",
             color: "#FFFFFF",
@@ -264,10 +314,12 @@ export function PCPChat() {
             <div
               className="text-[11px]"
               style={{
-                color: "rgba(255,255,255,0.75)",
+                color:
+                  "rgba(255,255,255,0.75)",
               }}
             >
-              {PAGE_LABELS[page] || "PCP"} · Online
+              {PAGE_LABELS[page] || "PCP"} ·
+              Online
             </div>
           </div>
         </button>
@@ -275,8 +327,10 @@ export function PCPChat() {
 
       {open && minimized && (
         <button
-          onClick={() => setMinimized(false)}
-          className="fixed bottom-20 right-5 z-[999] flex items-center gap-2 rounded-full px-4 py-3 shadow-2xl transition-all hover:scale-[1.02] md:bottom-10 md:right-6"
+          onClick={() =>
+            setMinimized(false)
+          }
+          className="fixed bottom-6 right-6 z-[999] flex items-center gap-2 rounded-full px-4 py-3 shadow-2xl"
           style={{
             background: "#1B3A5C",
             color: "#FFFFFF",
@@ -292,15 +346,17 @@ export function PCPChat() {
 
       {open && !minimized && (
         <div
-          className="fixed bottom-0 right-0 z-[999] flex h-[100svh] w-full flex-col overflow-hidden border shadow-2xl md:bottom-6 md:right-6 md:h-[680px] md:w-[460px] md:rounded-2xl"
+          className="fixed z-[999] flex h-[680px] w-[460px] flex-col overflow-hidden rounded-2xl border shadow-2xl"
           style={{
+            left: position.x,
+            top: position.y,
             background: "#FFFFFF",
             borderColor: "var(--border)",
           }}
         >
-          {/* Header */}
           <div
-            className="flex items-center justify-between px-5 py-4"
+            onMouseDown={startDrag}
+            className="flex cursor-move items-center justify-between px-5 py-4"
             style={{
               background: "#1B3A5C",
               color: "#FFFFFF",
@@ -329,14 +385,18 @@ export function PCPChat() {
                       "rgba(255,255,255,0.75)",
                   }}
                 >
-                  {PAGE_LABELS[page] || "PCP"} · IA ativa
+                  {PAGE_LABELS[page] ||
+                    "PCP"}{" "}
+                  · IA ativa
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setMinimized(true)}
+                onClick={() =>
+                  setMinimized(true)
+                }
                 className="flex h-9 w-9 items-center justify-center rounded-full"
                 style={{
                   background:
@@ -362,7 +422,6 @@ export function PCPChat() {
             </div>
           </div>
 
-          {/* Mensagens */}
           <div
             className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
             style={{
@@ -389,7 +448,7 @@ export function PCPChat() {
                   }}
                 >
                   <span className="animate-pulse">
-                    Analisando dados com IA...
+                    Analisando dados...
                   </span>
                 </div>
               </div>
@@ -398,34 +457,33 @@ export function PCPChat() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Sugestões */}
-          {messages.length <= 1 && !loading && (
-            <div
-              className="flex flex-wrap gap-2 px-4 pb-2"
-              style={{
-                background: "#F8FAFC",
-              }}
-            >
-              {sugestoes.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => handleSend(s)}
-                  className="rounded-full border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-slate-100"
-                  style={{
-                    borderColor:
-                      "var(--border)",
-                    color:
-                      "var(--text-secondary)",
-                    background: "#fff",
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
+          {messages.length <= 1 &&
+            !loading && (
+              <div
+                className="flex flex-wrap gap-2 px-4 pb-2"
+                style={{
+                  background: "#F8FAFC",
+                }}
+              >
+                {sugestoes.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() =>
+                      handleSend(s)
+                    }
+                    className="rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-slate-100"
+                    style={{
+                      borderColor:
+                        "var(--border)",
+                      background: "#fff",
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
 
-          {/* Input */}
           <div
             className="border-t p-3"
             style={{
@@ -460,15 +518,16 @@ export function PCPChat() {
                 }}
                 placeholder="Ex: o que está faltando?"
                 className="flex-1 bg-transparent text-sm outline-none"
-                disabled={loading}
               />
 
               <button
-                onClick={() => handleSend()}
+                onClick={() =>
+                  handleSend()
+                }
                 disabled={
                   !input.trim() || loading
                 }
-                className="flex h-10 w-10 items-center justify-center rounded-xl disabled:opacity-40"
+                className="flex h-10 w-10 items-center justify-center rounded-xl"
                 style={{
                   background: "#1B3A5C",
                   color: "#FFFFFF",
