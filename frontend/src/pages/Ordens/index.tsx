@@ -231,6 +231,31 @@ function StatusBadge({ status }: { status: StatusOP }) {
   )
 }
 
+function GargaloTag({ gargalo }: { gargalo?: Gargalo | null }) {
+  if (!gargalo) {
+    return <span className="text-xs" style={{ color: "var(--text-secondary)" }}>—</span>
+  }
+
+  const isFalta = gargalo.status === "falta"
+  const label = `${gargalo.descricao}${gargalo.codigo_comp ? ` (${gargalo.codigo_comp})` : ""}`
+
+  return (
+    <Tooltip text={label}>
+      <span
+        className="inline-flex max-w-[230px] items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
+        style={{
+          background: isFalta ? "#FEF2F2" : "#FFFBEB",
+          border: `1px solid ${isFalta ? "#FECACA" : "#FDE68A"}`,
+          color: isFalta ? "#B91C1C" : "#92400E",
+        }}
+      >
+        <AlertOctagon size={10} className="flex-shrink-0" />
+        <span className="truncate">{label}</span>
+      </span>
+    </Tooltip>
+  )
+}
+
 function Tooltip({ text, children }: { text: string; children: React.ReactNode }) {
   const [show, setShow] = useState(false)
   return (
@@ -539,7 +564,7 @@ function GargaloCard({ gargalo, fifo_posicao }: { gargalo: Gargalo; fifo_posicao
 
   return (
     <div className="rounded-xl p-4"
-      style={{ background: isFalta ? "#FEF2F2" : "#FFFBEB", border: `1px solid ${isFalta ? "#FECACA" : "#FDE68A"}` }}>
+      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
       <div className="flex items-start gap-3">
         <AlertOctagon size={16} className="flex-shrink-0 mt-0.5" style={{ color: isFalta ? "#DC2626" : "#F59E0B" }} />
         <div className="flex-1 min-w-0">
@@ -558,7 +583,7 @@ function GargaloCard({ gargalo, fifo_posicao }: { gargalo: Gargalo; fifo_posicao
               <span>Saldo que chegou nesta OP</span>
               <span className="font-semibold">{pctUsado}% do necessário</span>
             </div>
-            <div className="h-2 rounded-full overflow-hidden" style={{ background: isFalta ? "#FECACA" : "#FDE68A" }}>
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: "#E5E7EB" }}>
               <div className="h-full rounded-full" style={{ width: `${pctUsado}%`, background: isFalta ? "#DC2626" : "#F59E0B" }} />
             </div>
           </div>
@@ -568,7 +593,7 @@ function GargaloCard({ gargalo, fifo_posicao }: { gargalo: Gargalo; fifo_posicao
               { label: `Chegou${gargalo.saldo_chegou_98 > 0 ? " (arm. 01)" : ""}`, value: gargalo.saldo_chegou, color: gargalo.saldo_chegou > 0 ? "#16A34A" : "#DC2626" },
               { label: "Faltante", value: gargalo.faltante, color: isFalta ? "#DC2626" : "#F59E0B" },
             ].map(k => (
-              <div key={k.label} className="rounded-lg px-3 py-2" style={{ background: "rgba(255,255,255,0.7)" }}>
+              <div key={k.label} className="rounded-lg px-3 py-2" style={{ background: "var(--bg-primary)", border: "1px solid var(--border)" }}>
                 <p className="font-medium mb-0.5" style={{ color: isFalta ? "#991B1B" : "#92400E", opacity: 0.7 }}>{k.label}</p>
                 <p className="font-bold" style={{ color: k.color }}>
                   {fmt(k.value)} <span style={{ fontWeight: 400, opacity: 0.7 }}>{gargalo.unidade}</span>
@@ -816,30 +841,13 @@ function SummaryCard({ label, value, sub, color, Icon, onClick }: {
   )
 }
 
-// ─── Linha divisória FIFO ─────────────────────────────────────────────────────
-
-function FifoDivider({ label }: { label: string }) {
-  return (
-    <tr>
-      <td colSpan={15} style={{ padding: 0 }}>
-        <div className="flex items-center gap-2 px-3 py-1.5"
-          style={{ background: "#FEF2F2", borderTop: "2px dashed #FECACA", borderBottom: "1px solid #FECACA" }}>
-          <AlertOctagon size={12} style={{ color: "#DC2626", flexShrink: 0 }} />
-          <span className="text-xs font-semibold" style={{ color: "#991B1B" }}>{label}</span>
-        </div>
-      </td>
-    </tr>
-  )
-}
-
 // ─── Linha da tabela ──────────────────────────────────────────────────────────
 
-function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, mostrarDivisoria }: {
+function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth }: {
   op: OPEditavel; selecionado: boolean
   onSelect: (id: string, val: boolean) => void
   onEdit: (op: OPEditavel) => void
   produtoColWidth: number
-  mostrarDivisoria: boolean
 }) {
   const [aberto, setAberto] = useState(false)
   const cfg = STATUS_CONFIG[op.status]
@@ -879,23 +887,9 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, mostrarDivi
           <Tooltip text={op.produto || op.codigo}>
             <span className="block truncate text-sm">{op.produto || op.codigo}</span>
           </Tooltip>
-
-          {op.gargalo && (op.status === "falta" || op.status === "quarentena") && (
-            <Tooltip text={gargaloLabel || ""}>
-              <div
-                className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-                style={{
-                  background: op.gargalo.status === "quarentena" ? "#FFFBEB" : "#FEF2F2",
-                  borderColor: op.gargalo.status === "quarentena" ? "#FDE68A" : "#FECACA",
-                  color: op.gargalo.status === "quarentena" ? "#92400E" : "#991B1B",
-                }}
-              >
-                <AlertOctagon size={10} className="flex-shrink-0" />
-                <span className="flex-shrink-0">Gargalo:</span>
-                <span className="truncate">{op.gargalo.descricao}</span>
-              </div>
-            </Tooltip>
-          )}
+        </Td>
+        <Td className="w-64">
+          <GargaloTag gargalo={op.gargalo} />
         </Td>
         <Td className="hidden md:table-cell w-20 font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{op.codigo}</Td>
         <Td className="hidden md:table-cell w-24" style={{ color: "var(--text-primary)" }}>{LINHA_LABEL[op.linha] || op.linha}</Td>
@@ -931,14 +925,10 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, mostrarDivi
         </td>
       </tr>
 
-      {mostrarDivisoria && (
-        <FifoDivider label={op.gargalo ? `Gargalo da OP: ${op.gargalo.descricao} (${op.gargalo.codigo_comp})` : "Gargalo da OP identificado"} />
-      )}
-
       {aberto && (
         <tr>
-          <td colSpan={15} className="px-4 pb-4 pt-1">
-            <div className="rounded-xl p-4 space-y-4" style={{ background: cfg.bg + "44", border: `1px solid ${cfg.border}` }}>
+          <td colSpan={16} className="px-4 pb-4 pt-1">
+            <div className="rounded-xl p-4 space-y-4" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
               {op.gargalo && <GargaloCard gargalo={op.gargalo} fifo_posicao={op.fifo_posicao} />}
               {((op as OPEditavel).observacoes || (op as OPEditavel).anotacao) && (
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1017,19 +1007,6 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
   const todosSelect = ops.length > 0 && ops.every(op => selecionados.has(op.id || `${op.lote}-${op.codigo}`))
   const { produtoColWidth, handleResizeMouseDown, isResizing } = useProdutoColResize()
 
-  const divisoriaSet = new Set<number>()
-  const ctrl: Record<"PA" | "PI", { mostrou: boolean }> = {
-    PA: { mostrou: false },
-    PI: { mostrou: false },
-  }
-  for (let i = 0; i < ops.length; i++) {
-    const op = ops[i]
-    const tipo = tipoProduto(op.linha) as "PA" | "PI"
-    if (!ctrl[tipo].mostrou && (op.status === "falta" || op.status === "quarentena") && op.gargalo != null) {
-      divisoriaSet.add(i)
-      ctrl[tipo].mostrou = true
-    }
-  }
 
   const thCls = "px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
   const thStyle = { color: "rgba(255,255,255,0.85)" }
@@ -1037,7 +1014,7 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", cursor: isResizing ? "col-resize" : undefined }}>
       <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
-        <table className="w-full min-w-[900px] border-separate border-spacing-0">
+        <table className="w-full min-w-[1120px] border-separate border-spacing-0">
           <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
             <tr style={{ background: TABLE_HEADER_BG }}>
               <th className="pl-3 py-3 w-8">
@@ -1058,6 +1035,7 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
                   </svg>
                 </span>
               </th>
+              <th className={`${thCls} w-64`} style={thStyle}>Gargalo</th>
               <th className={`${thCls} hidden md:table-cell w-20`} style={thStyle}>Código</th>
               <th className={`${thCls} hidden md:table-cell w-24`} style={thStyle}>Linha</th>
               <th className={`${thCls} hidden md:table-cell w-14`} style={thStyle}>Tipo</th>
@@ -1075,7 +1053,7 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
               <OPRow key={op.id || `${op.lote}-${op.codigo}-${i}`} op={op}
                 selecionado={selecionados.has(op.id || `${op.lote}-${op.codigo}`)}
                 onSelect={onSelect} onEdit={onEdit}
-                produtoColWidth={produtoColWidth} mostrarDivisoria={divisoriaSet.has(i)} />
+                produtoColWidth={produtoColWidth} />
             ))}
           </tbody>
         </table>
