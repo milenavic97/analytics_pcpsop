@@ -175,6 +175,40 @@ export const BASES: BaseConfig[] = [
       { key: "produto",       label: "Produto"        },
     ],
   },
+
+  // ─────────────────────────────────────────────────────────────
+  // Compras / Suprimentos
+  // ─────────────────────────────────────────────────────────────
+  {
+    id:        "compras_abertas",
+    label:     "Compras em Aberto",
+    descricao: "Relatório de compras do Protheus com pedidos, SCs, fornecedores e entregas previstas.",
+    colunas: [
+      "produto_codigo",
+      "produto_descricao",
+      "quantidade_pendente",
+      "data_prevista_entrega",
+      "pedido_numero",
+      "sc_numero",
+      "razao_social_fornecedor",
+      "comprador_nome",
+      "entrega_status",
+    ],
+    template:  "template_compras_abertas.xlsx",
+    icone:     "ShoppingCart",
+
+    colunasVisiveis: [
+      { key: "produto_codigo",          label: "Código"            },
+      { key: "produto_descricao",       label: "Produto"           },
+      { key: "quantidade_pendente",     label: "Qtd. Pendente"     },
+      { key: "data_prevista_entrega",   label: "Entrega Prevista"  },
+      { key: "pedido_numero",           label: "Pedido"            },
+      { key: "sc_numero",               label: "SC"                },
+      { key: "razao_social_fornecedor", label: "Fornecedor"        },
+      { key: "comprador_nome",          label: "Comprador"         },
+      { key: "entrega_status",          label: "Status"            },
+    ],
+  },
 ]
 
 export const BASE_MAP = Object.fromEntries(
