@@ -879,6 +879,23 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, mostrarDivi
           <Tooltip text={op.produto || op.codigo}>
             <span className="block truncate text-sm">{op.produto || op.codigo}</span>
           </Tooltip>
+
+          {op.gargalo && (op.status === "falta" || op.status === "quarentena") && (
+            <Tooltip text={gargaloLabel || ""}>
+              <div
+                className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+                style={{
+                  background: op.gargalo.status === "quarentena" ? "#FFFBEB" : "#FEF2F2",
+                  borderColor: op.gargalo.status === "quarentena" ? "#FDE68A" : "#FECACA",
+                  color: op.gargalo.status === "quarentena" ? "#92400E" : "#991B1B",
+                }}
+              >
+                <AlertOctagon size={10} className="flex-shrink-0" />
+                <span className="flex-shrink-0">Gargalo:</span>
+                <span className="truncate">{op.gargalo.descricao}</span>
+              </div>
+            </Tooltip>
+          )}
         </Td>
         <Td className="hidden md:table-cell w-20 font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{op.codigo}</Td>
         <Td className="hidden md:table-cell w-24" style={{ color: "var(--text-primary)" }}>{LINHA_LABEL[op.linha] || op.linha}</Td>
