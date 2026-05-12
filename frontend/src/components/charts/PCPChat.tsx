@@ -238,7 +238,7 @@ export function PCPChat() {
 
       {open && !minimized && (
         <div
-          className="fixed bottom-5 left-[72px] z-[999] flex h-[620px] w-[420px] flex-col overflow-hidden rounded-2xl border shadow-2xl"
+          className="fixed bottom-6 right-6 z-[999] flex h-[620px] w-[420px] flex-col overflow-hidden rounded-2xl border shadow-2xl"
           style={{
             background: "#FFFFFF",
             borderColor: "var(--border)",
