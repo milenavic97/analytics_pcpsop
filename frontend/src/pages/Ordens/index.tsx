@@ -112,6 +112,23 @@ function isTubete(item: Partial<Gargalo> | Record<string, unknown> | null | unde
   return codigo.includes("tubet") || descricao.includes("tubet") || tp.includes("tubet")
 }
 
+function isTipoNaoGargalante(tp: unknown) {
+  const tipo = normalizarTexto(tp).toUpperCase()
+  return tipo === "MC" || tipo === "PI"
+}
+
+function isComponenteGargalante(item: Partial<Gargalo> | Record<string, unknown> | null | undefined) {
+  if (!item) return false
+  const comp = item as Record<string, unknown>
+  return !isTubete(comp) && !isTipoNaoGargalante(comp.tp)
+}
+
+function statusComponenteVisual(comp: Record<string, unknown>): StatusOP {
+  if (!isComponenteGargalante(comp)) return "ok"
+  const status = String(comp.status || "ok") as StatusOP
+  return STATUS_CONFIG[status] ? status : "ok"
+}
+
 function toNumber(value: unknown) {
   const n = Number(value ?? 0)
   return isFinite(n) ? n : 0
@@ -137,20 +154,94 @@ function alertaToGargalo(comp: Record<string, unknown>): Gargalo {
 
 function sanitizarOP(op: OPEditavel): OPEditavel {
   const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
-  const alertasMP = alertasOriginais.filter(comp => !isTubete(comp as unknown as Record<string, unknown>))
-  const alertasCriticosMP = alertasMP.filter(comp => comp.status === "falta" || comp.status === "quarentena")
+
+  // Mantém MC e PI visíveis nos detalhes quando vierem do backend,
+  // mas eles NÃO podem gerar gargalo/status de falta.
+  const alertasVisiveis = alertasOriginais.filter(comp => !isTubete(comp as unknown as Record<string, unknown>))
+  const alertasGargalantes = alertasVisiveis.filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
+  const alertasCriticos = alertasGargalantes.filter(comp => comp.status === "falta" || comp.status === "quarentena")
 
   let status = op.status
-  if ((status === "falta" || status === "quarentena") && alertasCriticosMP.length === 0) {
+  if ((status === "falta" || status === "quarentena") && alertasCriticos.length === 0) {
     status = "ok"
   }
 
-  let gargalo = op.gargalo && !isTubete(op.gargalo) ? op.gargalo : null
-  if (!gargalo && alertasCriticosMP.length > 0) {
-    gargalo = alertaToGargalo(alertasCriticosMP[0] as unknown as Record<string, unknown>)
+  let gargalo = op.gargalo && isComponenteGargalante(op.gargalo) ? op.gargalo : null
+  if (!gargalo && alertasCriticos.length > 0) {
+    gargalo = alertaToGargalo(alertasCriticos[0] as unknown as Record<string, unknown>)
   }
 
-  return { ...op, status, alertas: alertasMP, gargalo }
+  return { ...op, status, alertas: alertasVisiveis, gargalo }
+}
+
+
+function getGargalosOP(op: OPEditavel): Gargalo[] {
+  const gargalos: Gargalo[] = []
+
+  if (op.gargalo && isComponenteGargalante(op.gargalo)) {
+    gargalos.push(op.gargalo)
+  }
+
+  const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
+  const alertasCriticosMP = alertasOriginais
+    .filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
+    .filter(comp => comp.status === "falta" || comp.status === "quarentena")
+
+  for (const comp of alertasCriticosMP) {
+    gargalos.push(alertaToGargalo(comp as unknown as Record<string, unknown>))
+  }
+
+  const vistos = new Set<string>()
+  return gargalos.filter(g => {
+    const key = `${g.codigo_comp || ""}|${normalizarTexto(g.descricao)}|${g.status}`
+    if (vistos.has(key)) return false
+    vistos.add(key)
+    return true
+  })
+}
+
+function getEstoqueAtualizadoEm(dados: ResumoViabilidade | null): string | null {
+  if (!dados) return null
+
+  const d = dados as unknown as Record<string, unknown>
+
+  const direto = [
+    d.estoque_atualizado_em,
+    d.ultima_atualizacao_estoque,
+    d.ultima_atualizacao_sb8,
+    d.updated_at_estoque,
+    d.processado_em_estoque,
+  ].find(Boolean)
+
+  if (direto) return String(direto)
+
+  const dataRef = d.data_ref_estoque || d.data_estoque || d.estoque_data_ref
+  if (dataRef) return String(dataRef)
+
+  return null
+}
+
+function fmtDataHora(value: string | null | undefined) {
+  if (!value) return null
+
+  const raw = String(value)
+  const dt = new Date(raw)
+
+  if (!Number.isNaN(dt.getTime())) {
+    const hasTime = /T|\d{2}:\d{2}/.test(raw)
+    return dt.toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      ...(hasTime ? { hour: "2-digit", minute: "2-digit" } : {}),
+    })
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return fmtData(raw)
+  }
+
+  return raw
 }
 
 function ordenarESequenciarOps(lista: OPEditavel[]) {
@@ -244,28 +335,34 @@ function StatusBadge({ status }: { status: StatusOP }) {
   )
 }
 
-function GargaloTag({ gargalo }: { gargalo?: Gargalo | null }) {
-  if (!gargalo) {
+function GargaloTags({ gargalos }: { gargalos: Gargalo[] }) {
+  if (!gargalos.length) {
     return <span className="text-xs" style={{ color: "var(--text-secondary)" }}>—</span>
   }
 
-  const isFalta = gargalo.status === "falta"
-  const label = `${gargalo.descricao}${gargalo.codigo_comp ? ` (${gargalo.codigo_comp})` : ""}`
-
   return (
-    <Tooltip text={label}>
-      <span
-        className="inline-flex w-full max-w-full items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
-        style={{
-          background: isFalta ? "#FEF2F2" : "#FFFBEB",
-          border: `1px solid ${isFalta ? "#FECACA" : "#FDE68A"}`,
-          color: isFalta ? "#B91C1C" : "#92400E",
-        }}
-      >
-        <AlertOctagon size={10} className="flex-shrink-0" />
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-      </span>
-    </Tooltip>
+    <div className="flex w-full max-w-full flex-wrap items-center gap-1.5">
+      {gargalos.map((gargalo, idx) => {
+        const isFalta = gargalo.status === "falta"
+        const label = `${gargalo.descricao}${gargalo.codigo_comp ? ` (${gargalo.codigo_comp})` : ""}`
+
+        return (
+          <Tooltip key={`${gargalo.codigo_comp || gargalo.descricao}-${idx}`} text={label}>
+            <span
+              className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
+              style={{
+                background: isFalta ? "#FEF2F2" : "#FFFBEB",
+                border: `1px solid ${isFalta ? "#FECACA" : "#FDE68A"}`,
+                color: isFalta ? "#B91C1C" : "#92400E",
+              }}
+            >
+              <AlertOctagon size={10} className="flex-shrink-0" />
+              <span className="min-w-0 truncate">{label}</span>
+            </span>
+          </Tooltip>
+        )
+      })}
+    </div>
   )
 }
 
@@ -794,10 +891,13 @@ function CardModal({ tipo, ops, onClose }: { tipo: ModalTipo; ops: OPEditavel[];
   const mat: Record<string, { descricao: string; count: number }> = {}
   if (tipo === "sem_material") {
     ops.filter(op => op.status === "falta" || op.status === "quarentena").forEach(op => {
-      op.alertas.filter(a => a.status === "falta" || a.status === "quarentena").forEach(comp => {
-        if (!mat[comp.codigo_comp]) mat[comp.codigo_comp] = { descricao: comp.descricao || comp.codigo_comp, count: 0 }
-        mat[comp.codigo_comp].count++
-      })
+      op.alertas
+        .filter(a => isComponenteGargalante(a as unknown as Record<string, unknown>))
+        .filter(a => a.status === "falta" || a.status === "quarentena")
+        .forEach(comp => {
+          if (!mat[comp.codigo_comp]) mat[comp.codigo_comp] = { descricao: comp.descricao || comp.codigo_comp, count: 0 }
+          mat[comp.codigo_comp].count++
+        })
     })
   }
   const topMat = Object.entries(mat).sort((a, b) => b[1].count - a[1].count).slice(0, 8)
@@ -894,8 +994,9 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
     : []
 
   const rowBg = selecionado ? "rgba(27,58,92,0.10)" : aberto ? cfg.bg + "33" : undefined
-  const gargaloLabel = op.gargalo
-    ? `${op.gargalo.descricao} · chegou ${fmt(op.gargalo.saldo_chegou)} / necessário ${fmt(op.gargalo.necessario)} ${op.gargalo.unidade}`
+  const gargalos = getGargalosOP(op)
+  const gargaloLabel = gargalos.length
+    ? gargalos.map(g => `${g.descricao}${g.codigo_comp ? ` (${g.codigo_comp})` : ""} · chegou ${fmt(g.saldo_chegou)} / necessário ${fmt(g.necessario)} ${g.unidade}`).join(" | ")
     : undefined
 
   return (
@@ -924,7 +1025,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
           </Tooltip>
         </Td>
         <Td style={{ width: gargaloColWidth, minWidth: gargaloColWidth, maxWidth: gargaloColWidth }}>
-          <GargaloTag gargalo={op.gargalo} />
+          <GargaloTags gargalos={gargalos} />
         </Td>
         <Td className="hidden md:table-cell w-20 font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{op.codigo}</Td>
         <Td className="hidden md:table-cell w-24" style={{ color: "var(--text-primary)" }}>{LINHA_LABEL[op.linha] || op.linha}</Td>
@@ -964,7 +1065,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
         <tr>
           <td colSpan={16} className="px-4 pb-4 pt-1">
             <div className="rounded-xl p-4 space-y-4" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-              {op.gargalo && <GargaloCard gargalo={op.gargalo} fifo_posicao={op.fifo_posicao} />}
+              {op.gargalo && isComponenteGargalante(op.gargalo) && <GargaloCard gargalo={op.gargalo} fifo_posicao={op.fifo_posicao} />}
               {((op as OPEditavel).observacoes || (op as OPEditavel).anotacao) && (
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   {op.observacoes && <div className="rounded-lg px-3 py-2.5" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}><p className="card-label mb-1">Observação</p><p className="text-sm" style={{ color: "var(--text-primary)" }}>{op.observacoes}</p></div>}
@@ -1000,21 +1101,24 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                       </thead>
                       <tbody>
                         {detalhesVisiveis.map((comp, i) => {
-                          const compCfg = STATUS_CONFIG[comp.status as StatusOP] || STATUS_CONFIG.ok
+                          const compRecord = comp as unknown as Record<string, unknown>
+                          const compStatusVisual = statusComponenteVisual(compRecord)
+                          const compCfg = STATUS_CONFIG[compStatusVisual] || STATUS_CONFIG.ok
                           const saldoRestante = Number((comp as { saldo_restante?: number }).saldo_restante ?? (comp.saldo_01 - comp.necessario))
+                          const componenteGargalante = isComponenteGargalante(compRecord)
                           return (
-                            <tr key={i} style={{ borderBottom: "1px solid var(--border)", background: comp.status !== "ok" ? compCfg.bg + "55" : undefined }}>
+                            <tr key={i} style={{ borderBottom: "1px solid var(--border)", background: compStatusVisual !== "ok" ? compCfg.bg + "55" : undefined }}>
                               <td className="py-2 pr-4 font-mono" style={{ color: "var(--text-secondary)" }}>{comp.codigo_comp}</td>
                               <td className="py-2 pr-4" style={{ color: "var(--text-primary)" }}>{comp.descricao}</td>
                               <td className="py-2 pr-4"><span className="rounded px-1.5 py-0.5 font-mono font-bold" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)", fontSize: 10 }}>{comp.tp}</span></td>
                               <td className="py-2 pr-4 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(comp.necessario)}</td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: comp.saldo_01 >= comp.necessario ? "#16A34A" : comp.saldo_01 > 0 ? "#F59E0B" : "#DC2626" }}>{fmt(comp.saldo_01)}</td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: saldoRestante >= 0 ? "#16A34A" : "#DC2626" }}>{fmt(saldoRestante)}</td>
+                              <td className="py-2 pr-4 font-semibold" style={{ color: comp.saldo_01 >= comp.necessario ? "#16A34A" : comp.saldo_01 > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(comp.saldo_01)}</td>
+                              <td className="py-2 pr-4 font-semibold" style={{ color: saldoRestante >= 0 ? "#16A34A" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(saldoRestante)}</td>
                               <td className="py-2 pr-4" style={{ color: comp.saldo_98 > 0 ? "#F59E0B" : "var(--text-secondary)", fontWeight: comp.saldo_98 > 0 ? 600 : 400 }}
                                 title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
                                 {comp.saldo_98 > 0 ? `Quarentena: ${fmt(comp.saldo_98)}` : "—"}
                               </td>
-                              <td className="py-2"><StatusBadge status={comp.status as StatusOP} /></td>
+                              <td className="py-2"><StatusBadge status={compStatusVisual} /></td>
                             </tr>
                           )
                         })}
@@ -1119,7 +1223,7 @@ function exportarExcel(ops: OPEditavel[], mesRef: string) {
     LINHA_LABEL[op.linha] || op.linha, tipoProduto(op.linha), op.op_numero || "", op.quantidade,
     fmtData(op.data_lavagem_emb), fmtData(op.data_inicio_fabricacao), fmtData(op.data_fim),
     STATUS_CONFIG[op.status]?.label || op.status,
-    op.gargalo ? `${op.gargalo.descricao} (chegou ${op.gargalo.saldo_chegou} / necessário ${op.gargalo.necessario} ${op.gargalo.unidade})` : "",
+    getGargalosOP(op).map(g => `${g.descricao}${g.codigo_comp ? ` (${g.codigo_comp})` : ""} (chegou ${g.saldo_chegou} / necessário ${g.necessario} ${g.unidade})`).join(" | "),
     op.observacoes || "", op.anotacao || "",
   ])
   const csvContent = [headers, ...rows].map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(";")).join("\n")
@@ -1179,6 +1283,7 @@ export function OrdensPage() {
   const comMaterial = ops.filter(op => op.status === "ok").length
   const semMaterial = ops.filter(op => op.status === "falta" || op.status === "quarentena").length
   const pctAbertas  = totalMes > 0 ? Math.round((abertas / totalMes) * 100) : 0
+  const estoqueAtualizadoEm = fmtDataHora(getEstoqueAtualizadoEm(dados))
 
   function uniqueOptions(values: Array<string | null | undefined>): SelectOption[] {
     return Array.from(new Set(values.map(v => String(v || "").trim()).filter(Boolean)))
@@ -1255,13 +1360,20 @@ export function OrdensPage() {
       />
 
       {dados && !loading && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 fade-in">
-          <SummaryCard label="Total do mês"  value={totalMes}    sub="OPs programadas"              color="#6B7280" Icon={CalendarDays}  onClick={() => setModalCard("total")} />
-          <SummaryCard label="OPs abertas"   value={abertas}     sub={`de ${totalMes} · ${pctAbertas}%`} color="#2563EB" Icon={ClipboardList} onClick={() => setModalCard("abertas")} />
-          <SummaryCard label="Faltam abrir"  value={faltamAbrir} sub="sem OP emitida"               color="#F59E0B" Icon={Clock}         onClick={() => setModalCard("faltam")} />
-          <SummaryCard label="Com material"  value={comMaterial} sub="prontas para abrir"           color="#16A34A" Icon={PackageCheck}  onClick={() => setModalCard("com_material")} />
-          <SummaryCard label="Sem material"  value={semMaterial} sub="falta ou quarentena"          color="#DC2626" Icon={PackageX}      onClick={() => setModalCard("sem_material")} />
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 fade-in">
+            <SummaryCard label="Total do mês"  value={totalMes}    sub="OPs programadas"              color="#6B7280" Icon={CalendarDays}  onClick={() => setModalCard("total")} />
+            <SummaryCard label="OPs abertas"   value={abertas}     sub={`de ${totalMes} · ${pctAbertas}%`} color="#2563EB" Icon={ClipboardList} onClick={() => setModalCard("abertas")} />
+            <SummaryCard label="Faltam abrir"  value={faltamAbrir} sub="sem OP emitida"               color="#F59E0B" Icon={Clock}         onClick={() => setModalCard("faltam")} />
+            <SummaryCard label="Com material"  value={comMaterial} sub="prontas para abrir"           color="#16A34A" Icon={PackageCheck}  onClick={() => setModalCard("com_material")} />
+            <SummaryCard label="Sem material"  value={semMaterial} sub="falta ou quarentena"          color="#DC2626" Icon={PackageX}      onClick={() => setModalCard("sem_material")} />
+          </div>
+
+          <div className="fade-in rounded-xl border px-4 py-2 text-xs"
+            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+            Análise considerando o estoque de insumos atualizado em {estoqueAtualizadoEm || "snapshot mais recente disponível"}.
+          </div>
+        </>
       )}
 
       {loading && (
