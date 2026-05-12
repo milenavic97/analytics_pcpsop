@@ -20,6 +20,9 @@ type CompraAberta = {
   produto_codigo?: string
   produto_descricao?: string
   quantidade_pendente?: number
+  quantidade_pendente_original?: number
+  quantidade_pendente_restante?: number
+  quantidade_utilizada?: number
   data_prevista_entrega?: string | null
   pedido_numero?: string | null
   sc_numero?: string | null
@@ -27,6 +30,8 @@ type CompraAberta = {
   comprador_nome?: string | null
   entrega_status?: string | null
 }
+
+type StatusCompra = "sem_compra" | "no_prazo" | "risco" | "nao_cobre"
 
 type Gargalo = {
   codigo_comp: string
@@ -111,6 +116,73 @@ function getComprasAbertas(comp: unknown): CompraAberta[] {
 
 function getQtdComprasPendente(comp: unknown): number {
   return toNumber((comp as { qtd_compras_pendente?: number })?.qtd_compras_pendente)
+}
+
+function getMenorDataEntregaCompra(comp: unknown): string | null {
+  const direto = (comp as { menor_data_entrega_compra?: string | null })?.menor_data_entrega_compra
+  if (direto) return direto
+
+  const compras = getComprasAbertas(comp)
+  const datas = compras
+    .map(c => c.data_prevista_entrega)
+    .filter(Boolean) as string[]
+
+  return datas.length > 0 ? datas.sort()[0] : null
+}
+
+function getStatusCompra(comp: unknown): StatusCompra {
+  const raw = String((comp as { status_compra?: string })?.status_compra || "sem_compra")
+  if (["no_prazo", "risco", "nao_cobre", "sem_compra"].includes(raw)) return raw as StatusCompra
+  return "sem_compra"
+}
+
+function compraStatusConfig(status: StatusCompra) {
+  if (status === "no_prazo") {
+    return { label: "Sim", bg: "#F0FDF4", border: "#BBF7D0", text: "#166534" }
+  }
+
+  if (status === "risco") {
+    return { label: "Risco", bg: "#FFFBEB", border: "#FDE68A", text: "#92400E" }
+  }
+
+  if (status === "nao_cobre") {
+    return { label: "Não cobre", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" }
+  }
+
+  return { label: "Sem compra", bg: "#F8FAFC", border: "#CBD5E1", text: "#64748B" }
+}
+
+function resumoPedidos(compras: CompraAberta[]) {
+  const ids = compras
+    .map(c => c.pedido_numero || c.sc_numero)
+    .filter(Boolean) as string[]
+
+  if (ids.length === 0) return "—"
+  if (ids.length === 1) return ids[0]
+  return `${ids[0]} +${ids.length - 1}`
+}
+
+function tooltipCompras(compras: CompraAberta[]) {
+  if (!compras.length) return ""
+
+  return compras.map(c => {
+    const pedido = c.pedido_numero || "—"
+    const sc = c.sc_numero || "—"
+    const qtdUsada = fmt(c.quantidade_utilizada ?? c.quantidade_pendente)
+    const restante = fmt(c.quantidade_pendente_restante)
+    const entrega = fmtData(c.data_prevista_entrega)
+    const fornecedor = c.razao_social_fornecedor || "—"
+    const comprador = c.comprador_nome || "—"
+
+    return `Pedido: ${pedido} | SC: ${sc}
+Qtd. usada nesta OP: ${qtdUsada}
+Restante após esta OP: ${restante}
+Entrega prevista: ${entrega}
+Fornecedor: ${fornecedor}
+Comprador: ${comprador}`
+  }).join("
+
+")
 }
 
 function tipoProduto(linha: string) {
@@ -1125,10 +1197,24 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                 <>
                   <p className="card-label">Componentes necessários</p>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[520px]">
+                    <table className="w-full text-xs min-w-[1180px]">
                       <thead>
                         <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                          {["Código", "Descrição", "TP", "Necessário", "Saldo Atual", "Saldo Restante", "Saldo 98", "Status"].map(h => (
+                          {[
+                            "Código",
+                            "Descrição",
+                            "TP",
+                            "Necessário",
+                            "Saldo Atual",
+                            "Saldo Restante",
+                            "Saldo 98",
+                            "Compra usada",
+                            "Entrega",
+                            "Abre no prazo?",
+                            "Pedido/SC",
+                            "Comprador",
+                            "Status",
+                          ].map(h => (
                             <th key={h} className="pb-2 pr-4 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)", fontSize: 10 }}>{h}</th>
                           ))}
                         </tr>
@@ -1142,100 +1228,54 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const componenteGargalante = isComponenteGargalante(compRecord)
                           const comprasComp = getComprasAbertas(comp)
                           const qtdComprasPendente = getQtdComprasPendente(comp)
+                          const dataEntregaCompra = getMenorDataEntregaCompra(comp)
+                          const statusCompra = getStatusCompra(comp)
+                          const compraCfg = compraStatusConfig(statusCompra)
+                          const comprasTooltip = tooltipCompras(comprasComp)
+                          const comprador = comprasComp.find(c => c.comprador_nome)?.comprador_nome || "—"
 
                           return (
-                            <>
-                              <tr key={`comp-${i}`} style={{ borderBottom: "1px solid var(--border)", background: compStatusVisual !== "ok" ? compCfg.bg + "55" : undefined }}>
-                                <td className="py-2 pr-4 font-mono" style={{ color: "var(--text-secondary)" }}>{comp.codigo_comp}</td>
-                                <td className="py-2 pr-4" style={{ color: "var(--text-primary)" }}>{comp.descricao}</td>
-                                <td className="py-2 pr-4"><span className="rounded px-1.5 py-0.5 font-mono font-bold" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)", fontSize: 10 }}>{comp.tp}</span></td>
-                                <td className="py-2 pr-4 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(comp.necessario)}</td>
-                                <td className="py-2 pr-4 font-semibold" style={{ color: comp.saldo_01 >= comp.necessario ? "#16A34A" : comp.saldo_01 > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(comp.saldo_01)}</td>
-                                <td className="py-2 pr-4 font-semibold" style={{ color: saldoRestante >= 0 ? "#16A34A" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(saldoRestante)}</td>
-                                <td className="py-2 pr-4" style={{ color: comp.saldo_98 > 0 ? "#F59E0B" : "var(--text-secondary)", fontWeight: comp.saldo_98 > 0 ? 600 : 400 }}
-                                  title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
-                                  {comp.saldo_98 > 0 ? `Quarentena: ${fmt(comp.saldo_98)}` : "—"}
-                                </td>
-                                <td className="py-2">
-                                  <div className="flex flex-col items-start gap-1">
-                                    <StatusBadge status={compStatusVisual} />
-                                    {qtdComprasPendente > 0 && (
-                                      <span
-                                        className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                                        style={{
-                                          background: "#EFF6FF",
-                                          border: "1px solid #BFDBFE",
-                                          color: "#1D4ED8",
-                                        }}
-                                      >
-                                        Compra aberta: {fmt(qtdComprasPendente)}
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-
-                              {comprasComp.length > 0 && (
-                                <tr key={`compras-${i}`}>
-                                  <td colSpan={8} className="pb-3 pr-4">
-                                    <div
-                                      className="rounded-lg p-3"
-                                      style={{
-                                        background: "#F8FAFC",
-                                        border: "1px solid #E2E8F0",
-                                      }}
-                                    >
-                                      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>
-                                        Compras em aberto vinculadas ao componente
-                                      </p>
-
-                                      <div className="space-y-2">
-                                        {comprasComp.map((c, idx) => (
-                                          <div
-                                            key={`${c.pedido_numero || c.sc_numero || idx}-${idx}`}
-                                            className="grid grid-cols-1 gap-2 rounded-lg px-3 py-2 text-xs md:grid-cols-5"
-                                            style={{
-                                              background: "var(--bg-secondary)",
-                                              border: "1px solid var(--border)",
-                                            }}
-                                          >
-                                            <div>
-                                              <p className="card-label mb-0.5">Pedido</p>
-                                              <p style={{ color: "var(--text-primary)", fontWeight: 600 }}>{c.pedido_numero || "—"}</p>
-                                            </div>
-
-                                            <div>
-                                              <p className="card-label mb-0.5">SC</p>
-                                              <p style={{ color: "var(--text-primary)", fontWeight: 600 }}>{c.sc_numero || "—"}</p>
-                                            </div>
-
-                                            <div>
-                                              <p className="card-label mb-0.5">Qtd. pendente</p>
-                                              <p style={{ color: "var(--text-primary)", fontWeight: 600 }}>{fmt(c.quantidade_pendente)}</p>
-                                            </div>
-
-                                            <div>
-                                              <p className="card-label mb-0.5">Entrega prevista</p>
-                                              <p style={{ color: "var(--text-primary)", fontWeight: 600 }}>{fmtData(c.data_prevista_entrega)}</p>
-                                            </div>
-
-                                            <div>
-                                              <p className="card-label mb-0.5">Comprador</p>
-                                              <p style={{ color: "var(--text-primary)", fontWeight: 600 }}>{c.comprador_nome || "—"}</p>
-                                            </div>
-
-                                            <div className="md:col-span-5">
-                                              <p className="card-label mb-0.5">Fornecedor</p>
-                                              <p style={{ color: "var(--text-primary)" }}>{c.razao_social_fornecedor || "—"}</p>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </>
+                            <tr key={`comp-${i}`} style={{ borderBottom: "1px solid var(--border)", background: compStatusVisual !== "ok" ? compCfg.bg + "55" : undefined }}>
+                              <td className="py-2 pr-4 font-mono" style={{ color: "var(--text-secondary)" }}>{comp.codigo_comp}</td>
+                              <td className="py-2 pr-4" style={{ color: "var(--text-primary)", minWidth: 180 }}>{comp.descricao}</td>
+                              <td className="py-2 pr-4"><span className="rounded px-1.5 py-0.5 font-mono font-bold" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)", fontSize: 10 }}>{comp.tp}</span></td>
+                              <td className="py-2 pr-4 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(comp.necessario)}</td>
+                              <td className="py-2 pr-4 font-semibold" style={{ color: comp.saldo_01 >= comp.necessario ? "#16A34A" : comp.saldo_01 > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(comp.saldo_01)}</td>
+                              <td className="py-2 pr-4 font-semibold" style={{ color: saldoRestante >= 0 ? "#16A34A" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(saldoRestante)}</td>
+                              <td className="py-2 pr-4" style={{ color: comp.saldo_98 > 0 ? "#F59E0B" : "var(--text-secondary)", fontWeight: comp.saldo_98 > 0 ? 600 : 400 }}
+                                title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
+                                {comp.saldo_98 > 0 ? `Quarentena: ${fmt(comp.saldo_98)}` : "—"}
+                              </td>
+                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdComprasPendente > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
+                                {qtdComprasPendente > 0 ? fmt(qtdComprasPendente) : "—"}
+                              </td>
+                              <td className="py-2 pr-4" style={{ color: dataEntregaCompra ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                                {fmtData(dataEntregaCompra)}
+                              </td>
+                              <td className="py-2 pr-4">
+                                <span
+                                  className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+                                  style={{
+                                    background: compraCfg.bg,
+                                    border: `1px solid ${compraCfg.border}`,
+                                    color: compraCfg.text,
+                                  }}
+                                >
+                                  {compraCfg.label}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-4 font-mono" style={{ color: comprasComp.length ? "var(--text-primary)" : "var(--text-secondary)" }}>
+                                {comprasComp.length ? (
+                                  <Tooltip text={comprasTooltip}>
+                                    <span className="underline decoration-dotted underline-offset-2">{resumoPedidos(comprasComp)}</span>
+                                  </Tooltip>
+                                ) : "—"}
+                              </td>
+                              <td className="py-2 pr-4" style={{ color: comprasComp.length ? "var(--text-primary)" : "var(--text-secondary)", minWidth: 100 }}>
+                                {comprador}
+                              </td>
+                              <td className="py-2"><StatusBadge status={compStatusVisual} /></td>
+                            </tr>
                           )
                         })}
                       </tbody>
