@@ -133,7 +133,6 @@ export function OverviewPage() {
 
       {/* Título */}
       <div className="fade-in">
-        <p className="mb-1 text-[10px] font-medium uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>Visão Executiva</p>
         <h1 className="text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>Overview 2026</h1>
       </div>
 
