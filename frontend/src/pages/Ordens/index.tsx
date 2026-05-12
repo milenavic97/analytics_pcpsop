@@ -1001,15 +1001,14 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
   const { produtoColWidth, handleResizeMouseDown, isResizing } = useProdutoColResize()
 
   const divisoriaSet = new Set<number>()
-  const ctrl: Record<"PA" | "PI", { viuOk: boolean; mostrou: boolean }> = {
-    PA: { viuOk: false, mostrou: false },
-    PI: { viuOk: false, mostrou: false },
+  const ctrl: Record<"PA" | "PI", { mostrou: boolean }> = {
+    PA: { mostrou: false },
+    PI: { mostrou: false },
   }
   for (let i = 0; i < ops.length; i++) {
     const op = ops[i]
     const tipo = tipoProduto(op.linha) as "PA" | "PI"
-    if (op.status === "ok") { ctrl[tipo].viuOk = true; continue }
-    if (!ctrl[tipo].mostrou && ctrl[tipo].viuOk && (op.status === "falta" || op.status === "quarentena") && op.fifo_posicao != null) {
+    if (!ctrl[tipo].mostrou && (op.status === "falta" || op.status === "quarentena") && op.gargalo != null) {
       divisoriaSet.add(i)
       ctrl[tipo].mostrou = true
     }
