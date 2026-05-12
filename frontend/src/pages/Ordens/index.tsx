@@ -51,6 +51,9 @@ const GRID_COLOR = "#E2E8F0"
 const PRODUTO_COL_MIN = 80
 const PRODUTO_COL_MAX = 600
 const PRODUTO_COL_DEFAULT = 160
+const GARGALO_COL_MIN = 120
+const GARGALO_COL_MAX = 520
+const GARGALO_COL_DEFAULT = 250
 
 const LINHA_LABEL: Record<string, string> = {
   ENVASE_L1: "Envase L1",
@@ -178,7 +181,7 @@ function ordenarESequenciarOps(lista: OPEditavel[]) {
 
 // ─── Hook: resize de coluna ───────────────────────────────────────────────────
 
-function useProdutoColResize(defaultWidth = PRODUTO_COL_DEFAULT) {
+function useResizableColumn(defaultWidth: number, minWidth: number, maxWidth: number) {
   const [width, setWidth] = useState(defaultWidth)
   const isResizing = useRef(false)
   const startX = useRef(0)
@@ -198,7 +201,7 @@ function useProdutoColResize(defaultWidth = PRODUTO_COL_DEFAULT) {
     function onMouseMove(e: MouseEvent) {
       if (!isResizing.current) return
       const delta = e.clientX - startX.current
-      const next = Math.min(PRODUTO_COL_MAX, Math.max(PRODUTO_COL_MIN, startWidth.current + delta))
+      const next = Math.min(maxWidth, Math.max(minWidth, startWidth.current + delta))
       setWidth(next)
     }
     function onMouseUp() {
@@ -212,9 +215,19 @@ function useProdutoColResize(defaultWidth = PRODUTO_COL_DEFAULT) {
       window.removeEventListener("mousemove", onMouseMove)
       window.removeEventListener("mouseup", onMouseUp)
     }
-  }, [])
+  }, [minWidth, maxWidth])
 
-  return { produtoColWidth: width, handleResizeMouseDown, isResizing: resizing }
+  return { width, handleResizeMouseDown, isResizing: resizing }
+}
+
+function useProdutoColResize(defaultWidth = PRODUTO_COL_DEFAULT) {
+  const resize = useResizableColumn(defaultWidth, PRODUTO_COL_MIN, PRODUTO_COL_MAX)
+  return { produtoColWidth: resize.width, handleResizeMouseDown: resize.handleResizeMouseDown, isResizing: resize.isResizing }
+}
+
+function useGargaloColResize(defaultWidth = GARGALO_COL_DEFAULT) {
+  const resize = useResizableColumn(defaultWidth, GARGALO_COL_MIN, GARGALO_COL_MAX)
+  return { gargaloColWidth: resize.width, handleGargaloResizeMouseDown: resize.handleResizeMouseDown, isGargaloResizing: resize.isResizing }
 }
 
 // ─── Componentes base ─────────────────────────────────────────────────────────
@@ -300,6 +313,8 @@ function MultiSelect({
     if (!q) return true
     return `${opt.label} ${opt.value}`.toLowerCase().includes(q)
   })
+  const allValues = options.map(opt => opt.value)
+  const allSelected = allValues.length > 0 && allValues.every(v => values.includes(v))
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -315,6 +330,11 @@ function MultiSelect({
     } else {
       onChange([...values, v])
     }
+  }
+
+  function selectAll() {
+    onChange(allValues)
+    setSearch("")
   }
 
   function clearAll() {
@@ -375,14 +395,28 @@ function MultiSelect({
           </div>
 
           <div className="max-h-56 overflow-y-auto p-1">
-            {/* Limpar tudo */}
-            {values.length > 0 && (
-              <button type="button" onClick={clearAll}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-slate-100"
-                style={{ color: "#DC2626" }}>
-                <X size={12} /> Limpar seleção ({values.length})
+            <div className="mb-1 flex gap-1 px-1">
+              <button
+                type="button"
+                onClick={allSelected ? clearAll : selectAll}
+                className="flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-semibold transition-colors hover:bg-slate-100"
+                style={{ color: allSelected ? "#DC2626" : "var(--bg-sidebar)" }}
+              >
+                {allSelected ? <X size={12} /> : <CheckCircle2 size={12} />}
+                {allSelected ? "Desmarcar todos" : "Selecionar todos"}
               </button>
-            )}
+
+              {values.length > 0 && !allSelected && (
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="flex items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-semibold transition-colors hover:bg-slate-100"
+                  style={{ color: "#DC2626" }}
+                >
+                  <X size={12} /> Limpar
+                </button>
+              )}
+            </div>
 
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-3 text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -843,11 +877,12 @@ function SummaryCard({ label, value, sub, color, Icon, onClick }: {
 
 // ─── Linha da tabela ──────────────────────────────────────────────────────────
 
-function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth }: {
+function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth }: {
   op: OPEditavel; selecionado: boolean
   onSelect: (id: string, val: boolean) => void
   onEdit: (op: OPEditavel) => void
   produtoColWidth: number
+  gargaloColWidth: number
 }) {
   const [aberto, setAberto] = useState(false)
   const cfg = STATUS_CONFIG[op.status]
@@ -888,7 +923,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth }: {
             <span className="block truncate text-sm">{op.produto || op.codigo}</span>
           </Tooltip>
         </Td>
-        <Td className="w-64">
+        <Td style={{ width: gargaloColWidth, minWidth: gargaloColWidth, maxWidth: gargaloColWidth }}>
           <GargaloTag gargalo={op.gargalo} />
         </Td>
         <Td className="hidden md:table-cell w-20 font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{op.codigo}</Td>
@@ -1006,13 +1041,14 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
 }) {
   const todosSelect = ops.length > 0 && ops.every(op => selecionados.has(op.id || `${op.lote}-${op.codigo}`))
   const { produtoColWidth, handleResizeMouseDown, isResizing } = useProdutoColResize()
-
+  const { gargaloColWidth, handleGargaloResizeMouseDown, isGargaloResizing } = useGargaloColResize()
+  const isAnyResizing = isResizing || isGargaloResizing
 
   const thCls = "px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
   const thStyle = { color: "rgba(255,255,255,0.85)" }
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", cursor: isResizing ? "col-resize" : undefined }}>
+    <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", cursor: isAnyResizing ? "col-resize" : undefined }}>
       <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
         <table className="w-full min-w-[1120px] border-separate border-spacing-0">
           <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
@@ -1035,7 +1071,18 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
                   </svg>
                 </span>
               </th>
-              <th className={`${thCls} w-64`} style={thStyle}>Gargalo</th>
+              <th className={thCls} style={{ ...thStyle, width: gargaloColWidth, minWidth: gargaloColWidth, maxWidth: gargaloColWidth, position: "relative", userSelect: "none" }}>
+                Gargalo
+                <span onMouseDown={handleGargaloResizeMouseDown} title="Arraste para redimensionar"
+                  style={{ position: "absolute", right: 0, top: "20%", height: "60%", width: 6, cursor: "col-resize", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2, background: isGargaloResizing ? "rgba(255,255,255,0.5)" : "transparent", transition: "background 0.15s" }}
+                  onMouseEnter={e => { if (!isGargaloResizing) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.3)" }}
+                  onMouseLeave={e => { if (!isGargaloResizing) (e.currentTarget as HTMLElement).style.background = "transparent" }}>
+                  <svg width="6" height="14" viewBox="0 0 6 14" fill="none">
+                    <line x1="2" y1="0" x2="2" y2="14" stroke="rgba(255,255,255,0.6)" strokeWidth="1" />
+                    <line x1="4" y1="0" x2="4" y2="14" stroke="rgba(255,255,255,0.6)" strokeWidth="1" />
+                  </svg>
+                </span>
+              </th>
               <th className={`${thCls} hidden md:table-cell w-20`} style={thStyle}>Código</th>
               <th className={`${thCls} hidden md:table-cell w-24`} style={thStyle}>Linha</th>
               <th className={`${thCls} hidden md:table-cell w-14`} style={thStyle}>Tipo</th>
@@ -1053,7 +1100,8 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
               <OPRow key={op.id || `${op.lote}-${op.codigo}-${i}`} op={op}
                 selecionado={selecionados.has(op.id || `${op.lote}-${op.codigo}`)}
                 onSelect={onSelect} onEdit={onEdit}
-                produtoColWidth={produtoColWidth} />
+                produtoColWidth={produtoColWidth}
+                gargaloColWidth={gargaloColWidth} />
             ))}
           </tbody>
         </table>
