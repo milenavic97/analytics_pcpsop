@@ -7,12 +7,27 @@ import {
 } from "lucide-react"
 import {
   getOpsMeses,
-  getOpsViabilidade,
   atualizarRegistro,
   type OPResult,
   type ResumoViabilidade,
   type StatusOP,
 } from "@/services/api"
+
+const API_URL =
+  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
+  "https://dfl-sop-api.fly.dev"
+
+async function getOpsViabilidadeComLeadtime(mesRef: string, leadtimeCompraDias: number): Promise<ResumoViabilidade> {
+  const leadtime = Math.max(0, Number.isFinite(leadtimeCompraDias) ? leadtimeCompraDias : 0)
+  const res = await fetch(`${API_URL}/ops/viabilidade?mes_ref=${encodeURIComponent(mesRef)}&leadtime_compra_dias=${leadtime}`)
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error((err as { detail?: string }).detail || `Erro ${res.status}`)
+  }
+
+  return res.json() as Promise<ResumoViabilidade>
+}
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -31,7 +46,7 @@ type CompraAberta = {
   entrega_status?: string | null
 }
 
-type StatusCompra = "sem_compra" | "no_prazo" | "parcial" | "atrasado" | "risco" | "nao_cobre"
+type StatusCompra = "sem_compra" | "no_prazo" | "nao_abre" | "risco" | "nao_cobre" | "parcial" | "atrasado"
 
 type Gargalo = {
   codigo_comp: string
@@ -158,7 +173,7 @@ function getMenorDataEntregaCompra(comp: unknown): string | null {
 
 function getStatusCompra(comp: unknown): StatusCompra {
   const raw = String((comp as { status_compra?: string })?.status_compra || "sem_compra")
-  if (["no_prazo", "parcial", "atrasado", "risco", "nao_cobre", "sem_compra"].includes(raw)) return raw as StatusCompra
+  if (["no_prazo", "nao_abre", "parcial", "atrasado", "risco", "nao_cobre", "sem_compra"].includes(raw)) return raw as StatusCompra
   return "sem_compra"
 }
 
@@ -167,23 +182,62 @@ function compraStatusConfig(status: StatusCompra) {
     return { label: "Sim", bg: "#F0FDF4", border: "#BBF7D0", text: "#166534" }
   }
 
-  if (status === "parcial") {
-    return { label: "Parcial", bg: "#FFFBEB", border: "#FDE68A", text: "#92400E" }
-  }
-
-  if (status === "atrasado") {
-    return { label: "Chega atrasado", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" }
-  }
-
-  if (status === "risco") {
-    return { label: "Sem data crítica", bg: "#FFFBEB", border: "#FDE68A", text: "#92400E" }
+  if (status === "nao_abre" || status === "atrasado") {
+    return { label: "Não abre", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" }
   }
 
   if (status === "nao_cobre") {
     return { label: "Não cobre", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" }
   }
 
+  if (status === "risco") {
+    return { label: "Sem data", bg: "#FFFBEB", border: "#FDE68A", text: "#92400E" }
+  }
+
+  if (status === "parcial") {
+    return { label: "Não abre", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" }
+  }
+
   return { label: "Sem compra", bg: "#F8FAFC", border: "#CBD5E1", text: "#64748B" }
+}
+
+function getCompraTotalOP(comp: unknown): number {
+  const direto = toNumber((comp as { compra_total?: number })?.compra_total)
+  if (direto > 0) return direto
+  return getQtdCompraUsada(comp)
+}
+
+function getDataPrevistaFinalCompra(comp: unknown): string | null {
+  const direto = (comp as { data_prevista_final?: string | null })?.data_prevista_final
+  if (direto) return direto
+  return getDataCoberturaCompra(comp) || getMenorDataEntregaCompra(comp)
+}
+
+function getQtdEntregaAteLimite(comp: unknown): number {
+  const direto = toNumber((comp as { qtd_entrega_ate_limite?: number })?.qtd_entrega_ate_limite)
+  if (direto > 0) return direto
+  return getQtdCompraAteInicio(comp)
+}
+
+function getDataEntregaParcial(comp: unknown): string | null {
+  const direto = (comp as { data_entrega_parcial?: string | null })?.data_entrega_parcial
+  return direto || null
+}
+
+function getDataLimiteCompra(comp: unknown): string | null {
+  const direto = (comp as { data_limite_compra?: string | null })?.data_limite_compra
+  return direto || null
+}
+
+function getAbreOP(comp: unknown): boolean {
+  const direto = (comp as { abre_op?: boolean })?.abre_op
+  if (typeof direto === "boolean") return direto
+  return Boolean((comp as { abre_no_prazo?: boolean })?.abre_no_prazo)
+}
+
+function getCobreOPLabel(comp: unknown): string {
+  if (getStatusCompra(comp) === "sem_compra") return "—"
+  return getAbreOP(comp) ? "Sim" : "Não"
 }
 
 function getQtdCompraAteInicio(comp: unknown): number {
@@ -205,21 +259,22 @@ function getDataCoberturaCompra(comp: unknown): string | null {
 
 function tooltipStatusCompra(comp: unknown) {
   const status = getStatusCompra(comp)
-  const ateInicio = getQtdCompraAteInicio(comp)
-  const aposInicio = getQtdCompraAposInicio(comp)
-  const faltanteOP = getFaltanteNaDataOP(comp)
-  const cobertura = getDataCoberturaCompra(comp)
-  const entrega = getMenorDataEntregaCompra(comp)
+  const dataLimite = getDataLimiteCompra(comp)
+  const entregaAteLimite = getQtdEntregaAteLimite(comp)
+  const dataParcial = getDataEntregaParcial(comp)
+  const dataFinal = getDataPrevistaFinalCompra(comp)
+  const compraTotal = getCompraTotalOP(comp)
 
   if (status === "sem_compra") return "Não existe compra usada para cobrir esta necessidade."
 
   return [
     `Status: ${compraStatusConfig(status).label}`,
-    `Compra que chega até o início da OP: ${fmt(ateInicio)}`,
-    `Compra que chega após o início da OP: ${fmt(aposInicio)}`,
-    `Faltante na data da OP: ${fmt(faltanteOP)}`,
-    `Primeira entrega: ${fmtData(entrega)}`,
-    `Data que completa a necessidade: ${fmtData(cobertura)}`,
+    `Abre OP? ${getCobreOPLabel(comp)}`,
+    `Compra total usada na OP: ${fmt(compraTotal)}`,
+    `Data limite da entrega: ${fmtData(dataLimite)}`,
+    `Entrega até limite: ${fmt(entregaAteLimite)}`,
+    `Data entrega parcial: ${fmtData(dataParcial)}`,
+    `Data prevista final: ${fmtData(dataFinal)}`,
   ].join("\n")
 }
 
@@ -1268,7 +1323,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                 <>
                   <p className="card-label">Componentes necessários</p>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[1580px]">
+                    <table className="w-full text-xs min-w-[1480px]">
                       <thead>
                         <tr style={{ borderBottom: "1px solid var(--border)" }}>
                           {[
@@ -1280,12 +1335,11 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                             "Saldo Restante",
                             "Saldo 98",
                             "Compra total",
-                            "Compra usada",
-                            "Até início",
-                            "Após início",
-                            "Falta na OP",
-                            "Data cobertura",
-                            "Situação compra",
+                            "Data prev. final",
+                            "Entrega até limite",
+                            "Data parcial",
+                            "Abre OP?",
+                            "Status compra",
                             "Pedido/SC",
                             "Comprador",
                             "Status",
@@ -1302,15 +1356,14 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const saldoRestante = Number((comp as { saldo_restante?: number }).saldo_restante ?? (comp.saldo_01 - comp.necessario))
                           const componenteGargalante = isComponenteGargalante(compRecord)
                           const comprasComp = getComprasAbertas(comp)
-                          const qtdComprasTotal = getQtdComprasTotal(comp)
-                          const qtdCompraUsada = getQtdCompraUsada(comp)
-                          const dataEntregaCompra = getMenorDataEntregaCompra(comp)
+                          const compraTotalOP = getCompraTotalOP(comp)
+                          const dataPrevistaFinal = getDataPrevistaFinalCompra(comp)
+                          const qtdEntregaAteLimite = getQtdEntregaAteLimite(comp)
+                          const dataEntregaParcial = getDataEntregaParcial(comp)
+                          const abreOP = getAbreOP(comp)
+                          const cobreOPLabel = getCobreOPLabel(comp)
                           const statusCompra = getStatusCompra(comp)
                           const compraCfg = compraStatusConfig(statusCompra)
-                          const qtdCompraAteInicio = getQtdCompraAteInicio(comp)
-                          const qtdCompraAposInicio = getQtdCompraAposInicio(comp)
-                          const faltanteNaDataOP = getFaltanteNaDataOP(comp)
-                          const dataCoberturaCompra = getDataCoberturaCompra(comp)
                           const statusCompraTooltip = tooltipStatusCompra(comp)
                           const comprasTooltip = tooltipCompras(comprasComp)
                           const comprador = comprasComp.find(c => c.comprador_nome)?.comprador_nome || "—"
@@ -1327,23 +1380,31 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                                 title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
                                 {comp.saldo_98 > 0 ? `Quarentena: ${fmt(comp.saldo_98)}` : "—"}
                               </td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdComprasTotal > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
-                                {qtdComprasTotal > 0 ? fmt(qtdComprasTotal) : "—"}
+                              <td className="py-2 pr-4 font-semibold" style={{ color: compraTotalOP > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
+                                {compraTotalOP > 0 ? fmt(compraTotalOP) : "—"}
                               </td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdCompraUsada > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
-                                {qtdCompraUsada > 0 ? fmt(qtdCompraUsada) : "—"}
+                              <td className="py-2 pr-4" style={{ color: dataPrevistaFinal ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                                {fmtData(dataPrevistaFinal)}
                               </td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdCompraAteInicio > 0 ? "#16A34A" : "var(--text-secondary)" }}>
-                                {qtdCompraAteInicio > 0 ? fmt(qtdCompraAteInicio) : "—"}
+                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdEntregaAteLimite > 0 ? "#16A34A" : "var(--text-secondary)" }}>
+                                {compraTotalOP > 0 ? fmt(qtdEntregaAteLimite) : "—"}
                               </td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdCompraAposInicio > 0 ? "#DC2626" : "var(--text-secondary)" }}>
-                                {qtdCompraAposInicio > 0 ? fmt(qtdCompraAposInicio) : "—"}
+                              <td className="py-2 pr-4" style={{ color: dataEntregaParcial ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                                {fmtData(dataEntregaParcial)}
                               </td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: faltanteNaDataOP > 0 ? "#DC2626" : qtdCompraUsada > 0 ? "#16A34A" : "var(--text-secondary)" }}>
-                                {qtdCompraUsada > 0 ? fmt(faltanteNaDataOP) : "—"}
-                              </td>
-                              <td className="py-2 pr-4" style={{ color: dataCoberturaCompra ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                                {fmtData(dataCoberturaCompra || dataEntregaCompra)}
+                              <td className="py-2 pr-4">
+                                <Tooltip text={statusCompraTooltip}>
+                                  <span
+                                    className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+                                    style={{
+                                      background: abreOP ? "#F0FDF4" : compraTotalOP > 0 ? "#FEF2F2" : "#F8FAFC",
+                                      border: `1px solid ${abreOP ? "#BBF7D0" : compraTotalOP > 0 ? "#FECACA" : "#CBD5E1"}`,
+                                      color: abreOP ? "#166534" : compraTotalOP > 0 ? "#991B1B" : "#64748B",
+                                    }}
+                                  >
+                                    {cobreOPLabel}
+                                  </span>
+                                </Tooltip>
                               </td>
                               <td className="py-2 pr-4">
                                 <Tooltip text={statusCompraTooltip}>
@@ -1503,6 +1564,7 @@ export function OrdensPage() {
   const [opEditando, setOpEditando]         = useState<OPEditavel | null>(null)
   const [selecionados, setSelecionados]     = useState<Set<string>>(new Set())
   const [novaOpModal, setNovaOpModal]       = useState(false)
+  const [leadtimeCompraDias, setLeadtimeCompraDias] = useState(2)
 
   useEffect(() => {
     getOpsMeses().then(res => {
@@ -1517,7 +1579,7 @@ export function OrdensPage() {
     if (!mesSel) return
     setLoading(true); setErro(""); setSelecionados(new Set())
     try {
-      const res = await getOpsViabilidade(mesSel)
+      const res = await getOpsViabilidadeComLeadtime(mesSel, leadtimeCompraDias)
       setDados(res)
       const opsTratadas = ordenarESequenciarOps(
         res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
@@ -1594,6 +1656,21 @@ export function OrdensPage() {
           <button onClick={() => setNovaOpModal(true)} className="flex h-10 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-white" style={{ background: "var(--bg-sidebar)" }}>
             <Plus size={14} /> Nova OP
           </button>
+          <div className="flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold"
+            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}
+            title="A compra só conta para abertura se a entrega prevista for menor ou igual ao início de fabricação menos este lead time.">
+            <span className="whitespace-nowrap">Lead compra</span>
+            <input
+              type="number"
+              min={0}
+              max={30}
+              value={leadtimeCompraDias}
+              onChange={e => setLeadtimeCompraDias(Math.max(0, Number(e.target.value || 0)))}
+              className="h-7 w-14 rounded-lg border px-2 text-center text-xs outline-none"
+              style={{ background: "var(--bg-primary)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+            />
+            <span>dias</span>
+          </div>
           <button onClick={buscar} disabled={loading || !mesSel} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold" style={{ cursor: loading ? "not-allowed" : "pointer" }}>
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Atualizar
           </button>
@@ -1622,7 +1699,7 @@ export function OrdensPage() {
 
           <div className="fade-in rounded-xl border px-4 py-2 text-xs"
             style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-            Análise considerando o estoque de insumos atualizado em {estoqueAtualizadoEm || "snapshot mais recente disponível"}.
+            Análise considerando o estoque de insumos atualizado em {estoqueAtualizadoEm || "snapshot mais recente disponível"}. Compras só contam para abertura se a entrega prevista for até o início de fabricação menos {leadtimeCompraDias} dia{leadtimeCompraDias !== 1 ? "s" : ""}.
           </div>
         </>
       )}
