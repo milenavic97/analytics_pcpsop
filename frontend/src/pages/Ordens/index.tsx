@@ -563,6 +563,126 @@ function ordenarESequenciarOps(lista: OPEditavel[]) {
   })
 }
 
+
+function componenteCobertoPorNegociacao(
+  op: OPEditavel,
+  comp: unknown,
+  compIndex: number,
+  ajustesCompra: Record<string, number>,
+  ajustesCompraData: Record<string, string>,
+  leadtimeCompraDias: number
+) {
+  const compRecord = comp as Record<string, unknown>
+
+  if (!isComponenteGargalante(compRecord)) return true
+
+  const statusAtual = String(compRecord.status || "ok")
+  if (statusAtual === "ok") return true
+
+  if (getAbreOP(comp)) return true
+
+  const dataLimite =
+    getDataLimiteCompra(comp) ||
+    calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
+
+  const faltanteNaDataOP = getFaltanteNaDataOP(comp) || toNumber(compRecord.faltante)
+
+  if (faltanteNaDataOP <= 0) return true
+
+  const comprasComp = getComprasAbertas(comp)
+  const linhasCompra = comprasComp.length > 0 ? comprasComp : [null]
+
+  const qtdNegociadaValida = linhasCompra.reduce((acc, compra, compraIndex) => {
+    const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
+    const qtd = ajustesCompra[key] || 0
+    const dataNegociada = ajustesCompraData[key]
+
+    if (qtd > 0 && isDataAteLimite(dataNegociada, dataLimite)) {
+      return acc + qtd
+    }
+
+    return acc
+  }, 0)
+
+  return qtdNegociadaValida + 0.0001 >= faltanteNaDataOP
+}
+
+function simularOPComNegociacao(
+  op: OPEditavel,
+  ajustesCompra: Record<string, number>,
+  ajustesCompraData: Record<string, string>,
+  leadtimeCompraDias: number
+): OPEditavel {
+  if (op.status === "aberta" || op.status === "sem_bom") return op
+
+  const detalhesOriginais = Array.isArray(op.detalhes) ? op.detalhes : []
+
+  const detalhesSimulados = detalhesOriginais.map((comp, compIndex) => {
+    const coberto = componenteCobertoPorNegociacao(
+      op,
+      comp,
+      compIndex,
+      ajustesCompra,
+      ajustesCompraData,
+      leadtimeCompraDias
+    )
+
+    if (!coberto) return comp
+
+    return {
+      ...comp,
+      status: "ok",
+      faltante_na_data_op: 0,
+      abre_op: true,
+      abre_no_prazo: true,
+      status_compra: "no_prazo",
+    }
+  })
+
+  const statusPorCodigo = new Map<string, string>()
+  detalhesSimulados.forEach((comp) => {
+    const c = comp as unknown as Record<string, unknown>
+    const codigo = String(c.codigo_comp || "")
+    if (codigo) statusPorCodigo.set(codigo, String(c.status || "ok"))
+  })
+
+  const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
+  const alertasSimulados = alertasOriginais.filter((alerta) => {
+    const a = alerta as unknown as Record<string, unknown>
+    const codigo = String(a.codigo_comp || "")
+    if (!codigo) return true
+    return statusPorCodigo.get(codigo) !== "ok"
+  })
+
+  const criticos = detalhesSimulados
+    .filter((comp) => isComponenteGargalante(comp as unknown as Record<string, unknown>))
+    .filter((comp) => {
+      const status = String((comp as unknown as Record<string, unknown>).status || "ok")
+      return status === "falta" || status === "quarentena"
+    })
+
+  let status: StatusOP = "ok"
+  if (criticos.some((comp) => String((comp as unknown as Record<string, unknown>).status) === "falta")) {
+    status = "falta"
+  } else if (criticos.some((comp) => String((comp as unknown as Record<string, unknown>).status) === "quarentena")) {
+    status = "quarentena"
+  }
+
+  const gargalo = criticos.length > 0
+    ? alertaToGargalo(criticos[0] as unknown as Record<string, unknown>)
+    : null
+
+  return {
+    ...op,
+    status,
+    detalhes: detalhesSimulados,
+    alertas: alertasSimulados,
+    gargalo,
+    qtd_componentes_faltando: criticos.filter((comp) => String((comp as unknown as Record<string, unknown>).status) === "falta").length,
+    qtd_total_faltante: criticos.reduce((acc, comp) => acc + toNumber((comp as unknown as Record<string, unknown>).faltante), 0),
+  }
+}
+
 // ─── Hook: resize de coluna ───────────────────────────────────────────────────
 
 function useResizableColumn(defaultWidth: number, minWidth: number, maxWidth: number) {
@@ -1744,13 +1864,20 @@ export function OrdensPage() {
     } finally { setLoading(false) }
   }
 
-  const totalMes    = ops.length
-  const abertas     = ops.filter(op => op.status === "aberta").length
-  const faltamAbrir = ops.filter(op => op.status !== "aberta").length
-  const comMaterial = ops.filter(op => op.status === "ok").length
-  const semMaterial = ops.filter(op => op.status === "falta" || op.status === "quarentena").length
-  const pctAbertas  = totalMes > 0 ? Math.round((abertas / totalMes) * 100) : 0
   const estoqueAtualizadoEm = fmtDataHora(getEstoqueAtualizadoEm(dados))
+
+  const opsSimuladas = useMemo(() => {
+    return ordenarESequenciarOps(
+      ops.map(op => simularOPComNegociacao(op, ajustesCompra, ajustesCompraData, leadtimeCompraDias))
+    )
+  }, [ops, ajustesCompra, ajustesCompraData, leadtimeCompraDias])
+
+  const totalMes    = opsSimuladas.length
+  const abertas     = opsSimuladas.filter(op => op.status === "aberta").length
+  const faltamAbrir = opsSimuladas.filter(op => op.status !== "aberta").length
+  const comMaterial = opsSimuladas.filter(op => op.status === "ok").length
+  const semMaterial = opsSimuladas.filter(op => op.status === "falta" || op.status === "quarentena").length
+  const pctAbertas  = totalMes > 0 ? Math.round((abertas / totalMes) * 100) : 0
 
   function uniqueOptions(values: Array<string | null | undefined>): SelectOption[] {
     return Array.from(new Set(values.map(v => String(v || "").trim()).filter(Boolean)))
@@ -1758,12 +1885,12 @@ export function OrdensPage() {
       .map(v => ({ value: v, label: v }))
   }
 
-  const tipoOptions    = useMemo(() => uniqueOptions(ops.map(op => tipoProduto(op.linha))), [ops])
-  const loteOptions    = useMemo(() => uniqueOptions(ops.map(op => op.lote)), [ops])
-  const codigoOptions  = useMemo(() => uniqueOptions(ops.map(op => op.codigo)), [ops])
-  const produtoOptions = useMemo(() => uniqueOptions(ops.map(op => op.produto || op.codigo)), [ops])
+  const tipoOptions    = useMemo(() => uniqueOptions(opsSimuladas.map(op => tipoProduto(op.linha))), [opsSimuladas])
+  const loteOptions    = useMemo(() => uniqueOptions(opsSimuladas.map(op => op.lote)), [opsSimuladas])
+  const codigoOptions  = useMemo(() => uniqueOptions(opsSimuladas.map(op => op.codigo)), [opsSimuladas])
+  const produtoOptions = useMemo(() => uniqueOptions(opsSimuladas.map(op => op.produto || op.codigo)), [opsSimuladas])
 
-  const opsFiltradas = ops.filter(op => {
+  const opsFiltradas = opsSimuladas.filter(op => {
     if (linhasSel.length > 0 && !linhasSel.includes(op.linha)) return false
     if (statusesSel.length > 0 && !statusesSel.includes(op.status)) return false
     if (tiposSel.length > 0 && !tiposSel.includes(tipoProduto(op.linha))) return false
@@ -1918,7 +2045,7 @@ export function OrdensPage() {
         <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>Nenhuma programação carregada. Faça o upload da planilha de OPs na aba Dados.</div>
       )}
 
-      <CardModal tipo={modalCard} ops={ops} onClose={() => setModalCard(null)} />
+      <CardModal tipo={modalCard} ops={opsSimuladas} onClose={() => setModalCard(null)} />
 
       {novaOpModal && (
         <EditModal
