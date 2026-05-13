@@ -1847,12 +1847,39 @@ export function OrdensPage() {
   const [ajustesCompra, setAjustesCompra] = useState<Record<string, number>>({})
   const [ajustesCompraData, setAjustesCompraData] = useState<Record<string, string>>({})
   const [salvandoNegociacaoOpId, setSalvandoNegociacaoOpId] = useState<string | null>(null)
+  const [salvandoLeadtime, setSalvandoLeadtime] = useState(false)
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null)
+
+  function mostrarToast(type: "success" | "error", message: string) {
+    setToast({ type, message })
+    window.setTimeout(() => setToast(null), 2600)
+  }
 
   useEffect(() => {
-    getOpsMeses().then(res => {
-      setMeses(res.meses)
-      if (res.meses.length > 0) setMesSel(res.meses[0])
-    }).catch(() => {})
+    async function inicializar() {
+      try {
+        const [resMeses, ajustesSalvos] = await Promise.all([
+          getOpsMeses(),
+          getAjustesComprasOps().catch(() => [] as AjusteCompraOP[]),
+        ])
+
+        const configLeadtime = ajustesSalvos.find(a =>
+          String(a.op_id) === "__CONFIG__" &&
+          String(a.codigo_comp) === "leadtime_compra_dias"
+        )
+
+        if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
+          setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
+        }
+
+        setMeses(resMeses.meses)
+        if (resMeses.meses.length > 0) setMesSel(resMeses.meses[0])
+      } catch (e) {
+        console.warn("Não foi possível inicializar OPs", e)
+      }
+    }
+
+    inicializar()
   }, [])
 
   useEffect(() => { if (mesSel) buscar() }, [mesSel])
@@ -1879,7 +1906,17 @@ export function OrdensPage() {
       const nextQtd: Record<string, number> = {}
       const nextData: Record<string, string> = {}
 
+      const configLeadtime = ajustes.find(a =>
+        String(a.op_id) === "__CONFIG__" &&
+        String(a.codigo_comp) === "leadtime_compra_dias"
+      )
+
+      if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
+        setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
+      }
+
       for (const ajuste of ajustes) {
+        if (String(ajuste.op_id) === "__CONFIG__") continue
         const op = opsBase.find(o =>
           String(o.id || `${o.lote}-${o.codigo}`) === String(ajuste.op_id) ||
           (ajuste.lote && o.lote === ajuste.lote && ajuste.codigo_op && o.codigo === ajuste.codigo_op)
@@ -2016,16 +2053,41 @@ export function OrdensPage() {
       })
 
       if (payloads.length === 0) {
-        alert("Informe quantidade e data negociada antes de salvar.")
+        mostrarToast("error", "Informe quantidade e data negociada antes de salvar.")
         return
       }
 
       await Promise.all(payloads.map(payload => salvarAjusteCompraOP(payload)))
-      alert("Negociação salva com sucesso.")
+      mostrarToast("success", "Negociação salva com sucesso.")
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Erro ao salvar negociação")
+      mostrarToast("error", e instanceof Error ? e.message : "Erro ao salvar negociação")
     } finally {
       setSalvandoNegociacaoOpId(null)
+    }
+  }
+
+  async function handleSalvarLeadtimeCompra() {
+    setSalvandoLeadtime(true)
+
+    try {
+      await salvarAjusteCompraOP({
+        op_id: "__CONFIG__",
+        lote: "CONFIG",
+        codigo_op: "CONFIG",
+        codigo_comp: "leadtime_compra_dias",
+        pedido_numero: "LEADTIME_COMPRA",
+        sc_numero: null,
+        qtd_negociada: Math.max(0, Number(leadtimeCompraDias || 0)),
+        data_negociada: null,
+        observacao: "Configuração global da quantidade de dias antes da fabricação em que a entrega de compras deve ser considerada.",
+      })
+
+      mostrarToast("success", "Configuração de compras salva para todos.")
+      buscar()
+    } catch (e: unknown) {
+      mostrarToast("error", e instanceof Error ? e.message : "Erro ao salvar configuração de compras")
+    } finally {
+      setSalvandoLeadtime(false)
     }
   }
 
@@ -2037,6 +2099,21 @@ export function OrdensPage() {
 
   return (
     <div className="min-h-screen space-y-5 p-3 md:space-y-6 md:p-6">
+      {toast && (
+        <div
+          className="fixed right-5 top-5 z-[9999] flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-2xl backdrop-blur-md"
+          style={{
+            background: toast.type === "success" ? "rgba(22,163,74,0.96)" : "rgba(220,38,38,0.96)",
+            borderColor: toast.type === "success" ? "rgba(187,247,208,0.5)" : "rgba(254,202,202,0.5)",
+            color: "#fff",
+          }}
+        >
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
+            {toast.type === "success" ? "✓" : "!"}
+          </span>
+          <span>{toast.message}</span>
+        </div>
+      )}
       <div className="fade-in flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="mb-1 text-[10px] font-medium uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>Planejamento · Ordens de Produção</p>
@@ -2129,6 +2206,17 @@ export function OrdensPage() {
               <span>
                 dia{leadtimeCompraDias !== 1 ? "s" : ""} antes da data de fabricação da OP
               </span>
+              <button
+                type="button"
+                onClick={handleSalvarLeadtimeCompra}
+                disabled={salvandoLeadtime}
+                className="ml-1 flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-60"
+                style={{ background: "var(--bg-sidebar)", cursor: salvandoLeadtime ? "not-allowed" : "pointer" }}
+                title="Salvar esta configuração para todos os usuários"
+              >
+                <Save size={13} />
+                {salvandoLeadtime ? "Salvando..." : "Salvar prazo"}
+              </button>
             </div>
           </div>
         </>
