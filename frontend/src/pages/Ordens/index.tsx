@@ -1438,7 +1438,19 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const componenteGargalante = isComponenteGargalante(compRecord)
                           const comprasComp = getComprasAbertas(comp)
                           const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
-                          const faltanteNaDataOP = getFaltanteNaDataOP(comp)
+                          const faltanteNaDataOP =
+  getFaltanteNaDataOP(comp) ||
+  toNumber(
+    (comp as {
+      faltante_pos_compra?: number
+    })?.faltante_pos_compra
+  ) ||
+  toNumber(
+    (comp as {
+      faltante?: number
+    })?.faltante
+  ) ||
+  0
                           const statusCompra = getStatusCompra(comp)
                           const compraCfg = compraStatusConfig(statusCompra)
                           const compradorDefault = comprasComp.find(c => c.comprador_nome)?.comprador_nome || "—"
