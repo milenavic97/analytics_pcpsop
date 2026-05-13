@@ -1183,6 +1183,25 @@ function GargaloCard({ gargalo, fifo_posicao }: { gargalo: Gargalo; fifo_posicao
 
 // ─── Modal de edição ──────────────────────────────────────────────────────────
 
+function inputValueAllowZero(value: unknown) {
+  if (value === null || value === undefined) return ""
+  return String(value)
+}
+
+function inputNumberOrZero(value: string) {
+  const txt = String(value ?? "").trim().replace(",", ".")
+  if (txt === "") return 0
+  const parsed = Number(txt)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function inputNumberOrNull(value: string) {
+  const txt = String(value ?? "").trim().replace(",", ".")
+  if (txt === "") return null
+  const parsed = Number(txt)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function EditModal({ op, onClose, onSaved, isNova = false }: {
   op: OPEditavel; onClose: () => void
   onSaved: (atualizado: Partial<OPEditavel>) => void; isNova?: boolean
@@ -1190,8 +1209,10 @@ function EditModal({ op, onClose, onSaved, isNova = false }: {
   const [form, setForm] = useState({
     lote: op.lote || "", produto: op.produto || "", codigo: op.codigo || "",
     linha: op.linha || "", op_numero: op.op_numero || "",
-    quantidade: String(op.quantidade || ""), tempo_horas: String(op.tempo_horas || ""),
-    un_h: String(op.un_h || ""), observacoes: op.observacoes || "",
+    quantidade: inputValueAllowZero(op.quantidade),
+    tempo_horas: inputValueAllowZero(op.tempo_horas),
+    un_h: inputValueAllowZero(op.un_h),
+    observacoes: op.observacoes || "",
     data_lavagem_emb: op.data_lavagem_emb || "", data_lavagem_pesagem: op.data_lavagem_pesagem || "",
     data_inicio_fabricacao: op.data_inicio_fabricacao || "", data_fim: op.data_fim || "",
     data_termino: op.data_termino || "", anotacao: op.anotacao || "",
@@ -1205,9 +1226,9 @@ function EditModal({ op, onClose, onSaved, isNova = false }: {
       const payload: Record<string, unknown> = {
         lote: form.lote, produto: form.produto, codigo: form.codigo, linha: form.linha,
         op_numero: form.op_numero || null,
-        quantidade: parseFloat(form.quantidade.replace(",", ".")) || 0,
-        tempo_horas: form.tempo_horas ? parseFloat(form.tempo_horas.replace(",", ".")) : null,
-        un_h: form.un_h ? parseFloat(form.un_h.replace(",", ".")) : null,
+        quantidade: inputNumberOrZero(form.quantidade),
+        tempo_horas: inputNumberOrNull(form.tempo_horas),
+        un_h: inputNumberOrNull(form.un_h),
         observacoes: form.observacoes || null,
         data_lavagem_emb: form.data_lavagem_emb || null,
         data_lavagem_pesagem: form.data_lavagem_pesagem || null,
