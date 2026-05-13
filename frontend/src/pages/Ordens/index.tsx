@@ -259,8 +259,11 @@ function getCompraKey(op: OPEditavel, comp: unknown, index: number) {
 }
 
 function parseInputNumber(value: string) {
-  const n = Number(String(value || "0").replace(",", "."))
-  return Number.isFinite(n) && n > 0 ? n : 0
+  const texto = String(value ?? "").trim()
+  if (texto === "") return 0
+
+  const n = Number(texto.replace(",", "."))
+  return Number.isFinite(n) && n >= 0 ? n : 0
 }
 
 function parseInputDate(value: string) {
@@ -622,7 +625,7 @@ function isComponenteCobertoPorNegociacao(
 
   const qtdNegociadaValidaTotal = linhasCompra.reduce((acc, compra, compraIndex) => {
     const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
-    const qtd = ajustesCompra[key] || 0
+    const qtd = ajustesCompra[key] ?? 0
     const dataNegociada = ajustesCompraData[key]
     return acc + (qtd > 0 && isDataAteLimite(dataNegociada, dataLimite) ? qtd : 0)
   }, 0)
@@ -1183,25 +1186,6 @@ function GargaloCard({ gargalo, fifo_posicao }: { gargalo: Gargalo; fifo_posicao
 
 // ─── Modal de edição ──────────────────────────────────────────────────────────
 
-function inputValueAllowZero(value: unknown) {
-  if (value === null || value === undefined) return ""
-  return String(value)
-}
-
-function inputNumberOrZero(value: string) {
-  const txt = String(value ?? "").trim().replace(",", ".")
-  if (txt === "") return 0
-  const parsed = Number(txt)
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-function inputNumberOrNull(value: string) {
-  const txt = String(value ?? "").trim().replace(",", ".")
-  if (txt === "") return null
-  const parsed = Number(txt)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
 function EditModal({ op, onClose, onSaved, isNova = false }: {
   op: OPEditavel; onClose: () => void
   onSaved: (atualizado: Partial<OPEditavel>) => void; isNova?: boolean
@@ -1209,10 +1193,8 @@ function EditModal({ op, onClose, onSaved, isNova = false }: {
   const [form, setForm] = useState({
     lote: op.lote || "", produto: op.produto || "", codigo: op.codigo || "",
     linha: op.linha || "", op_numero: op.op_numero || "",
-    quantidade: inputValueAllowZero(op.quantidade),
-    tempo_horas: inputValueAllowZero(op.tempo_horas),
-    un_h: inputValueAllowZero(op.un_h),
-    observacoes: op.observacoes || "",
+    quantidade: String(op.quantidade || ""), tempo_horas: String(op.tempo_horas || ""),
+    un_h: String(op.un_h || ""), observacoes: op.observacoes || "",
     data_lavagem_emb: op.data_lavagem_emb || "", data_lavagem_pesagem: op.data_lavagem_pesagem || "",
     data_inicio_fabricacao: op.data_inicio_fabricacao || "", data_fim: op.data_fim || "",
     data_termino: op.data_termino || "", anotacao: op.anotacao || "",
@@ -1226,9 +1208,9 @@ function EditModal({ op, onClose, onSaved, isNova = false }: {
       const payload: Record<string, unknown> = {
         lote: form.lote, produto: form.produto, codigo: form.codigo, linha: form.linha,
         op_numero: form.op_numero || null,
-        quantidade: inputNumberOrZero(form.quantidade),
-        tempo_horas: inputNumberOrNull(form.tempo_horas),
-        un_h: inputNumberOrNull(form.un_h),
+        quantidade: parseFloat(form.quantidade.replace(",", ".")) || 0,
+        tempo_horas: form.tempo_horas ? parseFloat(form.tempo_horas.replace(",", ".")) : null,
+        un_h: form.un_h ? parseFloat(form.un_h.replace(",", ".")) : null,
         observacoes: form.observacoes || null,
         data_lavagem_emb: form.data_lavagem_emb || null,
         data_lavagem_pesagem: form.data_lavagem_pesagem || null,
@@ -1620,7 +1602,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
 
                           const qtdNegociadaValidaTotal = linhasCompra.reduce((acc, compra, compraIndex) => {
                             const key = getCompraPedidoKey(op, comp, compra, i, compraIndex)
-                            const qtd = ajustesCompra[key] || 0
+                            const qtd = ajustesCompra[key] ?? 0
                             const dataNegociada = ajustesCompraData[key]
                             return acc + (qtd > 0 && isDataAteLimite(dataNegociada, dataLimite) ? qtd : 0)
                           }, 0)
@@ -1630,7 +1612,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
 
                           return linhasCompra.map((compra, compraIndex) => {
                             const compraKey = getCompraPedidoKey(op, comp, compra, i, compraIndex)
-                            const qtdNegociada = ajustesCompra[compraKey] || 0
+                            const qtdNegociada = ajustesCompra[compraKey] ?? 0
                             const dataNegociada = ajustesCompraData[compraKey] || ""
                             const compraTotalPedido = compra ? getQtdCompraTotal(compra) : 0
                             const qtdUsadaOP = compra ? toNumber(compra.quantidade_utilizada ?? compra.quantidade_pendente) : 0
@@ -1688,7 +1670,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                                   <input
                                     type="number"
                                     min={0}
-                                    value={qtdNegociada || ""}
+                                    value={Object.prototype.hasOwnProperty.call(ajustesCompra, compraKey) ? String(qtdNegociada) : ""}
                                     placeholder="0"
                                     onChange={e => onAjusteCompraChange(compraKey, parseInputNumber(e.target.value))}
                                     className="h-8 w-24 rounded-lg border px-2 text-xs font-semibold outline-none"
@@ -1990,7 +1972,7 @@ export function OrdensPage() {
 
             if ((mesmoPedido && mesmaSC) || semPedido) {
               const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
-              if (toNumber(ajuste.qtd_negociada) > 0) nextQtd[key] = toNumber(ajuste.qtd_negociada)
+              if (Number.isFinite(Number(ajuste.qtd_negociada))) nextQtd[key] = toNumber(ajuste.qtd_negociada)
               if (ajuste.data_negociada) nextData[key] = String(ajuste.data_negociada).slice(0, 10)
             }
           }
@@ -2050,8 +2032,12 @@ export function OrdensPage() {
   function handleAjusteCompraChange(key: string, value: number) {
     setAjustesCompra(prev => {
       const next = { ...prev }
-      if (value > 0) next[key] = value
+
+      // Importante: 0 é um valor válido.
+      // Antes, quando value era 0, a chave era removida do estado e o valor antigo salvo voltava após F5.
+      if (Number.isFinite(Number(value)) && Number(value) >= 0) next[key] = Number(value)
       else delete next[key]
+
       return next
     })
   }
@@ -2084,10 +2070,12 @@ export function OrdensPage() {
 
         linhasCompra.forEach((compra, compraIndex) => {
           const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
-          const qtd = ajustesCompra[key] || 0
+          const qtd = ajustesCompra[key] ?? 0
           const data = ajustesCompraData[key] || ""
 
-          if (qtd <= 0 || !data) return
+          // Importante: qtd = 0 precisa ser salva para limpar uma negociação anterior.
+          // Só ignoramos quando não há quantidade editada e também não há data negociada.
+          if (!data && !Object.prototype.hasOwnProperty.call(ajustesCompra, key)) return
 
           payloads.push({
             op_id: opId,
