@@ -8,14 +8,41 @@ import {
   ChevronRight,
   BarChart3,
   ClipboardList,
+  CalendarDays,
 } from "lucide-react"
 import { clsx } from "clsx"
 
 const NAV = [
-  { id: "overview", label: "Overview",             path: "/",        Icon: LayoutDashboard },
-  { id: "producao", label: "Produção",              path: "/producao", Icon: Factory        },
-  { id: "ordens",   label: "Ordens de Produção",   path: "/ordens",   Icon: ClipboardList  },
-  { id: "dados",    label: "Dados",                path: "/dados",    Icon: Database       },
+  {
+    id: "overview",
+    label: "Overview",
+    path: "/",
+    Icon: LayoutDashboard,
+  },
+  {
+    id: "producao",
+    label: "Produção",
+    path: "/producao",
+    Icon: Factory,
+  },
+  {
+    id: "ordens",
+    label: "Ordens de Produção",
+    path: "/ordens",
+    Icon: ClipboardList,
+  },
+  {
+    id: "calendario-paradas",
+    label: "Calendário de Paradas",
+    path: "/calendario-paradas",
+    Icon: CalendarDays,
+  },
+  {
+    id: "dados",
+    label: "Dados",
+    path: "/dados",
+    Icon: Database,
+  },
 ]
 
 type Props = {
@@ -58,12 +85,20 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
         >
           <div className={clsx("flex items-center", collapsed ? "justify-center" : "gap-3")}>
             <BarChart3 size={24} style={{ color: "var(--text-sidebar-active)" }} />
+
             {!collapsed && (
               <div className="leading-tight">
-                <p className="text-[17px] font-bold leading-tight" style={{ color: "var(--text-sidebar-active)" }}>
+                <p
+                  className="text-[17px] font-bold leading-tight"
+                  style={{ color: "var(--text-sidebar-active)" }}
+                >
                   PCP - Analytics
                 </p>
-                <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-sidebar)" }}>
+
+                <p
+                  className="mt-0.5 text-[11px]"
+                  style={{ color: "var(--text-sidebar)" }}
+                >
                   Dashboard Operacional
                 </p>
               </div>
@@ -92,42 +127,71 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
               aria-label="Expandir menu"
             >
               <ChevronRight size={19} />
-              <div className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-lg border border-white/10 px-2 py-1.5 text-xs text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                style={{ background: "var(--bg-sidebar-active)" }}>
+
+              <div
+                className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-lg border border-white/10 px-2 py-1.5 text-xs text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+                style={{ background: "var(--bg-sidebar-active)" }}
+              >
                 Expandir menu
               </div>
             </button>
           )}
 
           {NAV.map(({ id, label, path, Icon }) => {
-            const active = path === "/" ? pathname === "/" : pathname.startsWith(path)
+            const active =
+              path === "/"
+                ? pathname === "/"
+                : pathname.startsWith(path)
 
             return (
               <NavLink
                 key={id}
                 to={path}
                 title={collapsed ? label : undefined}
-                onClick={() => { if (window.innerWidth < 768) onCloseMobile?.() }}
+                onClick={() => {
+                  if (window.innerWidth < 768) onCloseMobile?.()
+                }}
                 className={clsx(
                   "group relative flex items-center rounded-lg text-sm font-medium transition-all duration-200",
-                  collapsed ? "h-11 w-11 justify-center" : "h-12 gap-3 px-3"
+                  collapsed
+                    ? "h-11 w-11 justify-center"
+                    : "h-12 gap-3 px-3"
                 )}
                 style={{
-                  background: active ? "rgba(255,255,255,0.14)" : "transparent",
-                  color: active ? "var(--text-sidebar-active)" : "var(--text-sidebar)",
+                  background: active
+                    ? "rgba(255,255,255,0.14)"
+                    : "transparent",
+
+                  color: active
+                    ? "var(--text-sidebar-active)"
+                    : "var(--text-sidebar)",
                 }}
                 onMouseEnter={e => {
-                  if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.08)"
+                  if (!active) {
+                    (e.currentTarget as HTMLElement).style.background =
+                      "rgba(255,255,255,0.08)"
+                  }
                 }}
                 onMouseLeave={e => {
-                  if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"
+                  if (!active) {
+                    (e.currentTarget as HTMLElement).style.background =
+                      "transparent"
+                  }
                 }}
               >
                 <Icon size={20} className="flex-shrink-0" />
-                {!collapsed && <span className="truncate">{label}</span>}
+
+                {!collapsed && (
+                  <span className="truncate">
+                    {label}
+                  </span>
+                )}
+
                 {collapsed && (
-                  <div className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-lg border border-white/10 px-2 py-1.5 text-xs text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                    style={{ background: "var(--bg-sidebar-active)" }}>
+                  <div
+                    className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-lg border border-white/10 px-2 py-1.5 text-xs text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+                    style={{ background: "var(--bg-sidebar-active)" }}
+                  >
                     {label}
                   </div>
                 )}
