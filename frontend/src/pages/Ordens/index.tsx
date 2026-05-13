@@ -31,7 +31,7 @@ type CompraAberta = {
   entrega_status?: string | null
 }
 
-type StatusCompra = "sem_compra" | "no_prazo" | "risco" | "nao_cobre"
+type StatusCompra = "sem_compra" | "no_prazo" | "parcial" | "atrasado" | "risco" | "nao_cobre"
 
 type Gargalo = {
   codigo_comp: string
@@ -158,7 +158,7 @@ function getMenorDataEntregaCompra(comp: unknown): string | null {
 
 function getStatusCompra(comp: unknown): StatusCompra {
   const raw = String((comp as { status_compra?: string })?.status_compra || "sem_compra")
-  if (["no_prazo", "risco", "nao_cobre", "sem_compra"].includes(raw)) return raw as StatusCompra
+  if (["no_prazo", "parcial", "atrasado", "risco", "nao_cobre", "sem_compra"].includes(raw)) return raw as StatusCompra
   return "sem_compra"
 }
 
@@ -167,8 +167,16 @@ function compraStatusConfig(status: StatusCompra) {
     return { label: "Sim", bg: "#F0FDF4", border: "#BBF7D0", text: "#166534" }
   }
 
+  if (status === "parcial") {
+    return { label: "Parcial", bg: "#FFFBEB", border: "#FDE68A", text: "#92400E" }
+  }
+
+  if (status === "atrasado") {
+    return { label: "Chega atrasado", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" }
+  }
+
   if (status === "risco") {
-    return { label: "Risco", bg: "#FFFBEB", border: "#FDE68A", text: "#92400E" }
+    return { label: "Sem data crítica", bg: "#FFFBEB", border: "#FDE68A", text: "#92400E" }
   }
 
   if (status === "nao_cobre") {
@@ -176,6 +184,43 @@ function compraStatusConfig(status: StatusCompra) {
   }
 
   return { label: "Sem compra", bg: "#F8FAFC", border: "#CBD5E1", text: "#64748B" }
+}
+
+function getQtdCompraAteInicio(comp: unknown): number {
+  return toNumber((comp as { qtd_compra_ate_inicio?: number })?.qtd_compra_ate_inicio)
+}
+
+function getQtdCompraAposInicio(comp: unknown): number {
+  return toNumber((comp as { qtd_compra_apos_inicio?: number })?.qtd_compra_apos_inicio)
+}
+
+function getFaltanteNaDataOP(comp: unknown): number {
+  return toNumber((comp as { faltante_na_data_op?: number })?.faltante_na_data_op)
+}
+
+function getDataCoberturaCompra(comp: unknown): string | null {
+  const direto = (comp as { data_cobertura_compra?: string | null })?.data_cobertura_compra
+  return direto || null
+}
+
+function tooltipStatusCompra(comp: unknown) {
+  const status = getStatusCompra(comp)
+  const ateInicio = getQtdCompraAteInicio(comp)
+  const aposInicio = getQtdCompraAposInicio(comp)
+  const faltanteOP = getFaltanteNaDataOP(comp)
+  const cobertura = getDataCoberturaCompra(comp)
+  const entrega = getMenorDataEntregaCompra(comp)
+
+  if (status === "sem_compra") return "Não existe compra usada para cobrir esta necessidade."
+
+  return [
+    `Status: ${compraStatusConfig(status).label}`,
+    `Compra que chega até o início da OP: ${fmt(ateInicio)}`,
+    `Compra que chega após o início da OP: ${fmt(aposInicio)}`,
+    `Faltante na data da OP: ${fmt(faltanteOP)}`,
+    `Primeira entrega: ${fmtData(entrega)}`,
+    `Data que completa a necessidade: ${fmtData(cobertura)}`,
+  ].join("\n")
 }
 
 function resumoPedidos(compras: CompraAberta[]) {
@@ -1223,7 +1268,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                 <>
                   <p className="card-label">Componentes necessários</p>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[1280px]">
+                    <table className="w-full text-xs min-w-[1580px]">
                       <thead>
                         <tr style={{ borderBottom: "1px solid var(--border)" }}>
                           {[
@@ -1236,8 +1281,11 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                             "Saldo 98",
                             "Compra total",
                             "Compra usada",
-                            "Entrega",
-                            "Abre no prazo?",
+                            "Até início",
+                            "Após início",
+                            "Falta na OP",
+                            "Data cobertura",
+                            "Situação compra",
                             "Pedido/SC",
                             "Comprador",
                             "Status",
@@ -1259,6 +1307,11 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const dataEntregaCompra = getMenorDataEntregaCompra(comp)
                           const statusCompra = getStatusCompra(comp)
                           const compraCfg = compraStatusConfig(statusCompra)
+                          const qtdCompraAteInicio = getQtdCompraAteInicio(comp)
+                          const qtdCompraAposInicio = getQtdCompraAposInicio(comp)
+                          const faltanteNaDataOP = getFaltanteNaDataOP(comp)
+                          const dataCoberturaCompra = getDataCoberturaCompra(comp)
+                          const statusCompraTooltip = tooltipStatusCompra(comp)
                           const comprasTooltip = tooltipCompras(comprasComp)
                           const comprador = comprasComp.find(c => c.comprador_nome)?.comprador_nome || "—"
 
@@ -1280,20 +1333,31 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                               <td className="py-2 pr-4 font-semibold" style={{ color: qtdCompraUsada > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
                                 {qtdCompraUsada > 0 ? fmt(qtdCompraUsada) : "—"}
                               </td>
-                              <td className="py-2 pr-4" style={{ color: dataEntregaCompra ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                                {fmtData(dataEntregaCompra)}
+                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdCompraAteInicio > 0 ? "#16A34A" : "var(--text-secondary)" }}>
+                                {qtdCompraAteInicio > 0 ? fmt(qtdCompraAteInicio) : "—"}
+                              </td>
+                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdCompraAposInicio > 0 ? "#DC2626" : "var(--text-secondary)" }}>
+                                {qtdCompraAposInicio > 0 ? fmt(qtdCompraAposInicio) : "—"}
+                              </td>
+                              <td className="py-2 pr-4 font-semibold" style={{ color: faltanteNaDataOP > 0 ? "#DC2626" : qtdCompraUsada > 0 ? "#16A34A" : "var(--text-secondary)" }}>
+                                {qtdCompraUsada > 0 ? fmt(faltanteNaDataOP) : "—"}
+                              </td>
+                              <td className="py-2 pr-4" style={{ color: dataCoberturaCompra ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                                {fmtData(dataCoberturaCompra || dataEntregaCompra)}
                               </td>
                               <td className="py-2 pr-4">
-                                <span
-                                  className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
-                                  style={{
-                                    background: compraCfg.bg,
-                                    border: `1px solid ${compraCfg.border}`,
-                                    color: compraCfg.text,
-                                  }}
-                                >
-                                  {compraCfg.label}
-                                </span>
+                                <Tooltip text={statusCompraTooltip}>
+                                  <span
+                                    className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+                                    style={{
+                                      background: compraCfg.bg,
+                                      border: `1px solid ${compraCfg.border}`,
+                                      color: compraCfg.text,
+                                    }}
+                                  >
+                                    {compraCfg.label}
+                                  </span>
+                                </Tooltip>
                               </td>
                               <td className="py-2 pr-4 font-mono" style={{ color: comprasComp.length ? "var(--text-primary)" : "var(--text-secondary)" }}>
                                 {comprasComp.length ? (
