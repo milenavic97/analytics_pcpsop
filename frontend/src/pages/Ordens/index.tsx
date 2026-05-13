@@ -270,6 +270,22 @@ function isDataAteLimite(dataEntrega: string | null | undefined, dataLimite: str
   return String(dataEntrega).slice(0, 10) <= String(dataLimite).slice(0, 10)
 }
 
+function calcularDataLimiteCompra(dataInicioFabricacao: string | null | undefined, leadtimeDias: number) {
+  if (!dataInicioFabricacao) return null
+
+  const raw = String(dataInicioFabricacao).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
+
+  const [ano, mes, dia] = raw.split("-").map(Number)
+  const dt = new Date(ano, mes - 1, dia)
+  dt.setDate(dt.getDate() - Math.max(0, leadtimeDias || 0))
+
+  const y = dt.getFullYear()
+  const m = String(dt.getMonth() + 1).padStart(2, "0")
+  const d = String(dt.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
 function getPedidoLabel(c: CompraAberta | null | undefined) {
   if (!c) return "—"
   if (c.pedido_numero && c.sc_numero) return `${c.pedido_numero} / SC ${c.sc_numero}`
@@ -302,7 +318,7 @@ function getDataCoberturaCompra(comp: unknown): string | null {
 
 function tooltipStatusCompra(comp: unknown) {
   const status = getStatusCompra(comp)
-  const dataLimite = getDataLimiteCompra(comp)
+  const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
   const entregaAteLimite = getQtdEntregaAteLimite(comp)
   const dataParcial = getDataEntregaParcial(comp)
   const dataFinal = getDataPrevistaFinalCompra(comp)
@@ -1252,7 +1268,7 @@ function SummaryCard({ label, value, sub, color, Icon, onClick }: {
 
 // ─── Linha da tabela ──────────────────────────────────────────────────────────
 
-function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth, ajustesCompra, ajustesCompraData, onAjusteCompraChange, onAjusteCompraDataChange }: {
+function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth, ajustesCompra, ajustesCompraData, leadtimeCompraDias, onAjusteCompraChange, onAjusteCompraDataChange }: {
   op: OPEditavel; selecionado: boolean
   onSelect: (id: string, val: boolean) => void
   onEdit: (op: OPEditavel) => void
@@ -1260,6 +1276,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
   gargaloColWidth: number
   ajustesCompra: Record<string, number>
   ajustesCompraData: Record<string, string>
+  leadtimeCompraDias: number
   onAjusteCompraChange: (key: string, value: number) => void
   onAjusteCompraDataChange: (key: string, value: string) => void
 }) {
@@ -1405,7 +1422,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const saldoRestante = Number((comp as { saldo_restante?: number }).saldo_restante ?? (comp.saldo_01 - comp.necessario))
                           const componenteGargalante = isComponenteGargalante(compRecord)
                           const comprasComp = getComprasAbertas(comp)
-                          const dataLimite = getDataLimiteCompra(comp)
+                          const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
                           const faltanteNaDataOP = getFaltanteNaDataOP(comp)
                           const statusCompra = getStatusCompra(comp)
                           const compraCfg = compraStatusConfig(statusCompra)
@@ -1420,7 +1437,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           }, 0)
 
                           const abreOPOficial = getAbreOP(comp)
-                          const abreOPSimulado = abreOPOficial || (qtdNegociadaValidaTotal >= faltanteNaDataOP && (faltanteNaDataOP > 0 || qtdNegociadaValidaTotal > 0))
+                          const abreOPSimulado = abreOPOficial || (faltanteNaDataOP > 0 && (qtdNegociadaValidaTotal + 0.0001) >= faltanteNaDataOP)
 
                           return linhasCompra.map((compra, compraIndex) => {
                             const compraKey = getCompraPedidoKey(op, comp, compra, i, compraIndex)
@@ -1439,7 +1456,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                               `Compra total do pedido: ${fmt(compraTotalPedido)}`,
                               `Qtd. usada nesta OP: ${fmt(qtdUsadaOP)}`,
                               `Entrega do pedido: ${fmtData(entregaPedido)}`,
-                              `Data limite considerada: ${fmtData(dataLimite)}`,
+                              `Data limite considerada: ${fmtData(dataLimite)} (início fabricação - ${leadtimeCompraDias} dia${leadtimeCompraDias !== 1 ? "s" : ""})`,
                               `Qtd. oficial até prazo neste pedido: ${fmt(qtdOficialAtePrazo)}`,
                               `Qtd. negociada manual: ${fmt(qtdNegociada)}`,
                               `Data negociada: ${fmtData(dataNegociada)}`,
@@ -1559,13 +1576,14 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
 
 // ─── Tabela ───────────────────────────────────────────────────────────────────
 
-function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesCompra, ajustesCompraData, onAjusteCompraChange, onAjusteCompraDataChange }: {
+function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesCompra, ajustesCompraData, leadtimeCompraDias, onAjusteCompraChange, onAjusteCompraDataChange }: {
   ops: OPEditavel[]; selecionados: Set<string>
   onSelect: (id: string, val: boolean) => void
   onSelectAll: (val: boolean) => void
   onEdit: (op: OPEditavel) => void
   ajustesCompra: Record<string, number>
   ajustesCompraData: Record<string, string>
+  leadtimeCompraDias: number
   onAjusteCompraChange: (key: string, value: number) => void
   onAjusteCompraDataChange: (key: string, value: string) => void
 }) {
@@ -1634,6 +1652,7 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesComp
                 gargaloColWidth={gargaloColWidth}
                 ajustesCompra={ajustesCompra}
                 ajustesCompraData={ajustesCompraData}
+                leadtimeCompraDias={leadtimeCompraDias}
                 onAjusteCompraChange={onAjusteCompraChange}
                 onAjusteCompraDataChange={onAjusteCompraDataChange} />
             ))}
@@ -1869,6 +1888,7 @@ export function OrdensPage() {
             onEdit={setOpEditando}
             ajustesCompra={ajustesCompra}
             ajustesCompraData={ajustesCompraData}
+            leadtimeCompraDias={leadtimeCompraDias}
             onAjusteCompraChange={handleAjusteCompraChange}
             onAjusteCompraDataChange={handleAjusteCompraDataChange}
           />
