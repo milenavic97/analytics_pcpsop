@@ -239,3 +239,34 @@ export async function excluirParada(id: string) {
     method: "DELETE",
   })
 }
+export interface AjusteCompraOP {
+  id?: string
+  op_id: string
+  lote?: string | null
+  codigo_op?: string | null
+  codigo_comp: string
+  pedido_numero?: string | null
+  sc_numero?: string | null
+  qtd_negociada: number
+  data_negociada?: string | null
+  observacao?: string | null
+}
+
+export async function getAjustesComprasOps(): Promise<AjusteCompraOP[]> {
+  return apiFetch("/ajustes-compras-ops")
+}
+
+export async function salvarAjusteCompraOP(payload: AjusteCompraOP) {
+  return apiFetch("/ajustes-compras-ops", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+export async function excluirAjusteCompraOP(id: string) {
+  return apiFetch(`/ajustes-compras-ops/${id}`, {
+    method: "DELETE",
+  })
+}
+
