@@ -544,15 +544,21 @@ function ordenarESequenciarOps(lista: OPEditavel[]) {
   const ordenadas = [...lista]
     .map((op, originalIndex) => ({ op, originalIndex }))
     .sort((a, b) => {
+      // Sequência visual combinada: primeiro PA, depois PI.
+      // Dentro de cada grupo, o FIFO deve seguir a data de início de fabricação,
+      // usando a posição original do backend apenas como desempate.
       const tipoA = tipoProduto(a.op.linha) === "PA" ? 0 : 1
       const tipoB = tipoProduto(b.op.linha) === "PA" ? 0 : 1
       if (tipoA !== tipoB) return tipoA - tipoB
-      const fifoA = a.op.fifo_posicao ?? Number.MAX_SAFE_INTEGER
-      const fifoB = b.op.fifo_posicao ?? Number.MAX_SAFE_INTEGER
-      if (fifoA !== fifoB) return fifoA - fifoB
+
       const dataA = a.op.data_inicio_fabricacao || a.op.data_fim || "9999-12-31"
       const dataB = b.op.data_inicio_fabricacao || b.op.data_fim || "9999-12-31"
       if (dataA !== dataB) return dataA.localeCompare(dataB)
+
+      const fifoA = a.op.fifo_posicao ?? Number.MAX_SAFE_INTEGER
+      const fifoB = b.op.fifo_posicao ?? Number.MAX_SAFE_INTEGER
+      if (fifoA !== fifoB) return fifoA - fifoB
+
       return a.originalIndex - b.originalIndex
     })
     .map(({ op }) => op)
@@ -573,6 +579,29 @@ function getFaltanteParaSimulacao(comp: unknown): number {
     toNumber((comp as { faltante?: number })?.faltante) ||
     0
   )
+}
+
+function getSaldoChegouNaOP(comp: unknown): number {
+  const c = comp as Record<string, unknown>
+  const saldoChegou = toNumber(c.saldo_chegou)
+  if (saldoChegou !== 0) return saldoChegou
+
+  const saldoAtualFIFO = toNumber(c.saldo_atual_fifo)
+  if (saldoAtualFIFO !== 0) return saldoAtualFIFO
+
+  const saldoAntesOP = toNumber(c.saldo_antes_op)
+  if (saldoAntesOP !== 0) return saldoAntesOP
+
+  return toNumber(c.saldo_01 ?? c.saldo_atual)
+}
+
+function getSaldoRestanteNaOP(comp: unknown): number {
+  const c = comp as Record<string, unknown>
+  const direto = c.saldo_restante ?? c.saldo_apos_op ?? c.saldo_pos_op
+  if (direto !== undefined && direto !== null) return toNumber(direto)
+
+  const necessario = toNumber(c.necessario)
+  return getSaldoChegouNaOP(comp) - necessario
 }
 
 function isComponenteCobertoPorNegociacao(
@@ -1109,7 +1138,7 @@ function GargaloCard({ gargalo, fifo_posicao }: { gargalo: Gargalo; fifo_posicao
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="text-xs font-bold uppercase tracking-wider" style={{ color: isFalta ? "#991B1B" : "#92400E" }}>
-              Gargalo FIFO{fifo_posicao ? ` · posição ${fifo_posicao}` : ""}
+              Gargalo da OP{fifo_posicao ? ` · posição ${fifo_posicao}` : ""}
             </span>
             <span className="text-xs font-mono px-1.5 py-0.5 rounded"
               style={{ background: isFalta ? "#FECACA" : "#FDE68A", color: isFalta ? "#7F1D1D" : "#78350F" }}>
@@ -1529,7 +1558,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                             "Descrição",
                             "TP",
                             "Necessário",
-                            "Saldo Atual",
+                            "Saldo na OP",
                             "Saldo Restante",
                             "Saldo 98",
                             "Pedido/SC",
@@ -1553,7 +1582,8 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const compRecord = comp as unknown as Record<string, unknown>
                           const compStatusVisual = statusComponenteVisual(compRecord)
                           const compCfg = STATUS_CONFIG[compStatusVisual] || STATUS_CONFIG.ok
-                          const saldoRestante = Number((comp as { saldo_restante?: number }).saldo_restante ?? (comp.saldo_01 - comp.necessario))
+                          const saldoChegouNaOP = getSaldoChegouNaOP(comp)
+                          const saldoRestante = getSaldoRestanteNaOP(comp)
                           const componenteGargalante = isComponenteGargalante(compRecord)
                           const comprasComp = getComprasAbertas(comp)
                           const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
@@ -1608,7 +1638,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                                 <td className="py-2 pr-4" style={{ color: "var(--text-primary)", minWidth: 180 }}>{comp.descricao}</td>
                                 <td className="py-2 pr-4"><span className="rounded px-1.5 py-0.5 font-mono font-bold" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)", fontSize: 10 }}>{comp.tp}</span></td>
                                 <td className="py-2 pr-4 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(comp.necessario)}</td>
-                                <td className="py-2 pr-4 font-semibold" style={{ color: comp.saldo_01 >= comp.necessario ? "#16A34A" : comp.saldo_01 > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(comp.saldo_01)}</td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: saldoChegouNaOP >= comp.necessario ? "#16A34A" : saldoChegouNaOP > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }} title="Saldo disponível no momento desta OP, já considerando o consumo das OPs anteriores na sequência.">{fmt(saldoChegouNaOP)}</td>
                                 <td className="py-2 pr-4 font-semibold" style={{ color: saldoRestante >= 0 ? "#16A34A" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(saldoRestante)}</td>
                                 <td className="py-2 pr-4" style={{ color: comp.saldo_98 > 0 ? "#F59E0B" : "var(--text-secondary)", fontWeight: comp.saldo_98 > 0 ? 600 : 400 }}
                                   title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
@@ -2052,13 +2082,6 @@ export function OrdensPage() {
         })
       })
 
-      if (qtdNegociada > 0 && !dataNegociada) {
-  setToast({
-    type: "error",
-    message: "Informe a data negociada antes de salvar.",
-  })
-  return
-}
 
       await Promise.all(payloads.map(payload => salvarAjusteCompraOP(payload)))
       mostrarToast("success", "Negociação salva com sucesso.")
