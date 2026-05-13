@@ -260,6 +260,29 @@ function parseInputNumber(value: string) {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
+function parseInputDate(value: string) {
+  const v = String(value || "").trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ""
+}
+
+function isDataAteLimite(dataEntrega: string | null | undefined, dataLimite: string | null | undefined) {
+  if (!dataEntrega || !dataLimite) return false
+  return String(dataEntrega).slice(0, 10) <= String(dataLimite).slice(0, 10)
+}
+
+function getPedidoLabel(c: CompraAberta | null | undefined) {
+  if (!c) return "—"
+  if (c.pedido_numero && c.sc_numero) return `${c.pedido_numero} / SC ${c.sc_numero}`
+  return c.pedido_numero || c.sc_numero || "—"
+}
+
+function getCompraPedidoKey(op: OPEditavel, comp: unknown, compra: CompraAberta | null | undefined, compIndex: number, compraIndex: number) {
+  const c = comp as { codigo_comp?: string }
+  const opKey = op.id || `${op.lote}-${op.codigo}`
+  const pedido = compra?.pedido_numero || compra?.sc_numero || `sem-pedido-${compraIndex}`
+  return `${opKey}|${c.codigo_comp || compIndex}|${pedido}`
+}
+
 function getQtdCompraAteInicio(comp: unknown): number {
   return toNumber((comp as { qtd_compra_ate_inicio?: number })?.qtd_compra_ate_inicio)
 }
@@ -290,11 +313,11 @@ function tooltipStatusCompra(comp: unknown) {
   return [
     `Status: ${compraStatusConfig(status).label}`,
     `Abre OP? ${getCobreOPLabel(comp)}`,
-    `Compra total usada na OP: ${fmt(compraTotal)}`,
+    `Qtd. usada na OP pelas compras: ${fmt(compraTotal)}`,
     `Data limite da entrega: ${fmtData(dataLimite)}`,
     `Qtd. oficial até prazo: ${fmt(entregaAteLimite)}`,
-    `Primeira entrega: ${fmtData(dataParcial)}`,
-    `Última entrega: ${fmtData(dataFinal)}`,
+    `Primeiro pedido usado: ${fmtData(dataParcial)}`,
+    `Data de cobertura/final: ${fmtData(dataFinal)}`,
   ].join("\n")
 }
 
@@ -1229,14 +1252,16 @@ function SummaryCard({ label, value, sub, color, Icon, onClick }: {
 
 // ─── Linha da tabela ──────────────────────────────────────────────────────────
 
-function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth, ajustesCompra, onAjusteCompraChange }: {
+function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth, ajustesCompra, ajustesCompraData, onAjusteCompraChange, onAjusteCompraDataChange }: {
   op: OPEditavel; selecionado: boolean
   onSelect: (id: string, val: boolean) => void
   onEdit: (op: OPEditavel) => void
   produtoColWidth: number
   gargaloColWidth: number
   ajustesCompra: Record<string, number>
+  ajustesCompraData: Record<string, string>
   onAjusteCompraChange: (key: string, value: number) => void
+  onAjusteCompraDataChange: (key: string, value: string) => void
 }) {
   const [aberto, setAberto] = useState(false)
   const cfg = STATUS_CONFIG[op.status]
@@ -1345,7 +1370,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                 <>
                   <p className="card-label">Componentes necessários</p>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[1560px]">
+                    <table className="w-full text-xs min-w-[1820px]">
                       <thead>
                         <tr style={{ borderBottom: "1px solid var(--border)" }}>
                           {[
@@ -1356,14 +1381,15 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                             "Saldo Atual",
                             "Saldo Restante",
                             "Saldo 98",
-                            "Compra total",
-                            "Primeira entrega",
-                            "Última entrega",
+                            "Pedido/SC",
+                            "Compra total pedido",
+                            "Qtd. usada OP",
+                            "Entrega pedido",
                             "Qtd. oficial até prazo",
                             "Qtd. negociada",
+                            "Data negociada",
                             "Abre OP?",
                             "Status compra",
-                            "Pedido/SC",
                             "Comprador",
                             "Status",
                           ].map(h => (
@@ -1372,109 +1398,151 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                         </tr>
                       </thead>
                       <tbody>
-                        {detalhesVisiveis.map((comp, i) => {
+                        {detalhesVisiveis.flatMap((comp, i) => {
                           const compRecord = comp as unknown as Record<string, unknown>
                           const compStatusVisual = statusComponenteVisual(compRecord)
                           const compCfg = STATUS_CONFIG[compStatusVisual] || STATUS_CONFIG.ok
                           const saldoRestante = Number((comp as { saldo_restante?: number }).saldo_restante ?? (comp.saldo_01 - comp.necessario))
                           const componenteGargalante = isComponenteGargalante(compRecord)
                           const comprasComp = getComprasAbertas(comp)
-                          const compraTotalOP = getCompraTotalOP(comp)
-                          const dataPrevistaFinal = getDataPrevistaFinalCompra(comp)
-                          const qtdEntregaAteLimite = getQtdEntregaAteLimite(comp)
-                          const primeiraEntrega = getPrimeiraEntregaCompra(comp) || getDataEntregaParcial(comp)
-                          const compraKey = getCompraKey(op, comp, i)
-                          const qtdNegociada = ajustesCompra[compraKey] || 0
+                          const dataLimite = getDataLimiteCompra(comp)
                           const faltanteNaDataOP = getFaltanteNaDataOP(comp)
-                          const abreOPOficial = getAbreOP(comp)
-                          const abreOPSimulado = abreOPOficial || (qtdNegociada > 0 && qtdNegociada >= faltanteNaDataOP)
                           const statusCompra = getStatusCompra(comp)
                           const compraCfg = compraStatusConfig(statusCompra)
-                          const statusCompraTooltip = `${tooltipStatusCompra(comp)}\nQtd. negociada manual: ${fmt(qtdNegociada)}\nAbre com negociação? ${abreOPSimulado ? "Sim" : "Não"}`
-                          const comprasTooltip = tooltipCompras(comprasComp)
-                          const comprador = comprasComp.find(c => c.comprador_nome)?.comprador_nome || "—"
+                          const compradorDefault = comprasComp.find(c => c.comprador_nome)?.comprador_nome || "—"
+                          const linhasCompra = comprasComp.length > 0 ? comprasComp : [null]
 
-                          return (
-                            <tr key={`comp-${i}`} style={{ borderBottom: "1px solid var(--border)", background: compStatusVisual !== "ok" ? compCfg.bg + "55" : undefined }}>
-                              <td className="py-2 pr-4 font-mono" style={{ color: "var(--text-secondary)" }}>{comp.codigo_comp}</td>
-                              <td className="py-2 pr-4" style={{ color: "var(--text-primary)", minWidth: 180 }}>{comp.descricao}</td>
-                              <td className="py-2 pr-4"><span className="rounded px-1.5 py-0.5 font-mono font-bold" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)", fontSize: 10 }}>{comp.tp}</span></td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(comp.necessario)}</td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: comp.saldo_01 >= comp.necessario ? "#16A34A" : comp.saldo_01 > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(comp.saldo_01)}</td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: saldoRestante >= 0 ? "#16A34A" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(saldoRestante)}</td>
-                              <td className="py-2 pr-4" style={{ color: comp.saldo_98 > 0 ? "#F59E0B" : "var(--text-secondary)", fontWeight: comp.saldo_98 > 0 ? 600 : 400 }}
-                                title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
-                                {comp.saldo_98 > 0 ? `Quarentena: ${fmt(comp.saldo_98)}` : "—"}
-                              </td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: compraTotalOP > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
-                                {compraTotalOP > 0 ? fmt(compraTotalOP) : "—"}
-                              </td>
-                              <td className="py-2 pr-4" style={{ color: primeiraEntrega ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                                {fmtData(primeiraEntrega)}
-                              </td>
-                              <td className="py-2 pr-4" style={{ color: dataPrevistaFinal ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                                {fmtData(dataPrevistaFinal)}
-                              </td>
-                              <td className="py-2 pr-4 font-semibold" style={{ color: qtdEntregaAteLimite > 0 ? "#16A34A" : "var(--text-secondary)" }}>
-                                {compraTotalOP > 0 ? fmt(qtdEntregaAteLimite) : "—"}
-                              </td>
-                              <td className="py-2 pr-4" onClick={e => e.stopPropagation()}>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={qtdNegociada || ""}
-                                  placeholder="0"
-                                  onChange={e => onAjusteCompraChange(compraKey, parseInputNumber(e.target.value))}
-                                  className="h-8 w-24 rounded-lg border px-2 text-xs font-semibold outline-none"
-                                  style={{
-                                    background: qtdNegociada > 0 ? "#FFFBEB" : "var(--bg-secondary)",
-                                    borderColor: qtdNegociada > 0 ? "#FDE68A" : "var(--border)",
-                                    color: qtdNegociada > 0 ? "#92400E" : "var(--text-primary)",
-                                  }}
-                                  title="Quantidade adicional negociada manualmente com Compras/fornecedor para chegar até o prazo."
-                                />
-                              </td>
-                              <td className="py-2 pr-4">
-                                <Tooltip text={statusCompraTooltip}>
-                                  <span
-                                    className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+                          const qtdNegociadaValidaTotal = linhasCompra.reduce((acc, compra, compraIndex) => {
+                            const key = getCompraPedidoKey(op, comp, compra, i, compraIndex)
+                            const qtd = ajustesCompra[key] || 0
+                            const dataNegociada = ajustesCompraData[key]
+                            return acc + (qtd > 0 && isDataAteLimite(dataNegociada, dataLimite) ? qtd : 0)
+                          }, 0)
+
+                          const abreOPOficial = getAbreOP(comp)
+                          const abreOPSimulado = abreOPOficial || (qtdNegociadaValidaTotal >= faltanteNaDataOP && (faltanteNaDataOP > 0 || qtdNegociadaValidaTotal > 0))
+
+                          return linhasCompra.map((compra, compraIndex) => {
+                            const compraKey = getCompraPedidoKey(op, comp, compra, i, compraIndex)
+                            const qtdNegociada = ajustesCompra[compraKey] || 0
+                            const dataNegociada = ajustesCompraData[compraKey] || ""
+                            const compraTotalPedido = compra ? getQtdCompraTotal(compra) : 0
+                            const qtdUsadaOP = compra ? toNumber(compra.quantidade_utilizada ?? compra.quantidade_pendente) : 0
+                            const entregaPedido = compra?.data_prevista_entrega || null
+                            const qtdOficialAtePrazo = compra && isDataAteLimite(entregaPedido, dataLimite) ? qtdUsadaOP : 0
+                            const pedidoLabel = getPedidoLabel(compra)
+                            const comprador = compra?.comprador_nome || compradorDefault
+                            const comprasTooltip = compra ? tooltipCompras([compra]) : tooltipStatusCompra(comp)
+                            const statusCompraTooltip = [
+                              tooltipStatusCompra(comp),
+                              `Pedido/SC: ${pedidoLabel}`,
+                              `Compra total do pedido: ${fmt(compraTotalPedido)}`,
+                              `Qtd. usada nesta OP: ${fmt(qtdUsadaOP)}`,
+                              `Entrega do pedido: ${fmtData(entregaPedido)}`,
+                              `Data limite considerada: ${fmtData(dataLimite)}`,
+                              `Qtd. oficial até prazo neste pedido: ${fmt(qtdOficialAtePrazo)}`,
+                              `Qtd. negociada manual: ${fmt(qtdNegociada)}`,
+                              `Data negociada: ${fmtData(dataNegociada)}`,
+                              `Negociação conta no prazo? ${qtdNegociada > 0 && isDataAteLimite(dataNegociada, dataLimite) ? "Sim" : "Não"}`,
+                              `Abre OP com negociação? ${abreOPSimulado ? "Sim" : "Não"}`,
+                            ].join("\n")
+
+                            return (
+                              <tr key={`comp-${i}-compra-${compraIndex}`} style={{ borderBottom: "1px solid var(--border)", background: compStatusVisual !== "ok" ? compCfg.bg + "55" : undefined }}>
+                                <td className="py-2 pr-4 font-mono" style={{ color: "var(--text-secondary)" }}>{comp.codigo_comp}</td>
+                                <td className="py-2 pr-4" style={{ color: "var(--text-primary)", minWidth: 180 }}>{comp.descricao}</td>
+                                <td className="py-2 pr-4"><span className="rounded px-1.5 py-0.5 font-mono font-bold" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)", fontSize: 10 }}>{comp.tp}</span></td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(comp.necessario)}</td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: comp.saldo_01 >= comp.necessario ? "#16A34A" : comp.saldo_01 > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(comp.saldo_01)}</td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: saldoRestante >= 0 ? "#16A34A" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(saldoRestante)}</td>
+                                <td className="py-2 pr-4" style={{ color: comp.saldo_98 > 0 ? "#F59E0B" : "var(--text-secondary)", fontWeight: comp.saldo_98 > 0 ? 600 : 400 }}
+                                  title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
+                                  {comp.saldo_98 > 0 ? `Quarentena: ${fmt(comp.saldo_98)}` : "—"}
+                                </td>
+                                <td className="py-2 pr-4 font-mono" style={{ color: compra ? "var(--text-primary)" : "var(--text-secondary)", minWidth: 95 }}>
+                                  {compra ? (
+                                    <Tooltip text={comprasTooltip}>
+                                      <span className="underline decoration-dotted underline-offset-2">{pedidoLabel}</span>
+                                    </Tooltip>
+                                  ) : "—"}
+                                </td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: compraTotalPedido > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
+                                  {compraTotalPedido > 0 ? fmt(compraTotalPedido) : "—"}
+                                </td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: qtdUsadaOP > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
+                                  {qtdUsadaOP > 0 ? fmt(qtdUsadaOP) : "—"}
+                                </td>
+                                <td className="py-2 pr-4" style={{ color: entregaPedido ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                                  {fmtData(entregaPedido)}
+                                </td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: qtdOficialAtePrazo > 0 ? "#16A34A" : "var(--text-secondary)" }}>
+                                  {compra ? fmt(qtdOficialAtePrazo) : "—"}
+                                </td>
+                                <td className="py-2 pr-4" onClick={e => e.stopPropagation()}>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={qtdNegociada || ""}
+                                    placeholder="0"
+                                    onChange={e => onAjusteCompraChange(compraKey, parseInputNumber(e.target.value))}
+                                    className="h-8 w-24 rounded-lg border px-2 text-xs font-semibold outline-none"
                                     style={{
-                                      background: abreOPSimulado ? "#F0FDF4" : compraTotalOP > 0 || qtdNegociada > 0 ? "#FEF2F2" : "#F8FAFC",
-                                      border: `1px solid ${abreOPSimulado ? "#BBF7D0" : compraTotalOP > 0 || qtdNegociada > 0 ? "#FECACA" : "#CBD5E1"}`,
-                                      color: abreOPSimulado ? "#166534" : compraTotalOP > 0 || qtdNegociada > 0 ? "#991B1B" : "#64748B",
+                                      background: qtdNegociada > 0 ? "#FFFBEB" : "var(--bg-secondary)",
+                                      borderColor: qtdNegociada > 0 ? "#FDE68A" : "var(--border)",
+                                      color: qtdNegociada > 0 ? "#92400E" : "var(--text-primary)",
                                     }}
-                                  >
-                                    {compraTotalOP > 0 || qtdNegociada > 0 ? (abreOPSimulado ? "Sim" : "Não") : "—"}
-                                  </span>
-                                </Tooltip>
-                              </td>
-                              <td className="py-2 pr-4">
-                                <Tooltip text={statusCompraTooltip}>
-                                  <span
-                                    className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+                                    title="Quantidade negociada manualmente com Compras/fornecedor para antecipação deste pedido."
+                                  />
+                                </td>
+                                <td className="py-2 pr-4" onClick={e => e.stopPropagation()}>
+                                  <input
+                                    type="date"
+                                    value={dataNegociada}
+                                    onChange={e => onAjusteCompraDataChange(compraKey, e.target.value)}
+                                    className="h-8 w-32 rounded-lg border px-2 text-xs font-semibold outline-none"
                                     style={{
-                                      background: abreOPSimulado ? "#F0FDF4" : compraCfg.bg,
-                                      border: `1px solid ${abreOPSimulado ? "#BBF7D0" : compraCfg.border}`,
-                                      color: abreOPSimulado ? "#166534" : compraCfg.text,
+                                      background: dataNegociada ? "#FFFBEB" : "var(--bg-secondary)",
+                                      borderColor: dataNegociada ? "#FDE68A" : "var(--border)",
+                                      color: dataNegociada ? "#92400E" : "var(--text-primary)",
                                     }}
-                                  >
-                                    {abreOPSimulado ? "OK" : compraCfg.label}
-                                  </span>
-                                </Tooltip>
-                              </td>
-                              <td className="py-2 pr-4 font-mono" style={{ color: comprasComp.length ? "var(--text-primary)" : "var(--text-secondary)" }}>
-                                {comprasComp.length ? (
-                                  <Tooltip text={comprasTooltip}>
-                                    <span className="underline decoration-dotted underline-offset-2">{resumoPedidos(comprasComp)}</span>
+                                    title="Data combinada manualmente com Compras/fornecedor. Só conta se for até a data limite do lead time."
+                                  />
+                                </td>
+                                <td className="py-2 pr-4">
+                                  <Tooltip text={statusCompraTooltip}>
+                                    <span
+                                      className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+                                      style={{
+                                        background: abreOPSimulado ? "#F0FDF4" : compraTotalPedido > 0 || qtdNegociada > 0 ? "#FEF2F2" : "#F8FAFC",
+                                        border: `1px solid ${abreOPSimulado ? "#BBF7D0" : compraTotalPedido > 0 || qtdNegociada > 0 ? "#FECACA" : "#CBD5E1"}`,
+                                        color: abreOPSimulado ? "#166534" : compraTotalPedido > 0 || qtdNegociada > 0 ? "#991B1B" : "#64748B",
+                                      }}
+                                    >
+                                      {compraTotalPedido > 0 || qtdNegociada > 0 ? (abreOPSimulado ? "Sim" : "Não") : "—"}
+                                    </span>
                                   </Tooltip>
-                                ) : "—"}
-                              </td>
-                              <td className="py-2 pr-4" style={{ color: comprasComp.length ? "var(--text-primary)" : "var(--text-secondary)", minWidth: 100 }}>
-                                {comprador}
-                              </td>
-                              <td className="py-2"><StatusBadge status={compStatusVisual} /></td>
-                            </tr>
-                          )
+                                </td>
+                                <td className="py-2 pr-4">
+                                  <Tooltip text={statusCompraTooltip}>
+                                    <span
+                                      className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+                                      style={{
+                                        background: abreOPSimulado ? "#F0FDF4" : compraCfg.bg,
+                                        border: `1px solid ${abreOPSimulado ? "#BBF7D0" : compraCfg.border}`,
+                                        color: abreOPSimulado ? "#166534" : compraCfg.text,
+                                      }}
+                                    >
+                                      {abreOPSimulado ? "OK" : compraCfg.label}
+                                    </span>
+                                  </Tooltip>
+                                </td>
+                                <td className="py-2 pr-4" style={{ color: compra ? "var(--text-primary)" : "var(--text-secondary)", minWidth: 100 }}>
+                                  {comprador}
+                                </td>
+                                <td className="py-2"><StatusBadge status={compStatusVisual} /></td>
+                              </tr>
+                            )
+                          })
                         })}
                       </tbody>
                     </table>
@@ -1491,13 +1559,15 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
 
 // ─── Tabela ───────────────────────────────────────────────────────────────────
 
-function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesCompra, onAjusteCompraChange }: {
+function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesCompra, ajustesCompraData, onAjusteCompraChange, onAjusteCompraDataChange }: {
   ops: OPEditavel[]; selecionados: Set<string>
   onSelect: (id: string, val: boolean) => void
   onSelectAll: (val: boolean) => void
   onEdit: (op: OPEditavel) => void
   ajustesCompra: Record<string, number>
+  ajustesCompraData: Record<string, string>
   onAjusteCompraChange: (key: string, value: number) => void
+  onAjusteCompraDataChange: (key: string, value: string) => void
 }) {
   const todosSelect = ops.length > 0 && ops.every(op => selecionados.has(op.id || `${op.lote}-${op.codigo}`))
   const { produtoColWidth, handleResizeMouseDown, isResizing } = useProdutoColResize()
@@ -1563,7 +1633,9 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesComp
                 produtoColWidth={produtoColWidth}
                 gargaloColWidth={gargaloColWidth}
                 ajustesCompra={ajustesCompra}
-                onAjusteCompraChange={onAjusteCompraChange} />
+                ajustesCompraData={ajustesCompraData}
+                onAjusteCompraChange={onAjusteCompraChange}
+                onAjusteCompraDataChange={onAjusteCompraDataChange} />
             ))}
           </tbody>
         </table>
@@ -1612,6 +1684,7 @@ export function OrdensPage() {
   const [novaOpModal, setNovaOpModal]       = useState(false)
   const [leadtimeCompraDias, setLeadtimeCompraDias] = useState(2)
   const [ajustesCompra, setAjustesCompra] = useState<Record<string, number>>({})
+  const [ajustesCompraData, setAjustesCompraData] = useState<Record<string, string>>({})
 
   useEffect(() => {
     getOpsMeses().then(res => {
@@ -1678,6 +1751,16 @@ export function OrdensPage() {
     setAjustesCompra(prev => {
       const next = { ...prev }
       if (value > 0) next[key] = value
+      else delete next[key]
+      return next
+    })
+  }
+
+  function handleAjusteCompraDataChange(key: string, value: string) {
+    const data = parseInputDate(value)
+    setAjustesCompraData(prev => {
+      const next = { ...prev }
+      if (data) next[key] = data
       else delete next[key]
       return next
     })
@@ -1785,7 +1868,9 @@ export function OrdensPage() {
             onSelectAll={handleSelectAll}
             onEdit={setOpEditando}
             ajustesCompra={ajustesCompra}
+            ajustesCompraData={ajustesCompraData}
             onAjusteCompraChange={handleAjusteCompraChange}
+            onAjusteCompraDataChange={handleAjusteCompraDataChange}
           />
         </div>
       )}
