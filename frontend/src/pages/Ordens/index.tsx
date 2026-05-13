@@ -2052,10 +2052,13 @@ export function OrdensPage() {
         })
       })
 
-      if (payloads.length === 0) {
-        mostrarToast("error", "Informe quantidade e data negociada antes de salvar.")
-        return
-      }
+      if (qtdNegociada > 0 && !dataNegociada) {
+  setToast({
+    type: "error",
+    message: "Informe a data negociada antes de salvar.",
+  })
+  return
+}
 
       await Promise.all(payloads.map(payload => salvarAjusteCompraOP(payload)))
       mostrarToast("success", "Negociação salva com sucesso.")
