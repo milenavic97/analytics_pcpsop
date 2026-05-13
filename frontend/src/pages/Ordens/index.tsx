@@ -1376,7 +1376,6 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
         <tr>
           <td colSpan={16} className="px-4 pb-4 pt-1">
             <div className="rounded-xl p-4 space-y-4" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-              {op.gargalo && isComponenteGargalante(op.gargalo) && <GargaloCard gargalo={op.gargalo} fifo_posicao={op.fifo_posicao} />}
               {((op as OPEditavel).observacoes || (op as OPEditavel).anotacao) && (
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   {op.observacoes && <div className="rounded-lg px-3 py-2.5" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}><p className="card-label mb-1">Observação</p><p className="text-sm" style={{ color: "var(--text-primary)" }}>{op.observacoes}</p></div>}
