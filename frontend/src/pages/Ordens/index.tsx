@@ -316,15 +316,25 @@ function getDataCoberturaCompra(comp: unknown): string | null {
   return direto || null
 }
 
-function tooltipStatusCompra(comp: unknown) {
+function tooltipStatusCompra(
+  comp: unknown,
+  dataLimiteFallback?: string | null,
+  leadtimeDias?: number
+) {
   const status = getStatusCompra(comp)
-  const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
+  const dataLimite =
+    getDataLimiteCompra(comp) ||
+    dataLimiteFallback ||
+    null
+
   const entregaAteLimite = getQtdEntregaAteLimite(comp)
   const dataParcial = getDataEntregaParcial(comp)
   const dataFinal = getDataPrevistaFinalCompra(comp)
   const compraTotal = getCompraTotalOP(comp)
 
-  if (status === "sem_compra") return "Não existe compra usada para cobrir esta necessidade."
+  if (status === "sem_compra") {
+    return "Não existe compra usada para cobrir esta necessidade."
+  }
 
   return [
     `Status: ${compraStatusConfig(status).label}`,
@@ -334,7 +344,12 @@ function tooltipStatusCompra(comp: unknown) {
     `Qtd. oficial até prazo: ${fmt(entregaAteLimite)}`,
     `Primeiro pedido usado: ${fmtData(dataParcial)}`,
     `Data de cobertura/final: ${fmtData(dataFinal)}`,
-  ].join("\n")
+    leadtimeDias != null
+      ? `Lead time considerado: ${leadtimeDias} dia${leadtimeDias !== 1 ? "s" : ""}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
 }
 
 function resumoPedidos(compras: CompraAberta[]) {
@@ -1449,9 +1464,9 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                             const qtdOficialAtePrazo = compra && isDataAteLimite(entregaPedido, dataLimite) ? qtdUsadaOP : 0
                             const pedidoLabel = getPedidoLabel(compra)
                             const comprador = compra?.comprador_nome || compradorDefault
-                            const comprasTooltip = compra ? tooltipCompras([compra]) : tooltipStatusCompra(comp)
+                            const comprasTooltip = compra ? tooltipCompras([compra]) : tooltipStatusCompra(comp, dataLimite, leadtimeCompraDias)
                             const statusCompraTooltip = [
-                              tooltipStatusCompra(comp),
+                              tooltipStatusCompra(comp, dataLimite, leadtimeCompraDias),
                               `Pedido/SC: ${pedidoLabel}`,
                               `Compra total do pedido: ${fmt(compraTotalPedido)}`,
                               `Qtd. usada nesta OP: ${fmt(qtdUsadaOP)}`,
