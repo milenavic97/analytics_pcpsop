@@ -175,10 +175,6 @@ export const BASES: BaseConfig[] = [
       { key: "produto",       label: "Produto"        },
     ],
   },
-
-  // ─────────────────────────────────────────────────────────────
-  // Compras / Suprimentos
-  // ─────────────────────────────────────────────────────────────
   {
     id:        "compras_abertas",
     label:     "Compras em Aberto",
@@ -196,7 +192,6 @@ export const BASES: BaseConfig[] = [
     ],
     template:  "template_compras_abertas.xlsx",
     icone:     "ShoppingCart",
-
     colunasVisiveis: [
       { key: "produto_codigo",          label: "Código"            },
       { key: "produto_descricao",       label: "Produto"           },
@@ -207,6 +202,27 @@ export const BASES: BaseConfig[] = [
       { key: "razao_social_fornecedor", label: "Fornecedor"        },
       { key: "comprador_nome",          label: "Comprador"         },
       { key: "entrega_status",          label: "Status"            },
+    ],
+  },
+  {
+    id:        "calendario_paradas",
+    label:     "Calendário de Paradas",
+    descricao: "Calendário oficial de paradas programadas da fábrica por linha produtiva.",
+    colunas: [
+      "data",
+      "linha",
+      "descricao",
+      "horas",
+      "observacao",
+    ],
+    template:  "template_calendario_paradas.xlsx",
+    icone:     "CalendarCheck",
+    colunasVisiveis: [
+      { key: "data",        label: "Data"        },
+      { key: "linha",       label: "Linha"       },
+      { key: "descricao",   label: "Descrição"   },
+      { key: "horas",       label: "Horas"       },
+      { key: "observacao",  label: "Observação"  },
     ],
   },
 ]
