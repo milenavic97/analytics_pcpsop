@@ -240,6 +240,26 @@ function getCobreOPLabel(comp: unknown): string {
   return getAbreOP(comp) ? "Sim" : "Não"
 }
 
+function getPrimeiraEntregaCompra(comp: unknown): string | null {
+  const compras = getComprasAbertas(comp)
+  const datas = compras
+    .map(c => c.data_prevista_entrega)
+    .filter(Boolean) as string[]
+
+  return datas.length > 0 ? datas.sort()[0] : null
+}
+
+function getCompraKey(op: OPEditavel, comp: unknown, index: number) {
+  const c = comp as { codigo_comp?: string }
+  const opKey = op.id || `${op.lote}-${op.codigo}`
+  return `${opKey}|${c.codigo_comp || index}`
+}
+
+function parseInputNumber(value: string) {
+  const n = Number(String(value || "0").replace(",", "."))
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
 function getQtdCompraAteInicio(comp: unknown): number {
   return toNumber((comp as { qtd_compra_ate_inicio?: number })?.qtd_compra_ate_inicio)
 }
@@ -272,9 +292,9 @@ function tooltipStatusCompra(comp: unknown) {
     `Abre OP? ${getCobreOPLabel(comp)}`,
     `Compra total usada na OP: ${fmt(compraTotal)}`,
     `Data limite da entrega: ${fmtData(dataLimite)}`,
-    `Entrega até limite: ${fmt(entregaAteLimite)}`,
-    `Data entrega parcial: ${fmtData(dataParcial)}`,
-    `Data prevista final: ${fmtData(dataFinal)}`,
+    `Qtd. oficial até prazo: ${fmt(entregaAteLimite)}`,
+    `Primeira entrega: ${fmtData(dataParcial)}`,
+    `Última entrega: ${fmtData(dataFinal)}`,
   ].join("\n")
 }
 
@@ -1209,12 +1229,14 @@ function SummaryCard({ label, value, sub, color, Icon, onClick }: {
 
 // ─── Linha da tabela ──────────────────────────────────────────────────────────
 
-function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth }: {
+function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth, ajustesCompra, onAjusteCompraChange }: {
   op: OPEditavel; selecionado: boolean
   onSelect: (id: string, val: boolean) => void
   onEdit: (op: OPEditavel) => void
   produtoColWidth: number
   gargaloColWidth: number
+  ajustesCompra: Record<string, number>
+  onAjusteCompraChange: (key: string, value: number) => void
 }) {
   const [aberto, setAberto] = useState(false)
   const cfg = STATUS_CONFIG[op.status]
@@ -1323,7 +1345,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                 <>
                   <p className="card-label">Componentes necessários</p>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[1480px]">
+                    <table className="w-full text-xs min-w-[1560px]">
                       <thead>
                         <tr style={{ borderBottom: "1px solid var(--border)" }}>
                           {[
@@ -1335,9 +1357,10 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                             "Saldo Restante",
                             "Saldo 98",
                             "Compra total",
-                            "Data prev. final",
-                            "Entrega até limite",
-                            "Data parcial",
+                            "Primeira entrega",
+                            "Última entrega",
+                            "Qtd. oficial até prazo",
+                            "Qtd. negociada",
                             "Abre OP?",
                             "Status compra",
                             "Pedido/SC",
@@ -1359,12 +1382,15 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const compraTotalOP = getCompraTotalOP(comp)
                           const dataPrevistaFinal = getDataPrevistaFinalCompra(comp)
                           const qtdEntregaAteLimite = getQtdEntregaAteLimite(comp)
-                          const dataEntregaParcial = getDataEntregaParcial(comp)
-                          const abreOP = getAbreOP(comp)
-                          const cobreOPLabel = getCobreOPLabel(comp)
+                          const primeiraEntrega = getPrimeiraEntregaCompra(comp) || getDataEntregaParcial(comp)
+                          const compraKey = getCompraKey(op, comp, i)
+                          const qtdNegociada = ajustesCompra[compraKey] || 0
+                          const faltanteNaDataOP = getFaltanteNaDataOP(comp)
+                          const abreOPOficial = getAbreOP(comp)
+                          const abreOPSimulado = abreOPOficial || (qtdNegociada > 0 && qtdNegociada >= faltanteNaDataOP)
                           const statusCompra = getStatusCompra(comp)
                           const compraCfg = compraStatusConfig(statusCompra)
-                          const statusCompraTooltip = tooltipStatusCompra(comp)
+                          const statusCompraTooltip = `${tooltipStatusCompra(comp)}\nQtd. negociada manual: ${fmt(qtdNegociada)}\nAbre com negociação? ${abreOPSimulado ? "Sim" : "Não"}`
                           const comprasTooltip = tooltipCompras(comprasComp)
                           const comprador = comprasComp.find(c => c.comprador_nome)?.comprador_nome || "—"
 
@@ -1383,26 +1409,42 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                               <td className="py-2 pr-4 font-semibold" style={{ color: compraTotalOP > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
                                 {compraTotalOP > 0 ? fmt(compraTotalOP) : "—"}
                               </td>
+                              <td className="py-2 pr-4" style={{ color: primeiraEntrega ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                                {fmtData(primeiraEntrega)}
+                              </td>
                               <td className="py-2 pr-4" style={{ color: dataPrevistaFinal ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
                                 {fmtData(dataPrevistaFinal)}
                               </td>
                               <td className="py-2 pr-4 font-semibold" style={{ color: qtdEntregaAteLimite > 0 ? "#16A34A" : "var(--text-secondary)" }}>
                                 {compraTotalOP > 0 ? fmt(qtdEntregaAteLimite) : "—"}
                               </td>
-                              <td className="py-2 pr-4" style={{ color: dataEntregaParcial ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                                {fmtData(dataEntregaParcial)}
+                              <td className="py-2 pr-4" onClick={e => e.stopPropagation()}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={qtdNegociada || ""}
+                                  placeholder="0"
+                                  onChange={e => onAjusteCompraChange(compraKey, parseInputNumber(e.target.value))}
+                                  className="h-8 w-24 rounded-lg border px-2 text-xs font-semibold outline-none"
+                                  style={{
+                                    background: qtdNegociada > 0 ? "#FFFBEB" : "var(--bg-secondary)",
+                                    borderColor: qtdNegociada > 0 ? "#FDE68A" : "var(--border)",
+                                    color: qtdNegociada > 0 ? "#92400E" : "var(--text-primary)",
+                                  }}
+                                  title="Quantidade adicional negociada manualmente com Compras/fornecedor para chegar até o prazo."
+                                />
                               </td>
                               <td className="py-2 pr-4">
                                 <Tooltip text={statusCompraTooltip}>
                                   <span
                                     className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
                                     style={{
-                                      background: abreOP ? "#F0FDF4" : compraTotalOP > 0 ? "#FEF2F2" : "#F8FAFC",
-                                      border: `1px solid ${abreOP ? "#BBF7D0" : compraTotalOP > 0 ? "#FECACA" : "#CBD5E1"}`,
-                                      color: abreOP ? "#166534" : compraTotalOP > 0 ? "#991B1B" : "#64748B",
+                                      background: abreOPSimulado ? "#F0FDF4" : compraTotalOP > 0 || qtdNegociada > 0 ? "#FEF2F2" : "#F8FAFC",
+                                      border: `1px solid ${abreOPSimulado ? "#BBF7D0" : compraTotalOP > 0 || qtdNegociada > 0 ? "#FECACA" : "#CBD5E1"}`,
+                                      color: abreOPSimulado ? "#166534" : compraTotalOP > 0 || qtdNegociada > 0 ? "#991B1B" : "#64748B",
                                     }}
                                   >
-                                    {cobreOPLabel}
+                                    {compraTotalOP > 0 || qtdNegociada > 0 ? (abreOPSimulado ? "Sim" : "Não") : "—"}
                                   </span>
                                 </Tooltip>
                               </td>
@@ -1411,12 +1453,12 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                                   <span
                                     className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
                                     style={{
-                                      background: compraCfg.bg,
-                                      border: `1px solid ${compraCfg.border}`,
-                                      color: compraCfg.text,
+                                      background: abreOPSimulado ? "#F0FDF4" : compraCfg.bg,
+                                      border: `1px solid ${abreOPSimulado ? "#BBF7D0" : compraCfg.border}`,
+                                      color: abreOPSimulado ? "#166534" : compraCfg.text,
                                     }}
                                   >
-                                    {compraCfg.label}
+                                    {abreOPSimulado ? "OK" : compraCfg.label}
                                   </span>
                                 </Tooltip>
                               </td>
@@ -1449,11 +1491,13 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
 
 // ─── Tabela ───────────────────────────────────────────────────────────────────
 
-function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
+function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesCompra, onAjusteCompraChange }: {
   ops: OPEditavel[]; selecionados: Set<string>
   onSelect: (id: string, val: boolean) => void
   onSelectAll: (val: boolean) => void
   onEdit: (op: OPEditavel) => void
+  ajustesCompra: Record<string, number>
+  onAjusteCompraChange: (key: string, value: number) => void
 }) {
   const todosSelect = ops.length > 0 && ops.every(op => selecionados.has(op.id || `${op.lote}-${op.codigo}`))
   const { produtoColWidth, handleResizeMouseDown, isResizing } = useProdutoColResize()
@@ -1517,7 +1561,9 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit }: {
                 selecionado={selecionados.has(op.id || `${op.lote}-${op.codigo}`)}
                 onSelect={onSelect} onEdit={onEdit}
                 produtoColWidth={produtoColWidth}
-                gargaloColWidth={gargaloColWidth} />
+                gargaloColWidth={gargaloColWidth}
+                ajustesCompra={ajustesCompra}
+                onAjusteCompraChange={onAjusteCompraChange} />
             ))}
           </tbody>
         </table>
@@ -1565,6 +1611,7 @@ export function OrdensPage() {
   const [selecionados, setSelecionados]     = useState<Set<string>>(new Set())
   const [novaOpModal, setNovaOpModal]       = useState(false)
   const [leadtimeCompraDias, setLeadtimeCompraDias] = useState(2)
+  const [ajustesCompra, setAjustesCompra] = useState<Record<string, number>>({})
 
   useEffect(() => {
     getOpsMeses().then(res => {
@@ -1627,6 +1674,15 @@ export function OrdensPage() {
     setSelecionados(val ? new Set(opsFiltradas.map(op => op.id || `${op.lote}-${op.codigo}`)) : new Set())
   }
 
+  function handleAjusteCompraChange(key: string, value: number) {
+    setAjustesCompra(prev => {
+      const next = { ...prev }
+      if (value > 0) next[key] = value
+      else delete next[key]
+      return next
+    })
+  }
+
   function handleSaved(atualizado: Partial<OPEditavel>) {
     setOps(prev => ordenarESequenciarOps(prev.map(op =>
       op.id === opEditando?.id ? sanitizarOP({ ...op, ...atualizado } as OPEditavel) : op
@@ -1658,7 +1714,7 @@ export function OrdensPage() {
           </button>
           <div className="flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold"
             style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}
-            title="A compra só conta para abertura se a entrega prevista for menor ou igual ao início de fabricação menos este lead time.">
+            title="A compra oficial só conta para abertura se a entrega prevista for menor ou igual ao início de fabricação menos este lead time. Você também pode simular quantidades negociadas manualmente no detalhe da OP.">
             <span className="whitespace-nowrap">Lead compra</span>
             <input
               type="number"
@@ -1699,7 +1755,7 @@ export function OrdensPage() {
 
           <div className="fade-in rounded-xl border px-4 py-2 text-xs"
             style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-            Análise considerando o estoque de insumos atualizado em {estoqueAtualizadoEm || "snapshot mais recente disponível"}. Compras só contam para abertura se a entrega prevista for até o início de fabricação menos {leadtimeCompraDias} dia{leadtimeCompraDias !== 1 ? "s" : ""}.
+            Análise considerando o estoque de insumos atualizado em {estoqueAtualizadoEm || "snapshot mais recente disponível"}. Compras oficiais só contam para abertura se a entrega prevista for até o início de fabricação menos {leadtimeCompraDias} dia{leadtimeCompraDias !== 1 ? "s" : ""}.
           </div>
         </>
       )}
@@ -1722,7 +1778,15 @@ export function OrdensPage() {
           <p className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
             {opsFiltradas.length} OP{opsFiltradas.length !== 1 ? "s" : ""} encontrada{opsFiltradas.length !== 1 ? "s" : ""}
           </p>
-          <OPTable ops={opsFiltradas} selecionados={selecionados} onSelect={handleSelect} onSelectAll={handleSelectAll} onEdit={setOpEditando} />
+          <OPTable
+            ops={opsFiltradas}
+            selecionados={selecionados}
+            onSelect={handleSelect}
+            onSelectAll={handleSelectAll}
+            onEdit={setOpEditando}
+            ajustesCompra={ajustesCompra}
+            onAjusteCompraChange={handleAjusteCompraChange}
+          />
         </div>
       )}
 
