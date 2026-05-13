@@ -185,3 +185,57 @@ export async function getOpsMeses(): Promise<{ meses: string[] }> {
 export async function getOpsResumo(mesRef: string): Promise<ResumoPorLinha> {
   return apiFetch(`/ops/resumo/${mesRef}`)
 }
+
+// ─────────────────────────────────────────────────────────────
+// Calendário de Paradas
+// ─────────────────────────────────────────────────────────────
+
+export type LinhaParada = "L1" | "L2" | "FABRIMA" | string
+
+export interface ParadaProgramada {
+  id?: string
+  data: string
+  linha: LinhaParada
+  descricao: string
+  horas?: number | null
+  observacao?: string | null
+  origem?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ResumoCalendarioParadas {
+  total_paradas: number
+  por_linha: Record<string, number>
+  proxima_parada: ParadaProgramada | null
+}
+
+export async function getCalendarioParadas(): Promise<ParadaProgramada[]> {
+  return apiFetch("/calendario-paradas/")
+}
+
+export async function getResumoCalendarioParadas(): Promise<ResumoCalendarioParadas> {
+  return apiFetch("/calendario-paradas/resumo")
+}
+
+export async function criarParada(payload: Partial<ParadaProgramada>) {
+  return apiFetch("/calendario-paradas/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+export async function editarParada(id: string, payload: Partial<ParadaProgramada>) {
+  return apiFetch(`/calendario-paradas/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+export async function excluirParada(id: string) {
+  return apiFetch(`/calendario-paradas/${id}`, {
+    method: "DELETE",
+  })
+}
