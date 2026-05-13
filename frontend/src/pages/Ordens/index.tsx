@@ -8,6 +8,9 @@ import {
 import {
   getOpsMeses,
   atualizarRegistro,
+  getAjustesComprasOps,
+  salvarAjusteCompraOP,
+  type AjusteCompraOP,
   type OPResult,
   type ResumoViabilidade,
   type StatusOP,
@@ -561,6 +564,105 @@ function ordenarESequenciarOps(lista: OPEditavel[]) {
     const fifo_posicao = tipo === "PA" ? ++seqPA : ++seqPI
     return { ...op, fifo_posicao }
   })
+}
+
+function getFaltanteParaSimulacao(comp: unknown): number {
+  return (
+    getFaltanteNaDataOP(comp) ||
+    toNumber((comp as { faltante_pos_compra?: number })?.faltante_pos_compra) ||
+    toNumber((comp as { faltante?: number })?.faltante) ||
+    0
+  )
+}
+
+function isComponenteCobertoPorNegociacao(
+  op: OPEditavel,
+  comp: unknown,
+  compIndex: number,
+  ajustesCompra: Record<string, number>,
+  ajustesCompraData: Record<string, string>,
+  leadtimeCompraDias: number
+) {
+  const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
+  const faltanteNaDataOP = getFaltanteParaSimulacao(comp)
+
+  if (faltanteNaDataOP <= 0) return false
+
+  const comprasComp = getComprasAbertas(comp)
+  const linhasCompra = comprasComp.length > 0 ? comprasComp : [null]
+
+  const qtdNegociadaValidaTotal = linhasCompra.reduce((acc, compra, compraIndex) => {
+    const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
+    const qtd = ajustesCompra[key] || 0
+    const dataNegociada = ajustesCompraData[key]
+    return acc + (qtd > 0 && isDataAteLimite(dataNegociada, dataLimite) ? qtd : 0)
+  }, 0)
+
+  return qtdNegociadaValidaTotal + 0.0001 >= faltanteNaDataOP
+}
+
+function aplicarSimulacaoComprasNaOP(
+  op: OPEditavel,
+  ajustesCompra: Record<string, number>,
+  ajustesCompraData: Record<string, string>,
+  leadtimeCompraDias: number
+): OPEditavel {
+  const detalhesOriginais = Array.isArray(op.detalhes) ? op.detalhes : []
+  const codigosCobertos = new Set<string>()
+
+  const detalhes = detalhesOriginais.map((comp, index) => {
+    const compRecord = comp as unknown as Record<string, unknown>
+    const codigoComp = String(compRecord.codigo_comp || "")
+
+    if (isComponenteCobertoPorNegociacao(op, comp, index, ajustesCompra, ajustesCompraData, leadtimeCompraDias)) {
+      codigosCobertos.add(codigoComp)
+      return {
+        ...comp,
+        status: "ok" as const,
+        faltante: 0,
+        faltante_na_data_op: 0,
+        faltante_pos_compra: 0,
+        abre_op: true,
+        abre_no_prazo: true,
+        status_compra: "no_prazo" as const,
+      }
+    }
+
+    return comp
+  })
+
+  if (codigosCobertos.size === 0) return { ...op, detalhes }
+
+  const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
+  const alertas = alertasOriginais.filter((comp) => {
+    const codigo = String((comp as unknown as Record<string, unknown>).codigo_comp || "")
+    return !codigosCobertos.has(codigo)
+  })
+
+  const alertasCriticos = alertas
+    .filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
+    .filter(comp => comp.status === "falta" || comp.status === "quarentena")
+
+  let status = op.status
+  let gargalo = op.gargalo
+
+  if (op.status === "falta" || op.status === "quarentena") {
+    if (alertasCriticos.length === 0) {
+      status = "ok"
+      gargalo = null
+    } else {
+      status = alertasCriticos.some(a => a.status === "falta") ? "falta" : "quarentena"
+      gargalo = alertaToGargalo(alertasCriticos[0] as unknown as Record<string, unknown>)
+    }
+  }
+
+  return {
+    ...op,
+    status,
+    alertas,
+    detalhes,
+    gargalo,
+  }
 }
 
 // ─── Hook: resize de coluna ───────────────────────────────────────────────────
@@ -1283,7 +1385,7 @@ function SummaryCard({ label, value, sub, color, Icon, onClick }: {
 
 // ─── Linha da tabela ──────────────────────────────────────────────────────────
 
-function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth, ajustesCompra, ajustesCompraData, leadtimeCompraDias, onAjusteCompraChange, onAjusteCompraDataChange }: {
+function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth, ajustesCompra, ajustesCompraData, leadtimeCompraDias, salvandoNegociacao, onSalvarNegociacao, onAjusteCompraChange, onAjusteCompraDataChange }: {
   op: OPEditavel; selecionado: boolean
   onSelect: (id: string, val: boolean) => void
   onEdit: (op: OPEditavel) => void
@@ -1292,6 +1394,8 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
   ajustesCompra: Record<string, number>
   ajustesCompraData: Record<string, string>
   leadtimeCompraDias: number
+  salvandoNegociacao: boolean
+  onSalvarNegociacao: (op: OPEditavel) => void
   onAjusteCompraChange: (key: string, value: number) => void
   onAjusteCompraDataChange: (key: string, value: string) => void
 }) {
@@ -1399,7 +1503,23 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
               )}
               {detalhesVisiveis.length > 0 && (
                 <>
-                  <p className="card-label">Componentes necessários</p>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="card-label">Componentes necessários</p>
+                      <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
+                        As quantidades negociadas são simulações operacionais com Compras e podem ser salvas para permanecer após atualizar a página.
+                      </p>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); onSalvarNegociacao(op) }}
+                      disabled={salvandoNegociacao}
+                      className="flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold text-white"
+                      style={{ background: salvandoNegociacao ? "#94A3B8" : "var(--bg-sidebar)", cursor: salvandoNegociacao ? "not-allowed" : "pointer" }}
+                    >
+                      <Save size={13} />
+                      {salvandoNegociacao ? "Salvando..." : "Salvar negociação"}
+                    </button>
+                  </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs min-w-[1820px]">
                       <thead>
@@ -1594,7 +1714,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
 
 // ─── Tabela ───────────────────────────────────────────────────────────────────
 
-function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesCompra, ajustesCompraData, leadtimeCompraDias, onAjusteCompraChange, onAjusteCompraDataChange }: {
+function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesCompra, ajustesCompraData, leadtimeCompraDias, salvandoNegociacaoOpId, onSalvarNegociacao, onAjusteCompraChange, onAjusteCompraDataChange }: {
   ops: OPEditavel[]; selecionados: Set<string>
   onSelect: (id: string, val: boolean) => void
   onSelectAll: (val: boolean) => void
@@ -1602,6 +1722,8 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesComp
   ajustesCompra: Record<string, number>
   ajustesCompraData: Record<string, string>
   leadtimeCompraDias: number
+  salvandoNegociacaoOpId: string | null
+  onSalvarNegociacao: (op: OPEditavel) => void
   onAjusteCompraChange: (key: string, value: number) => void
   onAjusteCompraDataChange: (key: string, value: string) => void
 }) {
@@ -1671,6 +1793,8 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesComp
                 ajustesCompra={ajustesCompra}
                 ajustesCompraData={ajustesCompraData}
                 leadtimeCompraDias={leadtimeCompraDias}
+                salvandoNegociacao={salvandoNegociacaoOpId === (op.id || `${op.lote}-${op.codigo}`)}
+                onSalvarNegociacao={onSalvarNegociacao}
                 onAjusteCompraChange={onAjusteCompraChange}
                 onAjusteCompraDataChange={onAjusteCompraDataChange} />
             ))}
@@ -1722,6 +1846,7 @@ export function OrdensPage() {
   const [leadtimeCompraDias, setLeadtimeCompraDias] = useState(2)
   const [ajustesCompra, setAjustesCompra] = useState<Record<string, number>>({})
   const [ajustesCompraData, setAjustesCompraData] = useState<Record<string, string>>({})
+  const [salvandoNegociacaoOpId, setSalvandoNegociacaoOpId] = useState<string | null>(null)
 
   useEffect(() => {
     getOpsMeses().then(res => {
@@ -1742,16 +1867,66 @@ export function OrdensPage() {
         res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
       )
       setOps(opsTratadas)
+      await carregarAjustesSalvos(opsTratadas)
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao carregar OPs")
     } finally { setLoading(false) }
   }
 
-  const totalMes    = ops.length
-  const abertas     = ops.filter(op => op.status === "aberta").length
-  const faltamAbrir = ops.filter(op => op.status !== "aberta").length
-  const comMaterial = ops.filter(op => op.status === "ok").length
-  const semMaterial = ops.filter(op => op.status === "falta" || op.status === "quarentena").length
+  async function carregarAjustesSalvos(opsBase: OPEditavel[]) {
+    try {
+      const ajustes = await getAjustesComprasOps()
+      const nextQtd: Record<string, number> = {}
+      const nextData: Record<string, string> = {}
+
+      for (const ajuste of ajustes) {
+        const op = opsBase.find(o =>
+          String(o.id || `${o.lote}-${o.codigo}`) === String(ajuste.op_id) ||
+          (ajuste.lote && o.lote === ajuste.lote && ajuste.codigo_op && o.codigo === ajuste.codigo_op)
+        )
+        if (!op) continue
+
+        const detalhes = Array.isArray(op.detalhes) ? op.detalhes : []
+        for (let compIndex = 0; compIndex < detalhes.length; compIndex++) {
+          const comp = detalhes[compIndex]
+          const codigoComp = String((comp as unknown as Record<string, unknown>).codigo_comp || "")
+          if (codigoComp !== ajuste.codigo_comp) continue
+
+          const compras = getComprasAbertas(comp)
+          const linhasCompra = compras.length > 0 ? compras : [null]
+          for (let compraIndex = 0; compraIndex < linhasCompra.length; compraIndex++) {
+            const compra = linhasCompra[compraIndex]
+            const mesmoPedido = String(compra?.pedido_numero || "") === String(ajuste.pedido_numero || "")
+            const mesmaSC = String(compra?.sc_numero || "") === String(ajuste.sc_numero || "")
+            const semPedido = !compra && !ajuste.pedido_numero && !ajuste.sc_numero
+
+            if ((mesmoPedido && mesmaSC) || semPedido) {
+              const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
+              if (toNumber(ajuste.qtd_negociada) > 0) nextQtd[key] = toNumber(ajuste.qtd_negociada)
+              if (ajuste.data_negociada) nextData[key] = String(ajuste.data_negociada).slice(0, 10)
+            }
+          }
+        }
+      }
+
+      setAjustesCompra(nextQtd)
+      setAjustesCompraData(nextData)
+    } catch (e) {
+      console.warn("Não foi possível carregar ajustes de compras", e)
+    }
+  }
+
+  const opsComAjustes = useMemo(() => {
+    return ordenarESequenciarOps(
+      ops.map(op => aplicarSimulacaoComprasNaOP(op, ajustesCompra, ajustesCompraData, leadtimeCompraDias))
+    )
+  }, [ops, ajustesCompra, ajustesCompraData, leadtimeCompraDias])
+
+  const totalMes    = opsComAjustes.length
+  const abertas     = opsComAjustes.filter(op => op.status === "aberta").length
+  const faltamAbrir = opsComAjustes.filter(op => op.status !== "aberta").length
+  const comMaterial = opsComAjustes.filter(op => op.status === "ok").length
+  const semMaterial = opsComAjustes.filter(op => op.status === "falta" || op.status === "quarentena").length
   const pctAbertas  = totalMes > 0 ? Math.round((abertas / totalMes) * 100) : 0
   const estoqueAtualizadoEm = fmtDataHora(getEstoqueAtualizadoEm(dados))
 
@@ -1761,12 +1936,12 @@ export function OrdensPage() {
       .map(v => ({ value: v, label: v }))
   }
 
-  const tipoOptions    = useMemo(() => uniqueOptions(ops.map(op => tipoProduto(op.linha))), [ops])
-  const loteOptions    = useMemo(() => uniqueOptions(ops.map(op => op.lote)), [ops])
-  const codigoOptions  = useMemo(() => uniqueOptions(ops.map(op => op.codigo)), [ops])
-  const produtoOptions = useMemo(() => uniqueOptions(ops.map(op => op.produto || op.codigo)), [ops])
+  const tipoOptions    = useMemo(() => uniqueOptions(opsComAjustes.map(op => tipoProduto(op.linha))), [opsComAjustes])
+  const loteOptions    = useMemo(() => uniqueOptions(opsComAjustes.map(op => op.lote)), [opsComAjustes])
+  const codigoOptions  = useMemo(() => uniqueOptions(opsComAjustes.map(op => op.codigo)), [opsComAjustes])
+  const produtoOptions = useMemo(() => uniqueOptions(opsComAjustes.map(op => op.produto || op.codigo)), [opsComAjustes])
 
-  const opsFiltradas = ops.filter(op => {
+  const opsFiltradas = opsComAjustes.filter(op => {
     if (linhasSel.length > 0 && !linhasSel.includes(op.linha)) return false
     if (statusesSel.length > 0 && !statusesSel.includes(op.status)) return false
     if (tiposSel.length > 0 && !tiposSel.includes(tipoProduto(op.linha))) return false
@@ -1801,6 +1976,57 @@ export function OrdensPage() {
       else delete next[key]
       return next
     })
+  }
+
+  async function handleSalvarNegociacao(op: OPEditavel) {
+    const opId = String(op.id || `${op.lote}-${op.codigo}`)
+    setSalvandoNegociacaoOpId(opId)
+
+    try {
+      const payloads: AjusteCompraOP[] = []
+      const detalhes = Array.isArray(op.detalhes) ? op.detalhes : []
+
+      detalhes.forEach((comp, compIndex) => {
+        const compRecord = comp as unknown as Record<string, unknown>
+        const codigoComp = String(compRecord.codigo_comp || "")
+        if (!codigoComp) return
+
+        const compras = getComprasAbertas(comp)
+        const linhasCompra = compras.length > 0 ? compras : [null]
+
+        linhasCompra.forEach((compra, compraIndex) => {
+          const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
+          const qtd = ajustesCompra[key] || 0
+          const data = ajustesCompraData[key] || ""
+
+          if (qtd <= 0 || !data) return
+
+          payloads.push({
+            op_id: opId,
+            lote: op.lote || null,
+            codigo_op: op.codigo || null,
+            codigo_comp: codigoComp,
+            pedido_numero: compra?.pedido_numero || null,
+            sc_numero: compra?.sc_numero || null,
+            qtd_negociada: qtd,
+            data_negociada: data,
+            observacao: null,
+          })
+        })
+      })
+
+      if (payloads.length === 0) {
+        alert("Informe quantidade e data negociada antes de salvar.")
+        return
+      }
+
+      await Promise.all(payloads.map(payload => salvarAjusteCompraOP(payload)))
+      alert("Negociação salva com sucesso.")
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Erro ao salvar negociação")
+    } finally {
+      setSalvandoNegociacaoOpId(null)
+    }
   }
 
   function handleSaved(atualizado: Partial<OPEditavel>) {
@@ -1935,6 +2161,8 @@ export function OrdensPage() {
             ajustesCompra={ajustesCompra}
             ajustesCompraData={ajustesCompraData}
             leadtimeCompraDias={leadtimeCompraDias}
+            salvandoNegociacaoOpId={salvandoNegociacaoOpId}
+            onSalvarNegociacao={handleSalvarNegociacao}
             onAjusteCompraChange={handleAjusteCompraChange}
             onAjusteCompraDataChange={handleAjusteCompraDataChange}
           />
@@ -1949,7 +2177,7 @@ export function OrdensPage() {
         <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>Nenhuma programação carregada. Faça o upload da planilha de OPs na aba Dados.</div>
       )}
 
-      <CardModal tipo={modalCard} ops={ops} onClose={() => setModalCard(null)} />
+      <CardModal tipo={modalCard} ops={opsComAjustes} onClose={() => setModalCard(null)} />
 
       {novaOpModal && (
         <EditModal
