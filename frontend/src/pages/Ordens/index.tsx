@@ -3,7 +3,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Clock,
   ChevronDown, ChevronUp, RefreshCw,
   CalendarDays, PackageCheck, PackageX, ClipboardList,
-  X, Pencil, Save, Download, Plus, Filter, AlertOctagon,
+  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart,
 } from "lucide-react"
 import {
   getOpsMeses,
@@ -1439,18 +1439,10 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const comprasComp = getComprasAbertas(comp)
                           const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
                           const faltanteNaDataOP =
-  getFaltanteNaDataOP(comp) ||
-  toNumber(
-    (comp as {
-      faltante_pos_compra?: number
-    })?.faltante_pos_compra
-  ) ||
-  toNumber(
-    (comp as {
-      faltante?: number
-    })?.faltante
-  ) ||
-  0
+                            getFaltanteNaDataOP(comp) ||
+                            toNumber((comp as { faltante_pos_compra?: number })?.faltante_pos_compra) ||
+                            toNumber((comp as { faltante?: number })?.faltante) ||
+                            0
                           const statusCompra = getStatusCompra(comp)
                           const compraCfg = compraStatusConfig(statusCompra)
                           const compradorDefault = comprasComp.find(c => c.comprador_nome)?.comprador_nome || "—"
@@ -1841,21 +1833,6 @@ export function OrdensPage() {
           <button onClick={() => setNovaOpModal(true)} className="flex h-10 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-white" style={{ background: "var(--bg-sidebar)" }}>
             <Plus size={14} /> Nova OP
           </button>
-          <div className="flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold"
-            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}
-            title="A compra oficial só conta para abertura se a entrega prevista for menor ou igual ao início de fabricação menos este lead time. Você também pode simular quantidades negociadas manualmente no detalhe da OP.">
-            <span className="whitespace-nowrap">Lead compra</span>
-            <input
-              type="number"
-              min={0}
-              max={30}
-              value={leadtimeCompraDias}
-              onChange={e => setLeadtimeCompraDias(Math.max(0, Number(e.target.value || 0)))}
-              className="h-7 w-14 rounded-lg border px-2 text-center text-xs outline-none"
-              style={{ background: "var(--bg-primary)", borderColor: "var(--border)", color: "var(--text-primary)" }}
-            />
-            <span>dias</span>
-          </div>
           <button onClick={buscar} disabled={loading || !mesSel} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold" style={{ cursor: loading ? "not-allowed" : "pointer" }}>
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Atualizar
           </button>
@@ -1884,7 +1861,50 @@ export function OrdensPage() {
 
           <div className="fade-in rounded-xl border px-4 py-2 text-xs"
             style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-            Análise considerando o estoque de insumos atualizado em {estoqueAtualizadoEm || "snapshot mais recente disponível"}. Compras oficiais só contam para abertura se a entrega prevista for até o início de fabricação menos {leadtimeCompraDias} dia{leadtimeCompraDias !== 1 ? "s" : ""}.
+            Análise considerando o estoque de insumos atualizado em {estoqueAtualizadoEm || "snapshot mais recente disponível"}. Compras oficiais só contam para abertura se a data de entrega for até {leadtimeCompraDias} dia{leadtimeCompraDias !== 1 ? "s" : ""} antes da data de fabricação da OP.
+          </div>
+
+
+          <div
+            className="fade-in flex w-full flex-col gap-3 rounded-xl border px-4 py-3 text-xs sm:w-fit sm:flex-row sm:items-center"
+            style={{
+              background: "var(--bg-secondary)",
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
+            title="A data de entrega oficial de compras só conta para abertura se for menor ou igual à data de fabricação da OP menos este número de dias."
+          >
+            <div className="flex items-center gap-2">
+              <div
+                className="flex h-8 w-8 items-center justify-center rounded-lg"
+                style={{ background: "#EFF6FF", color: "#2563EB" }}
+              >
+                <ShoppingCart size={15} />
+              </div>
+              <span className="font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                Data de entrega de compras considerada:
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span>até</span>
+              <input
+                type="number"
+                min={0}
+                max={30}
+                value={leadtimeCompraDias}
+                onChange={e => setLeadtimeCompraDias(Math.max(0, Number(e.target.value || 0)))}
+                className="h-8 w-16 rounded-lg border px-2 text-center text-xs font-bold outline-none"
+                style={{
+                  background: "#EFF6FF",
+                  borderColor: "#BFDBFE",
+                  color: "#1D4ED8",
+                }}
+              />
+              <span>
+                dia{leadtimeCompraDias !== 1 ? "s" : ""} antes da data de fabricação da OP
+              </span>
+            </div>
           </div>
         </>
       )}
