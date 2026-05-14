@@ -9,6 +9,7 @@ import {
   BarChart3,
   ClipboardList,
   CalendarDays,
+  GitBranch,
 } from "lucide-react"
 import { clsx } from "clsx"
 
@@ -30,6 +31,12 @@ const NAV = [
     label: "Ordens de Produção",
     path: "/ordens",
     Icon: ClipboardList,
+  },
+  {
+    id: "mrp",
+    label: "MRP",
+    path: "/mrp",
+    Icon: GitBranch,
   },
   {
     id: "calendario-paradas",
@@ -83,8 +90,16 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
           )}
           style={{ borderColor: "rgba(255,255,255,0.10)" }}
         >
-          <div className={clsx("flex items-center", collapsed ? "justify-center" : "gap-3")}>
-            <BarChart3 size={24} style={{ color: "var(--text-sidebar-active)" }} />
+          <div
+            className={clsx(
+              "flex items-center",
+              collapsed ? "justify-center" : "gap-3"
+            )}
+          >
+            <BarChart3
+              size={24}
+              style={{ color: "var(--text-sidebar-active)" }}
+            />
 
             {!collapsed && (
               <div className="leading-tight">
@@ -118,7 +133,12 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
         </div>
 
         {/* Nav */}
-        <nav className={clsx("flex flex-1 flex-col gap-1 px-2 py-3", collapsed && "items-center")}>
+        <nav
+          className={clsx(
+            "flex flex-1 flex-col gap-1 px-2 py-3",
+            collapsed && "items-center"
+          )}
+        >
           {collapsed && (
             <button
               onClick={() => setCollapsed(false)}
@@ -166,15 +186,15 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
                     ? "var(--text-sidebar-active)"
                     : "var(--text-sidebar)",
                 }}
-                onMouseEnter={e => {
+                onMouseEnter={(e) => {
                   if (!active) {
-                    (e.currentTarget as HTMLElement).style.background =
+                    ;(e.currentTarget as HTMLElement).style.background =
                       "rgba(255,255,255,0.08)"
                   }
                 }}
-                onMouseLeave={e => {
+                onMouseLeave={(e) => {
                   if (!active) {
-                    (e.currentTarget as HTMLElement).style.background =
+                    ;(e.currentTarget as HTMLElement).style.background =
                       "transparent"
                   }
                 }}
