@@ -29,10 +29,7 @@ async function apiFetch<T>(
 // Upload
 // ─────────────────────────────────────────────────────────────
 
-export async function uploadBase(
-  baseId: string,
-  file: File
-) {
+export async function uploadBase(baseId: string, file: File) {
   const form = new FormData()
   form.append("file", file)
 
@@ -260,6 +257,33 @@ export interface MrpEtapa {
   origem?: string | null
   observacao?: string | null
 
+  embalado?: string | null
+  un_hora?: number | null
+  mes_producao?: number | null
+  ano_producao?: number | null
+  mes_liberacao?: number | null
+  ano_liberacao?: number | null
+
+  criado_em?: string
+}
+
+export interface MrpAlocacaoDia {
+  id?: string
+  rodada_id: string
+
+  recurso: string
+
+  lote?: string | null
+  codigo_produto?: string | null
+  descricao_produto?: string | null
+
+  data: string
+
+  horas_alocadas?: number
+  horas_disponiveis_dia?: number
+
+  origem?: string | null
+
   criado_em?: string
 }
 
@@ -270,14 +294,14 @@ export interface ImportarMpsResponse {
   abas_lidas: {
     aba: string
     qtd_registros: number
+    qtd_alocacoes?: number
   }[]
   total_registros: number
   total_inserido: number
+  total_alocacoes?: number
 }
 
-export async function getMrpRodadas(): Promise<
-  MrpRodada[]
-> {
+export async function getMrpRodadas(): Promise<MrpRodada[]> {
   return apiFetch("/mrp/rodadas")
 }
 
@@ -296,9 +320,13 @@ export async function criarMrpRodada(
 export async function getMrpEtapas(
   rodadaId: string
 ): Promise<MrpEtapa[]> {
-  return apiFetch(
-    `/mrp/rodadas/${rodadaId}/etapas`
-  )
+  return apiFetch(`/mrp/rodadas/${rodadaId}/etapas`)
+}
+
+export async function getMrpAlocacoes(
+  rodadaId: string
+): Promise<MrpAlocacaoDia[]> {
+  return apiFetch(`/mrp/rodadas/${rodadaId}/alocacoes`)
 }
 
 export async function criarMrpEtapa(
@@ -326,9 +354,7 @@ export async function atualizarMrpEtapa(
   })
 }
 
-export async function excluirMrpEtapa(
-  etapaId: string
-) {
+export async function excluirMrpEtapa(etapaId: string) {
   return apiFetch(`/mrp/etapas/${etapaId}`, {
     method: "DELETE",
   })
@@ -556,9 +582,7 @@ export async function salvarAjusteCompraOP(
   })
 }
 
-export async function excluirAjusteCompraOP(
-  id: string
-) {
+export async function excluirAjusteCompraOP(id: string) {
   return apiFetch(`/ajustes-compras-ops/${id}`, {
     method: "DELETE",
   })
