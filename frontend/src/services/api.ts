@@ -1,16 +1,25 @@
 const API_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
-  "https://dfl-sop-api.fly.dev"
+  (import.meta as unknown as { env: Record<string, string> }).env
+    .VITE_API_URL || "https://dfl-sop-api.fly.dev"
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+async function apiFetch<T>(
+  path: string,
+  options?: RequestInit
+): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: { ...(options?.headers || {}) },
   })
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error((err as { detail: string }).detail || `Erro ${res.status}`)
+    const err = await res
+      .json()
+      .catch(() => ({ detail: res.statusText }))
+
+    throw new Error(
+      (err as { detail: string }).detail ||
+        `Erro ${res.status}`
+    )
   }
 
   return res.json() as Promise<T>
@@ -20,7 +29,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 // Upload
 // ─────────────────────────────────────────────────────────────
 
-export async function uploadBase(baseId: string, file: File) {
+export async function uploadBase(
+  baseId: string,
+  file: File
+) {
   const form = new FormData()
   form.append("file", file)
 
@@ -30,8 +42,14 @@ export async function uploadBase(baseId: string, file: File) {
   })
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error((err as { detail: string }).detail || "Erro no upload")
+    const err = await res
+      .json()
+      .catch(() => ({ detail: res.statusText }))
+
+    throw new Error(
+      (err as { detail: string }).detail ||
+        "Erro no upload"
+    )
   }
 
   return res.json()
@@ -45,8 +63,14 @@ export async function getUploadStatus(baseId: string) {
 // Dados
 // ─────────────────────────────────────────────────────────────
 
-export async function getDados(tabela: string, page = 1, perPage = 50) {
-  return apiFetch(`/dados/${tabela}?page=${page}&per_page=${perPage}`)
+export async function getDados(
+  tabela: string,
+  page = 1,
+  perPage = 50
+) {
+  return apiFetch(
+    `/dados/${tabela}?page=${page}&per_page=${perPage}`
+  )
 }
 
 export async function inserirRegistro(
@@ -72,8 +96,13 @@ export async function atualizarRegistro(
   })
 }
 
-export async function excluirRegistros(tabela: string, ids: string[]) {
-  const params = ids.map((id) => `ids=${encodeURIComponent(id)}`).join("&")
+export async function excluirRegistros(
+  tabela: string,
+  ids: string[]
+) {
+  const params = ids
+    .map((id) => `ids=${encodeURIComponent(id)}`)
+    .join("&")
 
   return apiFetch(`/dados/${tabela}?${params}`, {
     method: "DELETE",
@@ -136,9 +165,13 @@ export async function getProducaoResumoMensal() {
   return apiFetch("/producao/resumo-mensal")
 }
 
-export async function getParadasPareto(linha?: "L1" | "L2") {
+export async function getParadasPareto(
+  linha?: "L1" | "L2"
+) {
   return apiFetch(
-    `/producao/paradas-pareto${linha ? `?linha=${linha}` : ""}`
+    `/producao/paradas-pareto${
+      linha ? `?linha=${linha}` : ""
+    }`
   )
 }
 
@@ -156,11 +189,16 @@ export async function updateConfigProducao(
     observacao?: string | null
   }
 ) {
-  return apiFetch(`/producao/config-producao/${configId}`, {
-    method: "PUT",
-    body: JSON.stringify(dados),
-    headers: { "Content-Type": "application/json" },
-  })
+  return apiFetch(
+    `/producao/config-producao/${configId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(dados),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  )
 }
 
 export async function getMpsResumoMensal() {
@@ -172,7 +210,9 @@ export async function getMpsModal(mes: number) {
 }
 
 export async function getMpsComparativoRealPlanejado() {
-  return apiFetch("/producao/mps-comparativo-real-planejado")
+  return apiFetch(
+    "/producao/mps-comparativo-real-planejado"
+  )
 }
 
 export async function getMpsVersoes(mes: number) {
@@ -219,7 +259,9 @@ export interface MrpOrdem {
   criado_em?: string
 }
 
-export async function getMrpRodadas(): Promise<MrpRodada[]> {
+export async function getMrpRodadas(): Promise<
+  MrpRodada[]
+> {
   return apiFetch("/mrp/rodadas")
 }
 
@@ -236,7 +278,9 @@ export async function criarMrpRodada(
 export async function getMrpOrdens(
   rodadaId: string
 ): Promise<MrpOrdem[]> {
-  return apiFetch(`/mrp/rodadas/${rodadaId}/ordens`)
+  return apiFetch(
+    `/mrp/rodadas/${rodadaId}/ordens`
+  )
 }
 
 export async function criarMrpOrdem(
@@ -246,5 +290,198 @@ export async function criarMrpOrdem(
     method: "POST",
     body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" },
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
+// OPs — Verificação de viabilidade
+// ─────────────────────────────────────────────────────────────
+
+export type StatusOP =
+  | "aberta"
+  | "ok"
+  | "quarentena"
+  | "falta"
+  | "sem_bom"
+
+export interface ComponenteOP {
+  codigo_comp: string
+  descricao: string
+  tp: string
+  unidade: string
+  necessario: number
+  saldo_01: number
+  saldo_98: number
+  armazem_ref: string
+  status: "ok" | "quarentena" | "falta"
+}
+
+export interface OPResult {
+  lote: string
+  codigo: string
+  produto: string
+  linha: string
+  quantidade: number
+  data_fim: string | null
+  op_numero: string | null
+  status: StatusOP
+  alertas: ComponenteOP[]
+  detalhes: ComponenteOP[]
+}
+
+export interface ResumoViabilidade {
+  mes_ref: string
+  total_ops: number
+  resumo: {
+    abertas: number
+    ok: number
+    quarentena: number
+    falta: number
+    sem_bom: number
+  }
+  ops: OPResult[]
+}
+
+export interface ResumoPorLinha {
+  mes_ref: string
+  total_ops: number
+  por_linha: Record<
+    string,
+    {
+      aberta: number
+      ok: number
+      quarentena: number
+      falta: number
+      sem_bom: number
+    }
+  >
+}
+
+export async function getOpsViabilidade(
+  mesRef: string,
+  linha?: string
+): Promise<ResumoViabilidade> {
+  const params = linha ? `&linha=${linha}` : ""
+
+  return apiFetch(
+    `/ops/viabilidade?mes_ref=${mesRef}${params}`
+  )
+}
+
+export async function getOpsMeses(): Promise<{
+  meses: string[]
+}> {
+  return apiFetch("/ops/meses")
+}
+
+export async function getOpsResumo(
+  mesRef: string
+): Promise<ResumoPorLinha> {
+  return apiFetch(`/ops/resumo/${mesRef}`)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Calendário de Paradas
+// ─────────────────────────────────────────────────────────────
+
+export type LinhaParada =
+  | "L1"
+  | "L2"
+  | "FABRIMA"
+  | string
+
+export interface ParadaProgramada {
+  id?: string
+  data: string
+  linha: LinhaParada
+  descricao: string
+  horas?: number | null
+  observacao?: string | null
+  origem?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ResumoCalendarioParadas {
+  total_paradas: number
+  por_linha: Record<string, number>
+  proxima_parada: ParadaProgramada | null
+}
+
+export async function getCalendarioParadas(): Promise<
+  ParadaProgramada[]
+> {
+  return apiFetch("/calendario-paradas/")
+}
+
+export async function getResumoCalendarioParadas(): Promise<ResumoCalendarioParadas> {
+  return apiFetch("/calendario-paradas/resumo")
+}
+
+export async function criarParada(
+  payload: Partial<ParadaProgramada>
+) {
+  return apiFetch("/calendario-paradas/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+export async function editarParada(
+  id: string,
+  payload: Partial<ParadaProgramada>
+) {
+  return apiFetch(`/calendario-paradas/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+export async function excluirParada(id: string) {
+  return apiFetch(`/calendario-paradas/${id}`, {
+    method: "DELETE",
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
+// Ajustes compras OP
+// ─────────────────────────────────────────────────────────────
+
+export interface AjusteCompraOP {
+  id?: string
+  op_id: string
+  lote?: string | null
+  codigo_op?: string | null
+  codigo_comp: string
+  pedido_numero?: string | null
+  sc_numero?: string | null
+  qtd_negociada: number
+  data_negociada?: string | null
+  observacao?: string | null
+}
+
+export async function getAjustesComprasOps(): Promise<
+  AjusteCompraOP[]
+> {
+  return apiFetch("/ajustes-compras-ops")
+}
+
+export async function salvarAjusteCompraOP(
+  payload: AjusteCompraOP
+) {
+  return apiFetch("/ajustes-compras-ops", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+export async function excluirAjusteCompraOP(
+  id: string
+) {
+  return apiFetch(`/ajustes-compras-ops/${id}`, {
+    method: "DELETE",
   })
 }
