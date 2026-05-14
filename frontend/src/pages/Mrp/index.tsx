@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { CalendarDays, Plus, Upload, X } from "lucide-react"
+import { CalendarDays, Plus, Save, Upload, X } from "lucide-react"
 
 import {
   criarMrpRodada,
@@ -16,7 +16,7 @@ import {
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 const RECURSOS = ["L1", "L2", "FABRIMA"]
 const AZUL = "#173B5F"
-const HEADER_CLARO = "#F3F6FA"
+const HEADER_CLARO = AZUL
 const PAGE_SIZE = 50
 
 type Filtros = {
@@ -29,6 +29,12 @@ type Filtros = {
   mesLiberacao: string
   anoLiberacao: string
   recurso: string
+}
+
+type EdicaoEtapa = {
+  descricao_produto?: string | null
+  codigo_produto?: string | null
+  lote?: string | null
 }
 
 type Column = {
@@ -133,6 +139,34 @@ function uniqueSorted(values: (string | number | null | undefined)[]) {
   ).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }))
 }
 
+function normalizarTexto(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]/gi, "")
+    .toUpperCase()
+}
+
+function gerarLoteSugerido(etapa: MrpEtapa, novoProduto: string, etapas: MrpEtapa[]) {
+  if (etapa.lote) return etapa.lote
+
+  const dataBase = etapa.data_inicio || etapa.data_fim || etapa.data_pa
+  const dt = dataBase ? new Date(`${dataBase}T00:00:00`) : new Date()
+
+  const dia = String(dt.getDate()).padStart(2, "0")
+  const mes = String(dt.getMonth() + 1).padStart(2, "0")
+  const letra = normalizarTexto(novoProduto).slice(0, 1) || "X"
+
+  const sequencias = etapas
+    .map((e) => String(e.lote || ""))
+    .map((lote) => Number(lote.slice(-4)))
+    .filter((n) => !Number.isNaN(n))
+
+  const proximaSeq = String((sequencias.length ? Math.max(...sequencias) : 1000) + 1).padStart(4, "0")
+
+  return `${dia}${mes}${letra}${proximaSeq}`
+}
+
 function filtrarEtapas(etapas: MrpEtapa[], filtros: Filtros) {
   return etapas.filter((e) => {
     const busca = filtros.busca.trim().toLowerCase()
@@ -169,8 +203,10 @@ export default function Mrp() {
 
   const [loading, setLoading] = useState(false)
   const [importando, setImportando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
-  const [salvandoEtapaId, setSalvandoEtapaId] = useState<string | null>(null)
+
+  const [edicoes, setEdicoes] = useState<Record<string, EdicaoEtapa>>({})
 
   const [nome, setNome] = useState("Rodada MRP")
   const [mes, setMes] = useState(hoje.getMonth() + 1)
@@ -218,6 +254,7 @@ export default function Mrp() {
 
       setEtapas(etapasData)
       setAlocacoes(alocacoesData)
+      setEdicoes({})
     } finally {
       setLoading(false)
     }
@@ -273,7 +310,7 @@ export default function Mrp() {
     }
   }
 
-  async function handleAlterarProduto(etapa: MrpEtapa, novoProduto: string) {
+  function aplicarEdicaoProduto(etapa: MrpEtapa, novoProduto: string) {
     if (!etapa.id) return
 
     const mapaProdutoCodigo: Record<string, string> = {}
@@ -288,32 +325,62 @@ export default function Mrp() {
       }
     })
 
-    const novoCodigo = mapaProdutoCodigo[novoProduto] || ""
+    const novoCodigo = mapaProdutoCodigo[novoProduto] || etapa.codigo_produto || ""
+    const novoLote = !etapa.lote ? gerarLoteSugerido(etapa, novoProduto, etapas) : etapa.lote
 
-    try {
-      setSalvandoEtapaId(etapa.id)
-
-      await atualizarMrpEtapa(etapa.id, {
+    setEdicoes((prev) => ({
+      ...prev,
+      [etapa.id!]: {
+        ...(prev[etapa.id!] || {}),
         descricao_produto: novoProduto,
         codigo_produto: novoCodigo,
-      })
+        lote: novoLote,
+      },
+    }))
+  }
+
+  async function salvarAlteracoes() {
+    const entradas = Object.entries(edicoes)
+
+    if (!entradas.length) {
+      alert("Nenhuma alteração pendente.")
+      return
+    }
+
+    try {
+      setSalvando(true)
+
+      for (const [etapaId, dados] of entradas) {
+        await atualizarMrpEtapa(etapaId, dados)
+      }
 
       setEtapas((prev) =>
-        prev.map((item) =>
-          item.id === etapa.id
-            ? {
-                ...item,
-                descricao_produto: novoProduto,
-                codigo_produto: novoCodigo,
-              }
-            : item
-        )
+        prev.map((etapa) => {
+          if (!etapa.id || !edicoes[etapa.id]) return etapa
+
+          return {
+            ...etapa,
+            ...edicoes[etapa.id],
+          }
+        })
       )
+
+      setEdicoes({})
+      alert("Alterações salvas com sucesso.")
     } catch (err) {
       console.error(err)
-      alert("Erro ao atualizar produto.")
+      alert("Erro ao salvar alterações.")
     } finally {
-      setSalvandoEtapaId(null)
+      setSalvando(false)
+    }
+  }
+
+  function etapaComEdicao(etapa: MrpEtapa): MrpEtapa {
+    if (!etapa.id || !edicoes[etapa.id]) return etapa
+
+    return {
+      ...etapa,
+      ...edicoes[etapa.id],
     }
   }
 
@@ -326,6 +393,7 @@ export default function Mrp() {
     else {
       setEtapas([])
       setAlocacoes([])
+      setEdicoes({})
     }
   }, [rodadaSelecionada?.id])
 
@@ -371,9 +439,14 @@ export default function Mrp() {
 
   const opcoesPeriodo = useMemo(() => gerarOpcoesMeses(hoje.getFullYear()), [])
 
+  const etapasComEdicoes = useMemo(
+    () => etapas.map((etapa) => etapaComEdicao(etapa)),
+    [etapas, edicoes]
+  )
+
   const etapasDoRecurso = useMemo(
-    () => etapas.filter((e) => e.recurso === (filtros.recurso || "L1")),
-    [etapas, filtros.recurso]
+    () => etapasComEdicoes.filter((e) => e.recurso === (filtros.recurso || "L1")),
+    [etapasComEdicoes, filtros.recurso]
   )
 
   const opcoesFiltros = useMemo(() => {
@@ -425,8 +498,8 @@ export default function Mrp() {
   }, [alocacoes])
 
   const etapasFiltradas = useMemo(
-    () => filtrarEtapas(etapas, filtros),
-    [etapas, filtros]
+    () => filtrarEtapas(etapasComEdicoes, filtros),
+    [etapasComEdicoes, filtros]
   )
 
   const recursoSelecionado = filtros.recurso || "L1"
@@ -434,6 +507,8 @@ export default function Mrp() {
   const paginaCorrigida = Math.min(pagina, totalPaginas)
   const inicioPagina = (paginaCorrigida - 1) * PAGE_SIZE
   const etapasPagina = etapasFiltradas.slice(inicioPagina, inicioPagina + PAGE_SIZE)
+
+  const qtdEdicoes = Object.keys(edicoes).length
 
   function limparFiltros() {
     setFiltros({
@@ -513,6 +588,15 @@ export default function Mrp() {
               className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {importando ? "Importando..." : "Processar MPS"}
+            </button>
+
+            <button
+              onClick={salvarAlteracoes}
+              disabled={qtdEdicoes === 0 || salvando}
+              className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              <Save size={16} />
+              {salvando ? "Salvando..." : `Salvar alterações${qtdEdicoes ? ` (${qtdEdicoes})` : ""}`}
             </button>
 
             <button
@@ -646,8 +730,8 @@ export default function Mrp() {
               <tr>
                 <th
                   colSpan={COLUMNS.length}
-                  className="sticky left-0 z-50 border border-slate-300"
-                  style={{ backgroundColor: HEADER_CLARO }}
+                  className="sticky left-0 z-50 border border-white/20"
+                  style={{ backgroundColor: AZUL }}
                 />
 
                 {mesesAgrupados.map((m) => (
@@ -662,7 +746,7 @@ export default function Mrp() {
                 ))}
               </tr>
 
-              <tr className="text-slate-700" style={{ backgroundColor: HEADER_CLARO }}>
+              <tr className="text-white" style={{ backgroundColor: HEADER_CLARO }}>
                 {COLUMNS.map((col) => {
                   const frozenIndex = FROZEN_COLUMNS.findIndex((c) => c.key === col.key)
                   const frozen = frozenIndex >= 0
@@ -672,7 +756,7 @@ export default function Mrp() {
                     <th
                       key={col.key}
                       rowSpan={2}
-                      className={`${frozen ? "sticky z-50" : ""} border border-slate-300 px-2 py-2 font-semibold`}
+                      className={`${frozen ? "sticky z-50" : ""} border border-white/20 px-2 py-2 font-semibold`}
                       style={{
                         left,
                         minWidth: col.width,
@@ -718,24 +802,25 @@ export default function Mrp() {
                     const frozenIndex = FROZEN_COLUMNS.findIndex((c) => c.key === col.key)
                     const frozen = frozenIndex >= 0
                     const left = frozen ? getLeftOffset(frozenIndex) : undefined
+                    const editado = !!etapa.id && !!edicoes[etapa.id]
 
                     return (
                       <td
                         key={col.key}
-                        className={`${frozen ? "sticky z-30" : ""} border border-slate-200 bg-white px-2 py-1`}
+                        className={`${frozen ? "sticky z-30" : ""} border border-slate-200 px-2 py-1`}
                         style={{
                           left,
                           minWidth: col.width,
                           width: col.width,
                           maxWidth: col.width,
                           textAlign: col.align || "left",
+                          backgroundColor: editado ? "#FFF7D6" : "white",
                         }}
                       >
                         {col.key === "produto" ? (
                           <select
                             value={etapa.descricao_produto || ""}
-                            disabled={salvandoEtapaId === etapa.id}
-                            onChange={(e) => handleAlterarProduto(etapa, e.target.value)}
+                            onChange={(e) => aplicarEdicaoProduto(etapa, e.target.value)}
                             className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs"
                           >
                             {produtosUnicos.map((produto) => (
