@@ -220,7 +220,7 @@ export async function getMpsVersoes(mes: number) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MRP
+// MRP / APS
 // ─────────────────────────────────────────────────────────────
 
 export interface MrpRodada {
@@ -263,7 +263,21 @@ export interface MrpEtapa {
   criado_em?: string
 }
 
-export async function getMrpRodadas(): Promise<MrpRodada[]> {
+export interface ImportarMpsResponse {
+  ok: boolean
+  rodada_id: string
+  arquivo: string
+  abas_lidas: {
+    aba: string
+    qtd_registros: number
+  }[]
+  total_registros: number
+  total_inserido: number
+}
+
+export async function getMrpRodadas(): Promise<
+  MrpRodada[]
+> {
   return apiFetch("/mrp/rodadas")
 }
 
@@ -273,14 +287,18 @@ export async function criarMrpRodada(
   return apiFetch("/mrp/rodadas", {
     method: "POST",
     body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
   })
 }
 
 export async function getMrpEtapas(
   rodadaId: string
 ): Promise<MrpEtapa[]> {
-  return apiFetch(`/mrp/rodadas/${rodadaId}/etapas`)
+  return apiFetch(
+    `/mrp/rodadas/${rodadaId}/etapas`
+  )
 }
 
 export async function criarMrpEtapa(
@@ -289,7 +307,9 @@ export async function criarMrpEtapa(
   return apiFetch("/mrp/etapas", {
     method: "POST",
     body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
   })
 }
 
@@ -300,14 +320,49 @@ export async function atualizarMrpEtapa(
   return apiFetch(`/mrp/etapas/${etapaId}`, {
     method: "PUT",
     body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
   })
 }
 
-export async function excluirMrpEtapa(etapaId: string) {
+export async function excluirMrpEtapa(
+  etapaId: string
+) {
   return apiFetch(`/mrp/etapas/${etapaId}`, {
     method: "DELETE",
   })
+}
+
+export async function importarMrpMps(
+  rodadaId: string,
+  file: File
+): Promise<ImportarMpsResponse> {
+  const form = new FormData()
+  form.append("file", file)
+
+  const res = await fetch(
+    `${API_URL}/mrp/rodadas/${rodadaId}/importar-mps`,
+    {
+      method: "POST",
+      body: form,
+    }
+  )
+
+  if (!res.ok) {
+    const err = await res
+      .json()
+      .catch(() => ({
+        detail: res.statusText,
+      }))
+
+    throw new Error(
+      (err as { detail: string }).detail ||
+        "Erro ao importar MPS"
+    )
+  }
+
+  return res.json()
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -441,7 +496,9 @@ export async function criarParada(
   return apiFetch("/calendario-paradas/", {
     method: "POST",
     body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
   })
 }
 
@@ -452,7 +509,9 @@ export async function editarParada(
   return apiFetch(`/calendario-paradas/${id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
   })
 }
 
@@ -491,7 +550,9 @@ export async function salvarAjusteCompraOP(
   return apiFetch("/ajustes-compras-ops", {
     method: "POST",
     body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
   })
 }
 
