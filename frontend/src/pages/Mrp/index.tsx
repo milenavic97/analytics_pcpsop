@@ -15,6 +15,7 @@ import {
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 const RECURSOS = ["L1", "L2", "FABRIMA"]
 const AZUL = "#173B5F"
+const AZUL_CLARO = "#EAF2F8"
 const PAGE_SIZE = 50
 
 type Filtros = {
@@ -269,6 +270,8 @@ export default function Mrp() {
     const map = new Map<string, number>()
 
     alocacoes.forEach((a) => {
+      if (!a.lote && !a.codigo_produto) return
+
       const key = `${a.recurso}|${a.lote || ""}|${a.codigo_produto || ""}|${keyData(a.data)}`
       map.set(key, (map.get(key) || 0) + Number(a.horas_alocadas || 0))
     })
@@ -281,7 +284,15 @@ export default function Mrp() {
 
     alocacoes.forEach((a) => {
       const key = `${a.recurso}|${keyData(a.data)}`
-      map.set(key, (map.get(key) || 0) + Number(a.horas_alocadas || 0))
+
+      const disponivel = Number(a.horas_disponiveis_dia || 0)
+      const alocada = Number(a.horas_alocadas || 0)
+
+      if (disponivel > 0) {
+        map.set(key, Math.max(map.get(key) || 0, disponivel))
+      } else if (!map.has(key)) {
+        map.set(key, alocada)
+      }
     })
 
     return map
@@ -475,55 +486,42 @@ export default function Mrp() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-white/90">
-            <span>{loading ? "Carregando..." : `${etapasFiltradas.length} linhas filtradas`}</span>
-            <span>Página {paginaCorrigida} de {totalPaginas}</span>
-
-            <button
-              disabled={paginaCorrigida <= 1}
-              onClick={() => setPagina(paginaCorrigida - 1)}
-              className="rounded-lg bg-white/10 px-2 py-1 disabled:opacity-40"
-            >
-              Anterior
-            </button>
-
-            <button
-              disabled={paginaCorrigida >= totalPaginas}
-              onClick={() => setPagina(paginaCorrigida + 1)}
-              className="rounded-lg bg-white/10 px-2 py-1 disabled:opacity-40"
-            >
-              Próxima
-            </button>
+          <div className="text-xs text-white/90">
+            {loading ? "Carregando..." : `${etapasFiltradas.length} linhas filtradas`}
           </div>
         </div>
 
         <div className="max-h-[680px] overflow-auto">
-          <table className="min-w-[2800px] border-collapse text-xs">
+          <table className="min-w-[2650px] border-collapse text-xs">
             <thead className="sticky top-0 z-30">
-              <tr style={{ backgroundColor: AZUL }} className="text-white">
-                <th rowSpan={3} className="sticky left-0 z-40 border border-white/20 px-2 py-2 text-left" style={{ backgroundColor: AZUL, minWidth: 90 }}>LOTE</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-left">CÓDIGO</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-left" style={{ minWidth: 180 }}>PRODUTO</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-right">TEMPO<br />(Horas.)</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-right">UN /<br />HORA</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-right">QTD.<br />(Tubetes)</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">MÊS<br />PROD.</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">ANO<br />PROD.</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">DATA<br />INÍCIO</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">DATA<br />FIM</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">DATA<br />LIB.</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">MÊS<br />LIB.</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">ANO<br />LIB.</th>
-                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">LINHA</th>
+              <tr className="text-slate-700" style={{ backgroundColor: AZUL_CLARO }}>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-left">LOTE</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-left">CÓDIGO</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-left" style={{ minWidth: 180 }}>PRODUTO</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-right">TEMPO<br />(Horas.)</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-right">UN /<br />HORA</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-right">QTD.<br />(Tubetes)</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">MÊS<br />PROD.</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">ANO<br />PROD.</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">DATA<br />INÍCIO</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">DATA<br />FIM</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">DATA<br />LIB.</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">MÊS<br />LIB.</th>
+                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">ANO<br />LIB.</th>
 
                 {mesesAgrupados.map((m) => (
-                  <th key={m.label} colSpan={m.span} className="border border-white/20 px-2 py-1 text-center">
+                  <th
+                    key={m.label}
+                    colSpan={m.span}
+                    className="border border-white/20 px-2 py-1 text-center text-white"
+                    style={{ backgroundColor: AZUL }}
+                  >
                     {m.label}
                   </th>
                 ))}
               </tr>
 
-              <tr style={{ backgroundColor: AZUL }} className="text-white">
+              <tr className="text-white" style={{ backgroundColor: AZUL }}>
                 {dias.map((d) => (
                   <th key={`dia-${d.data}`} className="min-w-[38px] border border-white/20 px-1 py-1 text-center">
                     {d.dia}
@@ -531,7 +529,7 @@ export default function Mrp() {
                 ))}
               </tr>
 
-              <tr style={{ backgroundColor: AZUL }} className="text-emerald-300">
+              <tr className="text-emerald-300" style={{ backgroundColor: AZUL }}>
                 {dias.map((d) => {
                   const totalDia = horasDiaMap.get(`${recursoSelecionado}|${d.data}`) || 0
 
@@ -547,7 +545,7 @@ export default function Mrp() {
             <tbody>
               {etapasPagina.map((etapa) => (
                 <tr key={etapa.id} className="hover:bg-slate-50">
-                  <td className="sticky left-0 z-10 border border-slate-200 bg-white px-2 py-1">{etapa.lote || ""}</td>
+                  <td className="border border-slate-200 bg-white px-2 py-1">{etapa.lote || ""}</td>
                   <td className="border border-slate-200 px-2 py-1">{etapa.codigo_produto || ""}</td>
                   <td className="border border-slate-200 px-2 py-1 font-medium text-slate-700">{etapa.descricao_produto || ""}</td>
                   <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.duracao_horas)}</td>
@@ -560,7 +558,6 @@ export default function Mrp() {
                   <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_pa)}</td>
                   <td className="border border-slate-200 px-2 py-1 text-center">{etapa.mes_liberacao || ""}</td>
                   <td className="border border-slate-200 px-2 py-1 text-center">{etapa.ano_liberacao || ""}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-center font-semibold">{etapa.recurso}</td>
 
                   {dias.map((d) => {
                     const key = `${recursoSelecionado}|${etapa.lote || ""}|${etapa.codigo_produto || ""}|${d.data}`
@@ -581,13 +578,35 @@ export default function Mrp() {
 
               {etapasPagina.length === 0 && (
                 <tr>
-                  <td colSpan={14 + dias.length} className="p-10 text-center text-slate-500">
+                  <td colSpan={13 + dias.length} className="p-10 text-center text-slate-500">
                     Nenhuma etapa encontrada para {recursoSelecionado}.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-5 py-3 text-xs text-slate-600">
+          <span>
+            Página {paginaCorrigida} de {totalPaginas}
+          </span>
+
+          <button
+            disabled={paginaCorrigida <= 1}
+            onClick={() => setPagina(paginaCorrigida - 1)}
+            className="rounded-lg border border-slate-300 px-3 py-1 font-medium disabled:opacity-40"
+          >
+            Anterior
+          </button>
+
+          <button
+            disabled={paginaCorrigida >= totalPaginas}
+            onClick={() => setPagina(paginaCorrigida + 1)}
+            className="rounded-lg border border-slate-300 px-3 py-1 font-medium disabled:opacity-40"
+          >
+            Próxima
+          </button>
         </div>
       </div>
 
