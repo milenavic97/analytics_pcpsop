@@ -12,11 +12,7 @@ import {
   type MrpRodada,
 } from "@/services/api"
 
-const MESES = [
-  "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-  "Jul", "Ago", "Set", "Out", "Nov", "Dez",
-]
-
+const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 const RECURSOS = ["L1", "L2", "FABRIMA"]
 const AZUL = "#173B5F"
 const PAGE_SIZE = 50
@@ -31,9 +27,7 @@ type Filtros = {
 }
 
 function fmt(value?: number | null) {
-  return Number(value || 0).toLocaleString("pt-BR", {
-    maximumFractionDigits: 3,
-  })
+  return Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })
 }
 
 function fmtData(date?: string | null) {
@@ -45,19 +39,8 @@ function keyData(date?: string | null) {
   return date ? date.slice(0, 10) : ""
 }
 
-function gerarDias(
-  inicioMes: number,
-  inicioAno: number,
-  fimMes: number,
-  fimAno: number
-) {
-  const dias: {
-    data: string
-    dia: number
-    mes: number
-    ano: number
-  }[] = []
-
+function gerarDias(inicioMes: number, inicioAno: number, fimMes: number, fimAno: number) {
+  const dias: { data: string; dia: number; mes: number; ano: number }[] = []
   const atual = new Date(inicioAno, inicioMes - 1, 1)
   const fim = new Date(fimAno, fimMes, 0)
 
@@ -99,39 +82,18 @@ function filtrarEtapas(etapas: MrpEtapa[], filtros: Filtros) {
     const busca = filtros.busca.trim().toLowerCase()
 
     if (busca) {
-      const texto = [
-        e.lote,
-        e.codigo_produto,
-        e.descricao_produto,
-        e.recurso,
-      ]
+      const texto = [e.lote, e.codigo_produto, e.descricao_produto, e.recurso]
         .join(" ")
         .toLowerCase()
 
       if (!texto.includes(busca)) return false
     }
 
-    if (
-      filtros.mesProducao &&
-      String(e.mes_producao || "") !== filtros.mesProducao
-    ) return false
-
-    if (
-      filtros.anoProducao &&
-      String(e.ano_producao || "") !== filtros.anoProducao
-    ) return false
-
-    if (
-      filtros.mesLiberacao &&
-      String(e.mes_liberacao || "") !== filtros.mesLiberacao
-    ) return false
-
-    if (
-      filtros.anoLiberacao &&
-      String(e.ano_liberacao || "") !== filtros.anoLiberacao
-    ) return false
-
     if (filtros.recurso && e.recurso !== filtros.recurso) return false
+    if (filtros.mesProducao && String(e.mes_producao || "") !== filtros.mesProducao) return false
+    if (filtros.anoProducao && String(e.ano_producao || "") !== filtros.anoProducao) return false
+    if (filtros.mesLiberacao && String(e.mes_liberacao || "") !== filtros.mesLiberacao) return false
+    if (filtros.anoLiberacao && String(e.ano_liberacao || "") !== filtros.anoLiberacao) return false
 
     return true
   })
@@ -141,8 +103,7 @@ export default function Mrp() {
   const hoje = new Date()
 
   const [rodadas, setRodadas] = useState<MrpRodada[]>([])
-  const [rodadaSelecionada, setRodadaSelecionada] =
-    useState<MrpRodada | null>(null)
+  const [rodadaSelecionada, setRodadaSelecionada] = useState<MrpRodada | null>(null)
 
   const [etapas, setEtapas] = useState<MrpEtapa[]>([])
   const [alocacoes, setAlocacoes] = useState<MrpAlocacaoDia[]>([])
@@ -163,19 +124,15 @@ export default function Mrp() {
   const [mesFim, setMesFim] = useState(12)
   const [anoFim, setAnoFim] = useState(2026)
 
+  const [pagina, setPagina] = useState(1)
+
   const [filtros, setFiltros] = useState<Filtros>({
     busca: "",
     mesProducao: "",
     anoProducao: "",
     mesLiberacao: "",
     anoLiberacao: "",
-    recurso: "",
-  })
-
-  const [paginas, setPaginas] = useState<Record<string, number>>({
-    L1: 1,
-    L2: 1,
-    FABRIMA: 1,
+    recurso: "L1",
   })
 
   async function carregarRodadas() {
@@ -203,10 +160,7 @@ export default function Mrp() {
     }
   }
 
-  function sugerirProximaVersao(
-    mesSelecionado: number,
-    anoSelecionado: number
-  ) {
+  function sugerirProximaVersao(mesSelecionado: number, anoSelecionado: number) {
     const versoes = rodadas
       .filter((r) => r.mes === mesSelecionado && r.ano === anoSelecionado)
       .map((r) => r.versao || 0)
@@ -245,18 +199,12 @@ export default function Mrp() {
 
     try {
       setImportando(true)
-
       await importarMrpMps(rodadaSelecionada.id, arquivoMps)
       await carregarDadosRodada(rodadaSelecionada.id)
-
       alert("Planejamento importado com sucesso.")
     } catch (err) {
       console.error(err)
-      alert(
-        err instanceof Error
-          ? err.message
-          : "Erro ao importar planejamento."
-      )
+      alert(err instanceof Error ? err.message : "Erro ao importar planejamento.")
     } finally {
       setImportando(false)
     }
@@ -280,18 +228,11 @@ export default function Mrp() {
   }, [mes, ano, rodadas])
 
   useEffect(() => {
-    setPaginas({
-      L1: 1,
-      L2: 1,
-      FABRIMA: 1,
-    })
+    setPagina(1)
   }, [filtros, mesInicio, anoInicio, mesFim, anoFim])
 
   useEffect(() => {
-    const datas = etapas
-      .map((e) => e.data_inicio)
-      .filter(Boolean) as string[]
-
+    const datas = etapas.map((e) => e.data_inicio).filter(Boolean) as string[]
     if (!datas.length) return
 
     const menor = datas.sort()[0]
@@ -322,10 +263,7 @@ export default function Mrp() {
     return grupos
   }, [dias])
 
-  const opcoesPeriodo = useMemo(
-    () => gerarOpcoesMeses(hoje.getFullYear()),
-    []
-  )
+  const opcoesPeriodo = useMemo(() => gerarOpcoesMeses(hoje.getFullYear()), [])
 
   const alocacaoMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -354,14 +292,11 @@ export default function Mrp() {
     [etapas, filtros]
   )
 
-  const etapasPorRecurso = useMemo(() => {
-    return RECURSOS
-      .filter((recurso) => !filtros.recurso || filtros.recurso === recurso)
-      .map((recurso) => ({
-        recurso,
-        etapas: etapasFiltradas.filter((e) => e.recurso === recurso),
-      }))
-  }, [etapasFiltradas, filtros.recurso])
+  const recursoSelecionado = filtros.recurso || "L1"
+  const totalPaginas = Math.max(1, Math.ceil(etapasFiltradas.length / PAGE_SIZE))
+  const paginaCorrigida = Math.min(pagina, totalPaginas)
+  const inicioPagina = (paginaCorrigida - 1) * PAGE_SIZE
+  const etapasPagina = etapasFiltradas.slice(inicioPagina, inicioPagina + PAGE_SIZE)
 
   return (
     <div className="min-h-screen bg-slate-100 p-5">
@@ -381,12 +316,9 @@ export default function Mrp() {
 
             {rodadaSelecionada && (
               <div className="mt-3 inline-flex items-center rounded-xl border border-slate-200 bg-slate-100 px-3 py-2">
-                <span className="mr-2 text-xs text-slate-500">
-                  Rodada ativa:
-                </span>
+                <span className="mr-2 text-xs text-slate-500">Rodada ativa:</span>
                 <span className="text-sm font-semibold text-slate-700">
-                  {rodadaSelecionada.nome} —{" "}
-                  {MESES[(rodadaSelecionada.mes || 1) - 1]}/
+                  {rodadaSelecionada.nome} — {MESES[(rodadaSelecionada.mes || 1) - 1]}/
                   {rodadaSelecionada.ano} — V{rodadaSelecionada.versao}
                 </span>
               </div>
@@ -397,9 +329,7 @@ export default function Mrp() {
             <select
               value={rodadaSelecionada?.id || ""}
               onChange={(e) => {
-                const rodada =
-                  rodadas.find((r) => r.id === e.target.value) || null
-
+                const rodada = rodadas.find((r) => r.id === e.target.value) || null
                 setRodadaSelecionada(rodada)
 
                 if (rodada) {
@@ -452,21 +382,16 @@ export default function Mrp() {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4 xl:grid-cols-8">
           <input
             value={filtros.busca}
-            onChange={(e) =>
-              setFiltros((prev) => ({ ...prev, busca: e.target.value }))
-            }
+            onChange={(e) => setFiltros((prev) => ({ ...prev, busca: e.target.value }))}
             placeholder="Buscar lote, código ou produto..."
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm md:col-span-2"
           />
 
           <select
             value={filtros.recurso}
-            onChange={(e) =>
-              setFiltros((prev) => ({ ...prev, recurso: e.target.value }))
-            }
+            onChange={(e) => setFiltros((prev) => ({ ...prev, recurso: e.target.value || "L1" }))}
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
           >
-            <option value="">Todas as linhas</option>
             {RECURSOS.map((r) => (
               <option key={r} value={r}>{r}</option>
             ))}
@@ -474,12 +399,7 @@ export default function Mrp() {
 
           <select
             value={filtros.mesLiberacao}
-            onChange={(e) =>
-              setFiltros((prev) => ({
-                ...prev,
-                mesLiberacao: e.target.value,
-              }))
-            }
+            onChange={(e) => setFiltros((prev) => ({ ...prev, mesLiberacao: e.target.value }))}
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
           >
             <option value="">Mês lib.</option>
@@ -490,12 +410,7 @@ export default function Mrp() {
 
           <input
             value={filtros.anoLiberacao}
-            onChange={(e) =>
-              setFiltros((prev) => ({
-                ...prev,
-                anoLiberacao: e.target.value,
-              }))
-            }
+            onChange={(e) => setFiltros((prev) => ({ ...prev, anoLiberacao: e.target.value }))}
             placeholder="Ano lib."
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
           />
@@ -536,7 +451,7 @@ export default function Mrp() {
                 anoProducao: "",
                 mesLiberacao: "",
                 anoLiberacao: "",
-                recurso: "",
+                recurso: "L1",
               })
             }
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -546,169 +461,134 @@ export default function Mrp() {
         </div>
       </div>
 
-      <div className="space-y-5">
-        {etapasPorRecurso.map(({ recurso, etapas }) => {
-          const paginaAtual = paginas[recurso] || 1
-          const totalPaginas = Math.max(1, Math.ceil(etapas.length / PAGE_SIZE))
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div
+          className="flex items-center justify-between px-5 py-3 text-white"
+          style={{ backgroundColor: AZUL }}
+        >
+          <div>
+            <h2 className="font-semibold">Programação — {recursoSelecionado}</h2>
+            <p className="text-xs text-white/80">
+              {recursoSelecionado === "FABRIMA"
+                ? "Programação macro de embalagem."
+                : "Programação macro de envase."}
+            </p>
+          </div>
 
-          const paginaCorrigida = Math.min(paginaAtual, totalPaginas)
-          const inicio = (paginaCorrigida - 1) * PAGE_SIZE
-          const fim = inicio + PAGE_SIZE
-          const etapasPagina = etapas.slice(inicio, fim)
+          <div className="flex items-center gap-3 text-xs text-white/90">
+            <span>{loading ? "Carregando..." : `${etapasFiltradas.length} linhas filtradas`}</span>
+            <span>Página {paginaCorrigida} de {totalPaginas}</span>
 
-          return (
-            <div
-              key={recurso}
-              className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+            <button
+              disabled={paginaCorrigida <= 1}
+              onClick={() => setPagina(paginaCorrigida - 1)}
+              className="rounded-lg bg-white/10 px-2 py-1 disabled:opacity-40"
             >
-              <div
-                className="flex items-center justify-between px-5 py-3 text-white"
-                style={{ backgroundColor: AZUL }}
-              >
-                <div>
-                  <h2 className="font-semibold">Programação — {recurso}</h2>
-                  <p className="text-xs text-white/80">
-                    {recurso === "FABRIMA"
-                      ? "Programação macro de embalagem."
-                      : "Programação macro de envase."}
-                  </p>
-                </div>
+              Anterior
+            </button>
 
-                <div className="flex items-center gap-3 text-xs text-white/90">
-                  <span>
-                    {loading
-                      ? "Carregando..."
-                      : `${etapas.length} linhas filtradas`}
-                  </span>
+            <button
+              disabled={paginaCorrigida >= totalPaginas}
+              onClick={() => setPagina(paginaCorrigida + 1)}
+              className="rounded-lg bg-white/10 px-2 py-1 disabled:opacity-40"
+            >
+              Próxima
+            </button>
+          </div>
+        </div>
 
-                  <span>
-                    Página {paginaCorrigida} de {totalPaginas}
-                  </span>
+        <div className="max-h-[680px] overflow-auto">
+          <table className="min-w-[2800px] border-collapse text-xs">
+            <thead className="sticky top-0 z-30">
+              <tr style={{ backgroundColor: AZUL }} className="text-white">
+                <th rowSpan={3} className="sticky left-0 z-40 border border-white/20 px-2 py-2 text-left" style={{ backgroundColor: AZUL, minWidth: 90 }}>LOTE</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-left">CÓDIGO</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-left" style={{ minWidth: 180 }}>PRODUTO</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-right">TEMPO<br />(Horas.)</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-right">UN /<br />HORA</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-right">QTD.<br />(Tubetes)</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">MÊS<br />PROD.</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">ANO<br />PROD.</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">DATA<br />INÍCIO</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">DATA<br />FIM</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">DATA<br />LIB.</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">MÊS<br />LIB.</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">ANO<br />LIB.</th>
+                <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">LINHA</th>
 
-                  <button
-                    disabled={paginaCorrigida <= 1}
-                    onClick={() =>
-                      setPaginas((prev) => ({
-                        ...prev,
-                        [recurso]: paginaCorrigida - 1,
-                      }))
-                    }
-                    className="rounded-lg bg-white/10 px-2 py-1 disabled:opacity-40"
-                  >
-                    Anterior
-                  </button>
+                {mesesAgrupados.map((m) => (
+                  <th key={m.label} colSpan={m.span} className="border border-white/20 px-2 py-1 text-center">
+                    {m.label}
+                  </th>
+                ))}
+              </tr>
 
-                  <button
-                    disabled={paginaCorrigida >= totalPaginas}
-                    onClick={() =>
-                      setPaginas((prev) => ({
-                        ...prev,
-                        [recurso]: paginaCorrigida + 1,
-                      }))
-                    }
-                    className="rounded-lg bg-white/10 px-2 py-1 disabled:opacity-40"
-                  >
-                    Próxima
-                  </button>
-                </div>
-              </div>
+              <tr style={{ backgroundColor: AZUL }} className="text-white">
+                {dias.map((d) => (
+                  <th key={`dia-${d.data}`} className="min-w-[38px] border border-white/20 px-1 py-1 text-center">
+                    {d.dia}
+                  </th>
+                ))}
+              </tr>
 
-              <div className="max-h-[620px] overflow-auto">
-                <table className="min-w-[2800px] border-collapse text-xs">
-                  <thead className="sticky top-0 z-30">
-                    <tr style={{ backgroundColor: AZUL }} className="text-white">
-                      <th rowSpan={3} className="sticky left-0 z-40 border border-white/20 px-2 py-2 text-left" style={{ backgroundColor: AZUL, minWidth: 90 }}>LOTE</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-left">CÓDIGO</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-left" style={{ minWidth: 180 }}>PRODUTO</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-right">TEMPO<br />(Horas.)</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-right">UN /<br />HORA</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-right">QTD.<br />(Tubetes)</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">MÊS<br />PROD.</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">ANO<br />PROD.</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">DATA<br />INÍCIO</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">DATA<br />FIM</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">DATA<br />LIB.</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">MÊS<br />LIB.</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">ANO<br />LIB.</th>
-                      <th rowSpan={3} className="border border-white/20 px-2 py-2 text-center">LINHA</th>
+              <tr style={{ backgroundColor: AZUL }} className="text-emerald-300">
+                {dias.map((d) => {
+                  const totalDia = horasDiaMap.get(`${recursoSelecionado}|${d.data}`) || 0
 
-                      {mesesAgrupados.map((m) => (
-                        <th key={m.label} colSpan={m.span} className="border border-white/20 px-2 py-1 text-center">
-                          {m.label}
-                        </th>
-                      ))}
-                    </tr>
+                  return (
+                    <th key={`hora-${d.data}`} className="min-w-[38px] border border-white/20 px-1 py-1 text-center">
+                      {fmt(totalDia)}
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
 
-                    <tr style={{ backgroundColor: AZUL }} className="text-white">
-                      {dias.map((d) => (
-                        <th key={`dia-${d.data}`} className="min-w-[38px] border border-white/20 px-1 py-1 text-center">
-                          {d.dia}
-                        </th>
-                      ))}
-                    </tr>
+            <tbody>
+              {etapasPagina.map((etapa) => (
+                <tr key={etapa.id} className="hover:bg-slate-50">
+                  <td className="sticky left-0 z-10 border border-slate-200 bg-white px-2 py-1">{etapa.lote || ""}</td>
+                  <td className="border border-slate-200 px-2 py-1">{etapa.codigo_produto || ""}</td>
+                  <td className="border border-slate-200 px-2 py-1 font-medium text-slate-700">{etapa.descricao_produto || ""}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.duracao_horas)}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.un_hora)}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.qtd_planejada)}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-center">{etapa.mes_producao || ""}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-center">{etapa.ano_producao || ""}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_inicio)}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_fim)}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_pa)}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-center">{etapa.mes_liberacao || ""}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-center">{etapa.ano_liberacao || ""}</td>
+                  <td className="border border-slate-200 px-2 py-1 text-center font-semibold">{etapa.recurso}</td>
 
-                    <tr style={{ backgroundColor: AZUL }} className="text-emerald-300">
-                      {dias.map((d) => {
-                        const totalDia =
-                          horasDiaMap.get(`${recurso}|${d.data}`) || 0
+                  {dias.map((d) => {
+                    const key = `${recursoSelecionado}|${etapa.lote || ""}|${etapa.codigo_produto || ""}|${d.data}`
+                    const horas = alocacaoMap.get(key) || 0
 
-                        return (
-                          <th key={`hora-${d.data}`} className="min-w-[38px] border border-white/20 px-1 py-1 text-center">
-                            {fmt(totalDia)}
-                          </th>
-                        )
-                      })}
-                    </tr>
-                  </thead>
+                    return (
+                      <td key={d.data} className="border border-slate-200 px-1 py-1 text-center">
+                        {horas > 0 ? (
+                          <span className="font-semibold text-emerald-600">{fmt(horas)}</span>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
 
-                  <tbody>
-                    {etapasPagina.map((etapa) => (
-                      <tr key={etapa.id} className="hover:bg-slate-50">
-                        <td className="sticky left-0 z-10 border border-slate-200 bg-white px-2 py-1">{etapa.lote || ""}</td>
-                        <td className="border border-slate-200 px-2 py-1">{etapa.codigo_produto || ""}</td>
-                        <td className="border border-slate-200 px-2 py-1 font-medium text-slate-700">{etapa.descricao_produto || ""}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.duracao_horas)}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.un_hora)}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.qtd_planejada)}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">{etapa.mes_producao || ""}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">{etapa.ano_producao || ""}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_inicio)}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_fim)}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_pa)}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">{etapa.mes_liberacao || ""}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-center">{etapa.ano_liberacao || ""}</td>
-                        <td className="border border-slate-200 px-2 py-1 text-center font-semibold">{etapa.recurso}</td>
-
-                        {dias.map((d) => {
-                          const key = `${recurso}|${etapa.lote || ""}|${etapa.codigo_produto || ""}|${d.data}`
-                          const horas = alocacaoMap.get(key) || 0
-
-                          return (
-                            <td key={d.data} className="border border-slate-200 px-1 py-1 text-center">
-                              {horas > 0 ? (
-                                <span className="font-semibold text-emerald-600">{fmt(horas)}</span>
-                              ) : (
-                                <span className="text-slate-300">-</span>
-                              )}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    ))}
-
-                    {etapas.length === 0 && (
-                      <tr>
-                        <td colSpan={14 + dias.length} className="p-10 text-center text-slate-500">
-                          Nenhuma etapa cadastrada para {recurso}. Selecione uma rodada e importe o Excel MPS.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )
-        })}
+              {etapasPagina.length === 0 && (
+                <tr>
+                  <td colSpan={14 + dias.length} className="p-10 text-center text-slate-500">
+                    Nenhuma etapa encontrada para {recursoSelecionado}.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {modalOpen && (
@@ -749,9 +629,7 @@ export default function Mrp() {
                     className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
                   >
                     {MESES.map((m, idx) => (
-                      <option key={m} value={idx + 1}>
-                        {m}
-                      </option>
+                      <option key={m} value={idx + 1}>{m}</option>
                     ))}
                   </select>
                 </div>
