@@ -234,34 +234,36 @@ export interface MrpRodada {
   criado_em?: string
 }
 
-export interface MrpOrdem {
+export interface MrpEtapa {
   id?: string
   rodada_id: string
 
+  lote?: string | null
   op?: string | null
   codigo_produto?: string | null
   descricao_produto?: string | null
 
-  linha?: string | null
+  etapa: string
+  recurso: string
+  linha_origem?: string | null
 
   data_inicio?: string | null
   data_fim?: string | null
-  data_negociada?: string | null
+  data_pa?: string | null
 
   qtd_planejada?: number
-  qtd_atendida?: number
-  qtd_faltante?: number
+  duracao_horas?: number
 
+  sequencia?: number | null
   status?: string
-  gargalo?: string | null
+
+  origem?: string | null
   observacao?: string | null
 
   criado_em?: string
 }
 
-export async function getMrpRodadas(): Promise<
-  MrpRodada[]
-> {
+export async function getMrpRodadas(): Promise<MrpRodada[]> {
   return apiFetch("/mrp/rodadas")
 }
 
@@ -275,21 +277,36 @@ export async function criarMrpRodada(
   })
 }
 
-export async function getMrpOrdens(
+export async function getMrpEtapas(
   rodadaId: string
-): Promise<MrpOrdem[]> {
-  return apiFetch(
-    `/mrp/rodadas/${rodadaId}/ordens`
-  )
+): Promise<MrpEtapa[]> {
+  return apiFetch(`/mrp/rodadas/${rodadaId}/etapas`)
 }
 
-export async function criarMrpOrdem(
-  payload: MrpOrdem
-): Promise<MrpOrdem> {
-  return apiFetch("/mrp/ordens", {
+export async function criarMrpEtapa(
+  payload: MrpEtapa
+): Promise<MrpEtapa> {
+  return apiFetch("/mrp/etapas", {
     method: "POST",
     body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" },
+  })
+}
+
+export async function atualizarMrpEtapa(
+  etapaId: string,
+  payload: Partial<MrpEtapa>
+): Promise<MrpEtapa> {
+  return apiFetch(`/mrp/etapas/${etapaId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+export async function excluirMrpEtapa(etapaId: string) {
+  return apiFetch(`/mrp/etapas/${etapaId}`, {
+    method: "DELETE",
   })
 }
 
