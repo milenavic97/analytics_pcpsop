@@ -20,12 +20,42 @@ const PAGE_SIZE = 50
 
 type Filtros = {
   busca: string
+  lote: string
+  codigo: string
+  produto: string
   mesProducao: string
   anoProducao: string
   mesLiberacao: string
   anoLiberacao: string
   recurso: string
 }
+
+type FixedColumn = {
+  key: string
+  label: string
+  width: number
+  align?: "left" | "center" | "right"
+  filterKey?: keyof Filtros
+  render: (etapa: MrpEtapa) => string | number | null | undefined
+}
+
+const FIXED_COLUMNS: FixedColumn[] = [
+  { key: "lote", label: "LOTE", width: 90, filterKey: "lote", render: (e) => e.lote },
+  { key: "codigo", label: "CÓDIGO", width: 90, filterKey: "codigo", render: (e) => e.codigo_produto },
+  { key: "produto", label: "PRODUTO", width: 220, filterKey: "produto", render: (e) => e.descricao_produto },
+  { key: "tempo", label: "TEMPO\n(Horas.)", width: 90, align: "right", render: (e) => fmt(e.duracao_horas) },
+  { key: "unhora", label: "UN /\nHORA", width: 90, align: "right", render: (e) => fmt(e.un_hora) },
+  { key: "qtd", label: "QTD.\n(Tubetes)", width: 100, align: "right", render: (e) => fmt(e.qtd_planejada) },
+  { key: "mesprod", label: "MÊS\nPROD.", width: 80, align: "center", filterKey: "mesProducao", render: (e) => e.mes_producao },
+  { key: "anoprod", label: "ANO\nPROD.", width: 80, align: "center", filterKey: "anoProducao", render: (e) => e.ano_producao },
+  { key: "inicio", label: "DATA\nINÍCIO", width: 110, align: "center", render: (e) => fmtData(e.data_inicio) },
+  { key: "fim", label: "DATA\nFIM", width: 110, align: "center", render: (e) => fmtData(e.data_fim) },
+  { key: "lib", label: "DATA\nLIB.", width: 110, align: "center", render: (e) => fmtData(e.data_pa) },
+  { key: "meslib", label: "MÊS\nLIB.", width: 80, align: "center", filterKey: "mesLiberacao", render: (e) => e.mes_liberacao },
+  { key: "anolib", label: "ANO\nLIB.", width: 80, align: "center", filterKey: "anoLiberacao", render: (e) => e.ano_liberacao },
+]
+
+const FIXED_TOTAL_WIDTH = FIXED_COLUMNS.reduce((sum, col) => sum + col.width, 0)
 
 function fmt(value?: number | null) {
   return Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })
@@ -42,7 +72,6 @@ function keyData(date?: string | null) {
 
 function toNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return 0
-
   if (typeof value === "number") return value
 
   const texto = String(value).trim()
@@ -105,6 +134,9 @@ function filtrarEtapas(etapas: MrpEtapa[], filtros: Filtros) {
     }
 
     if (filtros.recurso && e.recurso !== filtros.recurso) return false
+    if (filtros.lote && String(e.lote || "") !== filtros.lote) return false
+    if (filtros.codigo && String(e.codigo_produto || "") !== filtros.codigo) return false
+    if (filtros.produto && String(e.descricao_produto || "") !== filtros.produto) return false
     if (filtros.mesProducao && String(e.mes_producao || "") !== filtros.mesProducao) return false
     if (filtros.anoProducao && String(e.ano_producao || "") !== filtros.anoProducao) return false
     if (filtros.mesLiberacao && String(e.mes_liberacao || "") !== filtros.mesLiberacao) return false
@@ -112,6 +144,16 @@ function filtrarEtapas(etapas: MrpEtapa[], filtros: Filtros) {
 
     return true
   })
+}
+
+function uniqueSorted(values: (string | number | null | undefined)[]) {
+  return Array.from(
+    new Set(
+      values
+        .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
+        .map((v) => String(v))
+    )
+  ).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }))
 }
 
 export default function Mrp() {
@@ -122,8 +164,6 @@ export default function Mrp() {
 
   const [etapas, setEtapas] = useState<MrpEtapa[]>([])
   const [alocacoes, setAlocacoes] = useState<MrpAlocacaoDia[]>([])
-
-  console.log("ALOCACOES", alocacoes.slice(0, 20))
 
   const [loading, setLoading] = useState(false)
   const [importando, setImportando] = useState(false)
@@ -145,6 +185,9 @@ export default function Mrp() {
 
   const [filtros, setFiltros] = useState<Filtros>({
     busca: "",
+    lote: "",
+    codigo: "",
+    produto: "",
     mesProducao: "",
     anoProducao: "",
     mesLiberacao: "",
@@ -282,6 +325,23 @@ export default function Mrp() {
 
   const opcoesPeriodo = useMemo(() => gerarOpcoesMeses(hoje.getFullYear()), [])
 
+  const etapasDoRecurso = useMemo(
+    () => etapas.filter((e) => e.recurso === (filtros.recurso || "L1")),
+    [etapas, filtros.recurso]
+  )
+
+  const opcoesFiltros = useMemo(() => {
+    return {
+      lote: uniqueSorted(etapasDoRecurso.map((e) => e.lote)),
+      codigo: uniqueSorted(etapasDoRecurso.map((e) => e.codigo_produto)),
+      produto: uniqueSorted(etapasDoRecurso.map((e) => e.descricao_produto)),
+      mesProducao: uniqueSorted(etapasDoRecurso.map((e) => e.mes_producao)),
+      anoProducao: uniqueSorted(etapasDoRecurso.map((e) => e.ano_producao)),
+      mesLiberacao: uniqueSorted(etapasDoRecurso.map((e) => e.mes_liberacao)),
+      anoLiberacao: uniqueSorted(etapasDoRecurso.map((e) => e.ano_liberacao)),
+    }
+  }, [etapasDoRecurso])
+
   const alocacaoMap = useMemo(() => {
     const map = new Map<string, number>()
 
@@ -332,9 +392,7 @@ export default function Mrp() {
           <div>
             <div className="flex items-center gap-2">
               <CalendarDays size={22} className="text-slate-700" />
-              <h1 className="text-2xl font-bold text-slate-900">
-                MRP — Planejamento
-              </h1>
+              <h1 className="text-2xl font-bold text-slate-900">MRP — Planejamento</h1>
             </div>
 
             <p className="mt-1 text-sm text-slate-500">
@@ -416,7 +474,15 @@ export default function Mrp() {
 
           <select
             value={filtros.recurso}
-            onChange={(e) => setFiltros((prev) => ({ ...prev, recurso: e.target.value || "L1" }))}
+            onChange={(e) =>
+              setFiltros((prev) => ({
+                ...prev,
+                recurso: e.target.value || "L1",
+                lote: "",
+                codigo: "",
+                produto: "",
+              }))
+            }
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
           >
             {RECURSOS.map((r) => (
@@ -474,6 +540,9 @@ export default function Mrp() {
             onClick={() =>
               setFiltros({
                 busca: "",
+                lote: "",
+                codigo: "",
+                produto: "",
                 mesProducao: "",
                 anoProducao: "",
                 mesLiberacao: "",
@@ -508,38 +577,81 @@ export default function Mrp() {
         </div>
 
         <div className="max-h-[680px] overflow-auto">
-          <table className="min-w-[2650px] border-collapse text-xs">
-            <thead className="sticky top-0 z-30">
-              <tr className="text-slate-700" style={{ backgroundColor: AZUL_CLARO }}>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-left">LOTE</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-left">CÓDIGO</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-left" style={{ minWidth: 180 }}>PRODUTO</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-right">TEMPO<br />(Horas.)</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-right">UN /<br />HORA</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-right">QTD.<br />(Tubetes)</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">MÊS<br />PROD.</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">ANO<br />PROD.</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">DATA<br />INÍCIO</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">DATA<br />FIM</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">DATA<br />LIB.</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">MÊS<br />LIB.</th>
-                <th rowSpan={3} className="border border-slate-300 px-2 py-2 text-center">ANO<br />LIB.</th>
+          <table className="border-collapse text-xs">
+            <thead className="sticky top-0 z-40">
+              <tr>
+                <th
+                  colSpan={FIXED_COLUMNS.length}
+                  className="sticky left-0 z-50 border border-slate-300"
+                  style={{
+                    backgroundColor: AZUL_CLARO,
+                    minWidth: FIXED_TOTAL_WIDTH,
+                    width: FIXED_TOTAL_WIDTH,
+                  }}
+                />
 
                 {mesesAgrupados.map((m) => (
                   <th
                     key={m.label}
                     colSpan={m.span}
                     className="border border-white/20 px-2 py-1 text-center text-white"
-                    style={{ backgroundColor: AZUL }}
+                    style={{ backgroundColor: AZUL, minWidth: m.span * 38 }}
                   >
                     {m.label}
                   </th>
                 ))}
               </tr>
 
-              <tr className="text-white" style={{ backgroundColor: AZUL }}>
+              <tr className="text-slate-700" style={{ backgroundColor: AZUL_CLARO }}>
+                {FIXED_COLUMNS.map((col, idx) => {
+                  const left = FIXED_COLUMNS.slice(0, idx).reduce((sum, c) => sum + c.width, 0)
+                  const opcoes = col.filterKey ? opcoesFiltros[col.filterKey as keyof typeof opcoesFiltros] || [] : []
+
+                  return (
+                    <th
+                      key={col.key}
+                      rowSpan={2}
+                      className="sticky z-50 border border-slate-300 px-2 py-2 font-semibold"
+                      style={{
+                        left,
+                        minWidth: col.width,
+                        width: col.width,
+                        maxWidth: col.width,
+                        backgroundColor: AZUL_CLARO,
+                        textAlign: col.align || "left",
+                      }}
+                    >
+                      <div className="flex flex-col gap-1">
+                        <span className="whitespace-pre-line">{col.label}</span>
+
+                        {col.filterKey && (
+                          <select
+                            value={String(filtros[col.filterKey] || "")}
+                            onChange={(e) =>
+                              setFiltros((prev) => ({
+                                ...prev,
+                                [col.filterKey as keyof Filtros]: e.target.value,
+                              }))
+                            }
+                            className="w-full rounded border border-slate-300 bg-white px-1 py-[2px] text-[10px] font-normal text-slate-600"
+                          >
+                            <option value="">Todos</option>
+                            {opcoes.map((opcao) => (
+                              <option key={opcao} value={opcao}>{opcao}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </th>
+                  )
+                })}
+
                 {dias.map((d) => (
-                  <th key={`dia-${d.data}`} className="min-w-[38px] border border-white/20 px-1 py-1 text-center">
+                  <th
+                    key={`dia-${d.data}`}
+                    className="min-w-[38px] border border-white/20 px-1 py-1 text-center text-white"
+                    style={{ backgroundColor: AZUL }}
+                  >
                     {d.dia}
                   </th>
                 ))}
@@ -561,26 +673,36 @@ export default function Mrp() {
             <tbody>
               {etapasPagina.map((etapa) => (
                 <tr key={etapa.id} className="hover:bg-slate-50">
-                  <td className="border border-slate-200 bg-white px-2 py-1">{etapa.lote || ""}</td>
-                  <td className="border border-slate-200 px-2 py-1">{etapa.codigo_produto || ""}</td>
-                  <td className="border border-slate-200 px-2 py-1 font-medium text-slate-700">{etapa.descricao_produto || ""}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.duracao_horas)}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.un_hora)}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-right">{fmt(etapa.qtd_planejada)}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-center">{etapa.mes_producao || ""}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-center">{etapa.ano_producao || ""}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_inicio)}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_fim)}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-center">{fmtData(etapa.data_pa)}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-center">{etapa.mes_liberacao || ""}</td>
-                  <td className="border border-slate-200 px-2 py-1 text-center">{etapa.ano_liberacao || ""}</td>
+                  {FIXED_COLUMNS.map((col, idx) => {
+                    const left = FIXED_COLUMNS.slice(0, idx).reduce((sum, c) => sum + c.width, 0)
+
+                    return (
+                      <td
+                        key={col.key}
+                        className="sticky z-30 border border-slate-200 bg-white px-2 py-1"
+                        style={{
+                          left,
+                          minWidth: col.width,
+                          width: col.width,
+                          maxWidth: col.width,
+                          textAlign: col.align || "left",
+                        }}
+                      >
+                        {col.render(etapa) || ""}
+                      </td>
+                    )
+                  })}
 
                   {dias.map((d) => {
                     const key = `${recursoSelecionado}|${etapa.lote || ""}|${etapa.codigo_produto || ""}|${d.data}`
                     const horas = alocacaoMap.get(key) || 0
 
                     return (
-                      <td key={d.data} className="border border-slate-200 px-1 py-1 text-center">
+                      <td
+                        key={d.data}
+                        className="border border-slate-200 px-1 py-1 text-center"
+                        style={{ background: horas > 0 ? "rgba(16,185,129,0.12)" : "white" }}
+                      >
                         {horas > 0 ? (
                           <span className="font-semibold text-emerald-600">{fmt(horas)}</span>
                         ) : (
@@ -594,7 +716,7 @@ export default function Mrp() {
 
               {etapasPagina.length === 0 && (
                 <tr>
-                  <td colSpan={13 + dias.length} className="p-10 text-center text-slate-500">
+                  <td colSpan={FIXED_COLUMNS.length + dias.length} className="p-10 text-center text-slate-500">
                     Nenhuma etapa encontrada para {recursoSelecionado}.
                   </td>
                 </tr>
@@ -604,9 +726,7 @@ export default function Mrp() {
         </div>
 
         <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-5 py-3 text-xs text-slate-600">
-          <span>
-            Página {paginaCorrigida} de {totalPaginas}
-          </span>
+          <span>Página {paginaCorrigida} de {totalPaginas}</span>
 
           <button
             disabled={paginaCorrigida <= 1}
