@@ -40,6 +40,20 @@ function keyData(date?: string | null) {
   return date ? date.slice(0, 10) : ""
 }
 
+function toNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return 0
+
+  if (typeof value === "number") return value
+
+  const texto = String(value).trim()
+
+  if (texto.includes(",")) {
+    return Number(texto.replace(/\./g, "").replace(",", "."))
+  }
+
+  return Number(texto)
+}
+
 function gerarDias(inicioMes: number, inicioAno: number, fimMes: number, fimAno: number) {
   const dias: { data: string; dia: number; mes: number; ano: number }[] = []
   const atual = new Date(inicioAno, inicioMes - 1, 1)
@@ -108,6 +122,8 @@ export default function Mrp() {
 
   const [etapas, setEtapas] = useState<MrpEtapa[]>([])
   const [alocacoes, setAlocacoes] = useState<MrpAlocacaoDia[]>([])
+
+  console.log("ALOCACOES", alocacoes.slice(0, 20))
 
   const [loading, setLoading] = useState(false)
   const [importando, setImportando] = useState(false)
@@ -273,7 +289,7 @@ export default function Mrp() {
       if (!a.lote && !a.codigo_produto) return
 
       const key = `${a.recurso}|${a.lote || ""}|${a.codigo_produto || ""}|${keyData(a.data)}`
-      map.set(key, (map.get(key) || 0) + Number(a.horas_alocadas || 0))
+      map.set(key, (map.get(key) || 0) + toNumber(a.horas_alocadas))
     })
 
     return map
@@ -285,12 +301,12 @@ export default function Mrp() {
     alocacoes.forEach((a) => {
       const key = `${a.recurso}|${keyData(a.data)}`
 
-      const disponivel = Number(a.horas_disponiveis_dia || 0)
-      const alocada = Number(a.horas_alocadas || 0)
+      const disponivel = toNumber(a.horas_disponiveis_dia)
+      const alocada = toNumber(a.horas_alocadas)
 
-      if (disponivel > 0) {
-        map.set(key, Math.max(map.get(key) || 0, disponivel))
-      } else if (!map.has(key)) {
+      if (!Number.isNaN(disponivel) && disponivel > 0) {
+        map.set(key, disponivel)
+      } else if (!map.has(key) && !Number.isNaN(alocada)) {
         map.set(key, alocada)
       }
     })
