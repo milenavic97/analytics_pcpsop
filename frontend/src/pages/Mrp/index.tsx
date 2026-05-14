@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState } from "react"
-import { CalendarDays, Plus, Save, Upload, X } from "lucide-react"
+import {
+  AlertCircle,
+  CalendarDays,
+  CheckCircle2,
+  Plus,
+  Save,
+  Upload,
+  X,
+} from "lucide-react"
 
 import {
+  atualizarMrpEtapa,
   criarMrpRodada,
   getMrpAlocacoes,
   getMrpEtapas,
   getMrpRodadas,
   importarMrpMps,
-  atualizarMrpEtapa,
   type MrpAlocacaoDia,
   type MrpEtapa,
   type MrpRodada,
@@ -35,6 +43,12 @@ type EdicaoEtapa = {
   descricao_produto?: string | null
   codigo_produto?: string | null
   lote?: string | null
+}
+
+type Toast = {
+  tipo: "success" | "error"
+  titulo: string
+  mensagem: string
 }
 
 type Column = {
@@ -205,6 +219,7 @@ export default function Mrp() {
   const [importando, setImportando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [toast, setToast] = useState<Toast | null>(null)
 
   const [edicoes, setEdicoes] = useState<Record<string, EdicaoEtapa>>({})
 
@@ -233,6 +248,13 @@ export default function Mrp() {
     anoLiberacao: "",
     recurso: "L1",
   })
+
+  function showToast(toastData: Toast, duration = 3000) {
+    setToast(toastData)
+    window.setTimeout(() => {
+      setToast(null)
+    }, duration)
+  }
 
   async function carregarRodadas() {
     const data = await getMrpRodadas()
@@ -288,12 +310,20 @@ export default function Mrp() {
 
   async function handleImportarMps() {
     if (!rodadaSelecionada?.id) {
-      alert("Selecione uma rodada.")
+      showToast({
+        tipo: "error",
+        titulo: "Rodada não selecionada",
+        mensagem: "Selecione uma rodada antes de importar o planejamento.",
+      })
       return
     }
 
     if (!arquivoMps) {
-      alert("Selecione o arquivo MPS.")
+      showToast({
+        tipo: "error",
+        titulo: "Arquivo não selecionado",
+        mensagem: "Selecione o arquivo MPS antes de processar.",
+      })
       return
     }
 
@@ -301,10 +331,20 @@ export default function Mrp() {
       setImportando(true)
       await importarMrpMps(rodadaSelecionada.id, arquivoMps)
       await carregarDadosRodada(rodadaSelecionada.id)
-      alert("Planejamento importado com sucesso.")
+
+      showToast({
+        tipo: "success",
+        titulo: "Planejamento importado",
+        mensagem: "O arquivo MPS foi processado com sucesso.",
+      })
     } catch (err) {
       console.error(err)
-      alert(err instanceof Error ? err.message : "Erro ao importar planejamento.")
+
+      showToast({
+        tipo: "error",
+        titulo: "Erro ao importar",
+        mensagem: err instanceof Error ? err.message : "Erro ao importar planejamento.",
+      })
     } finally {
       setImportando(false)
     }
@@ -343,7 +383,11 @@ export default function Mrp() {
     const entradas = Object.entries(edicoes)
 
     if (!entradas.length) {
-      alert("Nenhuma alteração pendente.")
+      showToast({
+        tipo: "error",
+        titulo: "Nenhuma alteração",
+        mensagem: "Não há alterações pendentes para salvar.",
+      })
       return
     }
 
@@ -366,10 +410,20 @@ export default function Mrp() {
       )
 
       setEdicoes({})
-      alert("Alterações salvas com sucesso.")
+
+      showToast({
+        tipo: "success",
+        titulo: "Alterações salvas",
+        mensagem: "As alterações foram salvas com sucesso.",
+      })
     } catch (err) {
       console.error(err)
-      alert("Erro ao salvar alterações.")
+
+      showToast({
+        tipo: "error",
+        titulo: "Erro ao salvar",
+        mensagem: "Não foi possível salvar as alterações.",
+      })
     } finally {
       setSalvando(false)
     }
@@ -526,6 +580,39 @@ export default function Mrp() {
 
   return (
     <div className="min-h-screen bg-slate-100 p-5">
+      {toast && (
+        <div className="fixed right-6 top-6 z-[9999]">
+          <div
+            className={`min-w-[340px] rounded-2xl border px-5 py-4 shadow-2xl ${
+              toast.tipo === "success"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-red-200 bg-red-50 text-red-900"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`mt-0.5 flex h-8 w-8 items-center justify-center rounded-full ${
+                  toast.tipo === "success"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-red-100 text-red-700"
+                }`}
+              >
+                {toast.tipo === "success" ? (
+                  <CheckCircle2 size={18} />
+                ) : (
+                  <AlertCircle size={18} />
+                )}
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold">{toast.titulo}</div>
+                <div className="mt-1 text-sm opacity-80">{toast.mensagem}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
@@ -730,15 +817,18 @@ export default function Mrp() {
               <tr>
                 <th
                   colSpan={COLUMNS.length}
-                  className="sticky left-0 z-50 border border-white/20"
-                  style={{ backgroundColor: AZUL }}
+                  className="sticky left-0 z-50 border border-slate-200"
+                  style={{
+                    backgroundColor: "white",
+                    height: 24,
+                  }}
                 />
 
                 {mesesAgrupados.map((m) => (
                   <th
                     key={m.label}
                     colSpan={m.span}
-                    className="border border-white/20 px-2 py-1 text-center text-white"
+                    className="border border-white/20 px-2 py-1 text-center font-bold text-white"
                     style={{ backgroundColor: AZUL, minWidth: m.span * 38 }}
                   >
                     {m.label}
