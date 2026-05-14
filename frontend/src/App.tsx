@@ -7,6 +7,7 @@ import { OverviewPage } from "./pages/Overview"
 import { ProducaoPage } from "./pages/Producao"
 import { DadosPage } from "./pages/Dados"
 import { OrdensPage } from "./pages/Ordens"
+import Mrp from "./pages/Mrp"
 
 import { CalendarioParadasPage } from "./pages/calendario-paradas"
 
@@ -43,6 +44,12 @@ export default function App() {
           <Route
             path="/ordens"
             element={<OrdensPage />}
+          />
+
+          {/* MRP */}
+          <Route
+            path="/mrp"
+            element={<Mrp />}
           />
 
           {/* Calendário de Paradas */}
