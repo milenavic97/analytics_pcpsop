@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
-import { getMrpPlano } from "@/services/api"
+
+import {
+  getMrpRodadas,
+  getMrpEtapas,
+  getMrpAlocacoes,
+} from "@/services/api"
 
 type MrpItem = {
   id?: string | number
@@ -33,6 +38,7 @@ function formatMesAno(date: Date) {
 
 function formatNumber(value: any) {
   const n = Number(value || 0)
+
   return n.toLocaleString("pt-BR", {
     maximumFractionDigits: 0,
   })
@@ -65,7 +71,11 @@ export default function MrpPage() {
   const dias = useMemo(() => gerarDiasAteDez2026(), [])
 
   const meses = useMemo(() => {
-    const grupos: { mes: string; inicio: number; span: number }[] = []
+    const grupos: {
+      mes: string
+      inicio: number
+      span: number
+    }[] = []
 
     dias.forEach((d, index) => {
       const mes = formatMesAno(d)
@@ -105,10 +115,67 @@ export default function MrpPage() {
     setLoading(true)
 
     try {
-      const res = await getMrpPlano()
-      setDados(Array.isArray(res) ? res : [])
+      const rodadas = await getMrpRodadas()
+
+      if (!rodadas.length) {
+        setDados([])
+        return
+      }
+
+      const rodadaAtual = rodadas[0]
+
+      setVersao(
+        `${rodadaAtual.nome} - V${rodadaAtual.versao}`
+      )
+
+      const [etapas, alocacoes] = await Promise.all([
+        getMrpEtapas(rodadaAtual.id!),
+        getMrpAlocacoes(rodadaAtual.id!),
+      ])
+
+      const mapa: Record<string, MrpItem> = {}
+
+      etapas.forEach((etapa) => {
+        const chave =
+          etapa.op ||
+          etapa.lote ||
+          etapa.codigo_produto ||
+          crypto.randomUUID()
+
+        if (!mapa[chave]) {
+          mapa[chave] = {
+            id: chave,
+            sku: etapa.codigo_produto || "",
+            descricao:
+              etapa.descricao_produto || "",
+            linha: etapa.recurso || "",
+            necessidade_total:
+              etapa.qtd_planejada || 0,
+            estoque_atual: 0,
+            dias: {},
+          }
+        }
+      })
+
+      alocacoes.forEach((aloc) => {
+        const chave =
+          aloc.lote ||
+          aloc.codigo_produto ||
+          ""
+
+        if (!mapa[chave]) return
+
+        mapa[chave].dias![aloc.data] =
+          aloc.horas_alocadas || 0
+      })
+
+      setDados(Object.values(mapa))
     } catch (error) {
-      console.error("Erro ao carregar MRP:", error)
+      console.error(
+        "Erro ao carregar MRP:",
+        error
+      )
+
       setDados([])
     } finally {
       setLoading(false)
@@ -139,12 +206,6 @@ export default function MrpPage() {
     })
   }, [dados, filtro])
 
-  async function novaRodada() {
-    const nome = `Rodada ${new Date().toLocaleString("pt-BR")}`
-    setVersao(nome)
-    await carregarDados()
-  }
-
   return (
     <div className="w-full min-h-screen bg-slate-50 p-6">
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -152,26 +213,23 @@ export default function MrpPage() {
           <h1 className="text-2xl font-bold text-slate-900">
             Plano MRP
           </h1>
+
           <p className="text-sm text-slate-500">
-            Visão diária de necessidade, capacidade e programação até dez/2026.
+            Visão diária de necessidade,
+            capacidade e programação até
+            dez/2026.
           </p>
         </div>
 
         <div className="flex flex-col gap-2 md:flex-row">
           <input
             value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
+            onChange={(e) =>
+              setFiltro(e.target.value)
+            }
             placeholder="Buscar produto, SKU, grupo ou linha..."
             className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-700 md:w-80"
           />
-
-          <button
-            onClick={novaRodada}
-            className="h-10 rounded-xl px-5 text-sm font-semibold text-white shadow-sm"
-            style={{ backgroundColor: AZUL }}
-          >
-            Nova rodada
-          </button>
         </div>
       </div>
 
@@ -189,7 +247,9 @@ export default function MrpPage() {
                 <th
                   rowSpan={3}
                   className="sticky left-0 z-30 min-w-[150px] rounded-tl-2xl border-r border-blue-300 px-3 py-3 text-left text-white"
-                  style={{ backgroundColor: AZUL }}
+                  style={{
+                    backgroundColor: AZUL,
+                  }}
                 >
                   SKU
                 </th>
@@ -197,7 +257,9 @@ export default function MrpPage() {
                 <th
                   rowSpan={3}
                   className="sticky left-[150px] z-30 min-w-[260px] border-r border-blue-300 px-3 py-3 text-left text-white"
-                  style={{ backgroundColor: AZUL }}
+                  style={{
+                    backgroundColor: AZUL,
+                  }}
                 >
                   Produto
                 </th>
@@ -205,25 +267,11 @@ export default function MrpPage() {
                 <th
                   rowSpan={3}
                   className="sticky left-[410px] z-30 min-w-[100px] border-r border-blue-300 px-3 py-3 text-left text-white"
-                  style={{ backgroundColor: AZUL }}
+                  style={{
+                    backgroundColor: AZUL,
+                  }}
                 >
                   Linha
-                </th>
-
-                <th
-                  rowSpan={3}
-                  className="sticky left-[510px] z-30 min-w-[120px] border-r border-blue-300 px-3 py-3 text-right text-white"
-                  style={{ backgroundColor: AZUL }}
-                >
-                  Estoque
-                </th>
-
-                <th
-                  rowSpan={3}
-                  className="sticky left-[630px] z-30 min-w-[130px] border-r border-blue-300 px-3 py-3 text-right text-white"
-                  style={{ backgroundColor: AZUL }}
-                >
-                  Necessidade
                 </th>
 
                 {meses.map((m, index) => (
@@ -231,9 +279,14 @@ export default function MrpPage() {
                     key={`${m.mes}-${index}`}
                     colSpan={m.span}
                     className={`border-r border-blue-300 px-2 py-2 text-center font-semibold text-white ${
-                      index === meses.length - 1 ? "rounded-tr-2xl" : ""
+                      index ===
+                      meses.length - 1
+                        ? "rounded-tr-2xl"
+                        : ""
                     }`}
-                    style={{ backgroundColor: AZUL }}
+                    style={{
+                      backgroundColor: AZUL,
+                    }}
                   >
                     {m.mes}
                   </th>
@@ -243,9 +296,13 @@ export default function MrpPage() {
               <tr>
                 {dias.map((d) => (
                   <th
-                    key={`dia-${formatDataISO(d)}`}
+                    key={`dia-${formatDataISO(
+                      d
+                    )}`}
                     className="min-w-[44px] border-r border-blue-300 px-1 py-1 text-center text-xs font-medium text-white"
-                    style={{ backgroundColor: AZUL }}
+                    style={{
+                      backgroundColor: AZUL,
+                    }}
                   >
                     {formatDia(d)}
                   </th>
@@ -254,15 +311,24 @@ export default function MrpPage() {
 
               <tr>
                 {dias.map((d) => {
-                  const iso = formatDataISO(d)
+                  const iso =
+                    formatDataISO(d)
 
                   return (
                     <th
                       key={`hora-${iso}`}
                       className="min-w-[44px] border-r border-blue-300 px-1 py-1 text-center text-[11px] font-normal text-blue-50"
-                      style={{ backgroundColor: AZUL }}
+                      style={{
+                        backgroundColor:
+                          AZUL,
+                      }}
                     >
-                      {horasDisponiveis[iso]}h
+                      {
+                        horasDisponiveis[
+                          iso
+                        ]
+                      }
+                      h
                     </th>
                   )
                 })}
@@ -273,83 +339,94 @@ export default function MrpPage() {
               {loading && (
                 <tr>
                   <td
-                    colSpan={dias.length + 5}
+                    colSpan={
+                      dias.length + 3
+                    }
                     className="px-4 py-10 text-center text-slate-500"
                   >
-                    Carregando plano MRP...
-                  </td>
-                </tr>
-              )}
-
-              {!loading && dadosFiltrados.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={dias.length + 5}
-                    className="px-4 py-10 text-center text-slate-500"
-                  >
-                    Nenhum dado encontrado.
+                    Carregando plano
+                    MRP...
                   </td>
                 </tr>
               )}
 
               {!loading &&
-                dadosFiltrados.map((item, rowIndex) => {
-                  const bgBase = rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"
+                dadosFiltrados.map(
+                  (
+                    item,
+                    rowIndex
+                  ) => {
+                    const bgBase =
+                      rowIndex % 2 === 0
+                        ? "bg-white"
+                        : "bg-slate-50"
 
-                  return (
-                    <tr key={item.id ?? `${item.sku}-${rowIndex}`}>
-                      <td
-                        className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 font-medium text-slate-800 ${bgBase}`}
-                      >
-                        {item.sku || "-"}
-                      </td>
-
-                      <td
-                        className={`sticky left-[150px] z-10 border-b border-r border-slate-200 px-3 py-2 text-slate-700 ${bgBase}`}
-                      >
-                        {item.descricao || item.produto || "-"}
-                      </td>
-
-                      <td
-                        className={`sticky left-[410px] z-10 border-b border-r border-slate-200 px-3 py-2 text-slate-700 ${bgBase}`}
-                      >
-                        {item.linha || "-"}
-                      </td>
-
-                      <td
-                        className={`sticky left-[510px] z-10 border-b border-r border-slate-200 px-3 py-2 text-right text-slate-700 ${bgBase}`}
-                      >
-                        {formatNumber(item.estoque_atual)}
-                      </td>
-
-                      <td
-                        className={`sticky left-[630px] z-10 border-b border-r border-slate-200 px-3 py-2 text-right text-slate-700 ${bgBase}`}
-                      >
-                        {formatNumber(item.necessidade_total)}
-                      </td>
-
-                      {dias.map((d) => {
-                        const iso = formatDataISO(d)
-                        const qtd = Number(item.dias?.[iso] || 0)
-
-                        let cellClass =
-                          "border-b border-r border-slate-200 px-1 py-2 text-center text-xs"
-
-                        if (qtd > 0) {
-                          cellClass += " bg-blue-100 text-blue-900 font-semibold"
-                        } else {
-                          cellClass += " text-slate-300"
+                    return (
+                      <tr
+                        key={
+                          item.id ??
+                          `${item.sku}-${rowIndex}`
                         }
+                      >
+                        <td
+                          className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 font-medium text-slate-800 ${bgBase}`}
+                        >
+                          {item.sku ||
+                            "-"}
+                        </td>
 
-                        return (
-                          <td key={`${item.sku}-${iso}`} className={cellClass}>
-                            {qtd > 0 ? formatNumber(qtd) : ""}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  )
-                })}
+                        <td
+                          className={`sticky left-[150px] z-10 border-b border-r border-slate-200 px-3 py-2 text-slate-700 ${bgBase}`}
+                        >
+                          {item.descricao ||
+                            "-"}
+                        </td>
+
+                        <td
+                          className={`sticky left-[410px] z-10 border-b border-r border-slate-200 px-3 py-2 text-slate-700 ${bgBase}`}
+                        >
+                          {item.linha ||
+                            "-"}
+                        </td>
+
+                        {dias.map(
+                          (d) => {
+                            const iso =
+                              formatDataISO(
+                                d
+                              )
+
+                            const qtd =
+                              Number(
+                                item
+                                  .dias?.[
+                                  iso
+                                ] || 0
+                              )
+
+                            return (
+                              <td
+                                key={`${item.sku}-${iso}`}
+                                className={`border-b border-r border-slate-200 px-1 py-2 text-center text-xs ${
+                                  qtd > 0
+                                    ? "bg-blue-100 font-semibold text-blue-900"
+                                    : "text-slate-300"
+                                }`}
+                              >
+                                {qtd >
+                                0
+                                  ? formatNumber(
+                                      qtd
+                                    )
+                                  : ""}
+                              </td>
+                            )
+                          }
+                        )}
+                      </tr>
+                    )
+                  }
+                )}
             </tbody>
           </table>
         </div>
