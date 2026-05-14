@@ -7,6 +7,7 @@ import {
   getMrpEtapas,
   getMrpRodadas,
   importarMrpMps,
+  atualizarMrpEtapa,
   type MrpAlocacaoDia,
   type MrpEtapa,
   type MrpRodada,
@@ -169,6 +170,7 @@ export default function Mrp() {
   const [loading, setLoading] = useState(false)
   const [importando, setImportando] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [salvandoEtapaId, setSalvandoEtapaId] = useState<string | null>(null)
 
   const [nome, setNome] = useState("Rodada MRP")
   const [mes, setMes] = useState(hoje.getMonth() + 1)
@@ -271,6 +273,50 @@ export default function Mrp() {
     }
   }
 
+  async function handleAlterarProduto(etapa: MrpEtapa, novoProduto: string) {
+    if (!etapa.id) return
+
+    const mapaProdutoCodigo: Record<string, string> = {}
+
+    etapas.forEach((item) => {
+      if (
+        item.descricao_produto &&
+        item.codigo_produto &&
+        !mapaProdutoCodigo[item.descricao_produto]
+      ) {
+        mapaProdutoCodigo[item.descricao_produto] = item.codigo_produto
+      }
+    })
+
+    const novoCodigo = mapaProdutoCodigo[novoProduto] || ""
+
+    try {
+      setSalvandoEtapaId(etapa.id)
+
+      await atualizarMrpEtapa(etapa.id, {
+        descricao_produto: novoProduto,
+        codigo_produto: novoCodigo,
+      })
+
+      setEtapas((prev) =>
+        prev.map((item) =>
+          item.id === etapa.id
+            ? {
+                ...item,
+                descricao_produto: novoProduto,
+                codigo_produto: novoCodigo,
+              }
+            : item
+        )
+      )
+    } catch (err) {
+      console.error(err)
+      alert("Erro ao atualizar produto.")
+    } finally {
+      setSalvandoEtapaId(null)
+    }
+  }
+
   useEffect(() => {
     carregarRodadas()
   }, [])
@@ -341,6 +387,11 @@ export default function Mrp() {
       anoLiberacao: uniqueSorted(etapasDoRecurso.map((e) => e.ano_liberacao)),
     }
   }, [etapasDoRecurso])
+
+  const produtosUnicos = useMemo(
+    () => uniqueSorted(etapas.map((e) => e.descricao_produto)),
+    [etapas]
+  )
 
   const alocacaoMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -680,7 +731,22 @@ export default function Mrp() {
                           textAlign: col.align || "left",
                         }}
                       >
-                        {col.render(etapa) || ""}
+                        {col.key === "produto" ? (
+                          <select
+                            value={etapa.descricao_produto || ""}
+                            disabled={salvandoEtapaId === etapa.id}
+                            onChange={(e) => handleAlterarProduto(etapa, e.target.value)}
+                            className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+                          >
+                            {produtosUnicos.map((produto) => (
+                              <option key={produto} value={produto}>
+                                {produto}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          col.render(etapa) || ""
+                        )}
                       </td>
                     )
                   })}
