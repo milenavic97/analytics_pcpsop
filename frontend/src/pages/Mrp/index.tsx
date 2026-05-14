@@ -6,13 +6,14 @@ import {
   PackageCheck,
   FlaskConical,
   X,
+  Upload,
 } from "lucide-react"
 
 import {
-  criarMrpEtapa,
   criarMrpRodada,
   getMrpEtapas,
   getMrpRodadas,
+  importarMrpMps,
   type MrpEtapa,
   type MrpRodada,
 } from "@/services/api"
@@ -32,6 +33,8 @@ const MESES = [
   "Dez",
 ]
 
+const RECURSOS = ["L1", "L2", "FABRIMA"]
+
 function getEtapaColor(etapa?: string) {
   if (etapa === "ENVASE") return "bg-blue-500"
   if (etapa === "FABRIMA") return "bg-violet-500"
@@ -45,6 +48,11 @@ function getEtapaIcon(etapa?: string) {
   return FlaskConical
 }
 
+function getDia(date?: string | null) {
+  if (!date) return 1
+  return new Date(`${date}T00:00:00`).getDate()
+}
+
 export default function Mrp() {
   const hoje = new Date()
 
@@ -53,23 +61,27 @@ export default function Mrp() {
     useState<MrpRodada | null>(null)
 
   const [etapas, setEtapas] = useState<MrpEtapa[]>([])
-
   const [loading, setLoading] = useState(false)
+  const [importando, setImportando] = useState(false)
 
   const [modalOpen, setModalOpen] = useState(false)
 
   const [nome, setNome] = useState("Rodada MRP")
   const [mes, setMes] = useState(hoje.getMonth() + 1)
   const [ano, setAno] = useState(hoje.getFullYear())
+  const [versao, setVersao] = useState(1)
   const [observacao, setObservacao] = useState("")
+  const [arquivoMps, setArquivoMps] = useState<File | null>(null)
 
   async function carregarRodadas() {
     const data = await getMrpRodadas()
-
     setRodadas(data)
 
     if (data.length > 0 && !rodadaSelecionada) {
       setRodadaSelecionada(data[0])
+      setMes(data[0].mes)
+      setAno(data[0].ano)
+      setVersao((data[0].versao || 0) + 1)
     }
   }
 
@@ -85,32 +97,50 @@ export default function Mrp() {
   }
 
   async function handleCriarRodada() {
-    const proximaVersao =
-      Math.max(
-        0,
-        ...rodadas
-          .filter(
-            (r) =>
-              r.mes === mes &&
-              r.ano === ano
-          )
-          .map((r) => r.versao || 0)
-      ) + 1
-
     const nova = await criarMrpRodada({
       nome,
       mes,
       ano,
-      versao: proximaVersao,
+      versao,
       observacao: observacao || null,
       status: "rascunho",
     })
 
     setRodadaSelecionada(nova)
-
     setModalOpen(false)
-
+    setObservacao("")
     await carregarRodadas()
+  }
+
+  async function handleImportarMps() {
+    if (!rodadaSelecionada?.id) {
+      alert("Selecione uma rodada.")
+      return
+    }
+
+    if (!arquivoMps) {
+      alert("Selecione o arquivo MPS.")
+      return
+    }
+
+    try {
+      setImportando(true)
+
+      await importarMrpMps(rodadaSelecionada.id, arquivoMps)
+      await carregarEtapas(rodadaSelecionada.id)
+
+      alert("Planejamento importado com sucesso.")
+    } catch (err) {
+      console.error(err)
+
+      alert(
+        err instanceof Error
+          ? err.message
+          : "Erro ao importar planejamento."
+      )
+    } finally {
+      setImportando(false)
+    }
   }
 
   useEffect(() => {
@@ -120,33 +150,32 @@ export default function Mrp() {
   useEffect(() => {
     if (rodadaSelecionada?.id) {
       carregarEtapas(rodadaSelecionada.id)
+    } else {
+      setEtapas([])
     }
   }, [rodadaSelecionada?.id])
 
   const diasDoMes = useMemo(() => {
-    const total = new Date(
-      ano,
-      mes,
-      0
-    ).getDate()
+    const total = new Date(ano, mes, 0).getDate()
 
-    return Array.from(
-      { length: total },
-      (_, i) => i + 1
-    )
+    return Array.from({ length: total }, (_, i) => i + 1)
   }, [mes, ano])
+
+  const etapasPorRecurso = useMemo(() => {
+    return RECURSOS.map((recurso) => ({
+      recurso,
+      etapas: etapas.filter((e) => e.recurso === recurso),
+    }))
+  }, [etapas])
 
   return (
     <div className="bg-slate-100 min-h-screen p-5">
       {/* HEADER */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <CalendarDays
-                size={22}
-                className="text-slate-700"
-              />
+              <CalendarDays size={22} className="text-slate-700" />
 
               <h1 className="text-2xl font-bold text-slate-900">
                 MRP — Planejamento
@@ -154,56 +183,73 @@ export default function Mrp() {
             </div>
 
             <p className="text-sm text-slate-500 mt-1">
-              Sequenciamento integrado
-              de Envase, Fabrima e
-              Liberação QA.
+              Sequenciamento integrado de Envase, Fabrima e Liberação QA.
             </p>
+
+            {rodadaSelecionada && (
+              <p className="text-xs text-slate-400 mt-2">
+                Rodada atual:{" "}
+                <span className="font-semibold text-slate-600">
+                  {rodadaSelecionada.nome} —{" "}
+                  {MESES[(rodadaSelecionada.mes || 1) - 1]}/
+                  {rodadaSelecionada.ano} — V{rodadaSelecionada.versao}
+                </span>
+              </p>
+            )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <select
-              value={
-                rodadaSelecionada?.id || ""
-              }
+              value={rodadaSelecionada?.id || ""}
               onChange={(e) => {
                 const rodada =
-                  rodadas.find(
-                    (r) =>
-                      r.id ===
-                      e.target.value
-                  ) || null
+                  rodadas.find((r) => r.id === e.target.value) || null
 
-                setRodadaSelecionada(
-                  rodada
-                )
+                setRodadaSelecionada(rodada)
+
+                if (rodada) {
+                  setMes(rodada.mes)
+                  setAno(rodada.ano)
+                }
               }}
               className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
             >
-              <option value="">
-                Selecionar rodada
-              </option>
+              <option value="">Selecionar rodada</option>
 
               {rodadas.map((r) => (
-                <option
-                  key={r.id}
-                  value={r.id}
-                >
-                  {r.nome} —{" "}
-                  {
-                    MESES[
-                      (r.mes || 1) - 1
-                    ]
-                  }
-                  /{r.ano} — V
+                <option key={r.id} value={r.id}>
+                  {r.nome} — {MESES[(r.mes || 1) - 1]}/{r.ano} — V
                   {r.versao}
                 </option>
               ))}
             </select>
 
+            <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer">
+              <Upload size={16} />
+
+              <input
+                type="file"
+                accept=".xlsx,.xlsm"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null
+                  setArquivoMps(file)
+                }}
+              />
+
+              {arquivoMps ? "Arquivo selecionado" : "Importar planejamento"}
+            </label>
+
             <button
-              onClick={() =>
-                setModalOpen(true)
-              }
+              onClick={handleImportarMps}
+              disabled={!arquivoMps || !rodadaSelecionada || importando}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {importando ? "Importando..." : "Processar MPS"}
+            </button>
+
+            <button
+              onClick={() => setModalOpen(true)}
               className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
               <Plus size={16} />
@@ -213,178 +259,156 @@ export default function Mrp() {
         </div>
       </div>
 
-      {/* GANTT */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="border-b border-slate-200 px-5 py-4 flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold text-slate-900">
-              Timeline produtiva
-            </h2>
+      {/* GANTTS POR RECURSO */}
+      <div className="space-y-5">
+        {etapasPorRecurso.map(({ recurso, etapas }) => (
+          <div
+            key={recurso}
+            className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+          >
+            <div className="border-b border-slate-200 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold text-slate-900">
+                  Gantt — {recurso}
+                </h2>
 
-            <p className="text-xs text-slate-500 mt-1">
-              Visualização integrada
-              das etapas do lote.
-            </p>
-          </div>
-
-          <div className="text-xs text-slate-500">
-            {loading
-              ? "Carregando..."
-              : `${etapas.length} etapas`}
-          </div>
-        </div>
-
-        <div className="overflow-auto">
-          <div className="min-w-[1800px]">
-            {/* HEADER DIAS */}
-            <div
-              className="grid border-b border-slate-200 bg-slate-50 text-xs text-slate-500 sticky top-0 z-10"
-              style={{
-                gridTemplateColumns: `320px repeat(${diasDoMes.length}, 38px)`,
-              }}
-            >
-              <div className="px-4 py-3 font-semibold">
-                Linha / Etapa
+                <p className="text-xs text-slate-500 mt-1">
+                  {recurso === "FABRIMA"
+                    ? "Programação macro de embalagem."
+                    : "Programação macro de envase."}
+                </p>
               </div>
 
-              {diasDoMes.map((dia) => (
-                <div
-                  key={dia}
-                  className="py-3 text-center border-l border-slate-100"
-                >
-                  {dia}
-                </div>
-              ))}
+              <div className="text-xs text-slate-500">
+                {loading ? "Carregando..." : `${etapas.length} etapas`}
+              </div>
             </div>
 
-            {/* LINHAS */}
-            <div className="divide-y divide-slate-100">
-              {etapas.map((etapa) => {
-                const inicio =
-                  etapa.data_inicio
-                    ? new Date(
-                        `${etapa.data_inicio}T00:00:00`
-                      ).getDate()
-                    : 1
+            <div className="overflow-auto">
+              <div className="min-w-[1800px]">
+                <div
+                  className="grid border-b border-slate-200 bg-slate-50 text-xs text-slate-500 sticky top-0 z-10"
+                  style={{
+                    gridTemplateColumns: `360px repeat(${diasDoMes.length}, 38px)`,
+                  }}
+                >
+                  <div className="px-4 py-3 font-semibold">
+                    Linha / Produto / Lote
+                  </div>
 
-                const fim =
-                  etapa.data_fim
-                    ? new Date(
-                        `${etapa.data_fim}T00:00:00`
-                      ).getDate()
-                    : inicio
+                  {diasDoMes.map((dia) => (
+                    <div
+                      key={dia}
+                      className="py-3 text-center border-l border-slate-100"
+                    >
+                      {dia}
+                    </div>
+                  ))}
+                </div>
 
-                const duracao =
-                  Math.max(
-                    1,
-                    fim - inicio + 1
-                  )
+                <div className="divide-y divide-slate-100">
+                  {etapas.map((etapa) => {
+                    const inicio = getDia(etapa.data_inicio)
+                    const fim = getDia(etapa.data_fim)
+                    const duracao = Math.max(1, fim - inicio + 1)
+                    const Icon = getEtapaIcon(etapa.etapa)
 
-                const Icon =
-                  getEtapaIcon(
-                    etapa.etapa
-                  )
+                    return (
+                      <div
+                        key={etapa.id}
+                        className="grid items-center min-h-[68px]"
+                        style={{
+                          gridTemplateColumns: `360px repeat(${diasDoMes.length}, 38px)`,
+                        }}
+                      >
+                        <div className="px-4 py-3 border-r border-slate-100">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`h-10 w-10 rounded-xl flex items-center justify-center text-white ${getEtapaColor(
+                                etapa.etapa
+                              )}`}
+                            >
+                              <Icon size={18} />
+                            </div>
 
-                return (
-                  <div
-                    key={etapa.id}
-                    className="grid items-center min-h-[68px]"
-                    style={{
-                      gridTemplateColumns: `320px repeat(${diasDoMes.length}, 38px)`,
-                    }}
-                  >
-                    {/* INFO */}
-                    <div className="px-4 py-3 border-r border-slate-100">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`h-10 w-10 rounded-xl flex items-center justify-center text-white ${getEtapaColor(
-                            etapa.etapa
-                          )}`}
-                        >
-                          <Icon size={18} />
+                            <div className="min-w-0">
+                              <p className="font-semibold text-sm text-slate-900 truncate">
+                                {etapa.descricao_produto ||
+                                  etapa.codigo_produto ||
+                                  "Sem produto"}
+                              </p>
+
+                              <p className="text-xs text-slate-500 truncate">
+                                {etapa.codigo_produto || "-"} • Lote{" "}
+                                {etapa.lote || "-"} •{" "}
+                                {etapa.qtd_planejada
+                                  ? etapa.qtd_planejada.toLocaleString("pt-BR")
+                                  : "0"}{" "}
+                                tubetes
+                              </p>
+
+                              <p className="text-[11px] text-slate-400 truncate">
+                                {etapa.duracao_horas
+                                  ? `${etapa.duracao_horas.toLocaleString(
+                                      "pt-BR"
+                                    )} h`
+                                  : "0 h"}{" "}
+                                • PA: {etapa.data_pa || "-"}
+                              </p>
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm text-slate-900 truncate">
-                            {etapa.codigo_produto ||
-                              etapa.lote ||
-                              "Sem produto"}
-                          </p>
-
-                          <p className="text-xs text-slate-500 truncate">
-                            {
-                              etapa.etapa
-                            }{" "}
-                            •{" "}
-                            {
-                              etapa.recurso
-                            }
-                            {etapa.qtd_planejada
-                              ? ` • ${etapa.qtd_planejada.toLocaleString(
-                                  "pt-BR"
-                                )}`
-                              : ""}
-                          </p>
+                        <div
+                          className={`${getEtapaColor(
+                            etapa.etapa
+                          )} h-9 rounded-xl shadow-sm text-white text-xs flex items-center px-3 font-medium`}
+                          style={{
+                            gridColumn: `${inicio + 1} / span ${duracao}`,
+                          }}
+                          title={`${etapa.etapa} • ${etapa.recurso}`}
+                        >
+                          <span className="truncate">
+                            {etapa.etapa} • {etapa.lote || etapa.codigo_produto}
+                          </span>
                         </div>
                       </div>
+                    )
+                  })}
+
+                  {etapas.length === 0 && (
+                    <div className="p-12 text-center">
+                      <p className="text-sm font-medium text-slate-700">
+                        Nenhuma etapa cadastrada para {recurso}.
+                      </p>
+
+                      <p className="text-xs text-slate-500 mt-2">
+                        Selecione uma rodada e importe o Excel MPS.
+                      </p>
                     </div>
-
-                    {/* BARRA */}
-                    <div
-                      className={`${getEtapaColor(
-                        etapa.etapa
-                      )} h-9 rounded-xl shadow-sm text-white text-xs flex items-center px-3 font-medium`}
-                      style={{
-                        gridColumn: `${inicio + 1} / span ${duracao}`,
-                      }}
-                    >
-                      <span className="truncate">
-                        {etapa.recurso}
-                      </span>
-                    </div>
-                  </div>
-                )
-              })}
-
-              {etapas.length === 0 && (
-                <div className="p-16 text-center">
-                  <p className="text-sm font-medium text-slate-700">
-                    Nenhuma etapa cadastrada
-                    ainda.
-                  </p>
-
-                  <p className="text-xs text-slate-500 mt-2">
-                    Próxima etapa:
-                    importar automaticamente
-                    do Excel MPS.
-                  </p>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* MODAL */}
+      {/* MODAL NOVA RODADA */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <div>
-                <h2 className="font-semibold text-slate-900">
-                  Nova rodada
-                </h2>
+                <h2 className="font-semibold text-slate-900">Nova rodada</h2>
 
                 <p className="text-xs text-slate-500 mt-1">
-                  Criação de nova
-                  versão do planejamento.
+                  Criação de nova versão histórica do planejamento.
                 </p>
               </div>
 
               <button
-                onClick={() =>
-                  setModalOpen(false)
-                }
+                onClick={() => setModalOpen(false)}
                 className="h-9 w-9 rounded-xl hover:bg-slate-100 flex items-center justify-center"
               >
                 <X size={18} />
@@ -399,16 +423,12 @@ export default function Mrp() {
 
                 <input
                   value={nome}
-                  onChange={(e) =>
-                    setNome(
-                      e.target.value
-                    )
-                  }
+                  onChange={(e) => setNome(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs font-medium text-slate-500">
                     Mês
@@ -416,27 +436,14 @@ export default function Mrp() {
 
                   <select
                     value={mes}
-                    onChange={(e) =>
-                      setMes(
-                        Number(
-                          e.target.value
-                        )
-                      )
-                    }
+                    onChange={(e) => setMes(Number(e.target.value))}
                     className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
                   >
-                    {MESES.map(
-                      (m, idx) => (
-                        <option
-                          key={m}
-                          value={
-                            idx + 1
-                          }
-                        >
-                          {m}
-                        </option>
-                      )
-                    )}
+                    {MESES.map((m, idx) => (
+                      <option key={m} value={idx + 1}>
+                        {m}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -448,13 +455,20 @@ export default function Mrp() {
                   <input
                     type="number"
                     value={ano}
-                    onChange={(e) =>
-                      setAno(
-                        Number(
-                          e.target.value
-                        )
-                      )
-                    }
+                    onChange={(e) => setAno(Number(e.target.value))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-slate-500">
+                    Versão
+                  </label>
+
+                  <input
+                    type="number"
+                    value={versao}
+                    onChange={(e) => setVersao(Number(e.target.value))}
                     className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
                   />
                 </div>
@@ -467,19 +481,13 @@ export default function Mrp() {
 
                 <textarea
                   value={observacao}
-                  onChange={(e) =>
-                    setObservacao(
-                      e.target.value
-                    )
-                  }
+                  onChange={(e) => setObservacao(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm min-h-[100px]"
                 />
               </div>
 
               <button
-                onClick={
-                  handleCriarRodada
-                }
+                onClick={handleCriarRodada}
                 className="w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white hover:bg-slate-800"
               >
                 Criar rodada
