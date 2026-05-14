@@ -15,7 +15,7 @@ import {
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 const RECURSOS = ["L1", "L2", "FABRIMA"]
 const AZUL = "#173B5F"
-const AZUL_CLARO = "#EAF2F8"
+const HEADER_CLARO = "#F3F6FA"
 const PAGE_SIZE = 50
 
 type Filtros = {
@@ -30,31 +30,14 @@ type Filtros = {
   recurso: string
 }
 
-type FixedColumn = {
+type Column = {
   key: string
   label: string
   width: number
   align?: "left" | "center" | "right"
+  frozen?: boolean
   render: (etapa: MrpEtapa) => string | number | null | undefined
 }
-
-const FIXED_COLUMNS: FixedColumn[] = [
-  { key: "lote", label: "LOTE", width: 90, render: (e) => e.lote },
-  { key: "codigo", label: "CÓDIGO", width: 90, render: (e) => e.codigo_produto },
-  { key: "produto", label: "PRODUTO", width: 220, render: (e) => e.descricao_produto },
-  { key: "tempo", label: "TEMPO\n(Horas.)", width: 90, align: "right", render: (e) => fmt(e.duracao_horas) },
-  { key: "unhora", label: "UN /\nHORA", width: 90, align: "right", render: (e) => fmt(e.un_hora) },
-  { key: "qtd", label: "QTD.\n(Tubetes)", width: 100, align: "right", render: (e) => fmt(e.qtd_planejada) },
-  { key: "mesprod", label: "MÊS\nPROD.", width: 80, align: "center", render: (e) => e.mes_producao },
-  { key: "anoprod", label: "ANO\nPROD.", width: 80, align: "center", render: (e) => e.ano_producao },
-  { key: "inicio", label: "DATA\nINÍCIO", width: 110, align: "center", render: (e) => fmtData(e.data_inicio) },
-  { key: "fim", label: "DATA\nFIM", width: 110, align: "center", render: (e) => fmtData(e.data_fim) },
-  { key: "lib", label: "DATA\nLIB.", width: 110, align: "center", render: (e) => fmtData(e.data_pa) },
-  { key: "meslib", label: "MÊS\nLIB.", width: 80, align: "center", render: (e) => e.mes_liberacao },
-  { key: "anolib", label: "ANO\nLIB.", width: 80, align: "center", render: (e) => e.ano_liberacao },
-]
-
-const FIXED_TOTAL_WIDTH = FIXED_COLUMNS.reduce((sum, col) => sum + col.width, 0)
 
 function fmt(value?: number | null) {
   return Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })
@@ -64,6 +47,24 @@ function fmtData(date?: string | null) {
   if (!date) return "-"
   return new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR")
 }
+
+const COLUMNS: Column[] = [
+  { key: "lote", label: "LOTE", width: 90, frozen: true, render: (e) => e.lote },
+  { key: "codigo", label: "CÓDIGO", width: 90, frozen: true, render: (e) => e.codigo_produto },
+  { key: "produto", label: "PRODUTO", width: 210, frozen: true, render: (e) => e.descricao_produto },
+  { key: "tempo", label: "TEMPO\n(Horas.)", width: 90, align: "right", render: (e) => fmt(e.duracao_horas) },
+  { key: "unhora", label: "UN /\nHORA", width: 90, align: "right", render: (e) => fmt(e.un_hora) },
+  { key: "qtd", label: "QTD.\n(Tubetes)", width: 105, align: "right", render: (e) => fmt(e.qtd_planejada) },
+  { key: "mesprod", label: "MÊS\nPROD.", width: 80, align: "center", render: (e) => e.mes_producao },
+  { key: "anoprod", label: "ANO\nPROD.", width: 80, align: "center", render: (e) => e.ano_producao },
+  { key: "inicio", label: "DATA\nINÍCIO", width: 110, align: "center", render: (e) => fmtData(e.data_inicio) },
+  { key: "fim", label: "DATA\nFIM", width: 110, align: "center", render: (e) => fmtData(e.data_fim) },
+  { key: "lib", label: "DATA\nLIB.", width: 110, align: "center", render: (e) => fmtData(e.data_pa) },
+  { key: "meslib", label: "MÊS\nLIB.", width: 80, align: "center", render: (e) => e.mes_liberacao },
+  { key: "anolib", label: "ANO\nLIB.", width: 80, align: "center", render: (e) => e.ano_liberacao },
+]
+
+const FROZEN_COLUMNS = COLUMNS.filter((c) => c.frozen)
 
 function keyData(date?: string | null) {
   return date ? date.slice(0, 10) : ""
@@ -77,6 +78,10 @@ function toNumber(value: unknown) {
   if (texto.includes(",")) return Number(texto.replace(/\./g, "").replace(",", "."))
 
   return Number(texto)
+}
+
+function getLeftOffset(index: number) {
+  return FROZEN_COLUMNS.slice(0, index).reduce((sum, col) => sum + col.width, 0)
 }
 
 function gerarDias(inicioMes: number, inicioAno: number, fimMes: number, fimAno: number) {
@@ -176,6 +181,7 @@ export default function Mrp() {
   const [anoInicio, setAnoInicio] = useState(hoje.getFullYear())
   const [mesFim, setMesFim] = useState(12)
   const [anoFim, setAnoFim] = useState(2026)
+
   const [pagina, setPagina] = useState(1)
 
   const [filtros, setFiltros] = useState<Filtros>({
@@ -497,65 +503,37 @@ export default function Mrp() {
             ))}
           </select>
 
-          <select
-            value={filtros.lote}
-            onChange={(e) => setFiltros((prev) => ({ ...prev, lote: e.target.value }))}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          >
+          <select value={filtros.lote} onChange={(e) => setFiltros((prev) => ({ ...prev, lote: e.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
             <option value="">Lote</option>
             {opcoesFiltros.lote.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
 
-          <select
-            value={filtros.codigo}
-            onChange={(e) => setFiltros((prev) => ({ ...prev, codigo: e.target.value }))}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          >
+          <select value={filtros.codigo} onChange={(e) => setFiltros((prev) => ({ ...prev, codigo: e.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
             <option value="">Código</option>
             {opcoesFiltros.codigo.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
 
-          <select
-            value={filtros.produto}
-            onChange={(e) => setFiltros((prev) => ({ ...prev, produto: e.target.value }))}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          >
+          <select value={filtros.produto} onChange={(e) => setFiltros((prev) => ({ ...prev, produto: e.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
             <option value="">Produto</option>
             {opcoesFiltros.produto.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
 
-          <select
-            value={filtros.mesProducao}
-            onChange={(e) => setFiltros((prev) => ({ ...prev, mesProducao: e.target.value }))}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          >
+          <select value={filtros.mesProducao} onChange={(e) => setFiltros((prev) => ({ ...prev, mesProducao: e.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
             <option value="">Mês prod.</option>
             {opcoesFiltros.mesProducao.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
 
-          <select
-            value={filtros.anoProducao}
-            onChange={(e) => setFiltros((prev) => ({ ...prev, anoProducao: e.target.value }))}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          >
+          <select value={filtros.anoProducao} onChange={(e) => setFiltros((prev) => ({ ...prev, anoProducao: e.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
             <option value="">Ano prod.</option>
             {opcoesFiltros.anoProducao.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
 
-          <select
-            value={filtros.mesLiberacao}
-            onChange={(e) => setFiltros((prev) => ({ ...prev, mesLiberacao: e.target.value }))}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          >
+          <select value={filtros.mesLiberacao} onChange={(e) => setFiltros((prev) => ({ ...prev, mesLiberacao: e.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
             <option value="">Mês lib.</option>
             {opcoesFiltros.mesLiberacao.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
 
-          <select
-            value={filtros.anoLiberacao}
-            onChange={(e) => setFiltros((prev) => ({ ...prev, anoLiberacao: e.target.value }))}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          >
+          <select value={filtros.anoLiberacao} onChange={(e) => setFiltros((prev) => ({ ...prev, anoLiberacao: e.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
             <option value="">Ano lib.</option>
             {opcoesFiltros.anoLiberacao.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
@@ -616,9 +594,9 @@ export default function Mrp() {
             <thead className="sticky top-0 z-40">
               <tr>
                 <th
-                  colSpan={FIXED_COLUMNS.length}
+                  colSpan={COLUMNS.length}
                   className="sticky left-0 z-50 border border-slate-300"
-                  style={{ backgroundColor: AZUL_CLARO, minWidth: FIXED_TOTAL_WIDTH, width: FIXED_TOTAL_WIDTH }}
+                  style={{ backgroundColor: HEADER_CLARO }}
                 />
 
                 {mesesAgrupados.map((m) => (
@@ -633,21 +611,23 @@ export default function Mrp() {
                 ))}
               </tr>
 
-              <tr className="text-slate-700" style={{ backgroundColor: AZUL_CLARO }}>
-                {FIXED_COLUMNS.map((col, idx) => {
-                  const left = FIXED_COLUMNS.slice(0, idx).reduce((sum, c) => sum + c.width, 0)
+              <tr className="text-slate-700" style={{ backgroundColor: HEADER_CLARO }}>
+                {COLUMNS.map((col) => {
+                  const frozenIndex = FROZEN_COLUMNS.findIndex((c) => c.key === col.key)
+                  const frozen = frozenIndex >= 0
+                  const left = frozen ? getLeftOffset(frozenIndex) : undefined
 
                   return (
                     <th
                       key={col.key}
                       rowSpan={2}
-                      className="sticky z-50 border border-slate-300 px-2 py-2 font-semibold"
+                      className={`${frozen ? "sticky z-50" : ""} border border-slate-300 px-2 py-2 font-semibold`}
                       style={{
                         left,
                         minWidth: col.width,
                         width: col.width,
                         maxWidth: col.width,
-                        backgroundColor: AZUL_CLARO,
+                        backgroundColor: HEADER_CLARO,
                         textAlign: col.align || "left",
                       }}
                     >
@@ -683,13 +663,15 @@ export default function Mrp() {
             <tbody>
               {etapasPagina.map((etapa) => (
                 <tr key={etapa.id} className="hover:bg-slate-50">
-                  {FIXED_COLUMNS.map((col, idx) => {
-                    const left = FIXED_COLUMNS.slice(0, idx).reduce((sum, c) => sum + c.width, 0)
+                  {COLUMNS.map((col) => {
+                    const frozenIndex = FROZEN_COLUMNS.findIndex((c) => c.key === col.key)
+                    const frozen = frozenIndex >= 0
+                    const left = frozen ? getLeftOffset(frozenIndex) : undefined
 
                     return (
                       <td
                         key={col.key}
-                        className="sticky z-30 border border-slate-200 bg-white px-2 py-1"
+                        className={`${frozen ? "sticky z-30" : ""} border border-slate-200 bg-white px-2 py-1`}
                         style={{
                           left,
                           minWidth: col.width,
@@ -723,14 +705,6 @@ export default function Mrp() {
                   })}
                 </tr>
               ))}
-
-              {etapasPagina.length === 0 && (
-                <tr>
-                  <td colSpan={FIXED_COLUMNS.length + dias.length} className="p-10 text-center text-slate-500">
-                    Nenhuma etapa encontrada para {recursoSelecionado}.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
