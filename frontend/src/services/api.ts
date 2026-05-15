@@ -309,19 +309,64 @@ export interface CopiarMrpRodadaPayload {
   observacao?: string | null
 }
 
+export interface MudancaRealizado {
+  lote?: string | null
+  codigo_produto?: string | null
+  descricao_produto?: string | null
+  recurso?: string | null
+
+  data_inicio?: string | null
+  data_fim_anterior?: string | null
+  data_fim_nova?: string | null
+  data_lib_nova?: string | null
+
+  mes_liberacao_novo?: number | null
+  ano_liberacao_novo?: number | null
+
+  un_hora_anterior?: number | null
+  un_hora_nova?: number | null
+  duracao_horas_nova?: number | null
+  qtd_planejada?: number | null
+
+  motivo_provavel?: string | null
+
+  impacto_dias?: number | null
+  tipo_impacto?:
+    | "atrasou"
+    | "antecipou"
+    | "sem_mudanca_data"
+    | "sem_comparativo"
+    | string
+
+  delta_un_hora?: number | null
+  delta_un_hora_pct?: number | null
+}
+
 export interface ImportarProducaoRealResponse {
   ok: boolean
   rodada_id: string
   arquivo: string
+
   total_apontamentos_lidos: number
   total_real_inserido: number
-  lotes_atualizados: {
-    lote?: string | null
-    recurso?: string | null
-    data_fim_planejada?: string | null
-    data_fim_real?: string | null
-    motivo_provavel?: string | null
-  }[]
+  total_lotes_atualizados?: number
+  total_lotes_nao_encontrados?: number
+
+  resumo_por_linha?: Record<
+    string,
+    {
+      total: number
+      atrasou: number
+      antecipou: number
+      sem_mudanca_data: number
+      sem_comparativo: number
+      [key: string]: number
+    }
+  >
+
+  mudancas_realizado?: MudancaRealizado[]
+  lotes_atualizados: MudancaRealizado[]
+
   lotes_nao_encontrados: {
     lote?: string | null
     recurso?: string | null
