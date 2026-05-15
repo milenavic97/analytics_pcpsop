@@ -11,11 +11,13 @@ import {
 
 import {
   atualizarMrpEtapa,
+  copiarMrpRodada,
   criarMrpRodada,
   getMrpAlocacoes,
   getMrpEtapas,
   getMrpRodadas,
   importarMrpMps,
+  importarMrpProducaoReal,
   type MrpAlocacaoDia,
   type MrpEtapa,
   type MrpRodada,
@@ -229,6 +231,9 @@ export default function Mrp() {
   const [versao, setVersao] = useState(1)
   const [observacao, setObservacao] = useState("")
   const [arquivoMps, setArquivoMps] = useState<File | null>(null)
+  const [arquivoReal, setArquivoReal] = useState<File | null>(null)
+  const [importandoReal, setImportandoReal] = useState(false)
+  const [copiandoRodada, setCopiandoRodada] = useState(false)
 
   const [mesInicio, setMesInicio] = useState(hoje.getMonth() + 1)
   const [anoInicio, setAnoInicio] = useState(hoje.getFullYear())
@@ -308,6 +313,46 @@ export default function Mrp() {
     await carregarRodadas()
   }
 
+  async function handleCopiarRodada() {
+    if (!rodadaSelecionada?.id) {
+      showToast({
+        tipo: "error",
+        titulo: "Nenhuma rodada",
+        mensagem: "Selecione uma rodada para copiar.",
+      })
+      return
+    }
+
+    try {
+      setCopiandoRodada(true)
+
+      const response = await copiarMrpRodada(rodadaSelecionada.id, {})
+      const novaRodada = response.nova_rodada
+
+      await carregarRodadas()
+      setRodadaSelecionada(novaRodada)
+
+      showToast({
+        tipo: "success",
+        titulo: "Nova versão criada",
+        mensagem: `Rodada V${novaRodada.versao} criada com sucesso.`,
+      })
+    } catch (err) {
+      console.error(err)
+
+      showToast({
+        tipo: "error",
+        titulo: "Erro ao copiar",
+        mensagem:
+          err instanceof Error
+            ? err.message
+            : "Erro ao copiar rodada.",
+      })
+    } finally {
+      setCopiandoRodada(false)
+    }
+  }
+
   async function handleImportarMps() {
     if (!rodadaSelecionada?.id) {
       showToast({
@@ -347,6 +392,56 @@ export default function Mrp() {
       })
     } finally {
       setImportando(false)
+    }
+  }
+
+  async function handleImportarReal() {
+    if (!rodadaSelecionada?.id) {
+      showToast({
+        tipo: "error",
+        titulo: "Rodada não selecionada",
+        mensagem: "Selecione uma rodada antes de importar o realizado.",
+      })
+      return
+    }
+
+    if (!arquivoReal) {
+      showToast({
+        tipo: "error",
+        titulo: "Arquivo não selecionado",
+        mensagem: "Selecione o relatório real do Cogtive.",
+      })
+      return
+    }
+
+    try {
+      setImportandoReal(true)
+
+      const response = await importarMrpProducaoReal(
+        rodadaSelecionada.id,
+        arquivoReal
+      )
+
+      await carregarDadosRodada(rodadaSelecionada.id)
+
+      showToast({
+        tipo: "success",
+        titulo: "Produção real importada",
+        mensagem: `${response.lotes_atualizados?.length || 0} lote(s) atualizados com base no realizado.`,
+      })
+    } catch (err) {
+      console.error(err)
+
+      showToast({
+        tipo: "error",
+        titulo: "Erro ao importar real",
+        mensagem:
+          err instanceof Error
+            ? err.message
+            : "Erro ao importar realizado.",
+      })
+    } finally {
+      setImportandoReal(false)
     }
   }
 
@@ -675,6 +770,33 @@ export default function Mrp() {
               className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {importando ? "Importando..." : "Processar MPS"}
+            </button>
+
+            <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              <Upload size={16} />
+              <input
+                type="file"
+                accept=".xlsx,.xlsm"
+                className="hidden"
+                onChange={(e) => setArquivoReal(e.target.files?.[0] || null)}
+              />
+              {arquivoReal ? "Real selecionado" : "Importar produção real"}
+            </label>
+
+            <button
+              onClick={handleImportarReal}
+              disabled={!arquivoReal || !rodadaSelecionada || importandoReal}
+              className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+            >
+              {importandoReal ? "Importando real..." : "Processar realizado"}
+            </button>
+
+            <button
+              onClick={handleCopiarRodada}
+              disabled={!rodadaSelecionada || copiandoRodada}
+              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {copiandoRodada ? "Copiando..." : "Copiar rodada atual"}
             </button>
 
             <button
