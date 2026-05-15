@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
   CalendarDays,
   CheckCircle2,
   Plus,
@@ -55,6 +57,29 @@ type Toast = {
   mensagem: string
 }
 
+
+type MudancaRealizado = {
+  lote?: string | null
+  codigo_produto?: string | null
+  descricao_produto?: string | null
+  recurso?: string | null
+  data_inicio?: string | null
+  data_fim_anterior?: string | null
+  data_fim_nova?: string | null
+  data_lib_nova?: string | null
+  mes_liberacao_novo?: number | null
+  ano_liberacao_novo?: number | null
+  un_hora_anterior?: number | null
+  un_hora_nova?: number | null
+  duracao_horas_nova?: number | null
+  qtd_planejada?: number | null
+  motivo_provavel?: string | null
+  impacto_dias?: number | null
+  tipo_impacto?: "atrasou" | "antecipou" | "sem_mudanca_data" | "sem_comparativo" | string
+  delta_un_hora?: number | null
+  delta_un_hora_pct?: number | null
+}
+
 type Column = {
   key: string
   label: string
@@ -71,6 +96,26 @@ function fmt(value?: number | null) {
 function fmtData(date?: string | null) {
   if (!date) return "-"
   return new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR")
+}
+
+
+function fmtPct(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-"
+  return `${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
+}
+
+function classeImpacto(tipo?: string | null) {
+  if (tipo === "atrasou") return "bg-red-50 text-red-700 border-red-200"
+  if (tipo === "antecipou") return "bg-emerald-50 text-emerald-700 border-emerald-200"
+  if (tipo === "sem_mudanca_data") return "bg-slate-50 text-slate-600 border-slate-200"
+  return "bg-blue-50 text-blue-700 border-blue-200"
+}
+
+function textoImpacto(tipo?: string | null, dias?: number | null) {
+  if (tipo === "atrasou") return `Atrasou ${Math.abs(Number(dias || 0))} dia(s)`
+  if (tipo === "antecipou") return `Antecipou ${Math.abs(Number(dias || 0))} dia(s)`
+  if (tipo === "sem_mudanca_data") return "Sem mudança de data"
+  return "Sem comparativo"
 }
 
 const COLUMNS: Column[] = [
@@ -237,6 +282,8 @@ export default function Mrp() {
   const [importandoReal, setImportandoReal] = useState(false)
   const [copiandoRodada, setCopiandoRodada] = useState(false)
   const [excluindoRodada, setExcluindoRodada] = useState(false)
+  const [modalExcluirAberto, setModalExcluirAberto] = useState(false)
+  const [mudancasRealizado, setMudancasRealizado] = useState<MudancaRealizado[]>([])
 
   const [mesInicio, setMesInicio] = useState(hoje.getMonth() + 1)
   const [anoInicio, setAnoInicio] = useState(hoje.getFullYear())
@@ -357,7 +404,7 @@ export default function Mrp() {
   }
 
 
-  async function handleExcluirRodada() {
+  function handleExcluirRodada() {
     if (!rodadaSelecionada?.id) {
       showToast({
         tipo: "error",
@@ -367,11 +414,11 @@ export default function Mrp() {
       return
     }
 
-    const confirmar = window.confirm(
-      `Tem certeza que deseja excluir a rodada "${rodadaSelecionada.nome} — V${rodadaSelecionada.versao}"?\n\nEssa ação remove etapas, alocações e produção real vinculadas.`
-    )
+    setModalExcluirAberto(true)
+  }
 
-    if (!confirmar) return
+  async function confirmarExcluirRodada() {
+    if (!rodadaSelecionada?.id) return
 
     try {
       setExcluindoRodada(true)
@@ -383,6 +430,8 @@ export default function Mrp() {
 
       const proximaRodada = rodadasAtualizadas[0] || null
       setRodadaSelecionada(proximaRodada)
+      setModalExcluirAberto(false)
+      setMudancasRealizado([])
 
       if (!proximaRodada) {
         setEtapas([])
@@ -479,12 +528,15 @@ export default function Mrp() {
         arquivoReal
       )
 
+      const mudancas = response.mudancas_realizado || response.lotes_atualizados || []
+      setMudancasRealizado(mudancas)
+
       await carregarDadosRodada(rodadaSelecionada.id)
 
       showToast({
         tipo: "success",
-        titulo: "Produção real importada",
-        mensagem: `${response.lotes_atualizados?.length || 0} lote(s) atualizados com base no realizado.`,
+        titulo: "Produção real aplicada",
+        mensagem: `${mudancas.length || 0} lote(s) atualizados com base na data fim real do Cogtive.`,
       })
     } catch (err) {
       console.error(err)
@@ -595,6 +647,8 @@ export default function Mrp() {
   }, [])
 
   useEffect(() => {
+    setMudancasRealizado([])
+
     if (rodadaSelecionada?.id) carregarDadosRodada(rodadaSelecionada.id)
     else {
       setEtapas([])
@@ -713,6 +767,12 @@ export default function Mrp() {
   const paginaCorrigida = Math.min(pagina, totalPaginas)
   const inicioPagina = (paginaCorrigida - 1) * PAGE_SIZE
   const etapasPagina = etapasFiltradas.slice(inicioPagina, inicioPagina + PAGE_SIZE)
+
+
+  const mudancasDoRecurso = useMemo(
+    () => mudancasRealizado.filter((m) => (m.recurso || "") === recursoSelecionado),
+    [mudancasRealizado, recursoSelecionado]
+  )
 
   const qtdEdicoes = Object.keys(edicoes).length
 
@@ -842,7 +902,7 @@ export default function Mrp() {
                 className="hidden"
                 onChange={(e) => setArquivoReal(e.target.files?.[0] || null)}
               />
-              {arquivoReal ? "Real selecionado" : "Selecionar relatório real"}
+              {arquivoReal ? arquivoReal.name : "Selecionar relatório real"}
             </label>
 
             <button
@@ -850,7 +910,7 @@ export default function Mrp() {
               disabled={!arquivoReal || !rodadaSelecionada || importandoReal}
               className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
             >
-              {importandoReal ? "Importando real..." : "Aplicar realizado nesta versão"}
+              {importandoReal ? "Aplicando realizado..." : "Aplicar realizado nesta versão"}
             </button>
 
             <button
@@ -858,7 +918,7 @@ export default function Mrp() {
               disabled={!rodadaSelecionada || copiandoRodada}
               className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              {copiandoRodada ? "Copiando..." : "Criar próxima versão"}
+              {copiandoRodada ? "Criando versão..." : `Criar V${(rodadaSelecionada?.versao || 0) + 1} a partir desta`}
             </button>
 
             <button
@@ -1165,6 +1225,91 @@ export default function Mrp() {
         </div>
       </div>
 
+
+      {mudancasDoRecurso.length > 0 && (
+        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Mudanças aplicadas pelo realizado — {recursoSelecionado}
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Comparação entre a data fim planejada da versão e a última data fim real encontrada no Cogtive.
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+              {mudancasDoRecurso.length} lote(s)
+            </div>
+          </div>
+
+          <div className="overflow-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-left text-slate-600">
+                  <th className="border-b border-slate-200 px-4 py-3">Lote</th>
+                  <th className="border-b border-slate-200 px-4 py-3">Produto</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-center">Fim anterior</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-center">Fim Cogtive</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-center">Impacto</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">UN/H anterior</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">UN/H nova</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">Δ UN/H</th>
+                  <th className="border-b border-slate-200 px-4 py-3">Motivo provável</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {mudancasDoRecurso.map((m, idx) => (
+                  <tr key={`${m.recurso}-${m.lote}-${idx}`} className="hover:bg-slate-50">
+                    <td className="border-b border-slate-100 px-4 py-3 font-semibold text-slate-800">
+                      {m.lote || "-"}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-slate-700">
+                      <div className="font-medium">{m.descricao_produto || "-"}</div>
+                      <div className="text-[11px] text-slate-400">{m.codigo_produto || ""}</div>
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-center">
+                      {fmtData(m.data_fim_anterior)}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-center font-semibold">
+                      {fmtData(m.data_fim_nova)}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-center">
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${classeImpacto(m.tipo_impacto)}`}>
+                        {m.tipo_impacto === "atrasou" && <ArrowDown size={12} />}
+                        {m.tipo_impacto === "antecipou" && <ArrowUp size={12} />}
+                        {textoImpacto(m.tipo_impacto, m.impacto_dias)}
+                      </span>
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-right">
+                      {fmt(m.un_hora_anterior)}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-right font-semibold">
+                      {fmt(m.un_hora_nova)}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-right">
+                      {fmtPct(m.delta_un_hora_pct)}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-slate-600">
+                      {m.motivo_provavel || "não identificado"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
@@ -1216,6 +1361,55 @@ export default function Mrp() {
           </div>
         </div>
       )}
+
+      {modalExcluirAberto && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-100 text-red-600">
+                <Trash2 size={22} />
+              </div>
+
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-slate-800">
+                  Excluir rodada
+                </h3>
+
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  Tem certeza que deseja excluir a rodada{" "}
+                  <span className="font-semibold text-slate-800">
+                    {rodadaSelecionada?.nome} — V{rodadaSelecionada?.versao}
+                  </span>
+                  ?
+                </p>
+
+                <p className="mt-3 text-xs text-slate-500">
+                  Esta ação remove etapas, alocações e produção real vinculadas.
+                </p>
+
+                <div className="mt-6 flex justify-end gap-3">
+                  <button
+                    onClick={() => setModalExcluirAberto(false)}
+                    disabled={excluindoRodada}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    onClick={confirmarExcluirRodada}
+                    disabled={excluindoRodada}
+                    className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+                  >
+                    {excluindoRodada ? "Excluindo..." : "Excluir rodada"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
