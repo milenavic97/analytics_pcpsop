@@ -19,6 +19,7 @@ import {
   excluirMrpRodada,
   getMrpAlocacoes,
   getMrpEtapas,
+  getMrpMudancasRealizado,
   getMrpRodadas,
   importarMrpMps,
   importarMrpProducaoReal,
@@ -347,13 +348,15 @@ export default function Mrp() {
     setLoading(true)
 
     try {
-      const [etapasData, alocacoesData] = await Promise.all([
+      const [etapasData, alocacoesData, mudancasData] = await Promise.all([
         getMrpEtapas(rodadaId),
         getMrpAlocacoes(rodadaId),
+        getMrpMudancasRealizado(rodadaId),
       ])
 
       setEtapas(etapasData)
       setAlocacoes(alocacoesData)
+      setMudancasRealizado(mudancasData.mudancas_realizado || mudancasData.lotes_atualizados || [])
       setEdicoes({})
     } finally {
       setLoading(false)
@@ -680,12 +683,11 @@ export default function Mrp() {
   }, [])
 
   useEffect(() => {
-    setMudancasRealizado([])
-
     if (rodadaSelecionada?.id) carregarDadosRodada(rodadaSelecionada.id)
     else {
       setEtapas([])
       setAlocacoes([])
+      setMudancasRealizado([])
       setEdicoes({})
     }
   }, [rodadaSelecionada?.id])
