@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Plus,
   Save,
+  Trash2,
   Upload,
   X,
 } from "lucide-react"
@@ -13,6 +14,7 @@ import {
   atualizarMrpEtapa,
   copiarMrpRodada,
   criarMrpRodada,
+  excluirMrpRodada,
   getMrpAlocacoes,
   getMrpEtapas,
   getMrpRodadas,
@@ -234,6 +236,7 @@ export default function Mrp() {
   const [arquivoReal, setArquivoReal] = useState<File | null>(null)
   const [importandoReal, setImportandoReal] = useState(false)
   const [copiandoRodada, setCopiandoRodada] = useState(false)
+  const [excluindoRodada, setExcluindoRodada] = useState(false)
 
   const [mesInicio, setMesInicio] = useState(hoje.getMonth() + 1)
   const [anoInicio, setAnoInicio] = useState(hoje.getFullYear())
@@ -335,7 +338,7 @@ export default function Mrp() {
       showToast({
         tipo: "success",
         titulo: "Nova versão criada",
-        mensagem: `Rodada V${novaRodada.versao} criada com sucesso.`,
+        mensagem: `Agora você está trabalhando na V${novaRodada.versao}. Importe o relatório real nessa versão.`,
       })
     } catch (err) {
       console.error(err)
@@ -350,6 +353,60 @@ export default function Mrp() {
       })
     } finally {
       setCopiandoRodada(false)
+    }
+  }
+
+
+  async function handleExcluirRodada() {
+    if (!rodadaSelecionada?.id) {
+      showToast({
+        tipo: "error",
+        titulo: "Nenhuma rodada",
+        mensagem: "Selecione uma rodada para excluir.",
+      })
+      return
+    }
+
+    const confirmar = window.confirm(
+      `Tem certeza que deseja excluir a rodada "${rodadaSelecionada.nome} — V${rodadaSelecionada.versao}"?\n\nEssa ação remove etapas, alocações e produção real vinculadas.`
+    )
+
+    if (!confirmar) return
+
+    try {
+      setExcluindoRodada(true)
+
+      await excluirMrpRodada(rodadaSelecionada.id)
+
+      const rodadasAtualizadas = await getMrpRodadas()
+      setRodadas(rodadasAtualizadas)
+
+      const proximaRodada = rodadasAtualizadas[0] || null
+      setRodadaSelecionada(proximaRodada)
+
+      if (!proximaRodada) {
+        setEtapas([])
+        setAlocacoes([])
+      }
+
+      showToast({
+        tipo: "success",
+        titulo: "Rodada excluída",
+        mensagem: "A rodada e seus dados vinculados foram excluídos com sucesso.",
+      })
+    } catch (err) {
+      console.error(err)
+
+      showToast({
+        tipo: "error",
+        titulo: "Erro ao excluir",
+        mensagem:
+          err instanceof Error
+            ? err.message
+            : "Erro ao excluir rodada.",
+      })
+    } finally {
+      setExcluindoRodada(false)
     }
   }
 
@@ -729,6 +786,11 @@ export default function Mrp() {
                 </span>
               </div>
             )}
+
+            <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+              Para atualizar com o realizado: primeiro crie a próxima versão, depois selecione o relatório real e aplique o realizado nessa nova versão.
+            </div>
+
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -780,7 +842,7 @@ export default function Mrp() {
                 className="hidden"
                 onChange={(e) => setArquivoReal(e.target.files?.[0] || null)}
               />
-              {arquivoReal ? "Real selecionado" : "Importar produção real"}
+              {arquivoReal ? "Real selecionado" : "Selecionar relatório real"}
             </label>
 
             <button
@@ -788,7 +850,7 @@ export default function Mrp() {
               disabled={!arquivoReal || !rodadaSelecionada || importandoReal}
               className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
             >
-              {importandoReal ? "Importando real..." : "Processar realizado"}
+              {importandoReal ? "Importando real..." : "Aplicar realizado nesta versão"}
             </button>
 
             <button
@@ -796,7 +858,7 @@ export default function Mrp() {
               disabled={!rodadaSelecionada || copiandoRodada}
               className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              {copiandoRodada ? "Copiando..." : "Copiar rodada atual"}
+              {copiandoRodada ? "Copiando..." : "Criar próxima versão"}
             </button>
 
             <button
@@ -806,6 +868,16 @@ export default function Mrp() {
             >
               <Save size={16} />
               {salvando ? "Salvando..." : `Salvar alterações${qtdEdicoes ? ` (${qtdEdicoes})` : ""}`}
+            </button>
+
+
+            <button
+              onClick={handleExcluirRodada}
+              disabled={!rodadaSelecionada || excluindoRodada}
+              className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              <Trash2 size={16} />
+              {excluindoRodada ? "Excluindo..." : "Excluir rodada"}
             </button>
 
             <button
