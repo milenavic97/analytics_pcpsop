@@ -346,6 +346,20 @@ export async function criarMrpRodada(
   })
 }
 
+
+
+export async function excluirMrpRodada(rodadaId: string): Promise<{
+  ok: boolean
+  rodada_id: string
+  alocacoes_excluidas: number
+  etapas_excluidas: number
+  rodada_excluida: MrpRodada | null
+}> {
+  return apiFetch(`/mrp/rodadas/${rodadaId}`, {
+    method: "DELETE",
+  })
+}
+
 export async function copiarMrpRodada(
   rodadaId: string,
   payload?: CopiarMrpRodadaPayload
