@@ -784,3 +784,50 @@ export default function Mrp() {
     </div>
   )
 }
+export async function copiarMrpRodada(
+  rodadaId: string,
+  payload?: {
+    nome?: string
+    mes?: number
+    ano?: number
+    versao?: number
+    observacao?: string | null
+  }
+): Promise<MrpRodada> {
+  return apiFetch(`/mrp/rodadas/${rodadaId}/copiar`, {
+    method: "POST",
+    body: JSON.stringify(payload || {}),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  })
+}
+
+export async function importarMrpProducaoReal(
+  rodadaId: string,
+  file: File
+) {
+  const form = new FormData()
+  form.append("file", file)
+
+  const res = await fetch(
+    `${API_URL}/mrp/rodadas/${rodadaId}/importar-producao-real`,
+    {
+      method: "POST",
+      body: form,
+    }
+  )
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({
+      detail: res.statusText,
+    }))
+
+    throw new Error(
+      (err as { detail: string }).detail ||
+        "Erro ao importar produção real"
+    )
+  }
+
+  return res.json()
+}
