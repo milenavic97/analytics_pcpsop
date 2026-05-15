@@ -60,6 +60,7 @@ type Toast = {
 
 type MudancaRealizado = {
   lote?: string | null
+  lote_real_cogtive?: string | null
   codigo_produto?: string | null
   descricao_produto?: string | null
   recurso?: string | null
@@ -209,6 +210,28 @@ function normalizarTexto(value: string) {
     .replace(/[^A-Z0-9]/gi, "")
     .toUpperCase()
 }
+
+
+function identificarRecursoPorLote(lote?: string | null) {
+  const texto = normalizarTexto(String(lote || ""))
+  const match = texto.match(/[A-Z](1|2)/)
+
+  if (match?.[1] === "1") return "L1"
+  if (match?.[1] === "2") return "L2"
+
+  return ""
+}
+
+function identificarRecursoMudanca(mudanca: MudancaRealizado) {
+  const recurso = String(mudanca.recurso || "").trim().toUpperCase()
+
+  if (recurso === "L1" || recurso === "L2" || recurso === "FABRIMA") {
+    return recurso
+  }
+
+  return identificarRecursoPorLote(mudanca.lote || "")
+}
+
 
 function gerarLoteSugerido(etapa: MrpEtapa, novoProduto: string, etapas: MrpEtapa[]) {
   if (etapa.lote) return etapa.lote
@@ -533,10 +556,20 @@ export default function Mrp() {
 
       await carregarDadosRodada(rodadaSelecionada.id)
 
+      const porRecurso = mudancas.reduce<Record<string, number>>((acc, item) => {
+        const recurso = identificarRecursoMudanca(item) || "OUTROS"
+        acc[recurso] = (acc[recurso] || 0) + 1
+        return acc
+      }, {})
+
+      const detalheRecursos = Object.entries(porRecurso)
+        .map(([recurso, total]) => `${recurso}: ${total}`)
+        .join(" | ")
+
       showToast({
         tipo: "success",
         titulo: "Produção real aplicada",
-        mensagem: `${mudancas.length || 0} lote(s) atualizados com base na data fim real do Cogtive.`,
+        mensagem: `${mudancas.length || 0} lote(s) atualizados com base na data fim real do Cogtive.${detalheRecursos ? ` ${detalheRecursos}` : ""}`,
       })
     } catch (err) {
       console.error(err)
@@ -770,7 +803,11 @@ export default function Mrp() {
 
 
   const mudancasDoRecurso = useMemo(
-    () => mudancasRealizado.filter((m) => (m.recurso || "") === recursoSelecionado),
+    () =>
+      mudancasRealizado.filter((m) => {
+        const recursoMudanca = identificarRecursoMudanca(m)
+        return recursoMudanca === recursoSelecionado
+      }),
     [mudancasRealizado, recursoSelecionado]
   )
 
@@ -1261,9 +1298,9 @@ export default function Mrp() {
 
               <tbody>
                 {mudancasDoRecurso.map((m, idx) => (
-                  <tr key={`${m.recurso}-${m.lote}-${idx}`} className="hover:bg-slate-50">
+                  <tr key={`${identificarRecursoMudanca(m)}-${m.lote || m.lote_real_cogtive}-${idx}`} className="hover:bg-slate-50">
                     <td className="border-b border-slate-100 px-4 py-3 font-semibold text-slate-800">
-                      {m.lote || "-"}
+                      {m.lote || m.lote_real_cogtive || "-"}
                     </td>
 
                     <td className="border-b border-slate-100 px-4 py-3 text-slate-700">
