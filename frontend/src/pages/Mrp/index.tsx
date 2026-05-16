@@ -397,30 +397,18 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada }: {
   rodadas: MrpRodada[]
   etapasPorRodada: Record<string, MrpEtapa[]>
 }) {
-  // Monta meses do horizonte do plano (ignora sentinela 2017)
+  // Monta Jan → Dez baseado no ano da rodada ativa
   const mesesUnicos = useMemo(() => {
-    const anosValidos = new Set<number>()
-
-    Object.values(etapasPorRodada).forEach((etapas) => {
-      etapas.forEach((e) => {
-        if (
-          e.ano_liberacao &&
-          Number(e.ano_liberacao) !== 2017
-        ) {
-          anosValidos.add(Number(e.ano_liberacao))
-        }
-      })
-    })
+    const rodadaAtual = rodadas.find((r) => r.id === rodadaId)
 
     const anoBase =
-      anosValidos.size > 0
-        ? Math.min(...Array.from(anosValidos))
-        : new Date().getFullYear()
+      rodadaAtual?.ano ||
+      new Date().getFullYear()
 
     return Array.from({ length: 12 }, (_, i) => {
       return `${anoBase}-${String(i + 1).padStart(2, "0")}`
     })
-  }, [etapasPorRodada])
+  }, [rodadas, rodadaId])
 
   // Para cada rodada e cada mês, soma qtd_planejada
   const dados = useMemo(() => {
@@ -1104,22 +1092,7 @@ export default function Mrp() {
             </select>
           </div>
           {/* Limpar filtros */}
-          <div className="absolute right-4 top-3">
-            <button
-              onClick={() => setFiltros({ busca: "", lote: "", codigo: "", produto: "", mesProducao: "", anoProducao: "", mesLiberacao: "", anoLiberacao: "", recurso: "L1" })}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-opacity hover:opacity-80"
-              style={{
-                color: "var(--text-secondary)",
-                background: "transparent",
-                border: "1px solid var(--border)"
-              }}
-            >
-              <X size={12} />
-              Limpar filtros
-            </button>
-          </div>
-
-        </div>
+</div>
       </div>
 
       {/* ── Tabela Gantt ── */}
