@@ -340,6 +340,7 @@ export interface CopiarMrpRodadaPayload {
 
 export interface MudancaRealizado {
   lote?: string | null
+  lote_real_cogtive?: string | null
   codigo_produto?: string | null
   descricao_produto?: string | null
   recurso?: string | null
@@ -358,6 +359,7 @@ export interface MudancaRealizado {
   qtd_planejada?: number | null
 
   motivo_provavel?: string | null
+  metodo_casamento?: string | null
 
   impacto_dias?: number | null
   tipo_impacto?:
@@ -369,6 +371,25 @@ export interface MudancaRealizado {
 
   delta_un_hora?: number | null
   delta_un_hora_pct?: number | null
+}
+
+export interface MrpMudancasRealizadoResponse {
+  ok: boolean
+  rodada_id: string
+  total: number
+  resumo_por_linha?: Record<
+    string,
+    {
+      total: number
+      atrasou: number
+      antecipou: number
+      sem_mudanca_data: number
+      sem_comparativo: number
+      [key: string]: number
+    }
+  >
+  mudancas_realizado: MudancaRealizado[]
+  lotes_atualizados: MudancaRealizado[]
 }
 
 export interface ImportarProducaoRealResponse {
@@ -463,6 +484,12 @@ export async function getMrpAlocacoes(
   rodadaId: string
 ): Promise<MrpAlocacaoDia[]> {
   return apiFetch(`/mrp/rodadas/${rodadaId}/alocacoes`)
+}
+
+export async function getMrpMudancasRealizado(
+  rodadaId: string
+): Promise<MrpMudancasRealizadoResponse> {
+  return apiFetch(`/mrp/rodadas/${rodadaId}/mudancas-realizado`)
 }
 
 export async function getMrpComparativoLiberacao(
