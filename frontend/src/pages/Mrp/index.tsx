@@ -564,12 +564,18 @@ function VisaoConsolidada({
         const mes = Number(etapa.mes_liberacao || 0)
         const ano = Number(etapa.ano_liberacao || 0)
         if (mes === mesAnalise && ano === anoAnalise) {
-          return acc + Number(etapa.qtd_planejada || 0)
+          const recursoEtapa = String(etapa.recurso || "").toUpperCase()
+          if (["L1", "L2"].includes(recursoEtapa)) {
+            return acc + Number(etapa.qtd_planejada || 0)
+          }
+          return acc
         }
         return acc
       }, 0)
 
-      const porLinha = RECURSOS.reduce<Record<string, number>>((acc, recurso) => {
+      const recursosConsolidados = ["L1", "L2"]
+
+      const porLinha = recursosConsolidados.reduce<Record<string, number>>((acc, recurso) => {
         acc[recurso] = etapas.reduce((soma, etapa) => {
           const mes = Number(etapa.mes_liberacao || 0)
           const ano = Number(etapa.ano_liberacao || 0)
@@ -585,7 +591,11 @@ function VisaoConsolidada({
         const mes = i + 1
         return etapas.reduce((acc, etapa) => {
           if (Number(etapa.mes_liberacao || 0) === mes && Number(etapa.ano_liberacao || 0) === anoAnalise) {
+            const recursoEtapa = String(etapa.recurso || "").toUpperCase()
+          if (["L1", "L2"].includes(recursoEtapa)) {
             return acc + Number(etapa.qtd_planejada || 0)
+          }
+          return acc
           }
           return acc
         }, 0)
@@ -817,7 +827,7 @@ function VisaoConsolidada({
             <thead>
               <tr>
                 <th style={{ ...thStyle, textAlign: "left" }}>Versão</th>
-                {RECURSOS.map((r) => <th key={r} style={thStyle}>{r}</th>)}
+                {["L1", "L2"].map((r) => <th key={r} style={thStyle}>{r}</th>)}
                 <th style={{ ...thStyle, borderRight: "none" }}>Total</th>
               </tr>
             </thead>
@@ -830,7 +840,7 @@ function VisaoConsolidada({
                     <td style={{ padding: "10px 14px", fontWeight: 700, color: "var(--text-primary)", borderRight: "1px solid var(--border)" }}>
                       V{item.rodada.versao}
                     </td>
-                    {RECURSOS.map((r) => (
+                    {["L1", "L2"].map((r) => (
                       <td key={r} style={{ padding: "10px 12px", textAlign: "right", borderRight: "1px solid var(--border)" }}>
                         {fmt((item.porLinha[r] || 0) / divisor)}
                       </td>
