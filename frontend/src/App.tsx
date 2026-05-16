@@ -17,10 +17,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* LOGIN */}
         <Route path="/login" element={<LoginPage />} />
 
-        {/* SISTEMA COM LAYOUT */}
         <Route
           element={
             <ProtectedRoute>
@@ -28,59 +26,20 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          {/* Overview */}
-          <Route
-            path="/overview"
-            element={<OverviewPage />}
-          />
+          <Route path="/overview" element={<OverviewPage />} />
+          <Route path="/producao/*" element={<ProducaoPage />} />
+          <Route path="/ordens" element={<OrdensPage />} />
 
-          {/* Produção */}
-          <Route
-            path="/producao/*"
-            element={<ProducaoPage />}
-          />
+          <Route path="/mps" element={<Mrp />} />
+          <Route path="/mrp" element={<Navigate to="/mps" replace />} />
 
-          {/* Ordens */}
-          <Route
-            path="/ordens"
-            element={<OrdensPage />}
-          />
-
-          {/* MRP */}
-          <Route
-            path="/mrp"
-            element={<Mrp />}
-          />
-
-          {/* Calendário de Paradas */}
-          <Route
-            path="/calendario-paradas"
-            element={<CalendarioParadasPage />}
-          />
-
-          {/* Dados */}
-          <Route
-            path="/dados"
-            element={<DadosPage />}
-          />
-
-          <Route
-            path="/dados/:baseId"
-            element={<DadosPage />}
-          />
+          <Route path="/calendario-paradas" element={<CalendarioParadasPage />} />
+          <Route path="/dados" element={<DadosPage />} />
+          <Route path="/dados/:baseId" element={<DadosPage />} />
         </Route>
 
-        {/* ROOT */}
-        <Route
-          path="/"
-          element={<Navigate to="/overview" replace />}
-        />
-
-        {/* FALLBACK */}
-        <Route
-          path="*"
-          element={<Navigate to="/login" replace />}
-        />
+        <Route path="/" element={<Navigate to="/overview" replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
   )
