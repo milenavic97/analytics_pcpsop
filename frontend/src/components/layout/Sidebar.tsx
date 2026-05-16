@@ -33,9 +33,9 @@ const NAV = [
     Icon: ClipboardList,
   },
   {
-    id: "mrp",
-    label: "MRP",
-    path: "/mrp",
+    id: "mps",
+    label: "MPS",
+    path: "/mps",
     Icon: GitBranch,
   },
   {
@@ -82,7 +82,6 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
           borderRight: "1px solid rgba(255,255,255,0.08)",
         }}
       >
-        {/* Logo */}
         <div
           className={clsx(
             "flex h-[66px] items-center border-b",
@@ -132,7 +131,6 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
           )}
         </div>
 
-        {/* Nav */}
         <nav
           className={clsx(
             "flex flex-1 flex-col gap-1 px-2 py-3",
@@ -181,7 +179,6 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
                   background: active
                     ? "rgba(255,255,255,0.14)"
                     : "transparent",
-
                   color: active
                     ? "var(--text-sidebar-active)"
                     : "var(--text-sidebar)",
