@@ -397,18 +397,16 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada }: {
   rodadas: MrpRodada[]
   etapasPorRodada: Record<string, MrpEtapa[]>
 }) {
-  // Monta Jan → Dez baseado no ano da rodada ativa
+  // Monta Jan → Dez baseado no ano da rodada selecionada
   const mesesUnicos = useMemo(() => {
-    const rodadaAtual = rodadas.find((r) => r.id === rodadaId)
-
     const anoBase =
-      rodadaAtual?.ano ||
+      rodadaSelecionada?.ano ||
       new Date().getFullYear()
 
     return Array.from({ length: 12 }, (_, i) => {
       return `${anoBase}-${String(i + 1).padStart(2, "0")}`
     })
-  }, [rodadas, rodadaId])
+  }, [rodadaSelecionada?.ano])
 
   // Para cada rodada e cada mês, soma qtd_planejada
   const dados = useMemo(() => {
