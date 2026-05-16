@@ -533,6 +533,320 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada, recursoFiltro }: {
       </div>
     </div>
   )
+
+}
+
+type UnidadeConsolidado = "caixas" | "tubetes"
+
+function VisaoConsolidada({
+  rodadas,
+  etapasPorRodada,
+  rodadaAtual,
+  mudancasRealizado,
+}: {
+  rodadas: MrpRodada[]
+  etapasPorRodada: Record<string, MrpEtapa[]>
+  rodadaAtual: MrpRodada | null
+  mudancasRealizado: MudancaRealizado[]
+}) {
+  const [unidade, setUnidade] = useState<UnidadeConsolidado>("caixas")
+
+  const mesAnalise = rodadaAtual?.mes || new Date().getMonth() + 1
+  const anoAnalise = rodadaAtual?.ano || new Date().getFullYear()
+  const divisor = unidade === "caixas" ? 500 : 1
+  const labelUnidade = unidade === "caixas" ? "caixas" : "tubetes"
+
+  const dadosVersao = useMemo(() => {
+    return rodadas.map((rodada) => {
+      const etapas = etapasPorRodada[rodada.id || ""] || []
+
+      const totalMesTubetes = etapas.reduce((acc, etapa) => {
+        const mes = Number(etapa.mes_liberacao || 0)
+        const ano = Number(etapa.ano_liberacao || 0)
+        if (mes === mesAnalise && ano === anoAnalise) {
+          return acc + Number(etapa.qtd_planejada || 0)
+        }
+        return acc
+      }, 0)
+
+      const porLinha = RECURSOS.reduce<Record<string, number>>((acc, recurso) => {
+        acc[recurso] = etapas.reduce((soma, etapa) => {
+          const mes = Number(etapa.mes_liberacao || 0)
+          const ano = Number(etapa.ano_liberacao || 0)
+          if (mes === mesAnalise && ano === anoAnalise && String(etapa.recurso || "").toUpperCase() === recurso) {
+            return soma + Number(etapa.qtd_planejada || 0)
+          }
+          return soma
+        }, 0)
+        return acc
+      }, {})
+
+      const porMes = Array.from({ length: 12 }, (_, i) => {
+        const mes = i + 1
+        return etapas.reduce((acc, etapa) => {
+          if (Number(etapa.mes_liberacao || 0) === mes && Number(etapa.ano_liberacao || 0) === anoAnalise) {
+            return acc + Number(etapa.qtd_planejada || 0)
+          }
+          return acc
+        }, 0)
+      })
+
+      return {
+        rodada,
+        totalMesTubetes,
+        porLinha,
+        porMes,
+      }
+    })
+  }, [rodadas, etapasPorRodada, mesAnalise, anoAnalise])
+
+  const atual = dadosVersao[dadosVersao.length - 1]
+  const anterior = dadosVersao.length > 1 ? dadosVersao[dadosVersao.length - 2] : null
+  const primeira = dadosVersao[0] || null
+
+  const valorAtual = (atual?.totalMesTubetes || 0) / divisor
+  const valorAnterior = (anterior?.totalMesTubetes || 0) / divisor
+  const valorPrimeira = (primeira?.totalMesTubetes || 0) / divisor
+  const deltaAnterior = valorAtual - valorAnterior
+  const deltaPrimeira = valorAtual - valorPrimeira
+  const maxGrafico = Math.max(...dadosVersao.map((d) => d.totalMesTubetes / divisor), 1)
+  const lotesImpactados = mudancasRealizado.length
+  const maiorAtraso = Math.max(0, ...mudancasRealizado.map((m) => Number(m.impacto_dias || 0)).filter((v) => v > 0))
+
+  const cardStyle: React.CSSProperties = {
+    border: "1px solid var(--border)",
+    background: "var(--bg-secondary)",
+    borderRadius: 16,
+    padding: 16,
+  }
+
+  const thStyle: React.CSSProperties = {
+    background: AZUL,
+    color: "#fff",
+    padding: "10px 12px",
+    fontSize: 11,
+    fontWeight: 700,
+    textAlign: "right",
+    borderRight: "1px solid rgba(255,255,255,0.1)",
+    whiteSpace: "nowrap",
+  }
+
+  if (!rodadas.length) {
+    return (
+      <div className="card p-5">
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          Nenhuma versão disponível para consolidar.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="card-label mb-1">Visão consolidada</p>
+            <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+              Resumo mensal — {MESES[mesAnalise - 1]}/{anoAnalise}
+            </h2>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+              Comparação geral entre versões, sem separar por linha.
+            </p>
+          </div>
+
+          <div className="flex rounded-xl border p-1" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+            {(["caixas", "tubetes"] as UnidadeConsolidado[]).map((opcao) => (
+              <button
+                key={opcao}
+                type="button"
+                onClick={() => setUnidade(opcao)}
+                className="rounded-lg px-3 py-1.5 text-xs font-semibold transition"
+                style={{
+                  background: unidade === opcao ? AZUL : "transparent",
+                  color: unidade === opcao ? "#fff" : "var(--text-secondary)",
+                }}
+              >
+                {opcao === "caixas" ? "Caixas" : "Tubetes"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div style={cardStyle}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Volume atual</p>
+            <p className="mt-2 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{fmt(valorAtual)}</p>
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{labelUnidade}</p>
+          </div>
+
+          <div style={cardStyle}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Δ vs versão anterior</p>
+            <p className={`mt-2 text-2xl font-bold ${deltaAnterior < 0 ? "text-red-700" : deltaAnterior > 0 ? "text-emerald-700" : ""}`}>
+              {fmtSinal(deltaAnterior)}
+            </p>
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{labelUnidade}</p>
+          </div>
+
+          <div style={cardStyle}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Δ vs V{primeira?.rodada?.versao || 1}</p>
+            <p className={`mt-2 text-2xl font-bold ${deltaPrimeira < 0 ? "text-red-700" : deltaPrimeira > 0 ? "text-emerald-700" : ""}`}>
+              {fmtSinal(deltaPrimeira)}
+            </p>
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{labelUnidade}</p>
+          </div>
+
+          <div style={cardStyle}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Lotes impactados</p>
+            <p className="mt-2 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{fmt(lotesImpactados)}</p>
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Cogtive na versão atual</p>
+          </div>
+
+          <div style={cardStyle}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Maior atraso</p>
+            <p className="mt-2 text-2xl font-bold" style={{ color: maiorAtraso > 0 ? "#B91C1C" : "var(--text-primary)" }}>{maiorAtraso}d</p>
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>entre lotes atualizados</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="card p-5">
+        <div className="mb-4">
+          <p className="card-label mb-1">Evolução por versão</p>
+          <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>
+            Volume de {MESES[mesAnalise - 1]}/{anoAnalise}
+          </h3>
+        </div>
+
+        <div className="space-y-3">
+          {dadosVersao.map((item, idx) => {
+            const valor = item.totalMesTubetes / divisor
+            const anteriorItem = idx > 0 ? dadosVersao[idx - 1] : null
+            const delta = valor - ((anteriorItem?.totalMesTubetes || 0) / divisor)
+            const largura = Math.max(3, Math.round((valor / maxGrafico) * 100))
+            const isAtual = idx === dadosVersao.length - 1
+
+            return (
+              <div key={item.rodada.id || idx} className="grid grid-cols-[80px_1fr_160px] items-center gap-3">
+                <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                  V{item.rodada.versao}
+                  {isAtual && <span className="ml-2 rounded-full px-1.5 py-0.5 text-[10px] text-white" style={{ background: AZUL }}>Atual</span>}
+                </div>
+                <div className="h-8 overflow-hidden rounded-full" style={{ background: "var(--bg-primary)", border: "1px solid var(--border)" }}>
+                  <div
+                    className="flex h-full items-center justify-end rounded-full px-3 text-xs font-bold text-white"
+                    style={{ width: `${largura}%`, background: AZUL, minWidth: valor > 0 ? 36 : 0 }}
+                  >
+                    {valor > 0 ? fmt(valor) : ""}
+                  </div>
+                </div>
+                <div className="text-right text-xs">
+                  <div className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(valor)} {labelUnidade}</div>
+                  {idx > 0 && <div className={delta < 0 ? "text-red-700" : delta > 0 ? "text-emerald-700" : ""}>{fmtSinal(delta)}</div>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+          <p className="card-label mb-1">Distribuição mensal</p>
+          <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>
+            Comparativo consolidado por mês
+          </h3>
+        </div>
+
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ ...thStyle, textAlign: "left", minWidth: 100 }}>Versão</th>
+                {MESES.map((mes) => <th key={mes} style={thStyle}>{mes}/{anoAnalise}</th>)}
+                <th style={{ ...thStyle, borderRight: "none" }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dadosVersao.map((item, idx) => {
+                const anteriorItem = idx > 0 ? dadosVersao[idx - 1] : null
+                const isAtual = idx === dadosVersao.length - 1
+                const rowBg = isAtual ? "rgba(23,55,94,0.04)" : idx % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-primary)"
+                const total = item.porMes.reduce((a, b) => a + b, 0) / divisor
+
+                return (
+                  <tr key={item.rodada.id || idx} style={{ background: rowBg, borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "10px 14px", fontWeight: 700, color: "var(--text-primary)", borderRight: "1px solid var(--border)" }}>
+                      V{item.rodada.versao}
+                      {isAtual && <span className="ml-2 text-[10px] rounded-full px-1.5 py-0.5 font-semibold" style={{ background: AZUL, color: "#fff" }}>Atual</span>}
+                    </td>
+                    {item.porMes.map((totalMes, mesIdx) => {
+                      const val = totalMes / divisor
+                      const ant = ((anteriorItem?.porMes[mesIdx] || 0) / divisor)
+                      const dif = val - ant
+
+                      return (
+                        <td key={mesIdx} style={{ padding: "10px 12px", textAlign: "right", borderRight: "1px solid var(--border)", color: "var(--text-primary)" }}>
+                          <div>{fmt(val)}</div>
+                          {idx > 0 && dif !== 0 && (
+                            <div className={`text-[10px] ${dif > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                              {fmtSinal(dif)}
+                            </div>
+                          )}
+                        </td>
+                      )
+                    })}
+                    <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, color: "var(--text-primary)" }}>{fmt(total)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+          <p className="card-label mb-1">Abertura por linha</p>
+          <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>
+            Volume de {MESES[mesAnalise - 1]}/{anoAnalise} por recurso
+          </h3>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ ...thStyle, textAlign: "left" }}>Versão</th>
+                {RECURSOS.map((r) => <th key={r} style={thStyle}>{r}</th>)}
+                <th style={{ ...thStyle, borderRight: "none" }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dadosVersao.map((item, idx) => {
+                const isAtual = idx === dadosVersao.length - 1
+                const rowBg = isAtual ? "rgba(23,55,94,0.04)" : idx % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-primary)"
+                return (
+                  <tr key={item.rodada.id || idx} style={{ background: rowBg, borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "10px 14px", fontWeight: 700, color: "var(--text-primary)", borderRight: "1px solid var(--border)" }}>
+                      V{item.rodada.versao}
+                    </td>
+                    {RECURSOS.map((r) => (
+                      <td key={r} style={{ padding: "10px 12px", textAlign: "right", borderRight: "1px solid var(--border)" }}>
+                        {fmt((item.porLinha[r] || 0) / divisor)}
+                      </td>
+                    ))}
+                    <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700 }}>
+                      {fmt(item.totalMesTubetes / divisor)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Página principal ─────────────────────────────────────────────────────────
@@ -566,6 +880,7 @@ export default function Mrp() {
     busca: "", lote: "", codigo: "", produto: "",
     mesProducao: "", anoProducao: "", mesLiberacao: "", anoLiberacao: "", recurso: "L1",
   })
+  const [abaMps, setAbaMps] = useState<"detalhado" | "consolidado">("detalhado")
 
   // Para o comparativo: etapas de todas as rodadas do mesmo mês/ano
   const [etapasPorRodada, setEtapasPorRodada] = useState<Record<string, MrpEtapa[]>>({})
@@ -1130,6 +1445,45 @@ export default function Mrp() {
 </div>
       </div>
 
+      {/* ── Abas do MPS ── */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setAbaMps("detalhado")}
+          className="rounded-xl border px-4 py-2 text-sm font-semibold transition"
+          style={{
+            background: abaMps === "detalhado" ? AZUL : "var(--bg-secondary)",
+            color: abaMps === "detalhado" ? "#fff" : "var(--text-secondary)",
+            borderColor: abaMps === "detalhado" ? AZUL : "var(--border)",
+          }}
+        >
+          MPS detalhado
+        </button>
+        <button
+          type="button"
+          onClick={() => setAbaMps("consolidado")}
+          className="rounded-xl border px-4 py-2 text-sm font-semibold transition"
+          style={{
+            background: abaMps === "consolidado" ? AZUL : "var(--bg-secondary)",
+            color: abaMps === "consolidado" ? "#fff" : "var(--text-secondary)",
+            borderColor: abaMps === "consolidado" ? AZUL : "var(--border)",
+          }}
+        >
+          Visão consolidada
+        </button>
+      </div>
+
+      {abaMps === "consolidado" && (
+        <VisaoConsolidada
+          rodadas={rodadasComparativo}
+          etapasPorRodada={etapasPorRodada}
+          rodadaAtual={rodadaSelecionada}
+          mudancasRealizado={mudancasRealizado}
+        />
+      )}
+
+      {abaMps === "detalhado" && (
+        <>
       {/* ── Tabela Gantt ── */}
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 text-white" style={{ background: AZUL }}>
@@ -1340,6 +1694,9 @@ export default function Mrp() {
             </table>
           </div>
         </div>
+      )}
+
+        </>
       )}
 
       {/* ── Modais ── */}
