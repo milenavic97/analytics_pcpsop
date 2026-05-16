@@ -287,6 +287,35 @@ export interface MrpAlocacaoDia {
   criado_em?: string
 }
 
+export interface MrpComparativoLiberacaoLinha {
+  mes_liberacao: number
+  ano_liberacao: number
+  qtd_tubetes_anterior: number
+  caixas_anterior: number
+  qtd_tubetes_atual: number
+  caixas_atual: number
+  dif_tubetes: number
+  dif_caixas: number
+  variacao_pct?: number | null
+  lotes_anterior: number
+  lotes_atual: number
+}
+
+export interface MrpComparativoLiberacaoResponse {
+  ok: boolean
+  rodada_id: string
+  tem_rodada_anterior: boolean
+  rodada_atual: MrpRodada
+  rodada_anterior?: MrpRodada | null
+  total_qtd_tubetes_anterior: number
+  total_caixas_anterior: number
+  total_qtd_tubetes_atual: number
+  total_caixas_atual: number
+  dif_total_tubetes: number
+  dif_total_caixas: number
+  linhas: MrpComparativoLiberacaoLinha[]
+}
+
 export interface ImportarMpsResponse {
   ok: boolean
   rodada_id: string
@@ -311,7 +340,6 @@ export interface CopiarMrpRodadaPayload {
 
 export interface MudancaRealizado {
   lote?: string | null
-  lote_real_cogtive?: string | null
   codigo_produto?: string | null
   descricao_produto?: string | null
   recurso?: string | null
@@ -330,7 +358,6 @@ export interface MudancaRealizado {
   qtd_planejada?: number | null
 
   motivo_provavel?: string | null
-  metodo_casamento?: string | null
 
   impacto_dias?: number | null
   tipo_impacto?:
@@ -342,25 +369,6 @@ export interface MudancaRealizado {
 
   delta_un_hora?: number | null
   delta_un_hora_pct?: number | null
-}
-
-export interface MrpMudancasRealizadoResponse {
-  ok: boolean
-  rodada_id: string
-  total: number
-  resumo_por_linha?: Record<
-    string,
-    {
-      total: number
-      atrasou: number
-      antecipou: number
-      sem_mudanca_data: number
-      sem_comparativo: number
-      [key: string]: number
-    }
-  >
-  mudancas_realizado: MudancaRealizado[]
-  lotes_atualizados: MudancaRealizado[]
 }
 
 export interface ImportarProducaoRealResponse {
@@ -457,10 +465,10 @@ export async function getMrpAlocacoes(
   return apiFetch(`/mrp/rodadas/${rodadaId}/alocacoes`)
 }
 
-export async function getMrpMudancasRealizado(
+export async function getMrpComparativoLiberacao(
   rodadaId: string
-): Promise<MrpMudancasRealizadoResponse> {
-  return apiFetch(`/mrp/rodadas/${rodadaId}/mudancas-realizado`)
+): Promise<MrpComparativoLiberacaoResponse> {
+  return apiFetch(`/mrp/rodadas/${rodadaId}/comparativo-liberacao`)
 }
 
 export async function criarMrpEtapa(
