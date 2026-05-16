@@ -564,18 +564,12 @@ function VisaoConsolidada({
         const mes = Number(etapa.mes_liberacao || 0)
         const ano = Number(etapa.ano_liberacao || 0)
         if (mes === mesAnalise && ano === anoAnalise) {
-          const recursoEtapa = String(etapa.recurso || "").toUpperCase()
-          if (["L1", "L2"].includes(recursoEtapa)) {
-            return acc + Number(etapa.qtd_planejada || 0)
-          }
-          return acc
+          return acc + Number(etapa.qtd_planejada || 0)
         }
         return acc
       }, 0)
 
-      const recursosConsolidados = ["L1", "L2"]
-
-      const porLinha = recursosConsolidados.reduce<Record<string, number>>((acc, recurso) => {
+      const porLinha = RECURSOS.reduce<Record<string, number>>((acc, recurso) => {
         acc[recurso] = etapas.reduce((soma, etapa) => {
           const mes = Number(etapa.mes_liberacao || 0)
           const ano = Number(etapa.ano_liberacao || 0)
@@ -591,11 +585,7 @@ function VisaoConsolidada({
         const mes = i + 1
         return etapas.reduce((acc, etapa) => {
           if (Number(etapa.mes_liberacao || 0) === mes && Number(etapa.ano_liberacao || 0) === anoAnalise) {
-            const recursoEtapa = String(etapa.recurso || "").toUpperCase()
-          if (["L1", "L2"].includes(recursoEtapa)) {
             return acc + Number(etapa.qtd_planejada || 0)
-          }
-          return acc
           }
           return acc
         }, 0)
@@ -827,7 +817,7 @@ function VisaoConsolidada({
             <thead>
               <tr>
                 <th style={{ ...thStyle, textAlign: "left" }}>Versão</th>
-                {["L1", "L2"].map((r) => <th key={r} style={thStyle}>{r}</th>)}
+                {RECURSOS.map((r) => <th key={r} style={thStyle}>{r}</th>)}
                 <th style={{ ...thStyle, borderRight: "none" }}>Total</th>
               </tr>
             </thead>
@@ -840,7 +830,7 @@ function VisaoConsolidada({
                     <td style={{ padding: "10px 14px", fontWeight: 700, color: "var(--text-primary)", borderRight: "1px solid var(--border)" }}>
                       V{item.rodada.versao}
                     </td>
-                    {["L1", "L2"].map((r) => (
+                    {RECURSOS.map((r) => (
                       <td key={r} style={{ padding: "10px 12px", textAlign: "right", borderRight: "1px solid var(--border)" }}>
                         {fmt((item.porLinha[r] || 0) / divisor)}
                       </td>
@@ -1058,6 +1048,72 @@ export default function Mrp() {
     } catch {
       showToast({ tipo: "error", titulo: "Erro ao salvar", mensagem: "Não foi possível salvar as alterações." })
     } finally { setSalvando(false) }
+  }
+
+  async function reverterMudancaRealizado(mudanca: MudancaRealizado) {
+    if (!rodadaSelecionada?.id) return
+
+    const loteRef = String(mudanca.lote || mudanca.lote_real_cogtive || "").toUpperCase()
+    const recursoRef = identificarRecursoMudanca(mudanca)
+    const etapa = etapas.find((e) => {
+      const mesmoRecurso = String(e.recurso || "").toUpperCase() === recursoRef
+      const mesmoLote =
+        String(e.lote || "").toUpperCase() === loteRef ||
+        String(e.op || "").toUpperCase() === loteRef
+      return mesmoRecurso && mesmoLote
+    })
+
+    if (!etapa?.id) {
+      showToast({
+        tipo: "error",
+        titulo: "Lote não encontrado",
+        mensagem: "Não encontrei a etapa correspondente para reverter o ajuste.",
+      })
+      return
+    }
+
+    if (!mudanca.data_fim_anterior) {
+      showToast({
+        tipo: "error",
+        titulo: "Sem data anterior",
+        mensagem: "Esse lote não possui data anterior registrada para reversão.",
+      })
+      return
+    }
+
+    try {
+      setSalvando(true)
+
+      const dados: EdicaoEtapa & Partial<MrpEtapa> = {
+        data_fim: mudanca.data_fim_anterior,
+        un_hora: mudanca.un_hora_anterior ?? etapa.un_hora,
+        duracao_horas: etapa.qtd_planejada && (mudanca.un_hora_anterior || etapa.un_hora)
+          ? Number(etapa.qtd_planejada) / Number(mudanca.un_hora_anterior || etapa.un_hora || 1)
+          : etapa.duracao_horas,
+        status: "ajuste_manual",
+        origem: "AJUSTE_MANUAL_REALIZADO",
+        observacao: `Ajuste manual: reversão do realizado Cogtive para manter data fim planejada original (${mudanca.data_fim_anterior}).`,
+      }
+
+      await atualizarMrpEtapa(etapa.id, dados)
+
+      await carregarDadosRodada(rodadaSelecionada.id)
+      await carregarComparativo(rodadaSelecionada, rodadas)
+
+      showToast({
+        tipo: "success",
+        titulo: "Ajuste revertido",
+        mensagem: `Lote ${loteRef} voltou para a data fim planejada original.`,
+      })
+    } catch (err) {
+      showToast({
+        tipo: "error",
+        titulo: "Erro ao reverter",
+        mensagem: err instanceof Error ? err.message : "Não foi possível reverter o ajuste.",
+      })
+    } finally {
+      setSalvando(false)
+    }
   }
 
   function etapaComEdicao(e: MrpEtapa): MrpEtapa {
@@ -1672,7 +1728,7 @@ export default function Mrp() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: "var(--bg-primary)" }}>
-                  {["Lote", "Produto", "Fim anterior", "Fim Cogtive", "Impacto", "UN/H ant.", "UN/H nova", "Δ UN/H %", "Motivo"].map((h, i) => (
+                  {["Lote", "Produto", "Fim anterior", "Fim Cogtive", "Impacto", "UN/H ant.", "UN/H nova", "Δ UN/H %", "Motivo", "Ações"].map((h, i) => (
                     <th key={h} style={{ padding: "10px 14px", textAlign: i >= 2 && i <= 7 ? "center" : "left", fontWeight: 600, fontSize: 11, color: "var(--text-secondary)", borderBottom: "2px solid var(--border)", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
@@ -1698,6 +1754,23 @@ export default function Mrp() {
                     <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>{fmt(m.un_hora_nova)}</td>
                     <td style={{ padding: "10px 14px", textAlign: "center" }} className={classeDiferenca(m.delta_un_hora_pct)}>{fmtPct(m.delta_un_hora_pct)}</td>
                     <td style={{ padding: "10px 14px", color: "var(--text-secondary)", maxWidth: 200 }}>{m.motivo_provavel || "não identificado"}</td>
+                    <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                      <button
+                        type="button"
+                        onClick={() => reverterMudancaRealizado(m)}
+                        className="rounded-lg border px-2 py-1 text-[11px] font-semibold transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                        disabled={salvando}
+                        style={{
+                          borderColor: "var(--border)",
+                          color: "var(--text-secondary)",
+                          background: "var(--bg-secondary)",
+                          whiteSpace: "nowrap",
+                        }}
+                        title="Voltar este lote para a data fim planejada anterior"
+                      >
+                        Manter planejado
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
