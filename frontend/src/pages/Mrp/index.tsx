@@ -247,6 +247,8 @@ const COLUMNS: Column[] = [
 ]
 
 const FROZEN_COLUMNS = COLUMNS.filter((c) => c.frozen)
+const FROZEN_COLUMNS_WIDTH = FROZEN_COLUMNS.reduce((total, col) => total + col.width, 0)
+const SCROLL_COLUMNS = COLUMNS.filter((c) => !c.frozen)
 
 // ─── Componente Toast ─────────────────────────────────────────────────────────
 
@@ -1147,7 +1149,35 @@ export default function Mrp() {
             <thead style={{ position: "sticky", top: 0, zIndex: 40 }}>
               {/* Linha de meses */}
               <tr>
-                <th colSpan={COLUMNS.length} style={{ background: "var(--bg-secondary)", height: 28, position: "sticky", left: 0, zIndex: 50, borderBottom: "1px solid var(--border)" }} />
+                {/* Espaço fixo somente das colunas congeladas: Lote, Código e Produto */}
+                <th
+                  colSpan={FROZEN_COLUMNS.length}
+                  style={{
+                    background: "var(--bg-secondary)",
+                    height: 28,
+                    position: "sticky",
+                    left: 0,
+                    zIndex: 50,
+                    minWidth: FROZEN_COLUMNS_WIDTH,
+                    width: FROZEN_COLUMNS_WIDTH,
+                    borderBottom: "1px solid var(--border)",
+                    borderRight: "1px solid var(--border)",
+                  }}
+                />
+
+                {/* Espaço rolável das demais colunas antes do calendário */}
+                {SCROLL_COLUMNS.length > 0 && (
+                  <th
+                    colSpan={SCROLL_COLUMNS.length}
+                    style={{
+                      background: "var(--bg-secondary)",
+                      height: 28,
+                      minWidth: SCROLL_COLUMNS.reduce((total, col) => total + col.width, 0),
+                      borderBottom: "1px solid var(--border)",
+                    }}
+                  />
+                )}
+
                 {mesesAgrupados.map((m) => (
                   <th key={m.label} colSpan={m.span}
                     style={{ background: AZUL, color: "#fff", padding: "6px 8px", textAlign: "center", fontSize: 11, fontWeight: 700, minWidth: m.span * 38, borderRight: "1px solid rgba(255,255,255,0.1)", whiteSpace: "nowrap" }}>
