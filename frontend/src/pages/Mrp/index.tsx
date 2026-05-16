@@ -393,9 +393,10 @@ function ModalExcluir({ open, rodada, onClose, onConfirmar, excluindo }: {
 
 // ─── Comparativo de Liberação ─────────────────────────────────────────────────
 
-function ComparativoLiberacao({ rodadas, etapasPorRodada }: {
+function ComparativoLiberacao({ rodadas, etapasPorRodada, recursoFiltro }: {
   rodadas: MrpRodada[]
   etapasPorRodada: Record<string, MrpEtapa[]>
+  recursoFiltro?: string
 }) {
   // Monta Jan → Dez baseado no ano das rodadas comparadas
   const mesesUnicos = useMemo(() => {
@@ -411,7 +412,10 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada }: {
   // Para cada rodada e cada mês, soma qtd_planejada
   const dados = useMemo(() => {
     return rodadas.map((rodada) => {
-      const etapas = etapasPorRodada[rodada.id || ""] || []
+      const etapasBase = etapasPorRodada[rodada.id || ""] || []
+      const etapas = recursoFiltro
+        ? etapasBase.filter((e) => String(e.recurso || "").toUpperCase() === String(recursoFiltro).toUpperCase())
+        : etapasBase
       const porMes: Record<string, number> = {}
       mesesUnicos.forEach((chave) => { porMes[chave] = 0 })
       etapas.forEach((e) => {
@@ -423,7 +427,7 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada }: {
       const total = Object.values(porMes).reduce((a, b) => a + b, 0)
       return { rodada, porMes, total }
     })
-  }, [rodadas, etapasPorRodada, mesesUnicos])
+  }, [rodadas, etapasPorRodada, mesesUnicos, recursoFiltro])
 
   if (!rodadas.length || !mesesUnicos.length) return null
 
@@ -442,7 +446,7 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada }: {
           Liberação mensal — tubetes e caixas por versão
         </h3>
         <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-          Soma de QTD. (Tubetes) por Mês Lib. de cada versão. Caixas = tubetes / 500.
+          Soma de QTD. (Tubetes) por Mês Lib. de cada versão{recursoFiltro ? ` — ${recursoFiltro}` : ""}. Caixas = tubetes / 500.
         </p>
       </div>
       <div style={{ overflowX: "auto" }}>
@@ -567,6 +571,21 @@ export default function Mrp() {
   function showToast(data: Toast, duration = 4000) {
     setToast(data)
     window.setTimeout(() => setToast(null), duration)
+  }
+
+  function limparFiltros() {
+    setFiltros({
+      busca: "",
+      lote: "",
+      codigo: "",
+      produto: "",
+      mesProducao: "",
+      anoProducao: "",
+      mesLiberacao: "",
+      anoLiberacao: "",
+      recurso: "L1",
+    })
+    setPagina(1)
   }
 
   async function carregarRodadas() {
@@ -985,10 +1004,26 @@ export default function Mrp() {
       </div>
 
       {/* ── Filtros ── */}
-      <div className="card p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter size={14} style={{ color: "var(--text-secondary)" }} />
-          <span className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>Filtros da tabela</span>
+      <div className="card px-4 py-3">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Filter size={14} style={{ color: "var(--text-secondary)" }} />
+            <span className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>Filtros da tabela</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={limparFiltros}
+            className="flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs transition-colors hover:border-red-200 hover:text-red-500"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+              background: "var(--bg-secondary)",
+            }}
+          >
+            <Trash2 size={12} />
+            Limpar filtros
+          </button>
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 xl:grid-cols-12">
           {/* Busca geral */}
@@ -1218,6 +1253,7 @@ export default function Mrp() {
         <ComparativoLiberacao
           rodadas={rodadasComparativo}
           etapasPorRodada={etapasPorRodada}
+          recursoFiltro={filtros.recurso}
         />
       )}
 
