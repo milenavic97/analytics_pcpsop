@@ -397,17 +397,29 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada }: {
   rodadas: MrpRodada[]
   etapasPorRodada: Record<string, MrpEtapa[]>
 }) {
-  // Monta meses únicos de liberação (todas as versões)
+  // Monta meses do horizonte do plano (ignora sentinela 2017)
   const mesesUnicos = useMemo(() => {
-    const set = new Set<string>()
+    const anosValidos = new Set<number>()
+
     Object.values(etapasPorRodada).forEach((etapas) => {
       etapas.forEach((e) => {
-        if (e.mes_liberacao && e.ano_liberacao) {
-          set.add(`${e.ano_liberacao}-${String(e.mes_liberacao).padStart(2, "0")}`)
+        if (
+          e.ano_liberacao &&
+          Number(e.ano_liberacao) !== 2017
+        ) {
+          anosValidos.add(Number(e.ano_liberacao))
         }
       })
     })
-    return Array.from(set).sort()
+
+    const anoBase =
+      anosValidos.size > 0
+        ? Math.min(...Array.from(anosValidos))
+        : new Date().getFullYear()
+
+    return Array.from({ length: 12 }, (_, i) => {
+      return `${anoBase}-${String(i + 1).padStart(2, "0")}`
+    })
   }, [etapasPorRodada])
 
   // Para cada rodada e cada mês, soma qtd_planejada
@@ -1091,17 +1103,22 @@ export default function Mrp() {
               {opcoesPeriodo.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </div>
-
-          {/* Limpar */}
-          <div className="flex flex-col">
-            <label style={labelStyle}>&nbsp;</label>
-            <button onClick={() => setFiltros({ busca: "", lote: "", codigo: "", produto: "", mesProducao: "", anoProducao: "", mesLiberacao: "", anoLiberacao: "", recurso: "L1" })}
-              className="flex h-10 items-center gap-2 rounded-lg border px-3 text-sm font-medium"
-              style={{ borderColor: "var(--border)", background: "var(--bg-secondary)", color: "var(--text-secondary)" }}>
-              <X size={14} />
+          {/* Limpar filtros */}
+          <div className="absolute right-4 top-3">
+            <button
+              onClick={() => setFiltros({ busca: "", lote: "", codigo: "", produto: "", mesProducao: "", anoProducao: "", mesLiberacao: "", anoLiberacao: "", recurso: "L1" })}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-opacity hover:opacity-80"
+              style={{
+                color: "var(--text-secondary)",
+                background: "transparent",
+                border: "1px solid var(--border)"
+              }}
+            >
+              <X size={12} />
               Limpar filtros
             </button>
           </div>
+
         </div>
       </div>
 
