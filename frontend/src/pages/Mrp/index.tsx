@@ -18,12 +18,14 @@ import {
   criarMrpRodada,
   excluirMrpRodada,
   getMrpAlocacoes,
+  getMrpComparativoLiberacao,
   getMrpEtapas,
   getMrpMudancasRealizado,
   getMrpRodadas,
   importarMrpMps,
   importarMrpProducaoReal,
   type MrpAlocacaoDia,
+  type MrpComparativoLiberacaoResponse,
   type MrpEtapa,
   type MrpRodada,
 } from "@/services/api"
@@ -119,6 +121,21 @@ function textoImpacto(tipo?: string | null, dias?: number | null) {
   if (tipo === "sem_mudanca_data") return "Sem mudança de data"
   return "Sem comparativo"
 }
+
+
+function classeDiferenca(value?: number | null) {
+  const numero = Number(value || 0)
+  if (numero > 0) return "text-emerald-700"
+  if (numero < 0) return "text-red-700"
+  return "text-slate-600"
+}
+
+function fmtSinal(value?: number | null) {
+  const numero = Number(value || 0)
+  const sinal = numero > 0 ? "+" : ""
+  return `${sinal}${fmt(numero)}`
+}
+
 
 const COLUMNS: Column[] = [
   { key: "lote", label: "LOTE", width: 90, frozen: true, render: (e) => e.lote },
@@ -308,6 +325,7 @@ export default function Mrp() {
   const [excluindoRodada, setExcluindoRodada] = useState(false)
   const [modalExcluirAberto, setModalExcluirAberto] = useState(false)
   const [mudancasRealizado, setMudancasRealizado] = useState<MudancaRealizado[]>([])
+  const [comparativoLiberacao, setComparativoLiberacao] = useState<MrpComparativoLiberacaoResponse | null>(null)
 
   const [mesInicio, setMesInicio] = useState(hoje.getMonth() + 1)
   const [anoInicio, setAnoInicio] = useState(hoje.getFullYear())
@@ -348,15 +366,17 @@ export default function Mrp() {
     setLoading(true)
 
     try {
-      const [etapasData, alocacoesData, mudancasData] = await Promise.all([
+      const [etapasData, alocacoesData, mudancasData, comparativoData] = await Promise.all([
         getMrpEtapas(rodadaId),
         getMrpAlocacoes(rodadaId),
         getMrpMudancasRealizado(rodadaId),
+        getMrpComparativoLiberacao(rodadaId),
       ])
 
       setEtapas(etapasData)
       setAlocacoes(alocacoesData)
       setMudancasRealizado(mudancasData.mudancas_realizado || mudancasData.lotes_atualizados || [])
+      setComparativoLiberacao(comparativoData)
       setEdicoes({})
     } finally {
       setLoading(false)
@@ -688,6 +708,7 @@ export default function Mrp() {
       setEtapas([])
       setAlocacoes([])
       setMudancasRealizado([])
+      setComparativoLiberacao(null)
       setEdicoes({})
     }
   }, [rodadaSelecionada?.id])
@@ -1343,6 +1364,106 @@ export default function Mrp() {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+
+      {comparativoLiberacao && comparativoLiberacao.linhas.length > 0 && (
+        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Comparativo de liberação mensal — V atual x V anterior
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Soma de QTD. (Tubetes) por MÊS LIB. e ANO LIB. Caixas = tubetes / 500.
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+              {comparativoLiberacao.rodada_anterior
+                ? `V${comparativoLiberacao.rodada_anterior.versao} x V${comparativoLiberacao.rodada_atual.versao}`
+                : "Sem versão anterior"}
+            </div>
+          </div>
+
+          <div className="overflow-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-left text-slate-600">
+                  <th className="border-b border-slate-200 px-4 py-3">Mês lib.</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">Tubetes V anterior</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">Caixas V anterior</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">Tubetes V atual</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">Caixas V atual</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">Dif. tubetes</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">Dif. caixas</th>
+                  <th className="border-b border-slate-200 px-4 py-3 text-right">% variação</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {comparativoLiberacao.linhas.map((linha) => (
+                  <tr key={`${linha.ano_liberacao}-${linha.mes_liberacao}`} className="hover:bg-slate-50">
+                    <td className="border-b border-slate-100 px-4 py-3 font-semibold text-slate-800">
+                      {MESES[(linha.mes_liberacao || 1) - 1]}/{linha.ano_liberacao}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-right">
+                      {fmt(linha.qtd_tubetes_anterior)}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-right">
+                      {fmt(linha.caixas_anterior)}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-right font-semibold">
+                      {fmt(linha.qtd_tubetes_atual)}
+                    </td>
+
+                    <td className="border-b border-slate-100 px-4 py-3 text-right font-semibold">
+                      {fmt(linha.caixas_atual)}
+                    </td>
+
+                    <td className={`border-b border-slate-100 px-4 py-3 text-right font-semibold ${classeDiferenca(linha.dif_tubetes)}`}>
+                      {fmtSinal(linha.dif_tubetes)}
+                    </td>
+
+                    <td className={`border-b border-slate-100 px-4 py-3 text-right font-semibold ${classeDiferenca(linha.dif_caixas)}`}>
+                      {fmtSinal(linha.dif_caixas)}
+                    </td>
+
+                    <td className={`border-b border-slate-100 px-4 py-3 text-right font-semibold ${classeDiferenca(linha.variacao_pct)}`}>
+                      {linha.variacao_pct === null || linha.variacao_pct === undefined ? "-" : fmtPct(linha.variacao_pct)}
+                    </td>
+                  </tr>
+                ))}
+
+                <tr className="bg-slate-50 font-bold text-slate-800">
+                  <td className="border-t border-slate-200 px-4 py-3">Total</td>
+                  <td className="border-t border-slate-200 px-4 py-3 text-right">
+                    {fmt(comparativoLiberacao.total_qtd_tubetes_anterior)}
+                  </td>
+                  <td className="border-t border-slate-200 px-4 py-3 text-right">
+                    {fmt(comparativoLiberacao.total_caixas_anterior)}
+                  </td>
+                  <td className="border-t border-slate-200 px-4 py-3 text-right">
+                    {fmt(comparativoLiberacao.total_qtd_tubetes_atual)}
+                  </td>
+                  <td className="border-t border-slate-200 px-4 py-3 text-right">
+                    {fmt(comparativoLiberacao.total_caixas_atual)}
+                  </td>
+                  <td className={`border-t border-slate-200 px-4 py-3 text-right ${classeDiferenca(comparativoLiberacao.dif_total_tubetes)}`}>
+                    {fmtSinal(comparativoLiberacao.dif_total_tubetes)}
+                  </td>
+                  <td className={`border-t border-slate-200 px-4 py-3 text-right ${classeDiferenca(comparativoLiberacao.dif_total_caixas)}`}>
+                    {fmtSinal(comparativoLiberacao.dif_total_caixas)}
+                  </td>
+                  <td className="border-t border-slate-200 px-4 py-3 text-right">-</td>
+                </tr>
               </tbody>
             </table>
           </div>
