@@ -558,7 +558,10 @@ function VisaoConsolidada({
 
   const dadosVersao = useMemo(() => {
     return rodadas.map((rodada) => {
-      const etapas = etapasPorRodada[rodada.id || ""] || []
+      const etapasBase = etapasPorRodada[rodada.id || ""] || []
+      const etapas = etapasBase.filter((e) =>
+        ["L1", "L2"].includes(String(e.recurso || "").toUpperCase())
+      )
 
       const totalMesTubetes = etapas.reduce((acc, etapa) => {
         const mes = Number(etapa.mes_liberacao || 0)
@@ -817,7 +820,7 @@ function VisaoConsolidada({
             <thead>
               <tr>
                 <th style={{ ...thStyle, textAlign: "left" }}>Versão</th>
-                {RECURSOS.map((r) => <th key={r} style={thStyle}>{r}</th>)}
+                {["L1", "L2"].map((r) => <th key={r} style={thStyle}>{r}</th>)}
                 <th style={{ ...thStyle, borderRight: "none" }}>Total</th>
               </tr>
             </thead>
@@ -830,7 +833,7 @@ function VisaoConsolidada({
                     <td style={{ padding: "10px 14px", fontWeight: 700, color: "var(--text-primary)", borderRight: "1px solid var(--border)" }}>
                       V{item.rodada.versao}
                     </td>
-                    {RECURSOS.map((r) => (
+                    {["L1", "L2"].map((r) => (
                       <td key={r} style={{ padding: "10px 12px", textAlign: "right", borderRight: "1px solid var(--border)" }}>
                         {fmt((item.porLinha[r] || 0) / divisor)}
                       </td>
