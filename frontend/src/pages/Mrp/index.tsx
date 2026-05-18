@@ -19,12 +19,6 @@ import {
 } from "lucide-react"
 
 import {
-  ComposedChart, Line, Scatter, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer,
-  LabelList, BarChart, Bar, Cell,
-} from "recharts"
-
-import {
   atualizarMrpEtapa,
   copiarMrpRodada,
   criarMrpRodada,
@@ -33,7 +27,6 @@ import {
   getMrpEtapas,
   getMrpMudancasRealizado,
   getMrpRodadas,
-  getMrpSd3Realizado,
   importarMrpMps,
   importarMrpProducaoReal,
   type MrpAlocacaoDia,
@@ -444,266 +437,6 @@ function KpiCard({ label, value, sub, delta, destaque = false, cor }: {
   )
 }
 
-
-// ─── Evolução de versões — gráfico anual + linhas mensais ────────────────────
-
-type FiltroLinha = "L1+L2" | "L1" | "L2"
-interface Sd3Item { mes: number; ano: number; caixas: number; caixas_l1: number; caixas_l2: number }
-
-const CORES_VERSAO = ["#94A3B8", "#4A7FB5", "#17375E", "#0EA5E9", "#7C3AED", "#DB2777"]
-const COR_SD3 = "#16A34A"
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function TooltipLinhas({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{
-      background: "var(--bg-secondary)", border: "1px solid var(--border)",
-      borderRadius: 8, padding: "10px 14px",
-      boxShadow: "0 4px 16px rgba(0,0,0,0.12)", fontSize: 12, minWidth: 190,
-    }}>
-      <p style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>{label}</p>
-      {payload.map((p: { name: string; value: number; color: string; dataKey: string }, i: number) => {
-        if (p.value == null) return null
-        const isSD3 = p.dataKey === "sd3"
-        return (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-            <span style={{ width: isSD3 ? 10 : 20, height: isSD3 ? 10 : 3, borderRadius: isSD3 ? 99 : 0, background: p.color, flexShrink: 0 }} />
-            <span style={{ color: "var(--text-secondary)", flex: 1 }}>{p.name}:</span>
-            <span style={{ fontWeight: 600, color: isSD3 ? COR_SD3 : "var(--text-primary)" }}>
-              {fmt(p.value)} cx
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function LabelPonto({ x, y, value, fill }: any) {
-  if (!value) return null
-  return (
-    <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={600} fill={fill || "#6B7280"}>
-      {fmt(value)}
-    </text>
-  )
-}
-
-function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnalise }: {
-  rodadas: MrpRodada[]
-  etapasPorRodada: Record<string, MrpEtapa[]>
-  anoAnalise: number
-  mesAnalise: number
-}) {
-  const [filtroLinha, setFiltroLinha] = useState<FiltroLinha>("L1+L2")
-  const [sd3, setSd3] = useState<Sd3Item[]>([])
-  const [visiveis, setVisiveis] = useState<Record<string, boolean>>({})
-
-  useEffect(() => {
-    getMrpSd3Realizado(anoAnalise)
-      .then((d: unknown) => setSd3(d as Sd3Item[]))
-      .catch(() => setSd3([]))
-  }, [anoAnalise])
-
-  useEffect(() => {
-    const init: Record<string, boolean> = { sd3: true }
-    rodadas.forEach((r) => { init[`v${r.versao}`] = true })
-    setVisiveis(init)
-  }, [rodadas])
-
-  // Dados mensais por versão
-  const dadosVersao = useMemo(() => {
-    return rodadas.map((rodada) => {
-      const etapasBase = etapasPorRodada[rodada.id || ""] || []
-      const porMes = Array.from({ length: 12 }, (_, i) => {
-        const mes = i + 1
-        return etapasBase
-          .filter((e) => ["L1", "L2"].includes(String(e.recurso || "").toUpperCase()))
-          .reduce((acc, e) => {
-            if (Number(e.mes_liberacao) !== mes || Number(e.ano_liberacao) !== anoAnalise) return acc
-            const r = String(e.recurso || "").toUpperCase()
-            if (filtroLinha === "L1+L2") return acc + Number(e.qtd_planejada || 0) / 500
-            if (filtroLinha === r) return acc + Number(e.qtd_planejada || 0) / 500
-            return acc
-          }, 0)
-      })
-      const totalAnual = porMes.reduce((a, b) => a + b, 0)
-      return { rodada, porMes, totalAnual }
-    })
-  }, [rodadas, etapasPorRodada, anoAnalise, filtroLinha])
-
-  // Chart data mensal
-  const chartDataMensal = useMemo(() => {
-    return MESES.map((label, i) => {
-      const mes = i + 1
-      const point: Record<string, number | string | undefined> = { mes: label }
-      dadosVersao.forEach(({ rodada, porMes }) => {
-        point[`v${rodada.versao}`] = Math.round(porMes[i])
-      })
-      if (mes < mesAnalise) {
-        const s = sd3.find((x) => x.mes === mes && x.ano === anoAnalise)
-        if (s) {
-          if (filtroLinha === "L1+L2") point["sd3"] = Math.round(s.caixas)
-          else if (filtroLinha === "L1") point["sd3"] = Math.round(s.caixas_l1)
-          else point["sd3"] = Math.round(s.caixas_l2)
-        }
-      }
-      return point
-    })
-  }, [dadosVersao, sd3, mesAnalise, anoAnalise, filtroLinha])
-
-  // Chart data anual (barras horizontais)
-  const chartDataAnual = useMemo(() => {
-    const max = Math.max(...dadosVersao.map((d) => d.totalAnual), 1)
-    return dadosVersao.map(({ rodada, totalAnual }, idx) => ({
-      versao: `V${rodada.versao}`,
-      total: Math.round(totalAnual),
-      pct: Math.round((totalAnual / max) * 100),
-      isAtual: idx === dadosVersao.length - 1,
-      cor: CORES_VERSAO[Math.min(idx, CORES_VERSAO.length - 1)],
-    }))
-  }, [dadosVersao])
-
-  const toggle = (key: string) => setVisiveis((p) => ({ ...p, [key]: !p[key] }))
-
-  if (!rodadas.length) return null
-
-  const btnFiltro = (v: FiltroLinha) => (
-    <button key={v} onClick={() => setFiltroLinha(v)} style={{
-      padding: "4px 12px", borderRadius: 99, fontSize: 11, fontWeight: 600,
-      cursor: "pointer", border: "1px solid",
-      borderColor: filtroLinha === v ? AZUL : "var(--border)",
-      background: filtroLinha === v ? AZUL : "transparent",
-      color: filtroLinha === v ? "#fff" : "var(--text-secondary)",
-    }}>{v}</button>
-  )
-
-  return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 16, background: "var(--bg-secondary)", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
-
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <p style={{ fontSize: 10, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 2px" }}>
-            Evolução de versões
-          </p>
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)", margin: "0 0 4px" }}>
-            Liberação mensal por versão — {anoAnalise}
-          </h3>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>
-            Cada linha representa uma versão do plano. Pontos verdes = realizado SD3.
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          {(["L1+L2", "L1", "L2"] as FiltroLinha[]).map(btnFiltro)}
-        </div>
-      </div>
-
-      {/* Bloco anual — barras horizontais */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-          Total anual — {anoAnalise}
-        </p>
-        {chartDataAnual.map((item) => (
-          <div key={item.versao} style={{ display: "grid", gridTemplateColumns: "56px 1fr 140px", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: item.isAtual ? AZUL : "var(--text-primary)" }}>{item.versao}</span>
-              {item.isAtual && <span style={{ fontSize: 9, fontWeight: 700, background: AZUL, color: "#fff", borderRadius: 99, padding: "2px 6px" }}>ATUAL</span>}
-            </div>
-            <div style={{ height: 28, background: "var(--bg-primary)", borderRadius: 99, border: "1px solid var(--border)", overflow: "hidden" }}>
-              <div style={{
-                width: `${item.pct}%`, height: "100%",
-                background: item.isAtual ? AZUL : item.cor,
-                opacity: item.isAtual ? 1 : 0.6,
-                borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 10,
-                transition: "width 0.5s ease",
-              }}>
-                {item.pct > 20 && (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{fmt(item.total)} cx</span>
-                )}
-              </div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{fmt(item.total)} cx</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ borderTop: "1px solid var(--border)" }} />
-
-      {/* Legenda clicável */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {rodadas.map((r, idx) => {
-          const key = `v${r.versao}`
-          const cor = CORES_VERSAO[Math.min(idx, CORES_VERSAO.length - 1)]
-          const isAtual = idx === rodadas.length - 1
-          const ativo = visiveis[key] !== false
-          return (
-            <button key={key} onClick={() => toggle(key)} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              background: "none", border: "none", cursor: "pointer",
-              opacity: ativo ? 1 : 0.3, padding: 0, transition: "opacity 0.15s",
-            }}>
-              <span style={{ width: 24, height: isAtual ? 3 : 2, borderRadius: 99, background: cor, flexShrink: 0 }} />
-              <span style={{ fontSize: 12, fontWeight: isAtual ? 700 : 400, color: "var(--text-primary)" }}>
-                V{r.versao}{isAtual ? " (atual)" : ""}
-              </span>
-            </button>
-          )
-        })}
-        <button onClick={() => toggle("sd3")} style={{
-          display: "flex", alignItems: "center", gap: 6,
-          background: "none", border: "none", cursor: "pointer",
-          opacity: visiveis["sd3"] !== false ? 1 : 0.3, padding: 0, transition: "opacity 0.15s",
-        }}>
-          <span style={{ width: 10, height: 10, borderRadius: 99, background: COR_SD3, flexShrink: 0 }} />
-          <span style={{ fontSize: 12, color: "var(--text-primary)" }}>Realizado SD3</span>
-        </button>
-      </div>
-
-      {/* Gráfico de linhas mensal */}
-      <div style={{ height: 340 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartDataMensal} margin={{ top: 28, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false}
-              tickFormatter={(v) => fmt(v)} width={60} />
-            <Tooltip content={<TooltipLinhas />} cursor={{ stroke: "var(--border)", strokeWidth: 1 }} />
-            {rodadas.map((r, idx) => {
-              const key = `v${r.versao}`
-              if (visiveis[key] === false) return null
-              const isAtual = idx === rodadas.length - 1
-              const cor = CORES_VERSAO[Math.min(idx, CORES_VERSAO.length - 1)]
-              return (
-                <Line
-                  key={key}
-                  type="monotone"
-                  dataKey={key}
-                  name={`V${r.versao}${isAtual ? " (atual)" : ""}`}
-                  stroke={cor}
-                  strokeWidth={isAtual ? 2.5 : 1.5}
-                  strokeDasharray={idx === 0 && !isAtual ? "5 4" : undefined}
-                  dot={{ r: 4, fill: cor, strokeWidth: 0 }}
-                  activeDot={{ r: 6 }}
-                  connectNulls
-                >
-                  <LabelList content={<LabelPonto fill={cor} />} />
-                </Line>
-              )
-            })}
-            {visiveis["sd3"] !== false && (
-              <Scatter dataKey="sd3" name="Realizado SD3" fill={COR_SD3} />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  )
-}
-
 // ─── Evolução de versões ──────────────────────────────────────────────────────
 
 function EvolucaoVersoes({ dadosVersao, divisor, labelUnidade }: {
@@ -1068,13 +801,22 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
         </div>
       </div>
 
-      {/* Bloco 2+3: Gráfico de evolução anual + linhas mensais + SD3 */}
-      <EvolucaoVersoesGrafico
-        rodadas={rodadas}
-        etapasPorRodada={etapasPorRodada}
-        anoAnalise={anoAnalise}
-        mesAnalise={mesAnalise}
-      />
+      {/* Bloco 2: Evolução */}
+      <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 20, background: "var(--bg-secondary)" }}>
+        {sectionTitle("Evolução por versão", `Trajetória do volume de ${MESES[mesAnalise - 1]}/${anoAnalise}`)}
+        <EvolucaoVersoes dadosVersao={dadosVersao} divisor={divisor} labelUnidade={labelUnidade} />
+      </div>
+
+      {/* Bloco 3: Tabela mensal */}
+      <div style={{ border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden", background: "var(--bg-secondary)" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
+          {sectionTitle("Distribuição anual", `Liberação mensal por versão — ${anoAnalise}`)}
+          <p style={{ margin: 0, fontSize: 12, color: "var(--text-secondary)" }}>
+            Valores em {unidade}. Delta em relação à versão anterior. Linha Δ V1→Atual mostra o acumulado total.
+          </p>
+        </div>
+        <TabelaMensalUnificada dadosVersao={dadosVersao} anoAnalise={anoAnalise} divisor={divisor} />
+      </div>
 
       {/* Bloco 4: Abertura por linha */}
       <div style={{ border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden", background: "var(--bg-secondary)" }}>
@@ -1116,10 +858,7 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada, recursoFiltro }: {
           porMes[chave] = (porMes[chave] || 0) + Number(e.qtd_planejada || 0)
         }
       })
-      const anoBase2 = rodadas.find((r) => r?.ano)?.ano || new Date().getFullYear()
-      const total = Object.entries(porMes).reduce((a, [chave, b]) => {
-        return Number(chave.split("-")[0]) === anoBase2 ? a + b : a
-      }, 0)
+      const total = Object.values(porMes).reduce((a, b) => a + b, 0)
       return { rodada, porMes, total }
     })
   }, [rodadas, etapasPorRodada, mesesUnicos, recursoFiltro])
@@ -1224,6 +963,8 @@ export default function Mrp() {
   const [arquivoMps, setArquivoMps] = useState<File | null>(null)
   const [arquivoReal, setArquivoReal] = useState<File | null>(null)
   const [mudancasRealizado, setMudancasRealizado] = useState<MudancaRealizado[]>([])
+  const [edicoesMudancas, setEdicoesMudancas] = useState<Record<number, { motivo?: string; mes_liberacao?: number }>>({})
+  const [salvandoMudanca, setSalvandoMudanca] = useState<number | null>(null)
   const [pagina, setPagina] = useState(1)
   const [mesInicio, setMesInicio] = useState(hoje.getMonth() + 1)
   const [anoInicio, setAnoInicio] = useState(hoje.getFullYear())
@@ -1383,6 +1124,36 @@ export default function Mrp() {
     } catch {
       showToast({ tipo: "error", titulo: "Erro ao salvar", mensagem: "Não foi possível salvar as alterações." })
     } finally { setSalvando(false) }
+  }
+
+  async function salvarEdicaoMudanca(idx: number, mudanca: MudancaRealizado) {
+    const edicao = edicoesMudancas[idx]
+    if (!edicao || !rodadaSelecionada?.id) return
+    const loteRef = String(mudanca.lote || mudanca.lote_real_cogtive || "").toUpperCase()
+    const recursoRef = identificarRecursoMudanca(mudanca)
+    const etapa = etapas.find((e) => {
+      const mesmoRecurso = String(e.recurso || "").toUpperCase() === recursoRef
+      const mesmoLote = String(e.lote || "").toUpperCase() === loteRef
+      return mesmoRecurso && mesmoLote
+    })
+    if (!etapa?.id) { showToast({ tipo: "error", titulo: "Lote não encontrado", mensagem: "Não encontrei a etapa correspondente." }); return }
+    try {
+      setSalvandoMudanca(idx)
+      const dados: Partial<MrpEtapa> = {}
+      if (edicao.motivo !== undefined) dados.observacao = edicao.motivo
+      if (edicao.mes_liberacao !== undefined) dados.mes_liberacao = edicao.mes_liberacao
+      await atualizarMrpEtapa(etapa.id, dados)
+      // Atualizar localmente
+      setMudancasRealizado((prev) => prev.map((m, i) => i === idx ? {
+        ...m,
+        motivo_provavel: edicao.motivo ?? m.motivo_provavel,
+        mes_liberacao_novo: edicao.mes_liberacao ?? m.mes_liberacao_novo,
+      } : m))
+      setEdicoesMudancas((prev) => { const n = {...prev}; delete n[idx]; return n })
+      showToast({ tipo: "success", titulo: "Salvo", mensagem: "Motivo e mês de liberação atualizados." })
+    } catch (err) {
+      showToast({ tipo: "error", titulo: "Erro ao salvar", mensagem: err instanceof Error ? err.message : "Erro ao salvar." })
+    } finally { setSalvandoMudanca(null) }
   }
 
   async function reverterMudancaRealizado(mudanca: MudancaRealizado) {
@@ -1913,7 +1684,7 @@ export default function Mrp() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: "var(--bg-primary)" }}>
-                      {["Lote", "Produto", "Fim anterior", "Fim Cogtive", "Impacto", "UN/H ant.", "UN/H nova", "Δ UN/H %", "Motivo", "Ações"].map((h, i) => (
+                      {["Lote", "Produto", "Fim anterior", "Fim Cogtive", "Impacto", "UN/H ant.", "UN/H nova", "Δ UN/H %", "Mês Lib.", "Motivo", "Ações"].map((h, i) => (
                         <th key={h} style={{ padding: "10px 14px", textAlign: i >= 2 && i <= 7 ? "center" : "left", fontWeight: 600, fontSize: 11, color: "var(--text-secondary)", borderBottom: "2px solid var(--border)", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
@@ -1938,13 +1709,43 @@ export default function Mrp() {
                         <td style={{ padding: "10px 14px", textAlign: "center", color: "var(--text-secondary)" }}>{fmt(m.un_hora_anterior)}</td>
                         <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>{fmt(m.un_hora_nova)}</td>
                         <td style={{ padding: "10px 14px", textAlign: "center" }} className={classeDiferenca(m.delta_un_hora_pct)}>{fmtPct(m.delta_un_hora_pct)}</td>
-                        <td style={{ padding: "10px 14px", color: "var(--text-secondary)", maxWidth: 200 }}>{m.motivo_provavel || "não identificado"}</td>
+                        {/* Mês Lib. editável */}
                         <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                          <button type="button" onClick={() => reverterMudancaRealizado(m)} disabled={salvando}
-                            className="rounded-lg border px-2 py-1 text-[11px] font-semibold transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
-                            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)", whiteSpace: "nowrap" }}>
-                            Manter planejado
-                          </button>
+                          <select
+                            value={edicoesMudancas[idx]?.mes_liberacao ?? (m.mes_liberacao_novo || "")}
+                            onChange={(e) => setEdicoesMudancas((prev) => ({ ...prev, [idx]: { ...prev[idx], mes_liberacao: Number(e.target.value) } }))}
+                            style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 6px", fontSize: 11, color: "var(--text-primary)", outline: "none", width: 80 }}
+                          >
+                            {MESES.map((ml, mi) => (
+                              <option key={mi + 1} value={mi + 1}>{ml}</option>
+                            ))}
+                          </select>
+                        </td>
+                        {/* Motivo editável */}
+                        <td style={{ padding: "10px 14px", minWidth: 200 }}>
+                          <input
+                            type="text"
+                            value={edicoesMudancas[idx]?.motivo ?? (m.motivo_provavel || "")}
+                            onChange={(e) => setEdicoesMudancas((prev) => ({ ...prev, [idx]: { ...prev[idx], motivo: e.target.value } }))}
+                            placeholder="não identificado"
+                            style={{ width: "100%", background: "var(--bg-primary)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", fontSize: 11, color: "var(--text-primary)", outline: "none" }}
+                          />
+                        </td>
+                        <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                          <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
+                            {edicoesMudancas[idx] && (
+                              <button type="button" onClick={() => salvarEdicaoMudanca(idx, m)} disabled={salvandoMudanca === idx}
+                                className="rounded-lg border px-2 py-1 text-[11px] font-semibold transition disabled:opacity-50"
+                                style={{ borderColor: "#BBF7D0", background: "#F0FDF4", color: "#15803D", whiteSpace: "nowrap" }}>
+                                {salvandoMudanca === idx ? "..." : "Salvar"}
+                              </button>
+                            )}
+                            <button type="button" onClick={() => reverterMudancaRealizado(m)} disabled={salvando}
+                              className="rounded-lg border px-2 py-1 text-[11px] font-semibold transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                              style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)", whiteSpace: "nowrap" }}>
+                              Manter planejado
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
