@@ -7,13 +7,41 @@ import {
   Search,
   ShieldAlert,
 } from "lucide-react"
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 import {
   getAnaliseMrpMateriais,
+  getAnaliseMrpMaterial,
   getAnaliseMrpResumo,
   type AnaliseMrpMaterial,
   type AnaliseMrpResumo,
 } from "../../services/api"
+
+type SortKey =
+  | "codigo"
+  | "descricao"
+  | "un"
+  | "saldo_base_consumo"
+  | "estoque_real"
+  | "media_3m"
+  | "maior_media"
+  | "maior_media_50"
+  | "cobertura_dias"
+  | "gap_consumo"
+  | "demanda_mrp"
+  | "forecast"
+  | "status"
+
+type SortDirection = "asc" | "desc"
 
 function toNumber(value: unknown) {
   const n = Number(value ?? 0)
@@ -81,10 +109,19 @@ function classificar(item: AnaliseMrpMaterial) {
   }
 }
 
+function getUltimoForecast(item: AnaliseMrpMaterial) {
+  const grafico = item.grafico || []
+  if (!grafico.length) return null
+  return grafico[grafico.length - 1]?.forecast ?? null
+}
+
 export default function AnaliseMrpPage() {
   const [loading, setLoading] = useState(true)
+  const [loadingDetalhe, setLoadingDetalhe] = useState(false)
 
   const [dados, setDados] = useState<AnaliseMrpMaterial[]>([])
+  const [materialSelecionado, setMaterialSelecionado] =
+    useState<AnaliseMrpMaterial | null>(null)
 
   const [resumo, setResumo] =
     useState<AnaliseMrpResumo>({
@@ -96,6 +133,10 @@ export default function AnaliseMrpPage() {
     })
 
   const [busca, setBusca] = useState("")
+  const [statusFiltro, setStatusFiltro] = useState("TODOS")
+  const [sortKey, setSortKey] = useState<SortKey>("gap_consumo")
+  const [sortDirection, setSortDirection] =
+    useState<SortDirection>("asc")
 
   useEffect(() => {
     carregar()
@@ -110,12 +151,21 @@ export default function AnaliseMrpPage() {
         getAnaliseMrpResumo(),
       ])
 
-      setDados(materiais || [])
+      const lista = materiais || []
+
+      setDados(lista)
       setResumo(resumoApi)
+
+      if (lista.length > 0) {
+        await selecionarMaterial(lista[0].codigo)
+      } else {
+        setMaterialSelecionado(null)
+      }
     } catch (err) {
       console.error(err)
 
       setDados([])
+      setMaterialSelecionado(null)
 
       setResumo({
         total_materiais: 0,
@@ -129,22 +179,90 @@ export default function AnaliseMrpPage() {
     }
   }
 
+  async function selecionarMaterial(codigo: string) {
+    try {
+      setLoadingDetalhe(true)
+
+      const detalhe = await getAnaliseMrpMaterial(codigo)
+
+      setMaterialSelecionado(detalhe)
+    } catch (err) {
+      console.error(err)
+
+      const fallback = dados.find((item) => item.codigo === codigo)
+      setMaterialSelecionado(fallback || null)
+    } finally {
+      setLoadingDetalhe(false)
+    }
+  }
+
+  function alterarOrdenacao(key: SortKey) {
+    if (sortKey === key) {
+      setSortDirection((atual) =>
+        atual === "asc" ? "desc" : "asc"
+      )
+      return
+    }
+
+    setSortKey(key)
+    setSortDirection("asc")
+  }
+
   const dadosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
 
-    if (!termo) return dados
+    const filtrados = dados.filter((item) => {
+      const status = String(item.status || "").toUpperCase()
 
-    return dados.filter((item) => {
-      return (
+      const statusOk =
+        statusFiltro === "TODOS" || status === statusFiltro
+
+      const textoOk =
+        !termo ||
         String(item.codigo || "")
           .toLowerCase()
           .includes(termo) ||
         String(item.produto || item.descricao || "")
           .toLowerCase()
+          .includes(termo) ||
+        String(item.grupo_descricao || "")
+          .toLowerCase()
           .includes(termo)
-      )
+
+      return statusOk && textoOk
     })
-  }, [dados, busca])
+
+    return [...filtrados].sort((a, b) => {
+      const getValue = (item: AnaliseMrpMaterial) => {
+        if (sortKey === "descricao") {
+          return item.produto || item.descricao || ""
+        }
+
+        if (sortKey === "un") {
+          return item.un || item.unid || ""
+        }
+
+        if (sortKey === "forecast") {
+          return getUltimoForecast(item) ?? 0
+        }
+
+        return item[sortKey as keyof AnaliseMrpMaterial] ?? ""
+      }
+
+      const va = getValue(a)
+      const vb = getValue(b)
+
+      if (typeof va === "number" && typeof vb === "number") {
+        return sortDirection === "asc" ? va - vb : vb - va
+      }
+
+      return sortDirection === "asc"
+        ? String(va).localeCompare(String(vb))
+        : String(vb).localeCompare(String(va))
+    })
+  }, [dados, busca, statusFiltro, sortKey, sortDirection])
+
+  const dadosGrafico = materialSelecionado?.grafico || []
 
   return (
     <div className="min-h-screen space-y-5 p-3 md:space-y-6 md:p-6">
@@ -168,7 +286,7 @@ export default function AnaliseMrpPage() {
             className="text-sm"
             style={{ color: "var(--text-secondary)" }}
           >
-            Comparativo entre saldo, consumo histórico,
+            Comparativo entre consumo real, demanda MRP, forecast,
             estoque real, cobertura e risco de ruptura.
           </p>
         </div>
@@ -193,7 +311,7 @@ export default function AnaliseMrpPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 fade-in">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 fade-in">
         <SummaryCard
           label="Materiais"
           value={resumo.total_materiais}
@@ -225,6 +343,14 @@ export default function AnaliseMrpPage() {
           color="#F59E0B"
           Icon={AlertTriangle}
         />
+
+        <SummaryCard
+          label="Saudáveis"
+          value={resumo.saudaveis}
+          sub="sem alerta"
+          color="#16A34A"
+          Icon={PackageCheck}
+        />
       </div>
 
       <div
@@ -235,269 +361,533 @@ export default function AnaliseMrpPage() {
           color: "var(--text-secondary)",
         }}
       >
-        Snapshot consumo:
-        {" "}
-        {fmtData(resumo.data_snapshot_consumo)}
-        {" "}
-        • Snapshot estoque:
-        {" "}
-        {fmtData(resumo.data_snapshot_estoque)}
+        Snapshot consumo: {fmtData(resumo.data_snapshot_consumo)} ·
+        Snapshot estoque: {fmtData(resumo.data_snapshot_estoque)} ·
+        Snapshot MRP: {fmtData(resumo.data_snapshot_mrp)}
       </div>
 
-      <div className="card p-4 md:p-5">
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="card-label mb-1">
-              Saúde dos Materiais
-            </p>
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(420px,0.85fr)]">
+        <div className="card p-4 md:p-5">
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="card-label mb-1">
+                Saúde dos Materiais
+              </p>
 
-            <h2
-              className="text-base font-bold"
-              style={{
-                color: "var(--text-primary)",
-              }}
-            >
-              Consumo histórico x estoque real
-            </h2>
+              <h2
+                className="text-base font-bold"
+                style={{
+                  color: "var(--text-primary)",
+                }}
+              >
+                Consumo, estoque e planejamento MRP
+              </h2>
+            </div>
+
+            <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
+              <div className="relative w-full md:w-80">
+                <Search
+                  className="absolute left-3 top-3"
+                  size={16}
+                  style={{
+                    color: "var(--text-secondary)",
+                  }}
+                />
+
+                <input
+                  value={busca}
+                  onChange={(e) =>
+                    setBusca(e.target.value)
+                  }
+                  placeholder="Buscar por código ou material..."
+                  className="h-10 w-full rounded-lg border pl-10 pr-3 text-sm outline-none"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: "var(--border)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              </div>
+
+              <select
+                value={statusFiltro}
+                onChange={(e) =>
+                  setStatusFiltro(e.target.value)
+                }
+                className="h-10 rounded-lg border px-3 text-sm outline-none"
+                style={{
+                  background: "var(--bg-primary)",
+                  borderColor: "var(--border)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                <option value="TODOS">Todos</option>
+                <option value="RUPTURA">Ruptura</option>
+                <option value="CRITICO">Crítico</option>
+                <option value="ATENCAO">Atenção</option>
+                <option value="SAUDAVEL">Saudável</option>
+              </select>
+            </div>
           </div>
 
-          <div className="relative w-full max-w-md">
-            <Search
-              className="absolute left-3 top-3"
-              size={16}
-              style={{
-                color: "var(--text-secondary)",
-              }}
-            />
+          <div
+            className="overflow-hidden rounded-2xl border"
+            style={{
+              borderColor: "var(--border)",
+            }}
+          >
+            <div
+              className="overflow-auto"
+              style={{ maxHeight: "64vh" }}
+            >
+              <table
+                className="w-full border-separate border-spacing-0"
+                style={{ minWidth: 1550 }}
+              >
+                <thead
+                  style={{
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 10,
+                  }}
+                >
+                  <tr
+                    style={{
+                      background: "var(--bg-sidebar)",
+                    }}
+                  >
+                    <Th
+                      label="Código"
+                      sortKey="codigo"
+                      onSort={alterarOrdenacao}
+                    />
+                    <Th
+                      label="Material"
+                      sortKey="descricao"
+                      onSort={alterarOrdenacao}
+                    />
+                    <Th
+                      label="UN"
+                      sortKey="un"
+                      onSort={alterarOrdenacao}
+                    />
+                    <Th
+                      label="Saldo Consumo"
+                      sortKey="saldo_base_consumo"
+                      onSort={alterarOrdenacao}
+                      align="right"
+                    />
+                    <Th
+                      label="Estoque Real"
+                      sortKey="estoque_real"
+                      onSort={alterarOrdenacao}
+                      align="right"
+                    />
+                    <Th
+                      label="Demanda MRP"
+                      sortKey="demanda_mrp"
+                      onSort={alterarOrdenacao}
+                      align="right"
+                    />
+                    <Th
+                      label="Forecast"
+                      sortKey="forecast"
+                      onSort={alterarOrdenacao}
+                      align="right"
+                    />
+                    <Th
+                      label="Média 3M"
+                      sortKey="media_3m"
+                      onSort={alterarOrdenacao}
+                      align="right"
+                    />
+                    <Th
+                      label="Maior Média"
+                      sortKey="maior_media"
+                      onSort={alterarOrdenacao}
+                      align="right"
+                    />
+                    <Th
+                      label="Maior Média +50%"
+                      sortKey="maior_media_50"
+                      onSort={alterarOrdenacao}
+                      align="right"
+                    />
+                    <Th
+                      label="Cobertura"
+                      sortKey="cobertura_dias"
+                      onSort={alterarOrdenacao}
+                      align="right"
+                    />
+                    <Th
+                      label="Gap"
+                      sortKey="gap_consumo"
+                      onSort={alterarOrdenacao}
+                      align="right"
+                    />
+                    <Th
+                      label="Status"
+                      sortKey="status"
+                      onSort={alterarOrdenacao}
+                    />
+                    <th
+                      className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
+                      style={{
+                        color: "rgba(255,255,255,0.85)",
+                      }}
+                    >
+                      Causa Provável
+                    </th>
+                  </tr>
+                </thead>
 
-            <input
-              value={busca}
-              onChange={(e) =>
-                setBusca(e.target.value)
-              }
-              placeholder="Buscar por código ou material..."
-              className="h-10 w-full rounded-lg border pl-10 pr-3 text-sm outline-none"
-              style={{
-                background: "var(--bg-primary)",
-                borderColor: "var(--border)",
-                color: "var(--text-primary)",
-              }}
-            />
+                <tbody
+                  style={{
+                    background: "var(--bg-secondary)",
+                  }}
+                >
+                  {loading ? (
+                    <tr>
+                      <td
+                        colSpan={14}
+                        className="py-10 text-center text-sm"
+                        style={{
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        <RefreshCw
+                          size={22}
+                          className="mx-auto mb-3 animate-spin"
+                          style={{ opacity: 0.45 }}
+                        />
+
+                        Carregando análise...
+                      </td>
+                    </tr>
+                  ) : dadosFiltrados.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={14}
+                        className="py-10 text-center text-sm"
+                        style={{
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        Nenhum dado encontrado.
+                      </td>
+                    </tr>
+                  ) : (
+                    dadosFiltrados.map((item) => {
+                      const status = classificar(item)
+                      const Icon = status.Icon
+                      const gap = toNumber(item.gap_consumo)
+                      const selecionado =
+                        materialSelecionado?.codigo === item.codigo
+
+                      return (
+                        <tr
+                          key={`${item.codigo}-${item.produto}`}
+                          onClick={() =>
+                            selecionarMaterial(item.codigo)
+                          }
+                          className="cursor-pointer transition-colors hover:bg-slate-50"
+                          style={{
+                            background: selecionado
+                              ? "rgba(59,130,246,0.08)"
+                              : undefined,
+                          }}
+                        >
+                          <Td className="font-mono font-semibold">
+                            {item.codigo}
+                          </Td>
+
+                          <Td>
+                            <span
+                              className="block max-w-[420px] truncate font-medium"
+                              style={{
+                                color: "var(--text-primary)",
+                              }}
+                              title={
+                                item.produto ||
+                                item.descricao ||
+                                ""
+                              }
+                            >
+                              {item.produto ||
+                                item.descricao ||
+                                "—"}
+                            </span>
+                          </Td>
+
+                          <Td>
+                            {item.un || item.unid || "—"}
+                          </Td>
+
+                          <Td align="right">
+                            {fmt(item.saldo_base_consumo)}
+                          </Td>
+
+                          <Td
+                            align="right"
+                            style={{
+                              fontWeight: 700,
+                            }}
+                          >
+                            {fmt(item.estoque_real)}
+                          </Td>
+
+                          <Td align="right">
+                            {fmt(item.demanda_mrp)}
+                          </Td>
+
+                          <Td align="right">
+                            {fmt(getUltimoForecast(item))}
+                          </Td>
+
+                          <Td align="right">
+                            {fmt(item.media_3m)}
+                          </Td>
+
+                          <Td align="right">
+                            {fmt(item.maior_media)}
+                          </Td>
+
+                          <Td align="right">
+                            {fmt(item.maior_media_50)}
+                          </Td>
+
+                          <Td align="right">
+                            {toNumber(item.cobertura_dias).toFixed(0)} dias
+                          </Td>
+
+                          <Td
+                            align="right"
+                            style={{
+                              color:
+                                gap < 0
+                                  ? "#DC2626"
+                                  : "var(--text-primary)",
+                              fontWeight: gap < 0 ? 700 : 500,
+                            }}
+                          >
+                            {fmt(gap)}
+                          </Td>
+
+                          <Td>
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap"
+                              style={{
+                                background: status.bg,
+                                border: `1px solid ${status.border}`,
+                                color: status.color,
+                              }}
+                            >
+                              <Icon size={12} />
+                              {status.label}
+                            </span>
+                          </Td>
+
+                          <Td>
+                            <span
+                              className="text-xs"
+                              style={{
+                                color: "var(--text-secondary)",
+                              }}
+                            >
+                              {item.causa_provavel || "—"}
+                            </span>
+                          </Td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
-        <div
-          className="overflow-hidden rounded-2xl border"
-          style={{
-            borderColor: "var(--border)",
-          }}
-        >
-          <div
-            className="overflow-auto"
-            style={{ maxHeight: "64vh" }}
-          >
-            <table
-              className="w-full border-separate border-spacing-0"
-              style={{ minWidth: 1250 }}
-            >
-              <thead
+        <div className="card p-4 md:p-5">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <p className="card-label mb-1">
+                Detalhe do Material
+              </p>
+
+              <h2
+                className="text-base font-bold"
                 style={{
-                  position: "sticky",
-                  top: 0,
-                  zIndex: 10,
+                  color: "var(--text-primary)",
                 }}
               >
-                <tr
-                  style={{
-                    background: "var(--bg-sidebar)",
-                  }}
-                >
-                  {[
-                    "Código",
-                    "Material",
-                    "Saldo Consumo",
-                    "Estoque Real",
-                    "Média 3M",
-                    "Maior Média",
-                    "Maior Média +50%",
-                    "Cobertura",
-                    "Gap",
-                    "Status",
-                    "Causa Provável",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
-                      style={{
-                        color:
-                          "rgba(255,255,255,0.85)",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+                Demanda MRP x Consumido x Forecast
+              </h2>
+            </div>
 
-              <tbody
+            {loadingDetalhe && (
+              <RefreshCw
+                size={16}
+                className="animate-spin"
+                style={{ color: "var(--text-secondary)" }}
+              />
+            )}
+          </div>
+
+          {!materialSelecionado ? (
+            <div
+              className="flex h-[420px] items-center justify-center rounded-2xl border text-sm"
+              style={{
+                borderColor: "var(--border)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              Selecione um material na tabela.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div
+                className="rounded-2xl border p-4"
                 style={{
+                  borderColor: "var(--border)",
                   background: "var(--bg-secondary)",
                 }}
               >
-                {loading ? (
-                  <tr>
-                    <td
-                      colSpan={11}
-                      className="py-10 text-center text-sm"
-                      style={{
-                        color:
-                          "var(--text-secondary)",
-                      }}
-                    >
-                      <RefreshCw
-                        size={22}
-                        className="mx-auto mb-3 animate-spin"
-                        style={{ opacity: 0.45 }}
+                <p
+                  className="font-mono text-xs font-semibold"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {materialSelecionado.codigo}
+                </p>
+
+                <p
+                  className="mt-1 text-sm font-bold"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {materialSelecionado.produto ||
+                    materialSelecionado.descricao ||
+                    "—"}
+                </p>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <MiniInfo
+                    label="UN"
+                    value={
+                      materialSelecionado.un ||
+                      materialSelecionado.unid ||
+                      "—"
+                    }
+                  />
+                  <MiniInfo
+                    label="Estoque"
+                    value={fmt(materialSelecionado.estoque_real)}
+                  />
+                  <MiniInfo
+                    label="Demanda MRP"
+                    value={fmt(materialSelecionado.demanda_mrp)}
+                  />
+                  <MiniInfo
+                    label="Forecast"
+                    value={fmt(getUltimoForecast(materialSelecionado))}
+                  />
+                  <MiniInfo
+                    label="Necessidade"
+                    value={fmt(materialSelecionado.necessidade_mrp)}
+                  />
+                  <MiniInfo
+                    label="Pedidos"
+                    value={fmt(materialSelecionado.pedidos_mrp)}
+                  />
+                </div>
+              </div>
+
+              <div
+                className="h-[360px] rounded-2xl border p-3"
+                style={{
+                  borderColor: "var(--border)",
+                  background: "var(--bg-secondary)",
+                }}
+              >
+                {dadosGrafico.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={dadosGrafico}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="mes_label"
+                        tick={{ fontSize: 11 }}
                       />
-
-                      Carregando análise...
-                    </td>
-                  </tr>
-                ) : dadosFiltrados.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={11}
-                      className="py-10 text-center text-sm"
-                      style={{
-                        color:
-                          "var(--text-secondary)",
-                      }}
-                    >
-                      Nenhum dado encontrado.
-                    </td>
-                  </tr>
+                      <YAxis
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(value) =>
+                          fmt(value)
+                        }
+                      />
+                      <Tooltip
+                        formatter={(value) =>
+                          fmt(value)
+                        }
+                      />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="consumo_real"
+                        name="Consumido"
+                        stroke="#2563EB"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="demanda_mrp"
+                        name="Demanda MRP"
+                        stroke="#DC2626"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="forecast"
+                        name="Forecast"
+                        stroke="#16A34A"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
                 ) : (
-                  dadosFiltrados.map((item) => {
-                    const status =
-                      classificar(item)
-
-                    const Icon = status.Icon
-
-                    const gap = toNumber(
-                      item.gap_consumo
-                    )
-
-                    return (
-                      <tr
-                        key={`${item.codigo}-${item.produto}`}
-                        className="transition-colors hover:bg-slate-50"
-                      >
-                        <Td className="font-mono font-semibold">
-                          {item.codigo}
-                        </Td>
-
-                        <Td>
-                          <span
-                            className="block max-w-[420px] truncate font-medium"
-                            style={{
-                              color:
-                                "var(--text-primary)",
-                            }}
-                            title={
-                              item.produto ||
-                              item.descricao ||
-                              ""
-                            }
-                          >
-                            {item.produto ||
-                              item.descricao}
-                          </span>
-                        </Td>
-
-                        <Td align="right">
-                          {fmt(
-                            item.saldo_base_consumo
-                          )}
-                        </Td>
-
-                        <Td
-                          align="right"
-                          style={{
-                            fontWeight: 700,
-                          }}
-                        >
-                          {fmt(item.estoque_real)}
-                        </Td>
-
-                        <Td align="right">
-                          {fmt(item.media_3m)}
-                        </Td>
-
-                        <Td align="right">
-                          {fmt(item.maior_media)}
-                        </Td>
-
-                        <Td align="right">
-                          {fmt(
-                            item.maior_media_50
-                          )}
-                        </Td>
-
-                        <Td align="right">
-                          {toNumber(
-                            item.cobertura_dias
-                          ).toFixed(0)}
-                          {" "}
-                          dias
-                        </Td>
-
-                        <Td
-                          align="right"
-                          style={{
-                            color:
-                              gap < 0
-                                ? "#DC2626"
-                                : "var(--text-primary)",
-                            fontWeight:
-                              gap < 0 ? 700 : 500,
-                          }}
-                        >
-                          {fmt(gap)}
-                        </Td>
-
-                        <Td>
-                          <span
-                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap"
-                            style={{
-                              background: status.bg,
-                              border: `1px solid ${status.border}`,
-                              color: status.color,
-                            }}
-                          >
-                            <Icon size={12} />
-                            {status.label}
-                          </span>
-                        </Td>
-
-                        <Td>
-                          <span
-                            className="text-xs"
-                            style={{
-                              color:
-                                "var(--text-secondary)",
-                            }}
-                          >
-                            {item.causa_provavel ||
-                              "—"}
-                          </span>
-                        </Td>
-                      </tr>
-                    )
-                  })
+                  <div
+                    className="flex h-full items-center justify-center text-center text-sm"
+                    style={{
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    Sem histórico de gráfico para este material.
+                  </div>
                 )}
-              </tbody>
-            </table>
-          </div>
+              </div>
+
+              <div
+                className="rounded-xl border px-4 py-2 text-xs"
+                style={{
+                  background: "var(--bg-secondary)",
+                  borderColor: "var(--border)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                Consumo:{" "}
+                {fmtData(
+                  materialSelecionado.data_snapshot_consumo
+                )}{" "}
+                · Estoque:{" "}
+                {fmtData(
+                  materialSelecionado.data_snapshot_estoque
+                )}{" "}
+                · MRP:{" "}
+                {fmtData(
+                  materialSelecionado.data_snapshot_mrp
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -546,8 +936,7 @@ function SummaryCard({
           <p
             className="mt-0.5 text-xs"
             style={{
-              color:
-                "var(--text-secondary)",
+              color: "var(--text-secondary)",
             }}
           >
             {sub}
@@ -555,6 +944,64 @@ function SummaryCard({
         )}
       </div>
     </div>
+  )
+}
+
+function MiniInfo({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}) {
+  return (
+    <div
+      className="rounded-xl border px-3 py-2"
+      style={{
+        borderColor: "var(--border)",
+        background: "var(--bg-primary)",
+      }}
+    >
+      <p
+        className="text-[10px] font-semibold uppercase tracking-wide"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        {label}
+      </p>
+
+      <p
+        className="mt-1 text-sm font-bold"
+        style={{ color: "var(--text-primary)" }}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function Th({
+  label,
+  sortKey,
+  onSort,
+  align = "left",
+}: {
+  label: string
+  sortKey: SortKey
+  onSort: (key: SortKey) => void
+  align?: "left" | "right" | "center"
+}) {
+  return (
+    <th
+      onClick={() => onSort(sortKey)}
+      className="px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap cursor-pointer select-none"
+      style={{
+        color: "rgba(255,255,255,0.85)",
+        textAlign: align,
+      }}
+      title="Clique para ordenar"
+    >
+      {label}
+    </th>
   )
 }
 
