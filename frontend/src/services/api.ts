@@ -878,3 +878,17 @@ export async function getAnaliseMrpMaterial(
 ): Promise<AnaliseMrpMaterial> {
   return apiFetch(`/analise-mrp/material/${codigo}`)
 }
+
+// ─── SD3 Realizado ────────────────────────────────────────────────────────────
+
+export interface Sd3RealizadoItem {
+  mes: number
+  ano: number
+  caixas: number
+  caixas_l1: number
+  caixas_l2: number
+}
+
+export async function getMrpSd3Realizado(ano: number): Promise<Sd3RealizadoItem[]> {
+  return apiFetch(`/mrp/sd3-realizado?ano=${ano}`)
+}
