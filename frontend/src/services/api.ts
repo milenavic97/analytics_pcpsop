@@ -263,6 +263,7 @@ export interface MrpEtapa {
   ano_producao?: number | null
   mes_liberacao?: number | null
   ano_liberacao?: number | null
+  mes_lib_manual?: boolean | null
 
   criado_em?: string
 }
