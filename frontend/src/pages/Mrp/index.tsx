@@ -61,6 +61,9 @@ type EdicaoEtapa = {
   descricao_produto?: string | null
   codigo_produto?: string | null
   lote?: string | null
+  mes_liberacao?: number | null
+  ano_liberacao?: number | null
+  observacao?: string | null
 }
 
 type Toast = { tipo: "success" | "error"; titulo: string; mensagem: string }
@@ -247,6 +250,7 @@ const COLUMNS: Column[] = [
   { key: "lib", label: "DATA\nLIB.", width: 100, align: "center", render: (e) => fmtData(e.data_pa) },
   { key: "meslib", label: "MÊS\nLIB.", width: 72, align: "center", render: (e) => e.mes_liberacao },
   { key: "anolib", label: "ANO\nLIB.", width: 72, align: "center", render: (e) => e.ano_liberacao },
+  { key: "observacao", label: "OBSERVAÇÃO", width: 180, align: "left", render: (e) => e.observacao },
 ]
 
 const FROZEN_COLUMNS = COLUMNS.filter((c) => c.frozen)
@@ -1630,6 +1634,35 @@ export default function Mrp() {
                                 style={{ width: "100%", background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "2px 6px", fontSize: 12, outline: "none", color: "var(--text-primary)" }}>
                                 {produtosUnicos.map((p) => <option key={p} value={p}>{p}</option>)}
                               </select>
+                            ) : col.key === "meslib" ? (
+                              <select
+                                value={edicoes[etapa.id!]?.mes_liberacao ?? etapa.mes_liberacao ?? ""}
+                                onChange={(e) => etapa.id && setEdicoes((prev) => ({ ...prev, [etapa.id!]: { ...(prev[etapa.id!] || {}), mes_liberacao: Number(e.target.value) } }))}
+                                style={{ width: "100%", background: "transparent", border: "1px solid transparent", borderRadius: 6, padding: "2px 4px", fontSize: 12, outline: "none", color: "var(--text-primary)", cursor: "pointer" }}
+                                onFocus={(e) => e.currentTarget.style.borderColor = "var(--border)"}
+                                onBlur={(e) => e.currentTarget.style.borderColor = "transparent"}
+                              >
+                                {MESES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+                              </select>
+                            ) : col.key === "anolib" ? (
+                              <input
+                                type="number"
+                                value={edicoes[etapa.id!]?.ano_liberacao ?? etapa.ano_liberacao ?? ""}
+                                onChange={(e) => etapa.id && setEdicoes((prev) => ({ ...prev, [etapa.id!]: { ...(prev[etapa.id!] || {}), ano_liberacao: Number(e.target.value) } }))}
+                                style={{ width: "100%", background: "transparent", border: "1px solid transparent", borderRadius: 6, padding: "2px 4px", fontSize: 12, outline: "none", color: "var(--text-primary)", cursor: "pointer" }}
+                                onFocus={(e) => e.currentTarget.style.borderColor = "var(--border)"}
+                                onBlur={(e) => e.currentTarget.style.borderColor = "transparent"}
+                              />
+                            ) : col.key === "observacao" ? (
+                              <input
+                                type="text"
+                                value={edicoes[etapa.id!]?.observacao ?? etapa.observacao ?? ""}
+                                onChange={(e) => etapa.id && setEdicoes((prev) => ({ ...prev, [etapa.id!]: { ...(prev[etapa.id!] || {}), observacao: e.target.value } }))}
+                                placeholder="comentário..."
+                                style={{ width: "100%", background: "transparent", border: "1px solid transparent", borderRadius: 6, padding: "2px 4px", fontSize: 12, outline: "none", color: "var(--text-primary)", cursor: "text" }}
+                                onFocus={(e) => e.currentTarget.style.borderColor = "var(--border)"}
+                                onBlur={(e) => e.currentTarget.style.borderColor = "transparent"}
+                              />
                             ) : (col.render(etapa) || "")}
                           </td>
                         )
