@@ -64,6 +64,7 @@ type EdicaoEtapa = {
   mes_liberacao?: number | null
   ano_liberacao?: number | null
   observacao?: string | null
+  mes_lib_manual?: boolean
 }
 
 type Toast = { tipo: "success" | "error"; titulo: string; mensagem: string }
@@ -1641,10 +1642,10 @@ export default function Mrp() {
                             ) : col.key === "meslib" ? (
                               <select
                                 value={edicoes[etapa.id!]?.mes_liberacao ?? etapa.mes_liberacao ?? ""}
-                                onChange={(e) => etapa.id && setEdicoes((prev) => ({ ...prev, [etapa.id!]: { ...(prev[etapa.id!] || {}), mes_liberacao: Number(e.target.value) } }))}
-                                style={{ width: "100%", background: "transparent", border: "1px solid transparent", borderRadius: 6, padding: "2px 4px", fontSize: 12, outline: "none", color: "var(--text-primary)", cursor: "pointer" }}
+                                onChange={(e) => etapa.id && setEdicoes((prev) => ({ ...prev, [etapa.id!]: { ...(prev[etapa.id!] || {}), mes_liberacao: Number(e.target.value), mes_lib_manual: true } }))}
+                                style={{ width: "100%", background: etapa.mes_lib_manual ? "rgba(234,179,8,0.08)" : "transparent", border: `1px solid ${etapa.mes_lib_manual ? "rgba(234,179,8,0.4)" : "transparent"}`, borderRadius: 6, padding: "2px 4px", fontSize: 12, outline: "none", color: "var(--text-primary)", cursor: "pointer", fontWeight: etapa.mes_lib_manual ? 700 : undefined }}
                                 onFocus={(e) => e.currentTarget.style.borderColor = "var(--border)"}
-                                onBlur={(e) => e.currentTarget.style.borderColor = "transparent"}
+                                onBlur={(e) => e.currentTarget.style.borderColor = etapa.mes_lib_manual ? "rgba(234,179,8,0.4)" : "transparent"}
                               >
                                 {MESES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
                               </select>
