@@ -8,6 +8,7 @@ import { ProducaoPage } from "./pages/Producao"
 import { DadosPage } from "./pages/Dados"
 import { OrdensPage } from "./pages/Ordens"
 import Mrp from "./pages/Mrp"
+import AnaliseMrpPage from "./pages/AnaliseMrp"
 
 import { CalendarioParadasPage } from "./pages/calendario-paradas"
 
@@ -32,6 +33,8 @@ export default function App() {
 
           <Route path="/mps" element={<Mrp />} />
           <Route path="/mrp" element={<Navigate to="/mps" replace />} />
+
+          <Route path="/analise-mrp" element={<AnaliseMrpPage />} />
 
           <Route path="/calendario-paradas" element={<CalendarioParadasPage />} />
           <Route path="/dados" element={<DadosPage />} />
