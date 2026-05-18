@@ -8,22 +8,12 @@ import {
   ShieldAlert,
 } from "lucide-react"
 
-import { getDados } from "../../services/api"
-
-type ConsumoMaterial = {
-  id: number
-  codigo: string
-  produto: string
-  saldo: number
-  media_3m: number
-  media_6m: number
-  maior_media: number
-  maior_media_50: number
-  cobertura_dias: number
-  saldo_menos_maior_media_50: number
-  data_snapshot?: string
-  created_at?: string
-}
+import {
+  getAnaliseMrpMateriais,
+  getAnaliseMrpResumo,
+  type AnaliseMrpMaterial,
+  type AnaliseMrpResumo,
+} from "../../services/api"
 
 function toNumber(value: unknown) {
   const n = Number(value ?? 0)
@@ -37,10 +27,11 @@ function fmt(value: unknown) {
   }).format(toNumber(value))
 }
 
-function fmtData(value?: string) {
+function fmtData(value?: string | null) {
   if (!value) return "—"
 
   const dt = new Date(value)
+
   if (!Number.isNaN(dt.getTime())) {
     return dt.toLocaleDateString("pt-BR")
   }
@@ -48,12 +39,10 @@ function fmtData(value?: string) {
   return "—"
 }
 
-function classificar(item: ConsumoMaterial) {
-  const saldo = toNumber(item.saldo)
-  const ref = toNumber(item.maior_media_50)
-  const cobertura = toNumber(item.cobertura_dias)
+function classificar(item: AnaliseMrpMaterial) {
+  const status = String(item.status || "").toUpperCase()
 
-  if (saldo <= 0) {
+  if (status === "RUPTURA") {
     return {
       label: "Ruptura",
       color: "#DC2626",
@@ -63,7 +52,7 @@ function classificar(item: ConsumoMaterial) {
     }
   }
 
-  if (ref > 0 && saldo <= ref) {
+  if (status === "CRITICO") {
     return {
       label: "Crítico",
       color: "#B91C1C",
@@ -73,7 +62,7 @@ function classificar(item: ConsumoMaterial) {
     }
   }
 
-  if (cobertura > 0 && cobertura < 30) {
+  if (status === "ATENCAO") {
     return {
       label: "Atenção",
       color: "#92400E",
@@ -94,7 +83,18 @@ function classificar(item: ConsumoMaterial) {
 
 export default function AnaliseMrpPage() {
   const [loading, setLoading] = useState(true)
-  const [dados, setDados] = useState<ConsumoMaterial[]>([])
+
+  const [dados, setDados] = useState<AnaliseMrpMaterial[]>([])
+
+  const [resumo, setResumo] =
+    useState<AnaliseMrpResumo>({
+      total_materiais: 0,
+      ruptura: 0,
+      criticos: 0,
+      atencao: 0,
+      saudaveis: 0,
+    })
+
   const [busca, setBusca] = useState("")
 
   useEffect(() => {
@@ -105,17 +105,25 @@ export default function AnaliseMrpPage() {
     try {
       setLoading(true)
 
-      const res = (await getDados("consumo_materiais", 1, 1000)) as {
-        data: ConsumoMaterial[]
-        total: number
-        page: number
-        per_page: number
-      }
+      const [materiais, resumoApi] = await Promise.all([
+        getAnaliseMrpMateriais(),
+        getAnaliseMrpResumo(),
+      ])
 
-      setDados(res.data || [])
+      setDados(materiais || [])
+      setResumo(resumoApi)
     } catch (err) {
       console.error(err)
+
       setDados([])
+
+      setResumo({
+        total_materiais: 0,
+        ruptura: 0,
+        criticos: 0,
+        atencao: 0,
+        saudaveis: 0,
+      })
     } finally {
       setLoading(false)
     }
@@ -123,38 +131,20 @@ export default function AnaliseMrpPage() {
 
   const dadosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
+
     if (!termo) return dados
 
     return dados.filter((item) => {
       return (
-        String(item.codigo || "").toLowerCase().includes(termo) ||
-        String(item.produto || "").toLowerCase().includes(termo)
+        String(item.codigo || "")
+          .toLowerCase()
+          .includes(termo) ||
+        String(item.produto || item.descricao || "")
+          .toLowerCase()
+          .includes(termo)
       )
     })
   }, [dados, busca])
-
-  const resumo = useMemo(() => {
-    const ruptura = dados.filter((d) => toNumber(d.saldo) <= 0).length
-
-    const criticos = dados.filter((d) => {
-      const saldo = toNumber(d.saldo)
-      const ref = toNumber(d.maior_media_50)
-      return saldo > 0 && ref > 0 && saldo <= ref
-    }).length
-
-    const coberturaBaixa = dados.filter((d) => {
-      const cobertura = toNumber(d.cobertura_dias)
-      return cobertura > 0 && cobertura < 30
-    }).length
-
-    return {
-      total: dados.length,
-      ruptura,
-      criticos,
-      coberturaBaixa,
-      snapshot: dados[0]?.data_snapshot || dados[0]?.created_at,
-    }
-  }, [dados])
 
   return (
     <div className="min-h-screen space-y-5 p-3 md:space-y-6 md:p-6">
@@ -178,7 +168,8 @@ export default function AnaliseMrpPage() {
             className="text-sm"
             style={{ color: "var(--text-secondary)" }}
           >
-            Comparativo entre saldo, consumo histórico, cobertura e risco de ruptura.
+            Comparativo entre saldo, consumo histórico,
+            estoque real, cobertura e risco de ruptura.
           </p>
         </div>
 
@@ -193,7 +184,11 @@ export default function AnaliseMrpPage() {
             color: "var(--text-primary)",
           }}
         >
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          <RefreshCw
+            size={14}
+            className={loading ? "animate-spin" : ""}
+          />
+
           Atualizar
         </button>
       </div>
@@ -201,7 +196,7 @@ export default function AnaliseMrpPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 fade-in">
         <SummaryCard
           label="Materiais"
-          value={resumo.total}
+          value={resumo.total_materiais}
           sub="itens analisados"
           color="#6B7280"
           Icon={PackageCheck}
@@ -225,7 +220,7 @@ export default function AnaliseMrpPage() {
 
         <SummaryCard
           label="Cobertura baixa"
-          value={resumo.coberturaBaixa}
+          value={resumo.atencao}
           sub="< 30 dias"
           color="#F59E0B"
           Icon={AlertTriangle}
@@ -240,20 +235,29 @@ export default function AnaliseMrpPage() {
           color: "var(--text-secondary)",
         }}
       >
-        Snapshot da base de consumo: {fmtData(resumo.snapshot)}. Nesta primeira versão,
-        o risco é calculado com base no saldo da base de consumo e na referência de maior média +50%.
+        Snapshot consumo:
+        {" "}
+        {fmtData(resumo.data_snapshot_consumo)}
+        {" "}
+        • Snapshot estoque:
+        {" "}
+        {fmtData(resumo.data_snapshot_estoque)}
       </div>
 
       <div className="card p-4 md:p-5">
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="card-label mb-1">Saúde dos Materiais</p>
+            <p className="card-label mb-1">
+              Saúde dos Materiais
+            </p>
 
             <h2
               className="text-base font-bold"
-              style={{ color: "var(--text-primary)" }}
+              style={{
+                color: "var(--text-primary)",
+              }}
             >
-              Consumo histórico x saldo
+              Consumo histórico x estoque real
             </h2>
           </div>
 
@@ -261,12 +265,16 @@ export default function AnaliseMrpPage() {
             <Search
               className="absolute left-3 top-3"
               size={16}
-              style={{ color: "var(--text-secondary)" }}
+              style={{
+                color: "var(--text-secondary)",
+              }}
             />
 
             <input
               value={busca}
-              onChange={(e) => setBusca(e.target.value)}
+              onChange={(e) =>
+                setBusca(e.target.value)
+              }
               placeholder="Buscar por código ou material..."
               className="h-10 w-full rounded-lg border pl-10 pr-3 text-sm outline-none"
               style={{
@@ -278,26 +286,52 @@ export default function AnaliseMrpPage() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
-          <div className="overflow-auto" style={{ maxHeight: "64vh" }}>
-            <table className="w-full border-separate border-spacing-0" style={{ minWidth: 980 }}>
-              <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
-                <tr style={{ background: "var(--bg-sidebar)" }}>
+        <div
+          className="overflow-hidden rounded-2xl border"
+          style={{
+            borderColor: "var(--border)",
+          }}
+        >
+          <div
+            className="overflow-auto"
+            style={{ maxHeight: "64vh" }}
+          >
+            <table
+              className="w-full border-separate border-spacing-0"
+              style={{ minWidth: 1250 }}
+            >
+              <thead
+                style={{
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 10,
+                }}
+              >
+                <tr
+                  style={{
+                    background: "var(--bg-sidebar)",
+                  }}
+                >
                   {[
                     "Código",
                     "Material",
-                    "Saldo",
+                    "Saldo Consumo",
+                    "Estoque Real",
                     "Média 3M",
-                    "Maior média",
-                    "Maior média +50%",
+                    "Maior Média",
+                    "Maior Média +50%",
                     "Cobertura",
                     "Gap",
                     "Status",
+                    "Causa Provável",
                   ].map((h) => (
                     <th
                       key={h}
                       className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
-                      style={{ color: "rgba(255,255,255,0.85)" }}
+                      style={{
+                        color:
+                          "rgba(255,255,255,0.85)",
+                      }}
                     >
                       {h}
                     </th>
@@ -305,41 +339,57 @@ export default function AnaliseMrpPage() {
                 </tr>
               </thead>
 
-              <tbody style={{ background: "var(--bg-secondary)" }}>
+              <tbody
+                style={{
+                  background: "var(--bg-secondary)",
+                }}
+              >
                 {loading ? (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={11}
                       className="py-10 text-center text-sm"
-                      style={{ color: "var(--text-secondary)" }}
+                      style={{
+                        color:
+                          "var(--text-secondary)",
+                      }}
                     >
                       <RefreshCw
                         size={22}
                         className="mx-auto mb-3 animate-spin"
                         style={{ opacity: 0.45 }}
                       />
+
                       Carregando análise...
                     </td>
                   </tr>
                 ) : dadosFiltrados.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={11}
                       className="py-10 text-center text-sm"
-                      style={{ color: "var(--text-secondary)" }}
+                      style={{
+                        color:
+                          "var(--text-secondary)",
+                      }}
                     >
                       Nenhum dado encontrado.
                     </td>
                   </tr>
                 ) : (
                   dadosFiltrados.map((item) => {
-                    const status = classificar(item)
+                    const status =
+                      classificar(item)
+
                     const Icon = status.Icon
-                    const gap = toNumber(item.saldo_menos_maior_media_50)
+
+                    const gap = toNumber(
+                      item.gap_consumo
+                    )
 
                     return (
                       <tr
-                        key={item.id}
+                        key={`${item.codigo}-${item.produto}`}
                         className="transition-colors hover:bg-slate-50"
                       >
                         <Td className="font-mono font-semibold">
@@ -349,27 +399,67 @@ export default function AnaliseMrpPage() {
                         <Td>
                           <span
                             className="block max-w-[420px] truncate font-medium"
-                            style={{ color: "var(--text-primary)" }}
-                            title={item.produto}
+                            style={{
+                              color:
+                                "var(--text-primary)",
+                            }}
+                            title={
+                              item.produto ||
+                              item.descricao ||
+                              ""
+                            }
                           >
-                            {item.produto}
+                            {item.produto ||
+                              item.descricao}
                           </span>
                         </Td>
 
-                        <Td align="right">{fmt(item.saldo)}</Td>
-                        <Td align="right">{fmt(item.media_3m)}</Td>
-                        <Td align="right">{fmt(item.maior_media)}</Td>
-                        <Td align="right">{fmt(item.maior_media_50)}</Td>
-
                         <Td align="right">
-                          {toNumber(item.cobertura_dias).toFixed(0)} dias
+                          {fmt(
+                            item.saldo_base_consumo
+                          )}
                         </Td>
 
                         <Td
                           align="right"
                           style={{
-                            color: gap < 0 ? "#DC2626" : "var(--text-primary)",
-                            fontWeight: gap < 0 ? 700 : 500,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {fmt(item.estoque_real)}
+                        </Td>
+
+                        <Td align="right">
+                          {fmt(item.media_3m)}
+                        </Td>
+
+                        <Td align="right">
+                          {fmt(item.maior_media)}
+                        </Td>
+
+                        <Td align="right">
+                          {fmt(
+                            item.maior_media_50
+                          )}
+                        </Td>
+
+                        <Td align="right">
+                          {toNumber(
+                            item.cobertura_dias
+                          ).toFixed(0)}
+                          {" "}
+                          dias
+                        </Td>
+
+                        <Td
+                          align="right"
+                          style={{
+                            color:
+                              gap < 0
+                                ? "#DC2626"
+                                : "var(--text-primary)",
+                            fontWeight:
+                              gap < 0 ? 700 : 500,
                           }}
                         >
                           {fmt(gap)}
@@ -386,6 +476,19 @@ export default function AnaliseMrpPage() {
                           >
                             <Icon size={12} />
                             {status.label}
+                          </span>
+                        </Td>
+
+                        <Td>
+                          <span
+                            className="text-xs"
+                            style={{
+                              color:
+                                "var(--text-secondary)",
+                            }}
+                          >
+                            {item.causa_provavel ||
+                              "—"}
                           </span>
                         </Td>
                       </tr>
@@ -417,25 +520,35 @@ function SummaryCard({
   return (
     <div className="card flex flex-col gap-3 p-4 text-left w-full">
       <div className="flex items-start justify-between gap-2">
-        <span className="card-label leading-5">{label}</span>
+        <span className="card-label leading-5">
+          {label}
+        </span>
 
         <div
           className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl"
-          style={{ background: color + "18" }}
+          style={{
+            background: color + "18",
+          }}
         >
           <Icon size={17} style={{ color }} />
         </div>
       </div>
 
       <div>
-        <p className="text-2xl font-bold" style={{ color }}>
+        <p
+          className="text-2xl font-bold"
+          style={{ color }}
+        >
           {value}
         </p>
 
         {sub && (
           <p
             className="mt-0.5 text-xs"
-            style={{ color: "var(--text-secondary)" }}
+            style={{
+              color:
+                "var(--text-secondary)",
+            }}
           >
             {sub}
           </p>
