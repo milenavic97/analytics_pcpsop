@@ -787,3 +787,68 @@ export async function excluirAjusteCompraOP(id: string) {
     method: "DELETE",
   })
 }
+// ─────────────────────────────────────────────────────────────
+// Análise MRP
+// ─────────────────────────────────────────────────────────────
+
+export interface AnaliseMrpMaterial {
+  codigo: string
+  produto?: string | null
+  descricao?: string | null
+  unid?: string | null
+  tipo?: string | null
+  grupo?: string | null
+  grupo_descricao?: string | null
+
+  data_snapshot_consumo?: string | null
+  data_snapshot_estoque?: string | null
+
+  estoque_real: number
+  saldo_base_consumo: number
+
+  media_3m: number
+  media_6m: number
+  media_9m: number
+  maior_media: number
+  maior_media_50: number
+
+  cobertura_dias: number
+  cobertura_base_consumo: number
+
+  gap_consumo: number
+  saldo_menos_maior_media_50: number
+
+  estoque_mrp?: number | null
+  demanda_mrp?: number | null
+  pedidos_mrp?: number | null
+  necessidade_mrp?: number | null
+  gap_planejamento?: number | null
+
+  status: "RUPTURA" | "CRITICO" | "ATENCAO" | "SAUDAVEL" | string
+  causa_provavel?: string | null
+}
+
+export interface AnaliseMrpResumo {
+  total_materiais: number
+  ruptura: number
+  criticos: number
+  atencao: number
+  saudaveis: number
+  data_snapshot_consumo?: string | null
+  data_snapshot_estoque?: string | null
+}
+
+export async function getAnaliseMrpMateriais(): Promise<AnaliseMrpMaterial[]> {
+  return apiFetch("/analise-mrp/materiais")
+}
+
+export async function getAnaliseMrpResumo(): Promise<AnaliseMrpResumo> {
+  return apiFetch("/analise-mrp/resumo")
+}
+
+export async function getAnaliseMrpMaterial(
+  codigo: string
+): Promise<AnaliseMrpMaterial> {
+  return apiFetch(`/analise-mrp/material/${codigo}`)
+}
+
