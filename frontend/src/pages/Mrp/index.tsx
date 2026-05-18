@@ -858,7 +858,11 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada, recursoFiltro }: {
           porMes[chave] = (porMes[chave] || 0) + Number(e.qtd_planejada || 0)
         }
       })
-      const total = Object.values(porMes).reduce((a, b) => a + b, 0)
+      const anoBase = rodadas.find((r) => r?.ano)?.ano || new Date().getFullYear()
+      const total = Object.entries(porMes).reduce((a, [chave, b]) => {
+        const ano = Number(chave.split("-")[0])
+        return ano === anoBase ? a + b : a
+      }, 0)
       return { rodada, porMes, total }
     })
   }, [rodadas, etapasPorRodada, mesesUnicos, recursoFiltro])
