@@ -37,11 +37,16 @@ export default function AnaliseMrpPage() {
     try {
       setLoading(true)
 
-      const res = await getDados(
+      const res = (await getDados(
         "consumo_materiais",
         1,
         1000
-      )
+      )) as {
+        data: ConsumoMaterial[]
+        total: number
+        page: number
+        per_page: number
+      }
 
       setDados(res.data || [])
     } catch (err) {
