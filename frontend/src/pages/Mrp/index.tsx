@@ -21,6 +21,7 @@ import {
 import {
   ComposedChart, Line, Scatter, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer,
+  LabelList, BarChart, Bar, Cell,
 } from "recharts"
 
 import {
@@ -444,7 +445,7 @@ function KpiCard({ label, value, sub, delta, destaque = false, cor }: {
 }
 
 
-// ─── Evolução de versões — gráfico de linhas ─────────────────────────────────
+// ─── Evolução de versões — gráfico anual + linhas mensais ────────────────────
 
 type FiltroLinha = "L1+L2" | "L1" | "L2"
 interface Sd3Item { mes: number; ano: number; caixas: number; caixas_l1: number; caixas_l2: number }
@@ -453,7 +454,7 @@ const CORES_VERSAO = ["#94A3B8", "#4A7FB5", "#17375E", "#0EA5E9", "#7C3AED", "#D
 const COR_SD3 = "#16A34A"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function TooltipEvolucao({ active, payload, label }: any) {
+function TooltipLinhas({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
     <div style={{
@@ -479,6 +480,16 @@ function TooltipEvolucao({ active, payload, label }: any) {
   )
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function LabelPonto({ x, y, value, fill }: any) {
+  if (!value) return null
+  return (
+    <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={600} fill={fill || "#6B7280"}>
+      {fmt(value)}
+    </text>
+  )
+}
+
 function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnalise }: {
   rodadas: MrpRodada[]
   etapasPorRodada: Record<string, MrpEtapa[]>
@@ -501,6 +512,7 @@ function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnali
     setVisiveis(init)
   }, [rodadas])
 
+  // Dados mensais por versão
   const dadosVersao = useMemo(() => {
     return rodadas.map((rodada) => {
       const etapasBase = etapasPorRodada[rodada.id || ""] || []
@@ -516,11 +528,13 @@ function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnali
             return acc
           }, 0)
       })
-      return { rodada, porMes }
+      const totalAnual = porMes.reduce((a, b) => a + b, 0)
+      return { rodada, porMes, totalAnual }
     })
   }, [rodadas, etapasPorRodada, anoAnalise, filtroLinha])
 
-  const chartData = useMemo(() => {
+  // Chart data mensal
+  const chartDataMensal = useMemo(() => {
     return MESES.map((label, i) => {
       const mes = i + 1
       const point: Record<string, number | string | undefined> = { mes: label }
@@ -539,6 +553,18 @@ function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnali
     })
   }, [dadosVersao, sd3, mesAnalise, anoAnalise, filtroLinha])
 
+  // Chart data anual (barras horizontais)
+  const chartDataAnual = useMemo(() => {
+    const max = Math.max(...dadosVersao.map((d) => d.totalAnual), 1)
+    return dadosVersao.map(({ rodada, totalAnual }, idx) => ({
+      versao: `V${rodada.versao}`,
+      total: Math.round(totalAnual),
+      pct: Math.round((totalAnual / max) * 100),
+      isAtual: idx === dadosVersao.length - 1,
+      cor: CORES_VERSAO[Math.min(idx, CORES_VERSAO.length - 1)],
+    }))
+  }, [dadosVersao])
+
   const toggle = (key: string) => setVisiveis((p) => ({ ...p, [key]: !p[key] }))
 
   if (!rodadas.length) return null
@@ -554,9 +580,10 @@ function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnali
   )
 
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 16, background: "var(--bg-secondary)", padding: "20px 24px" }}>
+    <div style={{ border: "1px solid var(--border)", borderRadius: 16, background: "var(--bg-secondary)", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
+
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
           <p style={{ fontSize: 10, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 2px" }}>
             Evolução de versões
@@ -573,8 +600,41 @@ function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnali
         </div>
       </div>
 
+      {/* Bloco anual — barras horizontais */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          Total anual — {anoAnalise}
+        </p>
+        {chartDataAnual.map((item) => (
+          <div key={item.versao} style={{ display: "grid", gridTemplateColumns: "56px 1fr 140px", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: item.isAtual ? AZUL : "var(--text-primary)" }}>{item.versao}</span>
+              {item.isAtual && <span style={{ fontSize: 9, fontWeight: 700, background: AZUL, color: "#fff", borderRadius: 99, padding: "2px 6px" }}>ATUAL</span>}
+            </div>
+            <div style={{ height: 28, background: "var(--bg-primary)", borderRadius: 99, border: "1px solid var(--border)", overflow: "hidden" }}>
+              <div style={{
+                width: `${item.pct}%`, height: "100%",
+                background: item.isAtual ? AZUL : item.cor,
+                opacity: item.isAtual ? 1 : 0.6,
+                borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 10,
+                transition: "width 0.5s ease",
+              }}>
+                {item.pct > 20 && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{fmt(item.total)} cx</span>
+                )}
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{fmt(item.total)} cx</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--border)" }} />
+
       {/* Legenda clicável */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         {rodadas.map((r, idx) => {
           const key = `v${r.versao}`
           const cor = CORES_VERSAO[Math.min(idx, CORES_VERSAO.length - 1)]
@@ -603,15 +663,15 @@ function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnali
         </button>
       </div>
 
-      {/* Gráfico */}
-      <div style={{ height: 320 }}>
+      {/* Gráfico de linhas mensal */}
+      <div style={{ height: 340 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+          <ComposedChart data={chartDataMensal} margin={{ top: 28, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
             <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false}
               tickFormatter={(v) => fmt(v)} width={60} />
-            <Tooltip content={<TooltipEvolucao />} cursor={{ stroke: "var(--border)", strokeWidth: 1 }} />
+            <Tooltip content={<TooltipLinhas />} cursor={{ stroke: "var(--border)", strokeWidth: 1 }} />
             {rodadas.map((r, idx) => {
               const key = `v${r.versao}`
               if (visiveis[key] === false) return null
@@ -626,19 +686,16 @@ function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnali
                   stroke={cor}
                   strokeWidth={isAtual ? 2.5 : 1.5}
                   strokeDasharray={idx === 0 && !isAtual ? "5 4" : undefined}
-                  dot={{ r: 3, fill: cor, strokeWidth: 0 }}
-                  activeDot={{ r: 5 }}
+                  dot={{ r: 4, fill: cor, strokeWidth: 0 }}
+                  activeDot={{ r: 6 }}
                   connectNulls
-                />
+                >
+                  <LabelList content={<LabelPonto fill={cor} />} />
+                </Line>
               )
             })}
             {visiveis["sd3"] !== false && (
-              <Scatter
-                dataKey="sd3"
-                name="Realizado SD3"
-                fill={COR_SD3}
-                line={false}
-              />
+              <Scatter dataKey="sd3" name="Realizado SD3" fill={COR_SD3} />
             )}
           </ComposedChart>
         </ResponsiveContainer>
@@ -647,7 +704,49 @@ function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnali
   )
 }
 
+// ─── Evolução de versões ──────────────────────────────────────────────────────
 
+function EvolucaoVersoes({ dadosVersao, divisor, labelUnidade }: {
+  dadosVersao: { rodada: MrpRodada; totalMesTubetes: number }[]
+  divisor: number; labelUnidade: string
+}) {
+  const max = Math.max(...dadosVersao.map((d) => d.totalMesTubetes / divisor), 1)
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {dadosVersao.map((item, idx) => {
+        const valor = item.totalMesTubetes / divisor
+        const anterior = idx > 0 ? dadosVersao[idx - 1].totalMesTubetes / divisor : null
+        const delta = anterior != null ? valor - anterior : null
+        const largura = Math.max(4, Math.round((valor / max) * 100))
+        const isAtual = idx === dadosVersao.length - 1
+        const isPrimeira = idx === 0
+        return (
+          <div key={item.rodada.id || idx} style={{ display: "grid", gridTemplateColumns: "72px 1fr 180px", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: isAtual ? AZUL : "var(--text-primary)" }}>V{item.rodada.versao}</span>
+              {isAtual && <span style={{ fontSize: 9, fontWeight: 700, background: AZUL, color: "#fff", borderRadius: 99, padding: "2px 6px", letterSpacing: "0.05em" }}>ATUAL</span>}
+              {isPrimeira && !isAtual && <span style={{ fontSize: 9, fontWeight: 600, background: "var(--bg-primary)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 99, padding: "2px 6px" }}>BASE</span>}
+            </div>
+            <div style={{ height: 32, background: "var(--bg-primary)", borderRadius: 99, border: "1px solid var(--border)", overflow: "hidden" }}>
+              <div style={{ width: `${largura}%`, height: "100%", background: isAtual ? AZUL : "rgba(23,55,94,0.25)", borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 10 }}>
+                {valor > 0 && largura > 15 && <span style={{ fontSize: 11, fontWeight: 700, color: isAtual ? "#fff" : AZUL }}>{fmt(valor)}</span>}
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{fmt(valor)} {labelUnidade}</div>
+              {delta != null && (
+                <div style={{ fontSize: 11, fontWeight: 600, color: delta < 0 ? "#DC2626" : delta > 0 ? "#16A34A" : "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 3 }}>
+                  {delta < 0 ? <TrendingDown size={11} /> : delta > 0 ? <TrendingUp size={11} /> : <Minus size={11} />}
+                  {fmtSinal(delta)} vs V{dadosVersao[idx - 1].rodada.versao}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 // ─── Tabela mensal unificada ──────────────────────────────────────────────────
 
@@ -969,7 +1068,7 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
         </div>
       </div>
 
-      {/* Bloco 2+3: Gráfico de evolução de versões + realizado SD3 */}
+      {/* Bloco 2+3: Gráfico de evolução anual + linhas mensais + SD3 */}
       <EvolucaoVersoesGrafico
         rodadas={rodadas}
         etapasPorRodada={etapasPorRodada}
