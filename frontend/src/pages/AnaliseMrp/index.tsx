@@ -366,529 +366,460 @@ export default function AnaliseMrpPage() {
         Snapshot MRP: {fmtData(resumo.data_snapshot_mrp)}
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(420px,0.85fr)]">
-        <div className="card p-4 md:p-5">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="card-label mb-1">
-                Saúde dos Materiais
-              </p>
+      <div className="card p-4 md:p-5">
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="card-label mb-1">
+              Saúde dos Materiais
+            </p>
 
-              <h2
-                className="text-base font-bold"
+            <h2
+              className="text-base font-bold"
+              style={{
+                color: "var(--text-primary)",
+              }}
+            >
+              Consumo, estoque e planejamento MRP
+            </h2>
+          </div>
+
+          <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
+            <div className="relative w-full md:w-96">
+              <Search
+                className="absolute left-3 top-3"
+                size={16}
                 style={{
-                  color: "var(--text-primary)",
+                  color: "var(--text-secondary)",
                 }}
-              >
-                Consumo, estoque e planejamento MRP
-              </h2>
-            </div>
+              />
 
-            <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
-              <div className="relative w-full md:w-80">
-                <Search
-                  className="absolute left-3 top-3"
-                  size={16}
-                  style={{
-                    color: "var(--text-secondary)",
-                  }}
-                />
-
-                <input
-                  value={busca}
-                  onChange={(e) =>
-                    setBusca(e.target.value)
-                  }
-                  placeholder="Buscar por código ou material..."
-                  className="h-10 w-full rounded-lg border pl-10 pr-3 text-sm outline-none"
-                  style={{
-                    background: "var(--bg-primary)",
-                    borderColor: "var(--border)",
-                    color: "var(--text-primary)",
-                  }}
-                />
-              </div>
-
-              <select
-                value={statusFiltro}
-                onChange={(e) =>
-                  setStatusFiltro(e.target.value)
-                }
-                className="h-10 rounded-lg border px-3 text-sm outline-none"
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar por código ou material..."
+                className="h-10 w-full rounded-lg border pl-10 pr-3 text-sm outline-none"
                 style={{
                   background: "var(--bg-primary)",
                   borderColor: "var(--border)",
                   color: "var(--text-primary)",
                 }}
-              >
-                <option value="TODOS">Todos</option>
-                <option value="RUPTURA">Ruptura</option>
-                <option value="CRITICO">Crítico</option>
-                <option value="ATENCAO">Atenção</option>
-                <option value="SAUDAVEL">Saudável</option>
-              </select>
+              />
             </div>
-          </div>
 
-          <div
-            className="overflow-hidden rounded-2xl border"
-            style={{
-              borderColor: "var(--border)",
-            }}
-          >
-            <div
-              className="overflow-auto"
-              style={{ maxHeight: "64vh" }}
+            <select
+              value={statusFiltro}
+              onChange={(e) =>
+                setStatusFiltro(e.target.value)
+              }
+              className="h-10 rounded-lg border px-3 text-sm outline-none"
+              style={{
+                background: "var(--bg-primary)",
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+              }}
             >
-              <table
-                className="w-full border-separate border-spacing-0"
-                style={{ minWidth: 1550 }}
-              >
-                <thead
-                  style={{
-                    position: "sticky",
-                    top: 0,
-                    zIndex: 10,
-                  }}
-                >
-                  <tr
-                    style={{
-                      background: "var(--bg-sidebar)",
-                    }}
-                  >
-                    <Th
-                      label="Código"
-                      sortKey="codigo"
-                      onSort={alterarOrdenacao}
-                    />
-                    <Th
-                      label="Material"
-                      sortKey="descricao"
-                      onSort={alterarOrdenacao}
-                    />
-                    <Th
-                      label="UN"
-                      sortKey="un"
-                      onSort={alterarOrdenacao}
-                    />
-                    <Th
-                      label="Saldo Consumo"
-                      sortKey="saldo_base_consumo"
-                      onSort={alterarOrdenacao}
-                      align="right"
-                    />
-                    <Th
-                      label="Estoque Real"
-                      sortKey="estoque_real"
-                      onSort={alterarOrdenacao}
-                      align="right"
-                    />
-                    <Th
-                      label="Demanda MRP"
-                      sortKey="demanda_mrp"
-                      onSort={alterarOrdenacao}
-                      align="right"
-                    />
-                    <Th
-                      label="Forecast"
-                      sortKey="forecast"
-                      onSort={alterarOrdenacao}
-                      align="right"
-                    />
-                    <Th
-                      label="Média 3M"
-                      sortKey="media_3m"
-                      onSort={alterarOrdenacao}
-                      align="right"
-                    />
-                    <Th
-                      label="Maior Média"
-                      sortKey="maior_media"
-                      onSort={alterarOrdenacao}
-                      align="right"
-                    />
-                    <Th
-                      label="Maior Média +50%"
-                      sortKey="maior_media_50"
-                      onSort={alterarOrdenacao}
-                      align="right"
-                    />
-                    <Th
-                      label="Cobertura"
-                      sortKey="cobertura_dias"
-                      onSort={alterarOrdenacao}
-                      align="right"
-                    />
-                    <Th
-                      label="Gap"
-                      sortKey="gap_consumo"
-                      onSort={alterarOrdenacao}
-                      align="right"
-                    />
-                    <Th
-                      label="Status"
-                      sortKey="status"
-                      onSort={alterarOrdenacao}
-                    />
-                    <th
-                      className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
-                      style={{
-                        color: "rgba(255,255,255,0.85)",
-                      }}
-                    >
-                      Causa Provável
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody
-                  style={{
-                    background: "var(--bg-secondary)",
-                  }}
-                >
-                  {loading ? (
-                    <tr>
-                      <td
-                        colSpan={14}
-                        className="py-10 text-center text-sm"
-                        style={{
-                          color: "var(--text-secondary)",
-                        }}
-                      >
-                        <RefreshCw
-                          size={22}
-                          className="mx-auto mb-3 animate-spin"
-                          style={{ opacity: 0.45 }}
-                        />
-
-                        Carregando análise...
-                      </td>
-                    </tr>
-                  ) : dadosFiltrados.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={14}
-                        className="py-10 text-center text-sm"
-                        style={{
-                          color: "var(--text-secondary)",
-                        }}
-                      >
-                        Nenhum dado encontrado.
-                      </td>
-                    </tr>
-                  ) : (
-                    dadosFiltrados.map((item) => {
-                      const status = classificar(item)
-                      const Icon = status.Icon
-                      const gap = toNumber(item.gap_consumo)
-                      const selecionado =
-                        materialSelecionado?.codigo === item.codigo
-
-                      return (
-                        <tr
-                          key={`${item.codigo}-${item.produto}`}
-                          onClick={() =>
-                            selecionarMaterial(item.codigo)
-                          }
-                          className="cursor-pointer transition-colors hover:bg-slate-50"
-                          style={{
-                            background: selecionado
-                              ? "rgba(59,130,246,0.08)"
-                              : undefined,
-                          }}
-                        >
-                          <Td className="font-mono font-semibold">
-                            {item.codigo}
-                          </Td>
-
-                          <Td>
-                            <span
-                              className="block max-w-[420px] truncate font-medium"
-                              style={{
-                                color: "var(--text-primary)",
-                              }}
-                              title={
-                                item.produto ||
-                                item.descricao ||
-                                ""
-                              }
-                            >
-                              {item.produto ||
-                                item.descricao ||
-                                "—"}
-                            </span>
-                          </Td>
-
-                          <Td>
-                            {item.un || item.unid || "—"}
-                          </Td>
-
-                          <Td align="right">
-                            {fmt(item.saldo_base_consumo)}
-                          </Td>
-
-                          <Td
-                            align="right"
-                            style={{
-                              fontWeight: 700,
-                            }}
-                          >
-                            {fmt(item.estoque_real)}
-                          </Td>
-
-                          <Td align="right">
-                            {fmt(item.demanda_mrp)}
-                          </Td>
-
-                          <Td align="right">
-                            {fmt(getUltimoForecast(item))}
-                          </Td>
-
-                          <Td align="right">
-                            {fmt(item.media_3m)}
-                          </Td>
-
-                          <Td align="right">
-                            {fmt(item.maior_media)}
-                          </Td>
-
-                          <Td align="right">
-                            {fmt(item.maior_media_50)}
-                          </Td>
-
-                          <Td align="right">
-                            {toNumber(item.cobertura_dias).toFixed(0)} dias
-                          </Td>
-
-                          <Td
-                            align="right"
-                            style={{
-                              color:
-                                gap < 0
-                                  ? "#DC2626"
-                                  : "var(--text-primary)",
-                              fontWeight: gap < 0 ? 700 : 500,
-                            }}
-                          >
-                            {fmt(gap)}
-                          </Td>
-
-                          <Td>
-                            <span
-                              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap"
-                              style={{
-                                background: status.bg,
-                                border: `1px solid ${status.border}`,
-                                color: status.color,
-                              }}
-                            >
-                              <Icon size={12} />
-                              {status.label}
-                            </span>
-                          </Td>
-
-                          <Td>
-                            <span
-                              className="text-xs"
-                              style={{
-                                color: "var(--text-secondary)",
-                              }}
-                            >
-                              {item.causa_provavel || "—"}
-                            </span>
-                          </Td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+              <option value="TODOS">Todos</option>
+              <option value="RUPTURA">Ruptura</option>
+              <option value="CRITICO">Crítico</option>
+              <option value="ATENCAO">Atenção</option>
+              <option value="SAUDAVEL">Saudável</option>
+            </select>
           </div>
         </div>
 
-        <div className="card p-4 md:p-5">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <p className="card-label mb-1">
-                Detalhe do Material
-              </p>
-
-              <h2
-                className="text-base font-bold"
+        <div
+          className="overflow-hidden rounded-2xl border"
+          style={{
+            borderColor: "var(--border)",
+          }}
+        >
+          <div
+            className="overflow-auto"
+            style={{ maxHeight: "64vh" }}
+          >
+            <table
+              className="w-full border-separate border-spacing-0"
+              style={{ minWidth: 1650 }}
+            >
+              <thead
                 style={{
-                  color: "var(--text-primary)",
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 10,
                 }}
               >
-                Demanda MRP x Consumido x Forecast
-              </h2>
-            </div>
+                <tr
+                  style={{
+                    background: "var(--bg-sidebar)",
+                  }}
+                >
+                  <Th label="Código" sortKey="codigo" onSort={alterarOrdenacao} />
+                  <Th label="Material" sortKey="descricao" onSort={alterarOrdenacao} />
+                  <Th label="UN" sortKey="un" onSort={alterarOrdenacao} />
+                  <Th label="Saldo Consumo" sortKey="saldo_base_consumo" onSort={alterarOrdenacao} align="right" />
+                  <Th label="Estoque Real" sortKey="estoque_real" onSort={alterarOrdenacao} align="right" />
+                  <Th label="Demanda MRP" sortKey="demanda_mrp" onSort={alterarOrdenacao} align="right" />
+                  <Th label="Forecast" sortKey="forecast" onSort={alterarOrdenacao} align="right" />
+                  <Th label="Média 3M" sortKey="media_3m" onSort={alterarOrdenacao} align="right" />
+                  <Th label="Maior Média" sortKey="maior_media" onSort={alterarOrdenacao} align="right" />
+                  <Th label="Maior Média +50%" sortKey="maior_media_50" onSort={alterarOrdenacao} align="right" />
+                  <Th label="Cobertura" sortKey="cobertura_dias" onSort={alterarOrdenacao} align="right" />
+                  <Th label="Gap" sortKey="gap_consumo" onSort={alterarOrdenacao} align="right" />
+                  <Th label="Status" sortKey="status" onSort={alterarOrdenacao} />
 
-            {loadingDetalhe && (
-              <RefreshCw
-                size={16}
-                className="animate-spin"
-                style={{ color: "var(--text-secondary)" }}
-              />
-            )}
+                  <th
+                    className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
+                    style={{
+                      color: "rgba(255,255,255,0.85)",
+                    }}
+                  >
+                    Causa Provável
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody
+                style={{
+                  background: "var(--bg-secondary)",
+                }}
+              >
+                {loading ? (
+                  <tr>
+                    <td
+                      colSpan={14}
+                      className="py-10 text-center text-sm"
+                      style={{
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      <RefreshCw
+                        size={22}
+                        className="mx-auto mb-3 animate-spin"
+                        style={{ opacity: 0.45 }}
+                      />
+
+                      Carregando análise...
+                    </td>
+                  </tr>
+                ) : dadosFiltrados.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={14}
+                      className="py-10 text-center text-sm"
+                      style={{
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      Nenhum dado encontrado.
+                    </td>
+                  </tr>
+                ) : (
+                  dadosFiltrados.map((item) => {
+                    const status = classificar(item)
+                    const Icon = status.Icon
+                    const gap = toNumber(item.gap_consumo)
+                    const selecionado =
+                      materialSelecionado?.codigo === item.codigo
+
+                    return (
+                      <tr
+                        key={`${item.codigo}-${item.produto}`}
+                        onClick={() => selecionarMaterial(item.codigo)}
+                        className="cursor-pointer transition-colors hover:bg-slate-50"
+                        style={{
+                          background: selecionado
+                            ? "rgba(59,130,246,0.08)"
+                            : undefined,
+                        }}
+                      >
+                        <Td className="font-mono font-semibold">
+                          {item.codigo}
+                        </Td>
+
+                        <Td>
+                          <span
+                            className="block max-w-[520px] truncate font-medium"
+                            style={{
+                              color: "var(--text-primary)",
+                            }}
+                            title={
+                              item.produto ||
+                              item.descricao ||
+                              ""
+                            }
+                          >
+                            {item.produto ||
+                              item.descricao ||
+                              "—"}
+                          </span>
+                        </Td>
+
+                        <Td>
+                          {item.un || item.unid || "—"}
+                        </Td>
+
+                        <Td align="right">
+                          {fmt(item.saldo_base_consumo)}
+                        </Td>
+
+                        <Td align="right" style={{ fontWeight: 700 }}>
+                          {fmt(item.estoque_real)}
+                        </Td>
+
+                        <Td align="right">
+                          {fmt(item.demanda_mrp)}
+                        </Td>
+
+                        <Td align="right">
+                          {fmt(getUltimoForecast(item))}
+                        </Td>
+
+                        <Td align="right">
+                          {fmt(item.media_3m)}
+                        </Td>
+
+                        <Td align="right">
+                          {fmt(item.maior_media)}
+                        </Td>
+
+                        <Td align="right">
+                          {fmt(item.maior_media_50)}
+                        </Td>
+
+                        <Td align="right">
+                          {toNumber(item.cobertura_dias).toFixed(0)} dias
+                        </Td>
+
+                        <Td
+                          align="right"
+                          style={{
+                            color:
+                              gap < 0
+                                ? "#DC2626"
+                                : "var(--text-primary)",
+                            fontWeight: gap < 0 ? 700 : 500,
+                          }}
+                        >
+                          {fmt(gap)}
+                        </Td>
+
+                        <Td>
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap"
+                            style={{
+                              background: status.bg,
+                              border: `1px solid ${status.border}`,
+                              color: status.color,
+                            }}
+                          >
+                            <Icon size={12} />
+                            {status.label}
+                          </span>
+                        </Td>
+
+                        <Td>
+                          <span
+                            className="text-xs"
+                            style={{
+                              color: "var(--text-secondary)",
+                            }}
+                          >
+                            {item.causa_provavel || "—"}
+                          </span>
+                        </Td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="card p-4 md:p-5">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="card-label mb-1">
+              Detalhe do Material
+            </p>
+
+            <h2
+              className="text-base font-bold"
+              style={{
+                color: "var(--text-primary)",
+              }}
+            >
+              Demanda MRP x Consumido x Forecast
+            </h2>
           </div>
 
-          {!materialSelecionado ? (
+          {loadingDetalhe && (
+            <RefreshCw
+              size={16}
+              className="animate-spin"
+              style={{ color: "var(--text-secondary)" }}
+            />
+          )}
+        </div>
+
+        {!materialSelecionado ? (
+          <div
+            className="flex h-[420px] items-center justify-center rounded-2xl border text-sm"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            Selecione um material na tabela.
+          </div>
+        ) : (
+          <div className="space-y-4">
             <div
-              className="flex h-[420px] items-center justify-center rounded-2xl border text-sm"
+              className="rounded-2xl border p-4"
               style={{
+                borderColor: "var(--border)",
+                background: "var(--bg-secondary)",
+              }}
+            >
+              <p
+                className="font-mono text-xs font-semibold"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {materialSelecionado.codigo}
+              </p>
+
+              <p
+                className="mt-1 text-sm font-bold"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {materialSelecionado.produto ||
+                  materialSelecionado.descricao ||
+                  "—"}
+              </p>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+                <MiniInfo
+                  label="UN"
+                  value={
+                    materialSelecionado.un ||
+                    materialSelecionado.unid ||
+                    "—"
+                  }
+                />
+                <MiniInfo
+                  label="Estoque"
+                  value={fmt(materialSelecionado.estoque_real)}
+                />
+                <MiniInfo
+                  label="Saldo Consumo"
+                  value={fmt(materialSelecionado.saldo_base_consumo)}
+                />
+                <MiniInfo
+                  label="Demanda MRP"
+                  value={fmt(materialSelecionado.demanda_mrp)}
+                />
+                <MiniInfo
+                  label="Forecast"
+                  value={fmt(getUltimoForecast(materialSelecionado))}
+                />
+                <MiniInfo
+                  label="Necessidade"
+                  value={fmt(materialSelecionado.necessidade_mrp)}
+                />
+                <MiniInfo
+                  label="Pedidos"
+                  value={fmt(materialSelecionado.pedidos_mrp)}
+                />
+                <MiniInfo
+                  label="Cobertura"
+                  value={`${toNumber(
+                    materialSelecionado.cobertura_dias
+                  ).toFixed(0)} dias`}
+                />
+              </div>
+            </div>
+
+            <div
+              className="h-[430px] rounded-2xl border p-3"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg-secondary)",
+              }}
+            >
+              {dadosGrafico.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={dadosGrafico}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="mes_label"
+                      tick={{ fontSize: 11 }}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(value) => fmt(value)}
+                    />
+                    <Tooltip
+                      formatter={(value) => fmt(value)}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="consumo_real"
+                      name="Consumido"
+                      stroke="#2563EB"
+                      strokeWidth={2}
+                      dot
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="demanda_mrp"
+                      name="Demanda MRP"
+                      stroke="#DC2626"
+                      strokeWidth={2}
+                      dot
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="forecast"
+                      name="Forecast"
+                      stroke="#16A34A"
+                      strokeWidth={2}
+                      dot
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div
+                  className="flex h-full items-center justify-center text-center text-sm"
+                  style={{
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Sem histórico de gráfico para este material.
+                  <br />
+                  O front está pronto, mas o backend precisa devolver o campo
+                  grafico preenchido.
+                </div>
+              )}
+            </div>
+
+            <div
+              className="rounded-xl border px-4 py-2 text-xs"
+              style={{
+                background: "var(--bg-secondary)",
                 borderColor: "var(--border)",
                 color: "var(--text-secondary)",
               }}
             >
-              Selecione um material na tabela.
+              Consumo:{" "}
+              {fmtData(materialSelecionado.data_snapshot_consumo)} ·
+              Estoque:{" "}
+              {fmtData(materialSelecionado.data_snapshot_estoque)} ·
+              MRP: {fmtData(materialSelecionado.data_snapshot_mrp)}
             </div>
-          ) : (
-            <div className="space-y-4">
-              <div
-                className="rounded-2xl border p-4"
-                style={{
-                  borderColor: "var(--border)",
-                  background: "var(--bg-secondary)",
-                }}
-              >
-                <p
-                  className="font-mono text-xs font-semibold"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  {materialSelecionado.codigo}
-                </p>
-
-                <p
-                  className="mt-1 text-sm font-bold"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {materialSelecionado.produto ||
-                    materialSelecionado.descricao ||
-                    "—"}
-                </p>
-
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <MiniInfo
-                    label="UN"
-                    value={
-                      materialSelecionado.un ||
-                      materialSelecionado.unid ||
-                      "—"
-                    }
-                  />
-                  <MiniInfo
-                    label="Estoque"
-                    value={fmt(materialSelecionado.estoque_real)}
-                  />
-                  <MiniInfo
-                    label="Demanda MRP"
-                    value={fmt(materialSelecionado.demanda_mrp)}
-                  />
-                  <MiniInfo
-                    label="Forecast"
-                    value={fmt(getUltimoForecast(materialSelecionado))}
-                  />
-                  <MiniInfo
-                    label="Necessidade"
-                    value={fmt(materialSelecionado.necessidade_mrp)}
-                  />
-                  <MiniInfo
-                    label="Pedidos"
-                    value={fmt(materialSelecionado.pedidos_mrp)}
-                  />
-                </div>
-              </div>
-
-              <div
-                className="h-[360px] rounded-2xl border p-3"
-                style={{
-                  borderColor: "var(--border)",
-                  background: "var(--bg-secondary)",
-                }}
-              >
-                {dadosGrafico.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={dadosGrafico}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="mes_label"
-                        tick={{ fontSize: 11 }}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 11 }}
-                        tickFormatter={(value) =>
-                          fmt(value)
-                        }
-                      />
-                      <Tooltip
-                        formatter={(value) =>
-                          fmt(value)
-                        }
-                      />
-                      <Legend />
-                      <Line
-                        type="monotone"
-                        dataKey="consumo_real"
-                        name="Consumido"
-                        stroke="#2563EB"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="demanda_mrp"
-                        name="Demanda MRP"
-                        stroke="#DC2626"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="forecast"
-                        name="Forecast"
-                        stroke="#16A34A"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div
-                    className="flex h-full items-center justify-center text-center text-sm"
-                    style={{
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    Sem histórico de gráfico para este material.
-                  </div>
-                )}
-              </div>
-
-              <div
-                className="rounded-xl border px-4 py-2 text-xs"
-                style={{
-                  background: "var(--bg-secondary)",
-                  borderColor: "var(--border)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                Consumo:{" "}
-                {fmtData(
-                  materialSelecionado.data_snapshot_consumo
-                )}{" "}
-                · Estoque:{" "}
-                {fmtData(
-                  materialSelecionado.data_snapshot_estoque
-                )}{" "}
-                · MRP:{" "}
-                {fmtData(
-                  materialSelecionado.data_snapshot_mrp
-                )}
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
