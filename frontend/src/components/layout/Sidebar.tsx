@@ -10,6 +10,7 @@ import {
   ClipboardList,
   CalendarDays,
   GitBranch,
+  ShieldAlert,
 } from "lucide-react"
 import { clsx } from "clsx"
 
@@ -37,6 +38,12 @@ const NAV = [
     label: "MPS",
     path: "/mps",
     Icon: GitBranch,
+  },
+  {
+    id: "analise-mrp",
+    label: "Análise MRP",
+    path: "/analise-mrp",
+    Icon: ShieldAlert,
   },
   {
     id: "calendario-paradas",
