@@ -19,8 +19,8 @@ import {
 } from "lucide-react"
 
 import {
-  ComposedChart, Line, Scatter, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend,
+  ComposedChart, Line, Scatter, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts"
 
 import {
@@ -443,49 +443,211 @@ function KpiCard({ label, value, sub, delta, destaque = false, cor }: {
   )
 }
 
-// ─── Evolução de versões ──────────────────────────────────────────────────────
 
-function EvolucaoVersoes({ dadosVersao, divisor, labelUnidade }: {
-  dadosVersao: { rodada: MrpRodada; totalMesTubetes: number }[]
-  divisor: number; labelUnidade: string
-}) {
-  const max = Math.max(...dadosVersao.map((d) => d.totalMesTubetes / divisor), 1)
+// ─── Evolução de versões — gráfico de linhas ─────────────────────────────────
+
+type FiltroLinha = "L1+L2" | "L1" | "L2"
+interface Sd3Item { mes: number; ano: number; caixas: number; caixas_l1: number; caixas_l2: number }
+
+const CORES_VERSAO = ["#94A3B8", "#4A7FB5", "#17375E", "#0EA5E9", "#7C3AED", "#DB2777"]
+const COR_SD3 = "#16A34A"
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function TooltipEvolucao({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {dadosVersao.map((item, idx) => {
-        const valor = item.totalMesTubetes / divisor
-        const anterior = idx > 0 ? dadosVersao[idx - 1].totalMesTubetes / divisor : null
-        const delta = anterior != null ? valor - anterior : null
-        const largura = Math.max(4, Math.round((valor / max) * 100))
-        const isAtual = idx === dadosVersao.length - 1
-        const isPrimeira = idx === 0
+    <div style={{
+      background: "var(--bg-secondary)", border: "1px solid var(--border)",
+      borderRadius: 8, padding: "10px 14px",
+      boxShadow: "0 4px 16px rgba(0,0,0,0.12)", fontSize: 12, minWidth: 190,
+    }}>
+      <p style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>{label}</p>
+      {payload.map((p: { name: string; value: number; color: string; dataKey: string }, i: number) => {
+        if (p.value == null) return null
+        const isSD3 = p.dataKey === "sd3"
         return (
-          <div key={item.rodada.id || idx} style={{ display: "grid", gridTemplateColumns: "72px 1fr 180px", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: isAtual ? AZUL : "var(--text-primary)" }}>V{item.rodada.versao}</span>
-              {isAtual && <span style={{ fontSize: 9, fontWeight: 700, background: AZUL, color: "#fff", borderRadius: 99, padding: "2px 6px", letterSpacing: "0.05em" }}>ATUAL</span>}
-              {isPrimeira && !isAtual && <span style={{ fontSize: 9, fontWeight: 600, background: "var(--bg-primary)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 99, padding: "2px 6px" }}>BASE</span>}
-            </div>
-            <div style={{ height: 32, background: "var(--bg-primary)", borderRadius: 99, border: "1px solid var(--border)", overflow: "hidden" }}>
-              <div style={{ width: `${largura}%`, height: "100%", background: isAtual ? AZUL : "rgba(23,55,94,0.25)", borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 10 }}>
-                {valor > 0 && largura > 15 && <span style={{ fontSize: 11, fontWeight: 700, color: isAtual ? "#fff" : AZUL }}>{fmt(valor)}</span>}
-              </div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{fmt(valor)} {labelUnidade}</div>
-              {delta != null && (
-                <div style={{ fontSize: 11, fontWeight: 600, color: delta < 0 ? "#DC2626" : delta > 0 ? "#16A34A" : "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 3 }}>
-                  {delta < 0 ? <TrendingDown size={11} /> : delta > 0 ? <TrendingUp size={11} /> : <Minus size={11} />}
-                  {fmtSinal(delta)} vs V{dadosVersao[idx - 1].rodada.versao}
-                </div>
-              )}
-            </div>
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+            <span style={{ width: isSD3 ? 10 : 20, height: isSD3 ? 10 : 3, borderRadius: isSD3 ? 99 : 0, background: p.color, flexShrink: 0 }} />
+            <span style={{ color: "var(--text-secondary)", flex: 1 }}>{p.name}:</span>
+            <span style={{ fontWeight: 600, color: isSD3 ? COR_SD3 : "var(--text-primary)" }}>
+              {fmt(p.value)} cx
+            </span>
           </div>
         )
       })}
     </div>
   )
 }
+
+function EvolucaoVersoesGrafico({ rodadas, etapasPorRodada, anoAnalise, mesAnalise }: {
+  rodadas: MrpRodada[]
+  etapasPorRodada: Record<string, MrpEtapa[]>
+  anoAnalise: number
+  mesAnalise: number
+}) {
+  const [filtroLinha, setFiltroLinha] = useState<FiltroLinha>("L1+L2")
+  const [sd3, setSd3] = useState<Sd3Item[]>([])
+  const [visiveis, setVisiveis] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    getMrpSd3Realizado(anoAnalise)
+      .then((d: unknown) => setSd3(d as Sd3Item[]))
+      .catch(() => setSd3([]))
+  }, [anoAnalise])
+
+  useEffect(() => {
+    const init: Record<string, boolean> = { sd3: true }
+    rodadas.forEach((r) => { init[`v${r.versao}`] = true })
+    setVisiveis(init)
+  }, [rodadas])
+
+  const dadosVersao = useMemo(() => {
+    return rodadas.map((rodada) => {
+      const etapasBase = etapasPorRodada[rodada.id || ""] || []
+      const porMes = Array.from({ length: 12 }, (_, i) => {
+        const mes = i + 1
+        return etapasBase
+          .filter((e) => ["L1", "L2"].includes(String(e.recurso || "").toUpperCase()))
+          .reduce((acc, e) => {
+            if (Number(e.mes_liberacao) !== mes || Number(e.ano_liberacao) !== anoAnalise) return acc
+            const r = String(e.recurso || "").toUpperCase()
+            if (filtroLinha === "L1+L2") return acc + Number(e.qtd_planejada || 0) / 500
+            if (filtroLinha === r) return acc + Number(e.qtd_planejada || 0) / 500
+            return acc
+          }, 0)
+      })
+      return { rodada, porMes }
+    })
+  }, [rodadas, etapasPorRodada, anoAnalise, filtroLinha])
+
+  const chartData = useMemo(() => {
+    return MESES.map((label, i) => {
+      const mes = i + 1
+      const point: Record<string, number | string | undefined> = { mes: label }
+      dadosVersao.forEach(({ rodada, porMes }) => {
+        point[`v${rodada.versao}`] = Math.round(porMes[i])
+      })
+      if (mes < mesAnalise) {
+        const s = sd3.find((x) => x.mes === mes && x.ano === anoAnalise)
+        if (s) {
+          if (filtroLinha === "L1+L2") point["sd3"] = Math.round(s.caixas)
+          else if (filtroLinha === "L1") point["sd3"] = Math.round(s.caixas_l1)
+          else point["sd3"] = Math.round(s.caixas_l2)
+        }
+      }
+      return point
+    })
+  }, [dadosVersao, sd3, mesAnalise, anoAnalise, filtroLinha])
+
+  const toggle = (key: string) => setVisiveis((p) => ({ ...p, [key]: !p[key] }))
+
+  if (!rodadas.length) return null
+
+  const btnFiltro = (v: FiltroLinha) => (
+    <button key={v} onClick={() => setFiltroLinha(v)} style={{
+      padding: "4px 12px", borderRadius: 99, fontSize: 11, fontWeight: 600,
+      cursor: "pointer", border: "1px solid",
+      borderColor: filtroLinha === v ? AZUL : "var(--border)",
+      background: filtroLinha === v ? AZUL : "transparent",
+      color: filtroLinha === v ? "#fff" : "var(--text-secondary)",
+    }}>{v}</button>
+  )
+
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: 16, background: "var(--bg-secondary)", padding: "20px 24px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <p style={{ fontSize: 10, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 2px" }}>
+            Evolução de versões
+          </p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)", margin: "0 0 4px" }}>
+            Liberação mensal por versão — {anoAnalise}
+          </h3>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>
+            Cada linha representa uma versão do plano. Pontos verdes = realizado SD3.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["L1+L2", "L1", "L2"] as FiltroLinha[]).map(btnFiltro)}
+        </div>
+      </div>
+
+      {/* Legenda clicável */}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
+        {rodadas.map((r, idx) => {
+          const key = `v${r.versao}`
+          const cor = CORES_VERSAO[Math.min(idx, CORES_VERSAO.length - 1)]
+          const isAtual = idx === rodadas.length - 1
+          const ativo = visiveis[key] !== false
+          return (
+            <button key={key} onClick={() => toggle(key)} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: "none", border: "none", cursor: "pointer",
+              opacity: ativo ? 1 : 0.3, padding: 0, transition: "opacity 0.15s",
+            }}>
+              <span style={{ width: 24, height: isAtual ? 3 : 2, borderRadius: 99, background: cor, flexShrink: 0 }} />
+              <span style={{ fontSize: 12, fontWeight: isAtual ? 700 : 400, color: "var(--text-primary)" }}>
+                V{r.versao}{isAtual ? " (atual)" : ""}
+              </span>
+            </button>
+          )
+        })}
+        <button onClick={() => toggle("sd3")} style={{
+          display: "flex", alignItems: "center", gap: 6,
+          background: "none", border: "none", cursor: "pointer",
+          opacity: visiveis["sd3"] !== false ? 1 : 0.3, padding: 0, transition: "opacity 0.15s",
+        }}>
+          <span style={{ width: 10, height: 10, borderRadius: 99, background: COR_SD3, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: "var(--text-primary)" }}>Realizado SD3</span>
+        </button>
+      </div>
+
+      {/* Gráfico */}
+      <div style={{ height: 320 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+            <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false}
+              tickFormatter={(v) => fmt(v)} width={60} />
+            <Tooltip content={<TooltipEvolucao />} cursor={{ stroke: "var(--border)", strokeWidth: 1 }} />
+            {rodadas.map((r, idx) => {
+              const key = `v${r.versao}`
+              if (visiveis[key] === false) return null
+              const isAtual = idx === rodadas.length - 1
+              const cor = CORES_VERSAO[Math.min(idx, CORES_VERSAO.length - 1)]
+              return (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  name={`V${r.versao}${isAtual ? " (atual)" : ""}`}
+                  stroke={cor}
+                  strokeWidth={isAtual ? 2.5 : 1.5}
+                  strokeDasharray={idx === 0 && !isAtual ? "5 4" : undefined}
+                  dot={{ r: 3, fill: cor, strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                  connectNulls
+                />
+              )
+            })}
+            {visiveis["sd3"] !== false && (
+              <Scatter
+                dataKey="sd3"
+                name="Realizado SD3"
+                fill={COR_SD3}
+                line={false}
+              />
+            )}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+
 
 // ─── Tabela mensal unificada ──────────────────────────────────────────────────
 
@@ -807,8 +969,8 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
         </div>
       </div>
 
-      {/* Bloco 2+3: Evolução de versões — gráfico de linhas */}
-      <EvolucaoVersoes
+      {/* Bloco 2+3: Gráfico de evolução de versões + realizado SD3 */}
+      <EvolucaoVersoesGrafico
         rodadas={rodadas}
         etapasPorRodada={etapasPorRodada}
         anoAnalise={anoAnalise}
@@ -827,236 +989,6 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
       {mudancasRealizado.length > 0 && (
         <PainelRealizado mudancasRealizado={mudancasRealizado} divisor={divisor} labelUnidade={labelUnidade} />
       )}
-    </div>
-  )
-}
-
-
-// ─── Evolução de Versões (gráfico de linhas) ──────────────────────────────────
-
-type FiltroLinha = "L1+L2" | "L1" | "L2"
-
-interface Sd3Item { mes: number; ano: number; caixas: number; caixas_l1: number; caixas_l2: number }
-
-// Paleta de cores por versão
-const CORES_VERSAO = ["#94A3B8", "#4A7FB5", "#17375E", "#0EA5E9", "#7C3AED", "#DB2777"]
-const COR_SD3 = "#16A34A"
-
-function fmt_cx(n: number) {
-  return new Intl.NumberFormat("pt-BR").format(Math.round(n))
-}
-
-// Tooltip customizado
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function TooltipEvolucao({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{
-      background: "var(--bg-secondary)", border: "1px solid var(--border)",
-      borderRadius: 8, padding: "10px 14px",
-      boxShadow: "0 4px 16px rgba(0,0,0,0.12)", fontSize: 12, minWidth: 180,
-    }}>
-      <p style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>{label}</p>
-      {payload.map((p: { name: string; value: number; color: string; dataKey: string }, i: number) => {
-        if (!p.value && p.value !== 0) return null
-        const isSD3 = p.dataKey === "sd3"
-        return (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-            <span style={{
-              width: 10, height: isSD3 ? 10 : 2,
-              borderRadius: isSD3 ? 99 : 0,
-              background: p.color, flexShrink: 0,
-            }} />
-            <span style={{ color: "var(--text-secondary)", flex: 1 }}>{p.name}:</span>
-            <span style={{ fontWeight: 600, color: isSD3 ? COR_SD3 : "var(--text-primary)" }}>
-              {fmt_cx(p.value)} cx
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function EvolucaoVersoes({ rodadas, etapasPorRodada, anoAnalise, mesAnalise }: {
-  rodadas: MrpRodada[]
-  etapasPorRodada: Record<string, MrpEtapa[]>
-  anoAnalise: number
-  mesAnalise: number
-}) {
-  const [filtroLinha, setFiltroLinha] = useState<FiltroLinha>("L1+L2")
-  const [sd3, setSd3] = useState<Sd3Item[]>([])
-  const [visiveis, setVisiveis] = useState<Record<string, boolean>>({})
-
-  useEffect(() => {
-    getMrpSd3Realizado(anoAnalise)
-      .then((d: unknown) => setSd3(d as Sd3Item[]))
-      .catch(() => setSd3([]))
-  }, [anoAnalise])
-
-  // Monta dados por mês para cada versão
-  const dadosVersao = useMemo(() => {
-    return rodadas.map((rodada) => {
-      const etapasBase = etapasPorRodada[rodada.id || ""] || []
-      const etapas = etapasBase.filter((e) => ["L1", "L2"].includes(String(e.recurso || "").toUpperCase()))
-      const porMes = Array.from({ length: 12 }, (_, i) => {
-        const mes = i + 1
-        let total = 0
-        etapas.forEach((e) => {
-          if (Number(e.mes_liberacao) === mes && Number(e.ano_liberacao) === anoAnalise) {
-            const r = String(e.recurso || "").toUpperCase()
-            if (filtroLinha === "L1+L2") total += Number(e.qtd_planejada || 0) / 500
-            else if (filtroLinha === r) total += Number(e.qtd_planejada || 0) / 500
-          }
-        })
-        return Math.round(total)
-      })
-      return { rodada, porMes }
-    })
-  }, [rodadas, etapasPorRodada, anoAnalise, filtroLinha])
-
-  // Monta chartData: um ponto por mês
-  const chartData = useMemo(() => {
-    return MESES.map((label, i) => {
-      const mes = i + 1
-      const point: Record<string, number | string> = { mes: label }
-      dadosVersao.forEach(({ rodada, porMes }) => {
-        const key = `v${rodada.versao}`
-        point[key] = porMes[i]
-      })
-      // SD3 só para meses passados (< mesAnalise)
-      if (mes < mesAnalise) {
-        const sd3item = sd3.find((s) => s.mes === mes && s.ano === anoAnalise)
-        if (sd3item) {
-          if (filtroLinha === "L1+L2") point["sd3"] = Math.round(sd3item.caixas)
-          else if (filtroLinha === "L1") point["sd3"] = Math.round(sd3item.caixas_l1)
-          else point["sd3"] = Math.round(sd3item.caixas_l2)
-        }
-      }
-      return point
-    })
-  }, [dadosVersao, sd3, mesAnalise, anoAnalise, filtroLinha])
-
-  // Inicializa visibilidade
-  useEffect(() => {
-    const init: Record<string, boolean> = { sd3: true }
-    rodadas.forEach((r) => { init[`v${r.versao}`] = true })
-    setVisiveis(init)
-  }, [rodadas])
-
-  const toggleVisivel = (key: string) => setVisiveis((prev) => ({ ...prev, [key]: !prev[key] }))
-
-  if (!rodadas.length) return null
-
-  const btnFiltro = (v: FiltroLinha) => (
-    <button
-      onClick={() => setFiltroLinha(v)}
-      style={{
-        padding: "4px 12px", borderRadius: 99, fontSize: 11, fontWeight: 600,
-        cursor: "pointer", border: "1px solid",
-        borderColor: filtroLinha === v ? AZUL : "var(--border)",
-        background: filtroLinha === v ? AZUL : "transparent",
-        color: filtroLinha === v ? "#fff" : "var(--text-secondary)",
-        transition: "all 0.15s",
-      }}
-    >{v}</button>
-  )
-
-  return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 16, background: "var(--bg-secondary)", padding: "20px 24px" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <p style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 2px" }}>
-            Evolução de versões
-          </p>
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-            Liberação mensal — caixas por versão
-          </h3>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-            Cada linha é uma versão do plano. Pontos verdes = realizado SD3.
-          </p>
-        </div>
-        {/* Toggle linha */}
-        <div style={{ display: "flex", gap: 6 }}>
-          {btnFiltro("L1+L2")}
-          {btnFiltro("L1")}
-          {btnFiltro("L2")}
-        </div>
-      </div>
-
-      {/* Legenda clicável */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
-        {rodadas.map((r, idx) => {
-          const key = `v${r.versao}`
-          const cor = CORES_VERSAO[idx % CORES_VERSAO.length]
-          const isAtual = idx === rodadas.length - 1
-          const ativo = visiveis[key] !== false
-          return (
-            <button key={key} onClick={() => toggleVisivel(key)} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              background: "none", border: "none", cursor: "pointer",
-              opacity: ativo ? 1 : 0.35, padding: 0,
-            }}>
-              <span style={{ width: 24, height: 3, borderRadius: 99, background: cor, flexShrink: 0 }} />
-              <span style={{ fontSize: 12, fontWeight: isAtual ? 700 : 400, color: "var(--text-primary)" }}>
-                V{r.versao}{isAtual ? " (atual)" : ""}
-              </span>
-            </button>
-          )
-        })}
-        {/* SD3 */}
-        <button onClick={() => toggleVisivel("sd3")} style={{
-          display: "flex", alignItems: "center", gap: 6,
-          background: "none", border: "none", cursor: "pointer",
-          opacity: visiveis["sd3"] !== false ? 1 : 0.35, padding: 0,
-        }}>
-          <span style={{ width: 10, height: 10, borderRadius: 99, background: COR_SD3, flexShrink: 0 }} />
-          <span style={{ fontSize: 12, color: "var(--text-primary)" }}>Realizado SD3</span>
-        </button>
-      </div>
-
-      {/* Gráfico */}
-      <div style={{ height: 320 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false}
-              tickFormatter={(v) => fmt_cx(v)} width={64} />
-            <Tooltip content={<TooltipEvolucao />} cursor={{ stroke: "var(--border)", strokeWidth: 1 }} />
-            {/* Linhas por versão */}
-            {rodadas.map((r, idx) => {
-              const key = `v${r.versao}`
-              const isAtual = idx === rodadas.length - 1
-              if (visiveis[key] === false) return null
-              return (
-                <Line
-                  key={key}
-                  type="monotone"
-                  dataKey={key}
-                  name={`V${r.versao}${isAtual ? " (atual)" : ""}`}
-                  stroke={CORES_VERSAO[idx % CORES_VERSAO.length]}
-                  strokeWidth={isAtual ? 2.5 : 1.5}
-                  strokeDasharray={isAtual ? undefined : idx === 0 ? "4 4" : undefined}
-                  dot={{ r: 3, fill: CORES_VERSAO[idx % CORES_VERSAO.length] }}
-                  activeDot={{ r: 5 }}
-                  connectNulls
-                />
-              )
-            })}
-            {/* Realizado SD3 como scatter */}
-            {visiveis["sd3"] !== false && (
-              <Scatter
-                dataKey="sd3"
-                name="Realizado SD3"
-                fill={COR_SD3}
-                r={6}
-              />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
     </div>
   )
 }
@@ -1085,10 +1017,9 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada, recursoFiltro }: {
           porMes[chave] = (porMes[chave] || 0) + Number(e.qtd_planejada || 0)
         }
       })
-      const anoBase = rodadas.find((r) => r?.ano)?.ano || new Date().getFullYear()
+      const anoBase2 = rodadas.find((r) => r?.ano)?.ano || new Date().getFullYear()
       const total = Object.entries(porMes).reduce((a, [chave, b]) => {
-        const ano = Number(chave.split("-")[0])
-        return ano === anoBase ? a + b : a
+        return Number(chave.split("-")[0]) === anoBase2 ? a + b : a
       }, 0)
       return { rodada, porMes, total }
     })
