@@ -1122,8 +1122,12 @@ export default function Mrp() {
     try {
       setSalvando(true)
       for (const [etapaId, dados] of entradas) await atualizarMrpEtapa(etapaId, dados)
-      setEtapas((prev) => prev.map((e) => e.id && edicoes[e.id] ? { ...e, ...edicoes[e.id] } : e))
       setEdicoes({})
+      // Recarregar etapas e comparativo para atualizar gráfico e tabela anual
+      if (rodadaSelecionada?.id) {
+        await carregarDadosRodada(rodadaSelecionada.id)
+        await carregarComparativo(rodadaSelecionada, rodadas)
+      }
       showToast({ tipo: "success", titulo: "Salvo", mensagem: "Alterações salvas com sucesso." })
     } catch {
       showToast({ tipo: "error", titulo: "Erro ao salvar", mensagem: "Não foi possível salvar as alterações." })
