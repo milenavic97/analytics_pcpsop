@@ -153,9 +153,27 @@ function smoothPath(points: ChartPoint[]) {
   if (!points.length) return ""
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`
 
-  // Linha contínua limpa, sem overshoot visual.
-  // Mantém a leitura premium e evita curvas distorcidas quando há variação grande entre meses.
-  return points.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
+  // Curva suave controlada, no mesmo conceito visual da Overview.
+  // Usa Catmull-Rom convertido para Bezier, com tensão baixa para evitar
+  // overshoot e aquele efeito de linha “torta” quando um mês varia muito.
+  const tension = 0.22
+  let d = `M ${points[0].x} ${points[0].y}`
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[Math.max(0, i - 1)]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[Math.min(points.length - 1, i + 2)]
+
+    const cp1x = p1.x + (p2.x - p0.x) * tension
+    const cp1y = p1.y + (p2.y - p0.y) * tension
+    const cp2x = p2.x - (p3.x - p1.x) * tension
+    const cp2y = p2.y - (p3.y - p1.y) * tension
+
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`
+  }
+
+  return d
 }
 
 function classeImpacto(tipo?: string | null) {
@@ -1570,11 +1588,11 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   preserveAspectRatio="none"
                   style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 5, pointerEvents: "none" }}
                 >
-                  <path d={linhaOrcadoPath} fill="none" stroke="#2F5FBF" strokeWidth={2.1} strokeLinecap="round" strokeLinejoin="round" />
+                  <path d={linhaOrcadoPath} fill="none" stroke="#3F73C8" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />
                   {linhaOrcadoPontos.map((p, idx) => (
                     <g key={idx}>
-                      <circle cx={p.x} cy={p.y} r={2.2} fill="#FFFFFF" stroke="#2F5FBF" strokeWidth={1.8} />
-                      <text x={p.x} y={Math.max(12, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="800" fill="#2F5FBF">
+                      <circle cx={p.x} cy={p.y} r={2.4} fill="#FFFFFF" stroke="#3F73C8" strokeWidth={1.9} />
+                      <text x={p.x} y={Math.max(14, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="800" fill="#3F73C8">
                         {fmtAbrev(linhas[idx]?.orcado)}
                       </text>
                     </g>
@@ -1588,9 +1606,9 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   preserveAspectRatio="none"
                   style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 6, pointerEvents: "none" }}
                 >
-                  <path d={linhaSimuladaPath} fill="none" stroke="#8B5CF6" strokeWidth={2.4} strokeDasharray="6 8" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d={linhaSimuladaPath} fill="none" stroke="#8B5CF6" strokeWidth={2.2} strokeDasharray="5 7" strokeLinecap="round" strokeLinejoin="round" />
                   {linhaSimuladaPontos.map((p, idx) => (
-                    <circle key={idx} cx={p.x} cy={p.y} r={2.4} fill="#8B5CF6" stroke="white" strokeWidth={1.8} />
+                    <circle key={idx} cx={p.x} cy={p.y} r={2.2} fill="#8B5CF6" stroke="white" strokeWidth={1.6} />
                   ))}
                 </svg>
               )}
