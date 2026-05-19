@@ -155,25 +155,46 @@ export async function getAtendimentoSku() {
 }
 
 // ─────────────────────────────────────────────────────────────
+//// ─────────────────────────────────────────────────────────────
 // Produção
 // ─────────────────────────────────────────────────────────────
 
-export async function getProducaoResumoMensal() {
-  return apiFetch("/producao/resumo-mensal")
-}
-
-export async function getParadasPareto(
-  linha?: "L1" | "L2"
+export async function getProducaoResumoMensal(
+  ano = 2026
 ) {
   return apiFetch(
-    `/producao/paradas-pareto${
-      linha ? `?linha=${linha}` : ""
-    }`
+    `/producao/resumo-mensal?ano=${ano}`
   )
 }
 
-export async function getConfigProducao() {
-  return apiFetch("/producao/config-producao")
+export async function getParadasPareto(
+  linha?: "L1" | "L2",
+  ano = 2026,
+  mes?: number
+) {
+  const params = new URLSearchParams()
+
+  params.set("ano", String(ano))
+
+  if (linha) {
+    params.set("linha", linha)
+  }
+
+  if (mes) {
+    params.set("mes", String(mes))
+  }
+
+  return apiFetch(
+    `/producao/paradas-pareto?${params.toString()}`
+  )
+}
+
+export async function getConfigProducao(
+  ano = 2026
+) {
+  return apiFetch(
+    `/producao/config-producao?ano=${ano}`
+  )
 }
 
 export async function updateConfigProducao(
@@ -198,22 +219,55 @@ export async function updateConfigProducao(
   )
 }
 
-export async function getMpsResumoMensal() {
-  return apiFetch("/producao/mps-resumo-mensal")
-}
-
-export async function getMpsModal(mes: number) {
-  return apiFetch(`/producao/mps-modal/${mes}`)
-}
-
-export async function getMpsComparativoRealPlanejado() {
+export async function getMpsResumoMensal(
+  ano = 2026
+) {
   return apiFetch(
-    "/producao/mps-comparativo-real-planejado"
+    `/producao/mps-resumo-mensal?ano=${ano}`
   )
 }
 
-export async function getMpsVersoes(mes: number) {
-  return apiFetch(`/producao/mps-versoes/${mes}`)
+export async function getMpsModal(
+  mes: number,
+  ano = 2026
+) {
+  return apiFetch(
+    `/producao/mps-modal/${mes}?ano=${ano}`
+  )
+}
+
+export async function getMpsComparativoRealPlanejado(
+  ano = 2026
+) {
+  return apiFetch(
+    `/producao/mps-comparativo-real-planejado?ano=${ano}`
+  )
+}
+
+export async function getMpsVersoes(
+  mes: number,
+  ano = 2026
+) {
+  return apiFetch(
+    `/producao/mps-versoes/${mes}?ano=${ano}`
+  )
+}
+
+export async function getAnaliseCausaRaizProducao(
+  ano = 2026,
+  mes?: number
+) {
+  const params = new URLSearchParams()
+
+  params.set("ano", String(ano))
+
+  if (mes) {
+    params.set("mes", String(mes))
+  }
+
+  return apiFetch(
+    `/producao/analise-causa-raiz?${params.toString()}`
+  )
 }
 
 // ─────────────────────────────────────────────────────────────
