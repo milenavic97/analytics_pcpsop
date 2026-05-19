@@ -1221,7 +1221,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   <span style={{ fontSize: 13, fontWeight: 900, color: "var(--text-primary)" }}>{l.mes}</span>
                   <span style={{ fontSize: 9, fontWeight: 900, color: l.usaSd3 ? "#2563EB" : "var(--text-secondary)", background: l.usaSd3 ? "#EFF6FF" : "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 99, padding: "2px 6px", whiteSpace: "nowrap" }}>{l.usaSd3 ? "SD3" : "MPS"}</span>
                 </div>
-                <div style={{ fontSize: 24, fontWeight: 950, color, lineHeight: 1 }}>{fmtSinal(l.gapSimulado)}</div>
+                <div style={{ fontSize: 24, fontWeight: 950, color: cor, lineHeight: 1 }}>{fmtSinal(l.gapSimulado)}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 10 }}>
                   <div><div style={{ color: "var(--text-secondary)", fontWeight: 700 }}>Orçado</div><div style={{ color: "var(--text-primary)", fontWeight: 900 }}>{fmt(l.orcado)}</div></div>
                   <div><div style={{ color: "var(--text-secondary)", fontWeight: 700 }}>Base</div><div style={{ color: "var(--text-primary)", fontWeight: 900 }}>{fmt(l.base)}</div></div>
