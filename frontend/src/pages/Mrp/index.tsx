@@ -153,10 +153,9 @@ function smoothPath(points: ChartPoint[]) {
   if (!points.length) return ""
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`
 
-  // Curva suave controlada, no mesmo conceito visual da Overview.
-  // Usa Catmull-Rom convertido para Bezier, com tensão baixa para evitar
-  // overshoot e aquele efeito de linha “torta” quando um mês varia muito.
-  const tension = 0.22
+  // Curva controlada: suaviza sem overshoot e sem distorcer a leitura.
+  // Mantém o desenho próximo da linha real, parecido com a Overview.
+  const tension = 0.08
   let d = `M ${points[0].x} ${points[0].y}`
 
   for (let i = 0; i < points.length - 1; i += 1) {
@@ -1540,9 +1539,21 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
           </div>
         </div>
 
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 14 }}>
+          <div style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--bg-primary)", padding: "12px 14px" }}>
+            <p style={{ margin: 0, fontSize: 10, fontWeight: 850, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-secondary)" }}>Orçado saída anual</p>
+            <p style={{ margin: "6px 0 0", fontSize: 22, fontWeight: 950, color: "var(--text-primary)" }}>{fmt(totalOrcado)} <span style={{ fontSize: 12, fontWeight: 850, color: "var(--text-secondary)" }}>cx</span></p>
+          </div>
+          <div style={{ border: "1px solid var(--border)", borderRadius: 14, background: "var(--bg-primary)", padding: "12px 14px" }}>
+            <p style={{ margin: 0, fontSize: 10, fontWeight: 850, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-secondary)" }}>Projetado anual simulado</p>
+            <p style={{ margin: "6px 0 0", fontSize: 22, fontWeight: 950, color: AZUL }}>{fmt(totalSimulado)} <span style={{ fontSize: 12, fontWeight: 850, color: "var(--text-secondary)" }}>cx</span></p>
+            <p style={{ margin: "4px 0 0", fontSize: 11, color: atendimentoSimulado >= 100 ? COR_GANHO : atendimentoSimulado >= 95 ? "var(--text-secondary)" : COR_PERDA, fontWeight: 850 }}>{atendimentoSimulado.toFixed(1).replace(".", ",")}% do orçado saída</p>
+          </div>
+        </div>
+
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12, paddingLeft: 4 }}>
           {[
-            { key: "orcado" as const, label: "Orçado", cor: "#4A7FB5", tipo: "linha" },
+            { key: "orcado" as const, label: "Orçado saída", cor: "#356AC3", tipo: "linha" },
             { key: "realizado" as const, label: "Realizado SD3", cor: AZUL, tipo: "barra" },
             { key: "projecao" as const, label: "Projeção MPS", cor: "#CBD5E1", tipo: "barra" },
             { key: "simulado" as const, label: "Simulado", cor: "#8B5CF6", tipo: "tracejado" },
@@ -1595,17 +1606,18 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                     strokeWidth={2}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    opacity={0.95}
+                    opacity={0.96}
                   />
                   {linhaOrcadoPontos.map((p, idx) => (
                     <circle
                       key={idx}
                       cx={p.x}
                       cy={p.y}
-                      r={1.8}
+                      r={1.45}
                       fill="#FFFFFF"
                       stroke="#356AC3"
-                      strokeWidth={1.5}
+                      strokeWidth={1.25}
+                      opacity={0.9}
                     />
                   ))}
                 </svg>
@@ -1621,7 +1633,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                     d={linhaSimuladaPath}
                     fill="none"
                     stroke="#8B5CF6"
-                    strokeWidth={1.9}
+                    strokeWidth={1.8}
                     strokeDasharray="5 7"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -1632,10 +1644,11 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                       key={idx}
                       cx={p.x}
                       cy={p.y}
-                      r={1.6}
+                      r={1.4}
                       fill="#FFFFFF"
                       stroke="#8B5CF6"
-                      strokeWidth={1.4}
+                      strokeWidth={1.2}
+                      opacity={0.9}
                     />
                   ))}
                 </svg>
