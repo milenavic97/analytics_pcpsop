@@ -153,23 +153,9 @@ function smoothPath(points: ChartPoint[]) {
   if (!points.length) return ""
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`
 
-  const d = [`M ${points[0].x} ${points[0].y}`]
-
-  // Curva suave com tangente horizontal por trecho.
-  // Evita overshoot visual e deixa o gráfico com aparência mais limpa/premium.
-  for (let i = 0; i < points.length - 1; i++) {
-    const p1 = points[i]
-    const p2 = points[i + 1]
-    const dx = p2.x - p1.x
-    const cp1x = p1.x + dx * 0.34
-    const cp1y = p1.y
-    const cp2x = p2.x - dx * 0.34
-    const cp2y = p2.y
-
-    d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`)
-  }
-
-  return d.join(" ")
+  // Linha contínua limpa, sem overshoot visual.
+  // Mantém a leitura premium e evita curvas distorcidas quando há variação grande entre meses.
+  return points.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
 }
 
 function classeImpacto(tipo?: string | null) {
@@ -1416,7 +1402,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
         </div>
 
         <div style={{ overflowX: "auto" }}>
-          <div style={{ minWidth: chartMinWidth, height: minChartHeight, display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 14, alignItems: "center", padding: "8px 8px 0", position: "relative" }}>
+          <div style={{ minWidth: chartMinWidth, height: 282, display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 14, alignItems: "center", padding: "8px 8px 0", position: "relative" }}>
             <div style={{ position: "absolute", left: 8, right: 8, top: "50%", borderTop: "1px solid var(--border)" }} />
             <div style={{ position: "absolute", left: `calc(${(Math.max(mesAnalise - 1, 0) / 12) * 100}% + 8px)`, top: 0, bottom: 0, width: `calc(${((13 - mesAnalise) / 12) * 100}% - 16px)`, background: "rgba(148,163,184,0.07)", borderRadius: 16, pointerEvents: "none" }}>
               <span style={{ position: "absolute", right: 14, top: 12, fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>Futuro sem SD3</span>
@@ -1427,7 +1413,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
               const positivo = (diff || 0) >= 0
               const visivel = diff !== null
               return (
-                <div key={l.mes} style={{ height: 220, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", zIndex: 2 }}>
+                <div key={l.mes} style={{ height: 236, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", zIndex: 2 }}>
                   <div style={{ height: 95, display: "flex", alignItems: "flex-end" }}>
                     {visivel && positivo && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
@@ -1436,7 +1422,14 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                       </div>
                     )}
                   </div>
-                  <div style={{ height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, color: "var(--text-primary)" }}>{l.mes}</div>
+                  <div style={{ height: 42, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                    <span style={{ fontSize: 11, fontWeight: 950, color: "var(--text-primary)" }}>{l.mes}</span>
+                    {visivel && (
+                      <span style={{ fontSize: 9.5, fontWeight: 800, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                        SD3 {fmtAbrev(Number(sd3Mensal[l.numeroMes - 1] || 0))} · {l.referenciaPerdaLabel} {fmtAbrev(l.referenciaPerda)}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ height: 95, display: "flex", alignItems: "flex-start" }}>
                     {visivel && !positivo && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
@@ -1529,7 +1522,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12, paddingLeft: 4 }}>
           {[
-            { key: "orcado" as const, label: "Orçado", cor: "#2563B8", tipo: "linha" },
+            { key: "orcado" as const, label: "Orçado", cor: "#4A7FB5", tipo: "linha" },
             { key: "realizado" as const, label: "Realizado SD3", cor: AZUL, tipo: "barra" },
             { key: "projecao" as const, label: "Projeção MPS", cor: "#CBD5E1", tipo: "barra" },
             { key: "simulado" as const, label: "Simulado", cor: "#8B5CF6", tipo: "tracejado" },
@@ -1575,11 +1568,11 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   preserveAspectRatio="none"
                   style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 5, pointerEvents: "none" }}
                 >
-                  <path d={linhaOrcadoPath} fill="none" stroke="#2563B8" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+                  <path d={linhaOrcadoPath} fill="none" stroke="#4A7FB5" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
                   {linhaOrcadoPontos.map((p, idx) => (
                     <g key={idx}>
-                      <circle cx={p.x} cy={p.y} r={3.2} fill="#2563B8" stroke="white" strokeWidth={2} />
-                      <text x={p.x} y={Math.max(12, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="900" fill="#2563B8">
+                      <circle cx={p.x} cy={p.y} r={2.4} fill="#4A7FB5" stroke="white" strokeWidth={1.8} />
+                      <text x={p.x} y={Math.max(12, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="850" fill="#4A7FB5">
                         {fmtAbrev(linhas[idx]?.orcado)}
                       </text>
                     </g>
@@ -1593,9 +1586,9 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   preserveAspectRatio="none"
                   style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 6, pointerEvents: "none" }}
                 >
-                  <path d={linhaSimuladaPath} fill="none" stroke="#8B5CF6" strokeWidth={3} strokeDasharray="7 7" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d={linhaSimuladaPath} fill="none" stroke="#8B5CF6" strokeWidth={2.4} strokeDasharray="6 8" strokeLinecap="round" strokeLinejoin="round" />
                   {linhaSimuladaPontos.map((p, idx) => (
-                    <circle key={idx} cx={p.x} cy={p.y} r={3} fill="#8B5CF6" stroke="white" strokeWidth={2} />
+                    <circle key={idx} cx={p.x} cy={p.y} r={2.4} fill="#8B5CF6" stroke="white" strokeWidth={1.8} />
                   ))}
                 </svg>
               )}
