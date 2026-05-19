@@ -950,6 +950,239 @@ function GraficoMensalVersoes({ dadosVersao, divisor, anoAnalise, mostrarLegenda
   )
 }
 
+
+// ─── Aba: Projeção e perdas mensais ──────────────────────────────────────────
+
+function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
+  rodadas: MrpRodada[]
+  etapasPorRodada: Record<string, MrpEtapa[]>
+  rodadaAtual: MrpRodada | null
+}) {
+  const anoAnalise = rodadaAtual?.ano || new Date().getFullYear()
+  const mesAnalise = rodadaAtual?.mes || new Date().getMonth() + 1
+  const [orcadoMensalCaixas, setOrcadoMensalCaixas] = useState<number[]>([])
+  const [modoSimulacao, setModoSimulacao] = useState<"mensal" | "percentual">("mensal")
+  const [perdaPercentual, setPerdaPercentual] = useState("0")
+  const [perdasMensais, setPerdasMensais] = useState<string[]>(Array.from({ length: 12 }, () => ""))
+
+  useEffect(() => {
+    getOrcadoLiberacao()
+      .then((d: unknown) => {
+        const data = d as { meses?: Array<{ mes: number; L1?: number; L2?: number }> }
+        const meses = Array.from({ length: 12 }, (_, i) => {
+          const item = data.meses?.find((m) => Number(m.mes) === i + 1)
+          return (Number(item?.L1 || 0) + Number(item?.L2 || 0)) / 500
+        })
+        setOrcadoMensalCaixas(meses)
+      })
+      .catch(() => setOrcadoMensalCaixas([]))
+  }, [])
+
+  const atual = useMemo(() => {
+    if (!rodadas.length) return null
+    const rodada = rodadas[rodadas.length - 1]
+    const etapasBase = etapasPorRodada[rodada.id || ""] || []
+    const etapas = etapasBase.filter((e) => ["L1", "L2"].includes(String(e.recurso || "").toUpperCase()))
+    const porMes = Array.from({ length: 12 }, (_, i) => {
+      const mes = i + 1
+      return etapas.reduce((acc, e) => {
+        if (Number(e.mes_liberacao) === mes && Number(e.ano_liberacao) === anoAnalise) return acc + Number(e.qtd_planejada || 0)
+        return acc
+      }, 0) / 500
+    })
+    return { rodada, porMes }
+  }, [rodadas, etapasPorRodada, anoAnalise])
+
+  function parseValor(txt: string) {
+    const n = Number(String(txt || "0").replace(/\./g, "").replace(",", "."))
+    return Number.isFinite(n) ? n : 0
+  }
+
+  function atualizarPerdaMes(idx: number, value: string) {
+    setPerdasMensais((prev) => prev.map((v, i) => i === idx ? value : v))
+  }
+
+  if (!rodadas.length || !atual) {
+    return (
+      <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 20, background: "var(--bg-secondary)" }}>
+        <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>Nenhuma versão disponível para projetar perdas.</p>
+      </div>
+    )
+  }
+
+  const linhas = MESES.map((mes, idx) => {
+    const orcado = Number(orcadoMensalCaixas[idx] || 0)
+    const mpsAtual = Number(atual.porMes[idx] || 0)
+    const fechado = idx + 1 < mesAnalise
+
+    // Quando integrarmos a SD3 do Protheus, este campo deve receber o realizado do mês fechado.
+    // Enquanto não houver SD3 retroativa carregada, usamos o MPS atual como fallback visual.
+    const realizadoSd3: number | null = null
+    const base = fechado && realizadoSd3 != null ? realizadoSd3 : mpsAtual
+    const origem = fechado && realizadoSd3 != null ? "Real SD3" : fechado ? "MPS atual (sem SD3)" : "MPS atual"
+
+    const perdaManual = parseValor(perdasMensais[idx])
+    const perdaPercent = Math.max(0, base * (parseValor(perdaPercentual) / 100))
+    const perdaSimulada = modoSimulacao === "percentual" ? perdaPercent : perdaManual
+    const projetadoSimulado = Math.max(0, base - perdaSimulada)
+    const gapBase = base - orcado
+    const gapSimulado = projetadoSimulado - orcado
+
+    return { mes, orcado, base, origem, perdaSimulada, projetadoSimulado, gapBase, gapSimulado, fechado }
+  })
+
+  const totalOrcado = linhas.reduce((s, l) => s + l.orcado, 0)
+  const totalBase = linhas.reduce((s, l) => s + l.base, 0)
+  const totalPerdaSimulada = linhas.reduce((s, l) => s + l.perdaSimulada, 0)
+  const totalSimulado = linhas.reduce((s, l) => s + l.projetadoSimulado, 0)
+  const gapBase = totalBase - totalOrcado
+  const gapSimulado = totalSimulado - totalOrcado
+  const pctAtendimento = totalOrcado > 0 ? (totalSimulado / totalOrcado) * 100 : 0
+  const mesesComPerda = linhas.filter((l) => l.perdaSimulada > 0).length
+  const mediaPerdaMes = mesesComPerda > 0 ? totalPerdaSimulada / mesesComPerda : 0
+  const maxChart = Math.max(...linhas.flatMap((l) => [l.orcado, l.base, l.projetadoSimulado]), 1)
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 20, background: "var(--bg-secondary)" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
+          <div>
+            <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Projeção anual</p>
+            <h2 style={{ margin: "4px 0 0", fontSize: 18, fontWeight: 900, color: "var(--text-primary)" }}>Perdas mensais vs orçado — {anoAnalise}</h2>
+            <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>
+              Meses fechados usam SD3 quando disponível. Enquanto a SD3 retroativa não estiver carregada, a aba usa o MPS atual como fallback.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {(["mensal", "percentual"] as const).map((modo) => (
+              <button key={modo} type="button" onClick={() => setModoSimulacao(modo)}
+                style={{ borderRadius: 10, border: `1px solid ${modoSimulacao === modo ? AZUL : "var(--border)"}`, background: modoSimulacao === modo ? AZUL : "var(--bg-primary)", color: modoSimulacao === modo ? "#fff" : "var(--text-secondary)", padding: "8px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
+                {modo === "mensal" ? "Perda por mês" : "Perda %"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
+          <KpiCard label="Orçado anual" value={fmt(totalOrcado)} sub="cx" cor="neutral" />
+          <KpiCard label="Projetado base" value={fmt(totalBase)} sub={`Gap ${fmtSinal(gapBase)} vs orçado`} delta={gapBase} />
+          <KpiCard label="Perda simulada" value={fmt(totalPerdaSimulada)} sub={mesesComPerda ? `${fmt(mediaPerdaMes)} cx/mês em média` : "sem perdas informadas"} cor={totalPerdaSimulada > 0 ? "red" : "neutral"} />
+          <KpiCard label="Projetado simulado" value={fmt(totalSimulado)} sub="cx" destaque />
+          <KpiCard label="Gap simulado" value={fmtSinal(gapSimulado)} sub="vs orçado anual" delta={gapSimulado} />
+          <KpiCard label="Atendimento" value={`${pctAtendimento.toFixed(1).replace(".", ",")}%`} sub="simulado / orçado" cor={pctAtendimento >= 100 ? "green" : pctAtendimento >= 95 ? "neutral" : "red"} />
+        </div>
+
+        {modoSimulacao === "percentual" && (
+          <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Simular perda percentual mensal</span>
+            <input value={perdaPercentual} onChange={(e) => setPerdaPercentual(e.target.value)}
+              style={{ width: 110, height: 38, borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-primary)", padding: "0 10px", fontSize: 13, fontWeight: 800, outline: "none" }} />
+            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>% sobre cada mês</span>
+          </div>
+        )}
+      </div>
+
+      <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 20, background: "var(--bg-secondary)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+          <div>
+            <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Simulador mensal</p>
+            <h3 style={{ margin: "4px 0 0", fontSize: 16, fontWeight: 900, color: "var(--text-primary)" }}>Orçado x projetado x perda simulada</h3>
+            <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>Digite perdas em caixas por mês ou aplique um percentual global.</p>
+          </div>
+          <button type="button" onClick={() => { setPerdasMensais(Array.from({ length: 12 }, () => "")); setPerdaPercentual("0") }}
+            style={{ height: 36, borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-secondary)", padding: "0 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
+            Limpar simulação
+          </button>
+        </div>
+
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ minWidth: 1120, display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 12, alignItems: "end", borderBottom: "1px solid var(--border)", padding: "22px 4px 14px" }}>
+            {linhas.map((l, idx) => {
+              const hOrcado = Math.max(4, (l.orcado / (maxChart * 1.08)) * 170)
+              const hProj = Math.max(4, (l.projetadoSimulado / (maxChart * 1.08)) * 170)
+              return (
+                <div key={l.mes} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 78 }}>
+                  <div style={{ height: 214, display: "flex", alignItems: "flex-end", gap: 7 }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: 9, fontWeight: 900, color: "var(--text-primary)", marginBottom: 5, minHeight: 36 }}>{fmt(l.orcado)}</span>
+                      <div title={`Orçado ${l.mes}: ${fmt(l.orcado)} cx`} style={{ width: 20, height: hOrcado, borderRadius: "6px 6px 2px 2px", background: "#F97316" }} />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: 9, fontWeight: 900, color: "var(--text-primary)", marginBottom: 5, minHeight: 36 }}>{fmt(l.projetadoSimulado)}</span>
+                      <div title={`Projetado ${l.mes}: ${fmt(l.projetadoSimulado)} cx`} style={{ width: 20, height: hProj, borderRadius: "6px 6px 2px 2px", background: l.gapSimulado < 0 ? AZUL : "#15803D" }} />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: "var(--text-primary)", marginTop: 8 }}>{l.mes}</div>
+                  <div style={{ fontSize: 10, fontWeight: 900, color: l.gapSimulado < 0 ? "#DC2626" : l.gapSimulado > 0 ? "#15803D" : "var(--text-secondary)", height: 16 }}>{fmtSinal(l.gapSimulado)}</div>
+                  <div style={{ fontSize: 9, color: "var(--text-secondary)", height: 16, whiteSpace: "nowrap" }}>{l.origem}</div>
+                  {modoSimulacao === "mensal" && (
+                    <input value={perdasMensais[idx]} onChange={(e) => atualizarPerdaMes(idx, e.target.value)} placeholder="perda"
+                      style={{ width: 70, height: 30, marginTop: 6, borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-primary)", padding: "0 7px", fontSize: 11, fontWeight: 800, outline: "none", textAlign: "center" }} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12 }}>
+          {[
+            { label: "Orçado", cor: "#F97316" },
+            { label: "Projetado simulado", cor: AZUL },
+          ].map((l) => (
+            <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-secondary)", fontWeight: 700 }}>
+              <span style={{ width: 11, height: 11, borderRadius: 3, background: l.cor }} />
+              {l.label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden", background: "var(--bg-secondary)" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
+          <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Detalhamento</p>
+          <h3 style={{ margin: "4px 0 0", fontSize: 16, fontWeight: 900, color: "var(--text-primary)" }}>Base mensal e simulação</h3>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", minWidth: 980, borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr>
+                {["Mês", "Origem", "Orçado", "Base", "Gap base", "Perda simulada", "Projetado", "Gap simulado"].map((h, idx) => (
+                  <th key={h} style={{ padding: "10px 12px", textAlign: idx <= 1 ? "left" : "right", background: AZUL, color: "rgba(255,255,255,0.86)", fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", borderRight: "1px solid rgba(255,255,255,0.12)" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {linhas.map((l, idx) => (
+                <tr key={l.mes} style={{ background: idx % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-primary)", borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: "10px 12px", fontWeight: 900, color: "var(--text-primary)" }}>{l.mes}</td>
+                  <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>{l.origem}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700 }}>{fmt(l.orcado)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700 }}>{fmt(l.base)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: l.gapBase < 0 ? "#DC2626" : l.gapBase > 0 ? "#15803D" : "var(--text-secondary)", fontWeight: 800 }}>{fmtSinal(l.gapBase)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: l.perdaSimulada > 0 ? "#DC2626" : "var(--text-secondary)", fontWeight: 800 }}>{fmt(l.perdaSimulada)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 900 }}>{fmt(l.projetadoSimulado)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: l.gapSimulado < 0 ? "#DC2626" : l.gapSimulado > 0 ? "#15803D" : "var(--text-secondary)", fontWeight: 900 }}>{fmtSinal(l.gapSimulado)}</td>
+                </tr>
+              ))}
+              <tr style={{ background: "rgba(23,55,94,0.05)", borderTop: "2px solid var(--border)" }}>
+                <td style={{ padding: "12px", fontWeight: 900, color: "var(--text-primary)" }}>Total</td>
+                <td style={{ padding: "12px", color: "var(--text-secondary)" }}>Ano</td>
+                <td style={{ padding: "12px", textAlign: "right", fontWeight: 900 }}>{fmt(totalOrcado)}</td>
+                <td style={{ padding: "12px", textAlign: "right", fontWeight: 900 }}>{fmt(totalBase)}</td>
+                <td style={{ padding: "12px", textAlign: "right", fontWeight: 900, color: gapBase < 0 ? "#DC2626" : "#15803D" }}>{fmtSinal(gapBase)}</td>
+                <td style={{ padding: "12px", textAlign: "right", fontWeight: 900, color: totalPerdaSimulada > 0 ? "#DC2626" : "var(--text-secondary)" }}>{fmt(totalPerdaSimulada)}</td>
+                <td style={{ padding: "12px", textAlign: "right", fontWeight: 900 }}>{fmt(totalSimulado)}</td>
+                <td style={{ padding: "12px", textAlign: "right", fontWeight: 900, color: gapSimulado < 0 ? "#DC2626" : "#15803D" }}>{fmtSinal(gapSimulado)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Visão Consolidada ────────────────────────────────────────────────────────
 
 function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasRealizado }: {
@@ -1271,7 +1504,7 @@ export default function Mrp() {
     busca: "", lote: "", codigo: "", produto: "",
     mesProducao: "", anoProducao: "", mesLiberacao: "", anoLiberacao: "", recurso: "L1",
   })
-  const [abaMps, setAbaMps] = useState<"detalhado" | "consolidado">("detalhado")
+  const [abaMps, setAbaMps] = useState<"detalhado" | "consolidado" | "perdas">("detalhado")
   const [etapasPorRodada, setEtapasPorRodada] = useState<Record<string, MrpEtapa[]>>({})
 
   function showToast(data: Toast, duration = 4000) {
@@ -1836,7 +2069,7 @@ export default function Mrp() {
 
       {/* Abas */}
       <div className="flex flex-wrap gap-2">
-        {(["detalhado", "consolidado"] as const).map((aba) => (
+        {(["detalhado", "consolidado", "perdas"] as const).map((aba) => (
           <button key={aba} type="button" onClick={() => setAbaMps(aba)}
             className="rounded-xl border px-4 py-2 text-sm font-semibold transition"
             style={{
@@ -1844,7 +2077,7 @@ export default function Mrp() {
               color: abaMps === aba ? "#fff" : "var(--text-secondary)",
               borderColor: abaMps === aba ? AZUL : "var(--border)",
             }}>
-            {aba === "detalhado" ? "MPS detalhado" : "Visão consolidada"}
+            {aba === "detalhado" ? "MPS detalhado" : aba === "consolidado" ? "Visão consolidada" : "Perdas mensais"}
           </button>
         ))}
       </div>
@@ -1856,6 +2089,15 @@ export default function Mrp() {
           etapasPorRodada={etapasPorRodada}
           rodadaAtual={rodadaSelecionada}
           mudancasRealizado={mudancasRealizado}
+        />
+      )}
+
+      {/* Aba perdas mensais */}
+      {abaMps === "perdas" && (
+        <ProjecaoPerdasMensais
+          rodadas={rodadasComparativo}
+          etapasPorRodada={etapasPorRodada}
+          rodadaAtual={rodadaSelecionada}
         />
       )}
 
