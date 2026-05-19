@@ -486,6 +486,176 @@ function EvolucaoVersoes({ dadosVersao, divisor, labelUnidade }: {
   )
 }
 
+
+// ─── Gráficos executivos ─────────────────────────────────────────────────────
+
+function pluralVersao(qtd: number) {
+  return qtd === 1 ? "versão" : "versões"
+}
+
+function GraficoTotalAnual({ dadosVersao, divisor, labelUnidade }: {
+  dadosVersao: { rodada: MrpRodada; porMes: number[] }[]
+  divisor: number
+  labelUnidade: string
+}) {
+  if (!dadosVersao.length) return null
+
+  const totais = dadosVersao.map((d) => ({
+    rodada: d.rodada,
+    total: d.porMes.reduce((acc, v) => acc + v, 0) / divisor,
+  }))
+  const max = Math.max(...totais.map((d) => d.total), 1)
+  const atual = totais[totais.length - 1]
+  const base = totais[0]
+  const deltaBase = atual.total - base.total
+
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 18, background: "var(--bg-secondary)", minHeight: 280 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
+        <div>
+          <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Comparativo anual</p>
+          <h3 style={{ margin: "4px 0 0", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>Total projetado por versão</h3>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Δ V1 → Atual</p>
+          <p style={{ margin: "3px 0 0", fontSize: 20, fontWeight: 800, color: deltaBase < 0 ? "#B91C1C" : deltaBase > 0 ? "#15803D" : "var(--text-primary)" }}>{fmtSinal(deltaBase)}</p>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "end", gap: 16, height: 150, padding: "0 8px", borderBottom: "1px solid var(--border)" }}>
+        {totais.map((item, idx) => {
+          const isAtual = idx === totais.length - 1
+          const altura = Math.max(8, Math.round((item.total / max) * 130))
+          const anterior = idx > 0 ? totais[idx - 1] : null
+          const delta = anterior ? item.total - anterior.total : null
+          return (
+            <div key={item.rodada.id || idx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 7, minWidth: 64 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: isAtual ? AZUL : "var(--text-primary)" }}>{fmt(item.total)}</div>
+              <div
+                title={`V${item.rodada.versao}: ${fmt(item.total)} ${labelUnidade}`}
+                style={{
+                  width: "70%",
+                  maxWidth: 76,
+                  height: altura,
+                  borderRadius: "12px 12px 4px 4px",
+                  background: isAtual ? AZUL : "rgba(23,55,94,0.28)",
+                  boxShadow: isAtual ? "0 10px 24px rgba(23,55,94,0.20)" : "none",
+                }}
+              />
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: isAtual ? AZUL : "var(--text-secondary)" }}>V{item.rodada.versao}</div>
+                {delta !== null && delta !== 0 && (
+                  <div style={{ fontSize: 10, fontWeight: 700, color: delta < 0 ? "#DC2626" : "#16A34A" }}>{fmtSinal(delta)}</div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <p style={{ margin: "12px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>
+        Leitura rápida: compara o volume anual total entre versões, considerando somente L1 e L2.
+      </p>
+    </div>
+  )
+}
+
+function GraficoMensalExecutivo({ dadosVersao, divisor, anoAnalise }: {
+  dadosVersao: { rodada: MrpRodada; porMes: number[] }[]
+  divisor: number
+  anoAnalise: number
+}) {
+  if (!dadosVersao.length) return null
+
+  const atual = dadosVersao[dadosVersao.length - 1]
+  const base = dadosVersao[0]
+  const atualValores = atual.porMes.map((v) => v / divisor)
+  const baseValores = base.porMes.map((v) => v / divisor)
+  const max = Math.max(...atualValores, ...baseValores, 1)
+
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 18, background: "var(--bg-secondary)", minHeight: 280 }}>
+      <div style={{ marginBottom: 18 }}>
+        <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Distribuição mensal</p>
+        <h3 style={{ margin: "4px 0 0", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>V1 base x V{atual.rodada.versao} atual — {anoAnalise}</h3>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(12, minmax(42px, 1fr))", alignItems: "end", gap: 8, height: 170, paddingBottom: 8, borderBottom: "1px solid var(--border)", overflowX: "auto" }}>
+        {MESES.map((mes, idx) => {
+          const atualMes = atualValores[idx]
+          const baseMes = baseValores[idx]
+          const delta = atualMes - baseMes
+          const alturaAtual = Math.max(4, Math.round((atualMes / max) * 120))
+          const alturaBase = Math.max(4, Math.round((baseMes / max) * 120))
+          return (
+            <div key={mes} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 5, minWidth: 42 }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 124 }}>
+                <div title={`V1 ${mes}: ${fmt(baseMes)}`} style={{ width: 11, height: alturaBase, borderRadius: "6px 6px 2px 2px", background: "rgba(23,55,94,0.25)" }} />
+                <div title={`Atual ${mes}: ${fmt(atualMes)}`} style={{ width: 11, height: alturaAtual, borderRadius: "6px 6px 2px 2px", background: AZUL }} />
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-secondary)" }}>{mes}</div>
+              <div style={{ fontSize: 9, fontWeight: 800, color: delta < 0 ? "#DC2626" : delta > 0 ? "#16A34A" : "var(--text-secondary)", minHeight: 14 }}>
+                {delta !== 0 ? fmtSinal(delta) : "—"}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div style={{ display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-secondary)" }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: "rgba(23,55,94,0.25)" }} /> V1 base
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-secondary)" }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: AZUL }} /> Versão atual
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function InsightExecutivo({ dadosVersao, divisor }: {
+  dadosVersao: { rodada: MrpRodada; porMes: number[] }[]
+  divisor: number
+}) {
+  if (dadosVersao.length < 2) return null
+
+  const atual = dadosVersao[dadosVersao.length - 1]
+  const base = dadosVersao[0]
+  const deltas = atual.porMes.map((v, idx) => (v - (base.porMes[idx] || 0)) / divisor)
+  const perdas = deltas.map((d, idx) => ({ mes: MESES[idx], valor: d })).filter((d) => d.valor < 0).sort((a, b) => a.valor - b.valor)
+  const ganhos = deltas.map((d, idx) => ({ mes: MESES[idx], valor: d })).filter((d) => d.valor > 0).sort((a, b) => b.valor - a.valor)
+  const perdaTotal = deltas.reduce((acc, d) => acc + d, 0)
+
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 18, background: perdaTotal < 0 ? "rgba(220,38,38,0.035)" : "rgba(22,163,74,0.035)" }}>
+      <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Resumo executivo</p>
+      <h3 style={{ margin: "4px 0 10px", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
+        Variação anual vs V1: <span style={{ color: perdaTotal < 0 ? "#B91C1C" : perdaTotal > 0 ? "#15803D" : "var(--text-primary)" }}>{fmtSinal(perdaTotal)}</span>
+      </h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+        <div>
+          <p style={{ margin: "0 0 6px", fontSize: 11, fontWeight: 700, color: "#B91C1C" }}>Maiores perdas</p>
+          {(perdas.slice(0, 3).length ? perdas.slice(0, 3) : [{ mes: "—", valor: 0 }]).map((item) => (
+            <div key={`perda-${item.mes}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-primary)", padding: "3px 0" }}>
+              <span>{item.mes}</span><strong style={{ color: item.valor < 0 ? "#B91C1C" : "var(--text-secondary)" }}>{item.valor ? fmtSinal(item.valor) : "—"}</strong>
+            </div>
+          ))}
+        </div>
+        <div>
+          <p style={{ margin: "0 0 6px", fontSize: 11, fontWeight: 700, color: "#15803D" }}>Compensações</p>
+          {(ganhos.slice(0, 3).length ? ganhos.slice(0, 3) : [{ mes: "—", valor: 0 }]).map((item) => (
+            <div key={`ganho-${item.mes}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-primary)", padding: "3px 0" }}>
+              <span>{item.mes}</span><strong style={{ color: item.valor > 0 ? "#15803D" : "var(--text-secondary)" }}>{item.valor ? fmtSinal(item.valor) : "—"}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 // ─── Tabela mensal unificada ──────────────────────────────────────────────────
 
 function TabelaMensalUnificada({ dadosVersao, anoAnalise, divisor }: {
@@ -785,7 +955,7 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
           <div>
             <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Visão consolidada</p>
             <h2 style={{ margin: "4px 0 0", fontSize: 18, fontWeight: 800, color: "var(--text-primary)" }}>
-              {MESES[mesAnalise - 1]}/{anoAnalise} — V{rodadaAtual?.versao} ({rodadas.length} versão{rodadas.length > 1 ? "ões" : ""})
+              {MESES[mesAnalise - 1]}/{anoAnalise} — V{rodadaAtual?.versao} ({rodadas.length} {pluralVersao(rodadas.length)})
             </h2>
           </div>
           <div style={{ display: "flex", borderRadius: 12, border: "1px solid var(--border)", padding: 4, background: "var(--bg-primary)" }}>
@@ -806,13 +976,21 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
         </div>
       </div>
 
-      {/* Bloco 2: Evolução */}
+      {/* Bloco 2: Gráficos executivos */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 16 }}>
+        <GraficoTotalAnual dadosVersao={dadosVersao} divisor={divisor} labelUnidade={labelUnidade} />
+        <GraficoMensalExecutivo dadosVersao={dadosVersao} divisor={divisor} anoAnalise={anoAnalise} />
+      </div>
+
+      <InsightExecutivo dadosVersao={dadosVersao} divisor={divisor} />
+
+      {/* Bloco 3: Evolução */}
       <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 20, background: "var(--bg-secondary)" }}>
         {sectionTitle("Evolução por versão", `Trajetória do volume de ${MESES[mesAnalise - 1]}/${anoAnalise}`)}
         <EvolucaoVersoes dadosVersao={dadosVersao} divisor={divisor} labelUnidade={labelUnidade} />
       </div>
 
-      {/* Bloco 3: Tabela mensal */}
+      {/* Bloco 4: Tabela mensal */}
       <div style={{ border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden", background: "var(--bg-secondary)" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
           {sectionTitle("Distribuição anual", `Liberação mensal por versão — ${anoAnalise}`)}
@@ -823,7 +1001,7 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
         <TabelaMensalUnificada dadosVersao={dadosVersao} anoAnalise={anoAnalise} divisor={divisor} />
       </div>
 
-      {/* Bloco 4: Abertura por linha */}
+      {/* Bloco 5: Abertura por linha */}
       <div style={{ border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden", background: "var(--bg-secondary)" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
           {sectionTitle("Abertura por linha", `L1 e L2 — ${MESES[mesAnalise - 1]}/${anoAnalise}`)}
@@ -831,7 +1009,7 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
         <AberturaLinhas dadosVersao={dadosVersao} divisor={divisor} labelUnidade={labelUnidade} />
       </div>
 
-      {/* Bloco 5: Realizado */}
+      {/* Bloco 6: Realizado */}
       {mudancasRealizado.length > 0 && (
         <PainelRealizado mudancasRealizado={mudancasRealizado} divisor={divisor} labelUnidade={labelUnidade} />
       )}
