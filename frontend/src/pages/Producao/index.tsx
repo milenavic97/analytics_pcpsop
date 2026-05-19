@@ -305,7 +305,10 @@ function LinhaCard({ item }: { item: LinhaResumo }) {
           <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
             Perda
           </p>
-          <p className="font-bold" style={{ color: item.perda_horas > 0 ? COR_PERDA : "var(--text-primary)" }}>
+          <p
+            className="font-bold"
+            style={{ color: item.perda_horas > 0 ? COR_PERDA : "var(--text-primary)" }}
+          >
             {fmtHoras(item.perda_horas)} h
           </p>
         </div>
@@ -330,7 +333,7 @@ function LinhaCard({ item }: { item: LinhaResumo }) {
       </div>
 
       <p className="mt-3 text-xs" style={{ color: "var(--text-secondary)" }}>
-        Impacto estimado: {fmtCaixas(item.impacto_caixas)} cx
+        Comparação feita pela soma das horas do Gantt V1 contra horas produtivas reais do Cognitive.
       </p>
     </div>
   )
@@ -538,26 +541,41 @@ function ConfigProducaoModal({
     </div>
   )
 }
-
 function AderenciaDiaChart({ data }: { data: ChartDiaRow[] }) {
   return (
     <div className="card p-4 md:p-6">
       <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="card-label mb-1">Baseline V1 x Cognitive</p>
-          <h2 className="text-base font-bold md:text-lg" style={{ color: "var(--text-primary)" }}>
+
+          <h2
+            className="text-base font-bold md:text-lg"
+            style={{ color: "var(--text-primary)" }}
+          >
             Aderência diária de horas produtivas
           </h2>
         </div>
-        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+
+        <p
+          className="text-xs"
+          style={{ color: "var(--text-secondary)" }}
+        >
           Real da L1 consolidado por janela, sem duplicar Maq 1 e Maq 2
         </p>
       </div>
 
       <div className="h-[360px]">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 36, right: 20, left: 0, bottom: 22 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={COR_GRID} vertical={false} />
+          <BarChart
+            data={data}
+            margin={{ top: 36, right: 20, left: 0, bottom: 22 }}
+          >
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke={COR_GRID}
+              vertical={false}
+            />
+
             <XAxis
               dataKey="dia_label"
               axisLine={false}
@@ -565,6 +583,7 @@ function AderenciaDiaChart({ data }: { data: ChartDiaRow[] }) {
               tick={{ fontSize: 10, fill: COR_TEXTO }}
               interval={0}
             />
+
             <YAxis
               axisLine={false}
               tickLine={false}
@@ -572,22 +591,47 @@ function AderenciaDiaChart({ data }: { data: ChartDiaRow[] }) {
               tickFormatter={(v) => fmtHoras(Number(v))}
               width={54}
             />
+
             <Tooltip
               formatter={(value: any, name: any) => [
                 `${fmtHoras(Number(value))} h`,
-                name === "planejado" ? "Planejado V1" : name === "realizado" ? "Real Cognitive" : "Perda",
+                name === "planejado"
+                  ? "Planejado V1"
+                  : "Real Cognitive",
               ]}
               labelFormatter={(_, payload) => {
-                const row = payload?.[0]?.payload as ChartDiaRow | undefined
+                const row = payload?.[0]?.payload as
+                  | ChartDiaRow
+                  | undefined
+
                 if (!row) return ""
+
                 return `${fmtData(row.data)} · ${row.linha}`
               }}
             />
-            <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
-            <Bar dataKey="planejado" name="Planejado V1" fill={COR_PLANEJADO} radius={[7, 7, 0, 0]}>
+
+            <Legend
+              wrapperStyle={{
+                fontSize: 12,
+                paddingTop: 12,
+              }}
+            />
+
+            <Bar
+              dataKey="planejado"
+              name="Planejado V1"
+              fill={COR_PLANEJADO}
+              radius={[7, 7, 0, 0]}
+            >
               <LabelList content={LabelHoras("#64748B")} />
             </Bar>
-            <Bar dataKey="realizado" name="Real Cognitive" fill={COR_REAL} radius={[7, 7, 0, 0]}>
+
+            <Bar
+              dataKey="realizado"
+              name="Real Cognitive"
+              fill={COR_REAL}
+              radius={[7, 7, 0, 0]}
+            >
               <LabelList content={LabelHoras(COR_REAL)} />
             </Bar>
           </BarChart>
@@ -597,22 +641,44 @@ function AderenciaDiaChart({ data }: { data: ChartDiaRow[] }) {
   )
 }
 
-function ParetoCausasChart({ data }: { data: PrincipalCausa[] }) {
+function ParetoCausasChart({
+  data,
+}: {
+  data: PrincipalCausa[]
+}) {
   const rows = data.slice(0, 8)
 
   return (
     <div className="card p-4 md:p-6">
       <div className="mb-4">
         <p className="card-label mb-1">Causa raiz</p>
-        <h2 className="text-base font-bold md:text-lg" style={{ color: "var(--text-primary)" }}>
+
+        <h2
+          className="text-base font-bold md:text-lg"
+          style={{ color: "var(--text-primary)" }}
+        >
           Principais motivos de perda
         </h2>
       </div>
 
       <div className="h-[330px]">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} layout="vertical" margin={{ top: 6, right: 22, left: 18, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={COR_GRID} horizontal={false} />
+          <BarChart
+            data={rows}
+            layout="vertical"
+            margin={{
+              top: 6,
+              right: 22,
+              left: 18,
+              bottom: 8,
+            }}
+          >
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke={COR_GRID}
+              horizontal={false}
+            />
+
             <XAxis
               type="number"
               axisLine={false}
@@ -620,6 +686,7 @@ function ParetoCausasChart({ data }: { data: PrincipalCausa[] }) {
               tick={{ fontSize: 10, fill: COR_TEXTO }}
               tickFormatter={(v) => fmtHoras(Number(v))}
             />
+
             <YAxis
               type="category"
               dataKey="motivo"
@@ -628,16 +695,31 @@ function ParetoCausasChart({ data }: { data: PrincipalCausa[] }) {
               width={136}
               tick={{ fontSize: 10, fill: COR_TEXTO }}
             />
+
             <Tooltip
-              formatter={(value: any) => [`${fmtHoras(Number(value))} h`, "Horas"]}
-              labelFormatter={(label) => String(label)}
+              formatter={(value: any) => [
+                `${fmtHoras(Number(value))} h`,
+                "Horas",
+              ]}
             />
-            <Bar dataKey="horas" name="Horas" fill={COR_L1} radius={[0, 7, 7, 0]}>
+
+            <Bar
+              dataKey="horas"
+              name="Horas"
+              fill={COR_L1}
+              radius={[0, 7, 7, 0]}
+            >
               <LabelList
                 dataKey="horas"
                 position="right"
-                formatter={(v: any) => fmtHoras(Number(v))}
-                style={{ fontSize: 10, fontWeight: 700, fill: COR_TEXTO }}
+                formatter={(v: any) =>
+                  fmtHoras(Number(v))
+                }
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  fill: COR_TEXTO,
+                }}
               />
             </Bar>
           </BarChart>
@@ -647,12 +729,27 @@ function ParetoCausasChart({ data }: { data: PrincipalCausa[] }) {
   )
 }
 
-function LinhaResumoTable({ data }: { data: LinhaResumo[] }) {
+function LinhaResumoTable({
+  data,
+}: {
+  data: LinhaResumo[]
+}) {
   return (
     <div className="card overflow-hidden">
-      <div className="px-4 py-4 md:px-6" style={{ borderBottom: "1px solid var(--border)" }}>
-        <p className="card-label mb-1">Linhas de envase</p>
-        <h2 className="text-base font-bold md:text-lg" style={{ color: "var(--text-primary)" }}>
+      <div
+        className="px-4 py-4 md:px-6"
+        style={{
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <p className="card-label mb-1">
+          Linhas de envase
+        </p>
+
+        <h2
+          className="text-base font-bold md:text-lg"
+          style={{ color: "var(--text-primary)" }}
+        >
           Resumo executivo por linha
         </h2>
       </div>
@@ -661,30 +758,66 @@ function LinhaResumoTable({ data }: { data: LinhaResumo[] }) {
         <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr>
-              {["Linha", "Planejado V1", "Real Cognitive", "Perda", "Aderência", "Impacto estimado"].map((h) => (
+              {[
+                "Linha",
+                "Planejado V1",
+                "Real Cognitive",
+                "Perda",
+                "Aderência",
+              ].map((h) => (
                 <th
                   key={h}
                   className="px-4 py-3 text-left text-xs uppercase tracking-wider"
-                  style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}
+                  style={{
+                    color: "var(--text-secondary)",
+                    borderBottom:
+                      "1px solid var(--border)",
+                  }}
                 >
                   {h}
                 </th>
               ))}
             </tr>
           </thead>
+
           <tbody>
             {data.map((item) => (
               <tr key={item.linha}>
-                <td className="px-4 py-3 font-bold" style={{ color: item.linha === "L1" ? COR_L1 : COR_L2 }}>
+                <td
+                  className="px-4 py-3 font-bold"
+                  style={{
+                    color:
+                      item.linha === "L1"
+                        ? COR_L1
+                        : COR_L2,
+                  }}
+                >
                   {item.linha}
                 </td>
-                <td className="px-4 py-3">{fmtHoras(item.horas_planejadas_v1)} h</td>
-                <td className="px-4 py-3">{fmtHoras(item.horas_reais_produtivas)} h</td>
-                <td className="px-4 py-3 font-semibold" style={{ color: item.perda_horas > 0 ? COR_PERDA : "var(--text-primary)" }}>
+
+                <td className="px-4 py-3">
+                  {fmtHoras(item.horas_planejadas_v1)} h
+                </td>
+
+                <td className="px-4 py-3">
+                  {fmtHoras(item.horas_reais_produtivas)} h
+                </td>
+
+                <td
+                  className="px-4 py-3 font-semibold"
+                  style={{
+                    color:
+                      item.perda_horas > 0
+                        ? COR_PERDA
+                        : "var(--text-primary)",
+                  }}
+                >
                   {fmtHoras(item.perda_horas)} h
                 </td>
-                <td className="px-4 py-3">{fmtPct(item.aderencia_pct)}</td>
-                <td className="px-4 py-3">{fmtCaixas(item.impacto_caixas)} cx</td>
+
+                <td className="px-4 py-3">
+                  {fmtPct(item.aderencia_pct)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -694,12 +827,27 @@ function LinhaResumoTable({ data }: { data: LinhaResumo[] }) {
   )
 }
 
-function DiasCriticosTable({ data }: { data: DiaAnalise[] }) {
+function DiasCriticosTable({
+  data,
+}: {
+  data: DiaAnalise[]
+}) {
   return (
     <div className="card overflow-hidden">
-      <div className="px-4 py-4 md:px-6" style={{ borderBottom: "1px solid var(--border)" }}>
-        <p className="card-label mb-1">Desvios relevantes</p>
-        <h2 className="text-base font-bold md:text-lg" style={{ color: "var(--text-primary)" }}>
+      <div
+        className="px-4 py-4 md:px-6"
+        style={{
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <p className="card-label mb-1">
+          Desvios relevantes
+        </p>
+
+        <h2
+          className="text-base font-bold md:text-lg"
+          style={{ color: "var(--text-primary)" }}
+        >
           Dias críticos
         </h2>
       </div>
@@ -708,31 +856,77 @@ function DiasCriticosTable({ data }: { data: DiaAnalise[] }) {
         <table className="w-full min-w-[820px] text-sm">
           <thead>
             <tr>
-              {["Data", "Linha", "Planejado", "Real", "Perda", "Aderência", "Impacto"].map((h) => (
+              {[
+                "Data",
+                "Linha",
+                "Planejado",
+                "Real",
+                "Perda",
+                "Aderência",
+              ].map((h) => (
                 <th
                   key={h}
                   className="px-4 py-3 text-left text-xs uppercase tracking-wider"
-                  style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}
+                  style={{
+                    color: "var(--text-secondary)",
+                    borderBottom:
+                      "1px solid var(--border)",
+                  }}
                 >
                   {h}
                 </th>
               ))}
             </tr>
           </thead>
+
           <tbody>
             {data.slice(0, 10).map((item) => (
               <tr key={`${item.data}-${item.linha}`}>
-                <td className="px-4 py-3">{fmtData(item.data)}</td>
-                <td className="px-4 py-3 font-bold" style={{ color: item.linha === "L1" ? COR_L1 : COR_L2 }}>
+                <td className="px-4 py-3">
+                  {fmtData(item.data)}
+                </td>
+
+                <td
+                  className="px-4 py-3 font-bold"
+                  style={{
+                    color:
+                      item.linha === "L1"
+                        ? COR_L1
+                        : COR_L2,
+                  }}
+                >
                   {item.linha}
                 </td>
-                <td className="px-4 py-3">{fmtHoras(item.horas_planejadas_v1)} h</td>
-                <td className="px-4 py-3">{fmtHoras(item.horas_reais_produtivas)} h</td>
-                <td className="px-4 py-3 font-semibold" style={{ color: item.perda_horas > 0 ? COR_PERDA : "var(--text-primary)" }}>
+
+                <td className="px-4 py-3">
+                  {fmtHoras(
+                    item.horas_planejadas_v1
+                  )}{" "}
+                  h
+                </td>
+
+                <td className="px-4 py-3">
+                  {fmtHoras(
+                    item.horas_reais_produtivas
+                  )}{" "}
+                  h
+                </td>
+
+                <td
+                  className="px-4 py-3 font-semibold"
+                  style={{
+                    color:
+                      item.perda_horas > 0
+                        ? COR_PERDA
+                        : "var(--text-primary)",
+                  }}
+                >
                   {fmtHoras(item.perda_horas)} h
                 </td>
-                <td className="px-4 py-3">{fmtPct(item.aderencia_pct)}</td>
-                <td className="px-4 py-3">{fmtCaixas(item.impacto_caixas)} cx</td>
+
+                <td className="px-4 py-3">
+                  {fmtPct(item.aderencia_pct)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -741,13 +935,22 @@ function DiasCriticosTable({ data }: { data: DiaAnalise[] }) {
     </div>
   )
 }
-
-function EquipamentosTable({ data }: { data: EquipamentoResumo[] }) {
+function EquipamentosTable({
+  data,
+}: {
+  data: EquipamentoResumo[]
+}) {
   return (
     <div className="card overflow-hidden">
-      <div className="px-4 py-4 md:px-6" style={{ borderBottom: "1px solid var(--border)" }}>
+      <div
+        className="px-4 py-4 md:px-6"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
         <p className="card-label mb-1">Detalhe operacional</p>
-        <h2 className="text-base font-bold md:text-lg" style={{ color: "var(--text-primary)" }}>
+        <h2
+          className="text-base font-bold md:text-lg"
+          style={{ color: "var(--text-primary)" }}
+        >
           Aproveitamento por equipamento
         </h2>
       </div>
@@ -756,28 +959,52 @@ function EquipamentosTable({ data }: { data: EquipamentoResumo[] }) {
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr>
-              {["Linha", "Equipamento", "Horas produtivas", "Horas apontadas", "Aproveitamento", "Produção"].map((h) => (
+              {[
+                "Linha",
+                "Equipamento",
+                "Horas produtivas",
+                "Horas apontadas",
+                "Aproveitamento",
+                "Produção",
+              ].map((h) => (
                 <th
                   key={h}
                   className="px-4 py-3 text-left text-xs uppercase tracking-wider"
-                  style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}
+                  style={{
+                    color: "var(--text-secondary)",
+                    borderBottom: "1px solid var(--border)",
+                  }}
                 >
                   {h}
                 </th>
               ))}
             </tr>
           </thead>
+
           <tbody>
             {data.map((item) => (
               <tr key={`${item.linha}-${item.equipamento}`}>
-                <td className="px-4 py-3 font-bold" style={{ color: item.linha === "L1" ? COR_L1 : COR_L2 }}>
+                <td
+                  className="px-4 py-3 font-bold"
+                  style={{
+                    color: item.linha === "L1" ? COR_L1 : COR_L2,
+                  }}
+                >
                   {item.linha}
                 </td>
                 <td className="px-4 py-3">{item.equipamento}</td>
-                <td className="px-4 py-3">{fmtHoras(item.horas_produtivas)} h</td>
-                <td className="px-4 py-3">{fmtHoras(item.horas_apontadas)} h</td>
-                <td className="px-4 py-3">{fmtPct(item.aproveitamento_pct)}</td>
-                <td className="px-4 py-3">{fmtNumber(item.qtd_produzida, 0)} tb</td>
+                <td className="px-4 py-3">
+                  {fmtHoras(item.horas_produtivas)} h
+                </td>
+                <td className="px-4 py-3">
+                  {fmtHoras(item.horas_apontadas)} h
+                </td>
+                <td className="px-4 py-3">
+                  {fmtPct(item.aproveitamento_pct)}
+                </td>
+                <td className="px-4 py-3">
+                  {fmtNumber(item.qtd_produzida, 0)} tb
+                </td>
               </tr>
             ))}
           </tbody>
@@ -837,7 +1064,10 @@ export function ProducaoPage() {
       .filter((d) => d.horas_planejadas_v1 > 0 || d.horas_reais_produtivas > 0)
       .sort((a, b) => `${a.data}-${a.linha}`.localeCompare(`${b.data}-${b.linha}`))
       .map((d) => ({
-        dia_label: linhaFiltro === "TODAS" ? `${String(d.dia).padStart(2, "0")} ${d.linha}` : String(d.dia).padStart(2, "0"),
+        dia_label:
+          linhaFiltro === "TODAS"
+            ? `${String(d.dia).padStart(2, "0")} ${d.linha}`
+            : String(d.dia).padStart(2, "0"),
         data: d.data,
         linha: d.linha,
         planejado: d.horas_planejadas_v1,
@@ -869,13 +1099,22 @@ export function ProducaoPage() {
     <div className="min-h-screen space-y-6 p-3 md:space-y-8 md:p-6">
       <div className="fade-in flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
-          <p className="mb-1 text-[10px] font-medium uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>
+          <p
+            className="mb-1 text-[10px] font-medium uppercase tracking-widest"
+            style={{ color: "var(--text-secondary)" }}
+          >
             Análise · Produção
           </p>
-          <h1 className="mb-1 text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>
+          <h1
+            className="mb-1 text-xl font-bold md:text-2xl"
+            style={{ color: "var(--text-primary)" }}
+          >
             Causa raiz das perdas
           </h1>
-          <p className="text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
+          <p
+            className="text-sm leading-6"
+            style={{ color: "var(--text-secondary)" }}
+          >
             Comparação entre baseline V1 do MPS e apontamentos reais do Cognitive no envase.
           </p>
         </div>
@@ -885,7 +1124,10 @@ export function ProducaoPage() {
             value={mes}
             onChange={(e) => setMes(Number(e.target.value))}
             className="h-11 rounded-xl border px-3 text-sm font-semibold outline-none"
-            style={{ background: "var(--bg-secondary)", color: "var(--text-primary)" }}
+            style={{
+              background: "var(--bg-secondary)",
+              color: "var(--text-primary)",
+            }}
           >
             {MESES.map((m) => (
               <option key={m.value} value={m.value}>
@@ -896,9 +1138,14 @@ export function ProducaoPage() {
 
           <select
             value={linhaFiltro}
-            onChange={(e) => setLinhaFiltro(e.target.value as "TODAS" | "L1" | "L2")}
+            onChange={(e) =>
+              setLinhaFiltro(e.target.value as "TODAS" | "L1" | "L2")
+            }
             className="h-11 rounded-xl border px-3 text-sm font-semibold outline-none"
-            style={{ background: "var(--bg-secondary)", color: "var(--text-primary)" }}
+            style={{
+              background: "var(--bg-secondary)",
+              color: "var(--text-primary)",
+            }}
           >
             <option value="TODAS">Todas as linhas</option>
             <option value="L1">Linha 1</option>
@@ -916,13 +1163,17 @@ export function ProducaoPage() {
       </div>
 
       {loading ? (
-        <div className="card p-6 text-sm md:p-10">Carregando produção...</div>
+        <div className="card p-6 text-sm md:p-10">
+          Carregando produção...
+        </div>
       ) : error ? (
         <div className="card p-6 text-sm md:p-10" style={{ color: "#DC2626" }}>
           {error}
         </div>
       ) : !analise ? (
-        <div className="card p-6 text-sm md:p-10">Nenhuma análise encontrada.</div>
+        <div className="card p-6 text-sm md:p-10">
+          Nenhuma análise encontrada.
+        </div>
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -933,19 +1184,22 @@ export function ProducaoPage() {
               icon={Target}
               tone={analise.resumo.aderencia_pct >= 95 ? "success" : "default"}
             />
+
             <KpiCard
               label="Perda produtiva"
               value={`${fmtHoras(analise.resumo.perda_horas)} h`}
-              helper="Diferença entre horas disponíveis V1 e produção real Cognitive"
+              helper="Planejado V1 menos horas produtivas reais do Cognitive"
               icon={TrendingDown}
               tone="danger"
             />
+
             <KpiCard
-              label="Impacto estimado"
-              value={`${fmtCaixas(analise.resumo.impacto_caixas)} cx`}
-              helper={`${fmtNumber(analise.resumo.impacto_tubetes, 0)} tubetes de capacidade potencial`}
+              label="Planejado V1"
+              value={`${fmtHoras(analise.resumo.horas_planejadas_v1)} h`}
+              helper="Soma das horas disponíveis no Gantt original da competência"
               icon={Package}
             />
+
             <KpiCard
               label="Principal causa"
               value={analise.resumo.principal_causa?.motivo || "Sem perda"}
@@ -984,12 +1238,14 @@ export function ProducaoPage() {
               helper="Janela real do Cognitive consolidada por linha"
               icon={Clock3}
             />
+
             <KpiCard
               label="Produção realizada"
               value={`${fmtCaixas(analise.resumo.qtd_produzida_caixas)} cx`}
               helper={`${fmtNumber(analise.resumo.qtd_produzida_tubetes, 0)} tubetes no envase`}
               icon={Activity}
             />
+
             <KpiCard
               label="Pior linha"
               value={analise.resumo.pior_linha || "-"}
@@ -998,13 +1254,18 @@ export function ProducaoPage() {
             />
           </div>
 
-          <div className="card p-4 text-xs leading-5 md:p-5" style={{ color: "var(--text-secondary)" }}>
-            <div className="mb-2 flex items-center gap-2 font-semibold" style={{ color: "var(--text-primary)" }}>
+          <div
+            className="card p-4 text-xs leading-5 md:p-5"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <div
+              className="mb-2 flex items-center gap-2 font-semibold"
+              style={{ color: "var(--text-primary)" }}
+            >
               <BarChart3 size={15} />
               Regra de cálculo
             </div>
-            A análise considera apenas envase. Para L1, os apontamentos da Maq 1 e Maq 2 são consolidados por janela de tempo,
-            evitando duplicidade de horas quando os equipamentos trabalham em paralelo. O baseline é sempre a V1 da competência.
+            A análise considera apenas envase. Para L1, os apontamentos da Maq 1 e Maq 2 são consolidados por janela de tempo, evitando duplicidade de horas quando os equipamentos trabalham em paralelo. O baseline é sempre a V1 da competência e o planejado é a soma das horas do Gantt.
           </div>
         </>
       )}
