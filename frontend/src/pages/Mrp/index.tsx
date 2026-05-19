@@ -1588,14 +1588,25 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   preserveAspectRatio="none"
                   style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 5, pointerEvents: "none" }}
                 >
-                  <path d={linhaOrcadoPath} fill="none" stroke="#3F73C8" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d={linhaOrcadoPath}
+                    fill="none"
+                    stroke="#356AC3"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={0.95}
+                  />
                   {linhaOrcadoPontos.map((p, idx) => (
-                    <g key={idx}>
-                      <circle cx={p.x} cy={p.y} r={2.4} fill="#FFFFFF" stroke="#3F73C8" strokeWidth={1.9} />
-                      <text x={p.x} y={Math.max(14, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="800" fill="#3F73C8">
-                        {fmtAbrev(linhas[idx]?.orcado)}
-                      </text>
-                    </g>
+                    <circle
+                      key={idx}
+                      cx={p.x}
+                      cy={p.y}
+                      r={1.8}
+                      fill="#FFFFFF"
+                      stroke="#356AC3"
+                      strokeWidth={1.5}
+                    />
                   ))}
                 </svg>
               )}
@@ -1606,9 +1617,26 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   preserveAspectRatio="none"
                   style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 6, pointerEvents: "none" }}
                 >
-                  <path d={linhaSimuladaPath} fill="none" stroke="#8B5CF6" strokeWidth={2.2} strokeDasharray="5 7" strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d={linhaSimuladaPath}
+                    fill="none"
+                    stroke="#8B5CF6"
+                    strokeWidth={1.9}
+                    strokeDasharray="5 7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={0.9}
+                  />
                   {linhaSimuladaPontos.map((p, idx) => (
-                    <circle key={idx} cx={p.x} cy={p.y} r={2.2} fill="#8B5CF6" stroke="white" strokeWidth={1.6} />
+                    <circle
+                      key={idx}
+                      cx={p.x}
+                      cy={p.y}
+                      r={1.6}
+                      fill="#FFFFFF"
+                      stroke="#8B5CF6"
+                      strokeWidth={1.4}
+                    />
                   ))}
                 </svg>
               )}
