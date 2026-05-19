@@ -155,16 +155,16 @@ function smoothPath(points: ChartPoint[]) {
 
   const d = [`M ${points[0].x} ${points[0].y}`]
 
+  // Curva suave com tangente horizontal por trecho.
+  // Evita overshoot visual e deixa o gráfico com aparência mais limpa/premium.
   for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i - 1] || points[i]
     const p1 = points[i]
     const p2 = points[i + 1]
-    const p3 = points[i + 2] || p2
-
-    const cp1x = p1.x + (p2.x - p0.x) / 6
-    const cp1y = p1.y + (p2.y - p0.y) / 6
-    const cp2x = p2.x - (p3.x - p1.x) / 6
-    const cp2y = p2.y - (p3.y - p1.y) / 6
+    const dx = p2.x - p1.x
+    const cp1x = p1.x + dx * 0.34
+    const cp1y = p1.y
+    const cp2x = p2.x - dx * 0.34
+    const cp2y = p2.y
 
     d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`)
   }
@@ -1529,7 +1529,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12, paddingLeft: 4 }}>
           {[
-            { key: "orcado" as const, label: "Orçado", cor: "#174EA6", tipo: "linha" },
+            { key: "orcado" as const, label: "Orçado", cor: "#2563B8", tipo: "linha" },
             { key: "realizado" as const, label: "Realizado SD3", cor: AZUL, tipo: "barra" },
             { key: "projecao" as const, label: "Projeção MPS", cor: "#CBD5E1", tipo: "barra" },
             { key: "simulado" as const, label: "Simulado", cor: "#8B5CF6", tipo: "tracejado" },
@@ -1575,11 +1575,11 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   preserveAspectRatio="none"
                   style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 5, pointerEvents: "none" }}
                 >
-                  <path d={linhaOrcadoPath} fill="none" stroke="#174EA6" strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
+                  <path d={linhaOrcadoPath} fill="none" stroke="#2563B8" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
                   {linhaOrcadoPontos.map((p, idx) => (
                     <g key={idx}>
-                      <circle cx={p.x} cy={p.y} r={4.5} fill="#174EA6" stroke="white" strokeWidth={2} />
-                      <text x={p.x} y={Math.max(12, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="900" fill="#174EA6">
+                      <circle cx={p.x} cy={p.y} r={3.2} fill="#2563B8" stroke="white" strokeWidth={2} />
+                      <text x={p.x} y={Math.max(12, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="900" fill="#2563B8">
                         {fmtAbrev(linhas[idx]?.orcado)}
                       </text>
                     </g>
@@ -1595,7 +1595,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                 >
                   <path d={linhaSimuladaPath} fill="none" stroke="#8B5CF6" strokeWidth={3} strokeDasharray="7 7" strokeLinecap="round" strokeLinejoin="round" />
                   {linhaSimuladaPontos.map((p, idx) => (
-                    <circle key={idx} cx={p.x} cy={p.y} r={4} fill="#8B5CF6" stroke="white" strokeWidth={2} />
+                    <circle key={idx} cx={p.x} cy={p.y} r={3} fill="#8B5CF6" stroke="white" strokeWidth={2} />
                   ))}
                 </svg>
               )}
@@ -1613,7 +1613,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                       <div style={{ height: 235, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 8, position: "relative" }}>
                         {mostrarBase && (
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-                            <span style={{ fontSize: 10, fontWeight: 950, color: "var(--text-primary)", minHeight: 14 }}>{fmtAbrev(l.base)}</span>
+                            <span style={{ fontSize: 10, fontWeight: 950, color: "var(--text-primary)", minHeight: 14 }}>{l.base > 0 ? fmtAbrev(l.base) : ""}</span>
                             <div title={`${l.origem}: ${fmt(l.base)} cx`} style={{ width: 34, height: baseH, borderRadius: "8px 8px 2px 2px", background: isReal ? AZUL : "#CBD5E1", boxShadow: isReal ? "0 12px 24px rgba(23,55,94,0.16)" : "none" }} />
                           </div>
                         )}
