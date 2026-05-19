@@ -1425,8 +1425,10 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   <div style={{ height: 42, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
                     <span style={{ fontSize: 11, fontWeight: 950, color: "var(--text-primary)" }}>{l.mes}</span>
                     {visivel && (
-                      <span style={{ fontSize: 9.5, fontWeight: 800, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                        SD3 {fmtAbrev(Number(sd3Mensal[l.numeroMes - 1] || 0))} · {l.referenciaPerdaLabel} {fmtAbrev(l.referenciaPerda)}
+                      <span style={{ fontSize: 9.5, fontWeight: 800, color: "var(--text-secondary)", lineHeight: 1.25, textAlign: "center", whiteSpace: "nowrap" }}>
+                        <span>SD3 {fmtAbrev(Number(sd3Mensal[l.numeroMes - 1] || 0))}</span>
+                        <br />
+                        <span>{l.referenciaPerdaLabel} {fmtAbrev(l.referenciaPerda)}</span>
                       </span>
                     )}
                   </div>
@@ -1568,11 +1570,11 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   preserveAspectRatio="none"
                   style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 5, pointerEvents: "none" }}
                 >
-                  <path d={linhaOrcadoPath} fill="none" stroke="#4A7FB5" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+                  <path d={linhaOrcadoPath} fill="none" stroke="#2F5FBF" strokeWidth={2.1} strokeLinecap="round" strokeLinejoin="round" />
                   {linhaOrcadoPontos.map((p, idx) => (
                     <g key={idx}>
-                      <circle cx={p.x} cy={p.y} r={2.4} fill="#4A7FB5" stroke="white" strokeWidth={1.8} />
-                      <text x={p.x} y={Math.max(12, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="850" fill="#4A7FB5">
+                      <circle cx={p.x} cy={p.y} r={2.2} fill="#FFFFFF" stroke="#2F5FBF" strokeWidth={1.8} />
+                      <text x={p.x} y={Math.max(12, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="800" fill="#2F5FBF">
                         {fmtAbrev(linhas[idx]?.orcado)}
                       </text>
                     </g>
@@ -1776,11 +1778,17 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
   const labelUnidade = unidade === "caixas" ? "cx" : "tb"
   const [orcadoAnualCaixas, setOrcadoAnualCaixas] = useState<number | null>(null)
   const [orcadoMensalCaixas, setOrcadoMensalCaixas] = useState<number[]>([])
+  const [sd3MensalConsolidado, setSd3MensalConsolidado] = useState<Array<number | null>>(Array.from({ length: 12 }, () => null))
   const [mostrarLegenda, setMostrarLegenda] = useState(true)
 
   useEffect(() => {
     getOrcadoFaturamento()
-      .then((d: unknown) => setOrcadoAnualCaixas(Number((d as { total_caixas?: number })?.total_caixas || 0)))
+      .then((d: unknown) => {
+        const total = Number((d as { total_caixas?: number })?.total_caixas || 0)
+        const mensalSaida = extrairOrcadoMensalFaturamento(d, total, Array.from({ length: 12 }, () => 0)).meses
+        const totalFallback = mensalSaida.reduce((a, b) => a + Number(b || 0), 0)
+        setOrcadoAnualCaixas(total > 0 ? total : (totalFallback > 0 ? totalFallback : null))
+      })
       .catch(() => setOrcadoAnualCaixas(null))
 
     getOrcadoLiberacao()
@@ -1794,6 +1802,12 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
       })
       .catch(() => setOrcadoMensalCaixas([]))
   }, [])
+
+  useEffect(() => {
+    getSd3RealizadoMensal(anoAnalise)
+      .then(setSd3MensalConsolidado)
+      .catch(() => setSd3MensalConsolidado(Array.from({ length: 12 }, () => null)))
+  }, [anoAnalise])
 
   const dadosVersao = useMemo(() => {
     return rodadas.map((rodada) => {
@@ -1814,15 +1828,25 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
       })
       const porMes = Array.from({ length: 12 }, (_, i) => {
         const mes = i + 1
-        return etapas.reduce((acc, e) => {
+        const planejado = etapas.reduce((acc, e) => {
           if (Number(e.mes_liberacao) === mes && Number(e.ano_liberacao) === anoAnalise)
             return acc + Number(e.qtd_planejada || 0)
           return acc
         }, 0)
+
+        // Para o comparativo anual executivo, meses anteriores à rodada ativa devem
+        // refletir o realizado oficial da SD3 quando disponível.
+        // Assim o total projetado por versão vira: realizado fechado + plano da versão.
+        const realizadoSd3Cx = sd3MensalConsolidado[i]
+        if (mes < mesAnalise && realizadoSd3Cx !== null && realizadoSd3Cx !== undefined) {
+          return Number(realizadoSd3Cx || 0) * 500
+        }
+
+        return planejado
       })
-      return { rodada, totalMesTubetes, porLinha, porMes }
+      return { rodada, totalMesTubetes: porMes[mesAnalise - 1] || totalMesTubetes, porLinha, porMes }
     })
-  }, [rodadas, etapasPorRodada, mesAnalise, anoAnalise])
+  }, [rodadas, etapasPorRodada, mesAnalise, anoAnalise, sd3MensalConsolidado])
 
   const atual = dadosVersao[dadosVersao.length - 1]
   const anterior = dadosVersao.length > 1 ? dadosVersao[dadosVersao.length - 2] : null
@@ -1920,7 +1944,7 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
           {sectionTitle("Distribuição anual", `Liberação mensal por versão — ${anoAnalise}`)}
           <p style={{ margin: 0, fontSize: 12, color: "var(--text-secondary)" }}>
-            Valores em {unidade}. Delta em relação à versão anterior. Linha Δ V1→Atual mostra o acumulado total.
+            Valores em {unidade}. Meses anteriores usam SD3 quando disponível. Delta em relação à versão anterior. Linha Δ V1→Atual mostra o acumulado total.
           </p>
         </div>
         <TabelaMensalUnificada dadosVersao={dadosVersao} anoAnalise={anoAnalise} divisor={divisor} />
