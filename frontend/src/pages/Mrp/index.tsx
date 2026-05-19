@@ -147,6 +147,31 @@ function fmtSinal(value?: number | null, decimais = 0) {
   return `${n > 0 ? "+" : ""}${fmt(n, decimais)}`
 }
 
+type ChartPoint = { x: number; y: number }
+
+function smoothPath(points: ChartPoint[]) {
+  if (!points.length) return ""
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`
+
+  const d = [`M ${points[0].x} ${points[0].y}`]
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] || points[i]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[i + 2] || p2
+
+    const cp1x = p1.x + (p2.x - p0.x) / 6
+    const cp1y = p1.y + (p2.y - p0.y) / 6
+    const cp2x = p2.x - (p3.x - p1.x) / 6
+    const cp2y = p2.y - (p3.y - p1.y) / 6
+
+    d.push(`C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`)
+  }
+
+  return d.join(" ")
+}
+
 function classeImpacto(tipo?: string | null) {
   if (tipo === "atrasou") return "bg-red-50 text-red-700 border-red-200"
   if (tipo === "antecipou") return "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -1114,6 +1139,16 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
   const [perdasCxMes, setPerdasCxMes] = useState<string[]>(Array.from({ length: 12 }, () => ""))
   const [modalMesAberto, setModalMesAberto] = useState(false)
   const [modoGraficoSimulacao, setModoGraficoSimulacao] = useState<"mensal" | "acumulado">("mensal")
+  const [seriesVisiveisSimulacao, setSeriesVisiveisSimulacao] = useState({
+    orcado: true,
+    realizado: true,
+    projecao: true,
+    simulado: true,
+  })
+
+  function toggleSerieSimulacao(key: keyof typeof seriesVisiveisSimulacao) {
+    setSeriesVisiveisSimulacao((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
 
   const atual = useMemo(() => {
     if (!rodadas.length) return null
@@ -1300,6 +1335,18 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
   const minChartHeight = 260
   const barMaxHeight = 185
   const chartMinWidth = 1120
+  const linhaOrcadoPontos = linhas.map((l, idx) => ({
+    x: (idx + 0.5) * 100,
+    y: 235 - ((l.orcado / maxMensal) * barMaxHeight),
+  }))
+  const linhaOrcadoPath = smoothPath(linhaOrcadoPontos)
+  const linhaSimuladaPontos = linhas
+    .filter((l) => l.mesSimulavel && l.perdaSimulada > 0)
+    .map((l) => ({
+      x: (l.numeroMes - 0.5) * 100,
+      y: 235 - ((l.projetadoSimulado / maxMensal) * barMaxHeight),
+    }))
+  const linhaSimuladaPath = smoothPath(linhaSimuladaPontos)
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -1480,18 +1527,40 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap", marginBottom: 12, paddingLeft: 4 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12, paddingLeft: 4 }}>
           {[
-            { label: "Orçado", cor: "#174EA6", tipo: "linha" },
-            { label: "Realizado SD3", cor: AZUL, tipo: "barra" },
-            { label: "Projeção MPS", cor: "#CBD5E1", tipo: "barra" },
-            { label: "Simulado", cor: "#8B5CF6", tipo: "tracejado" },
-          ].map((item) => (
-            <div key={item.label} style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--text-secondary)", fontWeight: 800 }}>
-              <span style={{ width: item.tipo === "linha" ? 24 : 13, height: item.tipo === "linha" ? 3 : 13, borderRadius: item.tipo === "linha" ? 999 : 3, background: item.tipo === "tracejado" ? "transparent" : item.cor, border: item.tipo === "tracejado" ? `2px dashed ${item.cor}` : "none" }} />
-              {item.label}
-            </div>
-          ))}
+            { key: "orcado" as const, label: "Orçado", cor: "#174EA6", tipo: "linha" },
+            { key: "realizado" as const, label: "Realizado SD3", cor: AZUL, tipo: "barra" },
+            { key: "projecao" as const, label: "Projeção MPS", cor: "#CBD5E1", tipo: "barra" },
+            { key: "simulado" as const, label: "Simulado", cor: "#8B5CF6", tipo: "tracejado" },
+          ].map((item) => {
+            const ativo = seriesVisiveisSimulacao[item.key]
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => toggleSerieSimulacao(item.key)}
+                style={{
+                  height: 28,
+                  border: "1px solid var(--border)",
+                  borderRadius: 999,
+                  background: ativo ? "var(--bg-primary)" : "rgba(148,163,184,0.10)",
+                  color: ativo ? "var(--text-secondary)" : "#94A3B8",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "0 10px",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  opacity: ativo ? 1 : 0.55,
+                }}
+              >
+                <span style={{ width: item.tipo === "linha" ? 24 : 12, height: item.tipo === "linha" ? 3 : 12, borderRadius: item.tipo === "linha" ? 999 : 3, background: item.tipo === "tracejado" ? "transparent" : item.cor, border: item.tipo === "tracejado" ? `2px dashed ${item.cor}` : "none" }} />
+                {item.label}
+              </button>
+            )
+          })}
         </div>
 
         <div style={{ overflowX: "auto" }}>
@@ -1499,23 +1568,56 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
             <div style={{ minWidth: chartMinWidth, height: 360, position: "relative", padding: "26px 12px 38px", borderBottom: "1px solid var(--border)" }}>
               <div style={{ position: "absolute", left: 12, right: 12, top: 40, bottom: 38, backgroundImage: "linear-gradient(to bottom, var(--border) 1px, transparent 1px)", backgroundSize: "100% 72px", opacity: 0.55 }} />
               <div style={{ position: "absolute", left: `calc(${(Math.max(mesAnalise - 1, 0) / 12) * 100}% + 12px)`, top: 30, bottom: 38, borderLeft: "1px dashed #CBD5E1" }} />
+
+              {seriesVisiveisSimulacao.orcado && (
+                <svg
+                  viewBox="0 0 1200 235"
+                  preserveAspectRatio="none"
+                  style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 5, pointerEvents: "none" }}
+                >
+                  <path d={linhaOrcadoPath} fill="none" stroke="#174EA6" strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
+                  {linhaOrcadoPontos.map((p, idx) => (
+                    <g key={idx}>
+                      <circle cx={p.x} cy={p.y} r={4.5} fill="#174EA6" stroke="white" strokeWidth={2} />
+                      <text x={p.x} y={Math.max(12, p.y - 12)} textAnchor="middle" fontSize="10" fontWeight="900" fill="#174EA6">
+                        {fmtAbrev(linhas[idx]?.orcado)}
+                      </text>
+                    </g>
+                  ))}
+                </svg>
+              )}
+
+              {seriesVisiveisSimulacao.simulado && linhaSimuladaPontos.length >= 2 && (
+                <svg
+                  viewBox="0 0 1200 235"
+                  preserveAspectRatio="none"
+                  style={{ position: "absolute", left: 12, right: 12, top: 52, height: 235, width: "calc(100% - 24px)", overflow: "visible", zIndex: 6, pointerEvents: "none" }}
+                >
+                  <path d={linhaSimuladaPath} fill="none" stroke="#8B5CF6" strokeWidth={3} strokeDasharray="7 7" strokeLinecap="round" strokeLinejoin="round" />
+                  {linhaSimuladaPontos.map((p, idx) => (
+                    <circle key={idx} cx={p.x} cy={p.y} r={4} fill="#8B5CF6" stroke="white" strokeWidth={2} />
+                  ))}
+                </svg>
+              )}
+
               <div style={{ height: "100%", display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 14, alignItems: "end", position: "relative", zIndex: 2 }}>
                 {linhas.map((l) => {
-                  const orcadoH = (l.orcado / maxMensal) * barMaxHeight
                   const baseH = Math.max(l.base > 0 ? 4 : 0, (l.base / maxMensal) * barMaxHeight)
                   const simH = Math.max(l.projetadoSimulado > 0 ? 4 : 0, (l.projetadoSimulado / maxMensal) * barMaxHeight)
                   const isReal = l.fechado && l.temSd3
+                  const mostrarBase = isReal ? seriesVisiveisSimulacao.realizado : seriesVisiveisSimulacao.projecao
+                  const mostrarSimulado = seriesVisiveisSimulacao.simulado && l.mesSimulavel && l.perdaSimulada > 0
+
                   return (
                     <div key={l.mes} style={{ height: 292, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", position: "relative" }}>
                       <div style={{ height: 235, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 8, position: "relative" }}>
-                        <div style={{ position: "absolute", left: "9%", right: "9%", bottom: orcadoH, borderTop: "3px solid #174EA6", borderRadius: 999 }}>
-                          <span style={{ position: "absolute", left: "50%", top: -24, transform: "translateX(-50%)", fontSize: 10, fontWeight: 950, color: "#174EA6", whiteSpace: "nowrap" }}>{fmtAbrev(l.orcado)}</span>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-                          <span style={{ fontSize: 10, fontWeight: 950, color: "var(--text-primary)", minHeight: 14 }}>{fmtAbrev(l.base)}</span>
-                          <div title={`${l.origem}: ${fmt(l.base)} cx`} style={{ width: 34, height: baseH, borderRadius: "8px 8px 2px 2px", background: isReal ? AZUL : "#CBD5E1", boxShadow: isReal ? "0 12px 24px rgba(23,55,94,0.16)" : "none" }} />
-                        </div>
-                        {l.mesSimulavel && l.perdaSimulada > 0 && (
+                        {mostrarBase && (
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+                            <span style={{ fontSize: 10, fontWeight: 950, color: "var(--text-primary)", minHeight: 14 }}>{fmtAbrev(l.base)}</span>
+                            <div title={`${l.origem}: ${fmt(l.base)} cx`} style={{ width: 34, height: baseH, borderRadius: "8px 8px 2px 2px", background: isReal ? AZUL : "#CBD5E1", boxShadow: isReal ? "0 12px 24px rgba(23,55,94,0.16)" : "none" }} />
+                          </div>
+                        )}
+                        {mostrarSimulado && (
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
                             <span style={{ fontSize: 10, fontWeight: 950, color: "#7C3AED", minHeight: 14 }}>{fmtAbrev(l.projetadoSimulado)}</span>
                             <div title={`Simulado: ${fmt(l.projetadoSimulado)} cx`} style={{ width: 26, height: simH, borderRadius: "8px 8px 2px 2px", background: "rgba(139,92,246,0.08)", border: "2px dashed #8B5CF6" }} />
