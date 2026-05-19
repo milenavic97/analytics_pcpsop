@@ -53,6 +53,7 @@ const COR_GANHO = "#15803D"
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type UnidadeConsolidado = "caixas" | "tubetes"
+type ComparativoPerda = "v1" | "orcado_saida" | "orcado_liberacao"
 
 type Filtros = {
   busca: string
@@ -1012,6 +1013,38 @@ function extrairOrcadoMensalFaturamento(data: unknown, totalAnual: number, fallb
   return { meses: Array.from({ length: 12 }, () => 0), origem: "Orçado não disponível" }
 }
 
+function extrairOrcadoMensalLiberacao(data: unknown) {
+  const d = data as Record<string, unknown>
+  const arr = (Array.isArray(d.meses) ? d.meses : []) as Array<Record<string, unknown>>
+
+  const meses = Array.from({ length: 12 }, (_, idx) => {
+    const mes = idx + 1
+    const item = arr.find((m) => Number(m.mes ?? m.mes_numero ?? m.month) === mes)
+
+    if (!item) return 0
+
+    const direto = Number(
+      item.qtd_caixas ??
+      item.caixas ??
+      item.total_caixas ??
+      item.orcado_caixas ??
+      0
+    )
+
+    if (Number.isFinite(direto) && direto > 0) return direto
+
+    const l1 = Number(item.L1 ?? item.l1 ?? item.linha1 ?? 0)
+    const l2 = Number(item.L2 ?? item.l2 ?? item.linha2 ?? 0)
+
+    // O endpoint de orçado de liberação normalmente devolve L1/L2 em tubetes.
+    // Quando vier muito alto, converte para caixas; se já vier em caixas, mantém.
+    const soma = (Number.isFinite(l1) ? l1 : 0) + (Number.isFinite(l2) ? l2 : 0)
+    return soma > 100000 ? soma / 500 : soma
+  })
+
+  return meses
+}
+
 function extrairSd3Mensal(data: unknown) {
   const d = data as Record<string, unknown>
   const candidatos = [d.meses, d.dados, d.data, d.resultados, Array.isArray(data) ? data : null]
@@ -1070,9 +1103,11 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
 
   const [orcadoAnualSaida, setOrcadoAnualSaida] = useState<number>(0)
   const [orcadoMensalSaida, setOrcadoMensalSaida] = useState<number[]>(Array.from({ length: 12 }, () => 0))
+  const [orcadoMensalLiberacao, setOrcadoMensalLiberacao] = useState<number[]>(Array.from({ length: 12 }, () => 0))
   const [origemOrcadoMensal, setOrigemOrcadoMensal] = useState("Orçado mensal")
   const [sd3Mensal, setSd3Mensal] = useState<Array<number | null>>(Array.from({ length: 12 }, () => null))
 
+  const [comparativoPerda, setComparativoPerda] = useState<ComparativoPerda>("v1")
   const [tipoSimulacao, setTipoSimulacao] = useState<"percentual" | "quantidade">("percentual")
   const [valorGlobal, setValorGlobal] = useState("0")
   const [perdasPctMes, setPerdasPctMes] = useState<string[]>(Array.from({ length: 12 }, () => ""))
@@ -1126,6 +1161,12 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
   }, [v1Mensal])
 
   useEffect(() => {
+    getOrcadoLiberacao()
+      .then((d: unknown) => setOrcadoMensalLiberacao(extrairOrcadoMensalLiberacao(d)))
+      .catch(() => setOrcadoMensalLiberacao(Array.from({ length: 12 }, () => 0)))
+  }, [])
+
+  useEffect(() => {
     getSd3RealizadoMensal(anoAnalise)
       .then(setSd3Mensal)
       .catch(() => setSd3Mensal(Array.from({ length: 12 }, () => null)))
@@ -1168,7 +1209,17 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
     const fechado = numeroMes < mesAnalise
     const base = fechado && temSd3 ? Number(realSd3) : mpsAtual
     const origem = fechado && temSd3 ? "Real SD3" : fechado ? "MPS atual (sem SD3)" : "MPS atual"
+    const orcadoLiberacao = Number(orcadoMensalLiberacao[idx] || 0)
+    const referenciaPerda =
+      comparativoPerda === "orcado_saida" ? orcado :
+      comparativoPerda === "orcado_liberacao" ? orcadoLiberacao :
+      v1
+    const referenciaPerdaLabel =
+      comparativoPerda === "orcado_saida" ? "Orçado saída" :
+      comparativoPerda === "orcado_liberacao" ? "Orçado liberação" :
+      "V1"
     const gapVsOrcado = base - orcado
+    const perdaRealComparativo = temSd3 ? Number(realSd3) - referenciaPerda : null
     const perdaRealVsV1 = temSd3 ? Number(realSd3) - v1 : null
 
     const pctMes = parseValor(perdasPctMes[idx])
@@ -1191,13 +1242,17 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
       mes,
       numeroMes,
       orcado,
+      orcadoLiberacao,
       v1,
       mpsAtual,
+      referenciaPerda,
+      referenciaPerdaLabel,
       base,
       origem,
       temSd3,
       fechado,
       gapVsOrcado,
+      perdaRealComparativo,
       perdaRealVsV1,
       perdaSimulada,
       projetadoSimulado,
@@ -1215,15 +1270,16 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
   const atendimentoBase = totalOrcado > 0 ? (totalBase / totalOrcado) * 100 : 0
   const atendimentoSimulado = totalOrcado > 0 ? (totalSimulado / totalOrcado) * 100 : 0
 
-  const perdasReaisVsV1 = linhas
-    .filter((l) => l.perdaRealVsV1 !== null && l.perdaRealVsV1 < 0)
-    .map((l) => Math.abs(l.perdaRealVsV1 || 0))
-  const mediaPerdaRealVsV1 = perdasReaisVsV1.length ? perdasReaisVsV1.reduce((a, b) => a + b, 0) / perdasReaisVsV1.length : 0
+  const perdasReaisComparativo = linhas
+    .filter((l) => l.perdaRealComparativo !== null && l.perdaRealComparativo < 0)
+    .map((l) => Math.abs(l.perdaRealComparativo || 0))
+  const mediaPerdaRealComparativo = perdasReaisComparativo.length ? perdasReaisComparativo.reduce((a, b) => a + b, 0) / perdasReaisComparativo.length : 0
+  const labelComparativoPerda = comparativoPerda === "orcado_saida" ? "orçado de saída" : comparativoPerda === "orcado_liberacao" ? "orçado de liberação" : "V1"
   const mediaPerdaAplicada = linhas.filter((l) => l.mesSimulavel).length
     ? totalPerdaSimulada / Math.max(1, linhas.filter((l) => l.mesSimulavel).length)
     : 0
 
-  const maxPerdaReal = Math.max(1, ...linhas.map((l) => Math.abs(l.perdaRealVsV1 || 0)))
+  const maxPerdaReal = Math.max(1, ...linhas.map((l) => Math.abs(l.perdaRealComparativo || 0)))
   const maxMensal = Math.max(1, ...linhas.flatMap((l) => [l.orcado, l.base, l.projetadoSimulado]))
 
   const linhasGrafico = modoGraficoSimulacao === "acumulado"
@@ -1268,7 +1324,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
           <KpiCard label="Projetado simulado" value={fmt(totalSimulado)} sub={`${fmtSinal(gapSimulado)} vs orçado`} destaque />
           <KpiCard label="Atendimento base" value={`${atendimentoBase.toFixed(1).replace(".", ",")}%`} sub="base / orçado" cor={atendimentoBase >= 100 ? "green" : atendimentoBase >= 95 ? "neutral" : "red"} />
           <KpiCard label="Atendimento simulado" value={`${atendimentoSimulado.toFixed(1).replace(".", ",")}%`} sub="simulado / orçado" cor={atendimentoSimulado >= 100 ? "green" : atendimentoSimulado >= 95 ? "neutral" : "red"} />
-          <KpiCard label="Média de perda" value={fmt(mediaPerdaRealVsV1)} sub="SD3 abaixo da V1 / mês" cor={mediaPerdaRealVsV1 > 0 ? "red" : "neutral"} />
+          <KpiCard label="Média de perda" value={fmt(mediaPerdaRealComparativo)} sub={`SD3 abaixo de ${labelComparativoPerda} / mês`} cor={mediaPerdaRealComparativo > 0 ? "red" : "neutral"} />
         </div>
       </div>
 
@@ -1276,13 +1332,39 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
           <div>
             <p style={{ margin: 0, fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Perda realizada</p>
-            <h3 style={{ margin: "4px 0 0", fontSize: 16, fontWeight: 950, color: "var(--text-primary)" }}>SD3 vs V1 da mesma competência</h3>
+            <h3 style={{ margin: "4px 0 0", fontSize: 16, fontWeight: 950, color: "var(--text-primary)" }}>SD3 vs {labelComparativoPerda} da mesma competência</h3>
             <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>Use essa média para calibrar a simulação dos meses futuros.</p>
+            <div style={{ marginTop: 12, display: "inline-flex", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", background: "var(--bg-primary)" }}>
+              {[
+                { key: "v1", label: "SD3 vs V1" },
+                { key: "orcado_saida", label: "SD3 vs orçado saída" },
+                { key: "orcado_liberacao", label: "SD3 vs orçado liberação" },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setComparativoPerda(item.key as ComparativoPerda)}
+                  style={{
+                    height: 36,
+                    border: "none",
+                    borderRight: item.key !== "orcado_liberacao" ? "1px solid var(--border)" : "none",
+                    background: comparativoPerda === item.key ? "rgba(37,99,235,0.12)" : "transparent",
+                    color: comparativoPerda === item.key ? AZUL : "var(--text-secondary)",
+                    padding: "0 12px",
+                    fontSize: 11,
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div style={{ border: "1px solid var(--border)", borderRadius: 14, padding: "12px 16px", minWidth: 210, background: "var(--bg-primary)" }}>
             <p style={{ margin: 0, fontSize: 10, fontWeight: 850, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)" }}>Média da perda real</p>
-            <p style={{ margin: "8px 0 0", fontSize: 24, fontWeight: 950, color: mediaPerdaRealVsV1 > 0 ? COR_PERDA : "var(--text-primary)" }}>{fmt(mediaPerdaRealVsV1)} cx</p>
-            <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-secondary)" }}>considera meses com SD3 abaixo da V1</p>
+            <p style={{ margin: "8px 0 0", fontSize: 24, fontWeight: 950, color: mediaPerdaRealComparativo > 0 ? COR_PERDA : "var(--text-primary)" }}>{fmt(mediaPerdaRealComparativo)} cx</p>
+            <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-secondary)" }}>considera meses com SD3 abaixo de {labelComparativoPerda}</p>
           </div>
         </div>
 
@@ -1293,7 +1375,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
               <span style={{ position: "absolute", right: 14, top: 12, fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>Futuro sem SD3</span>
             </div>
             {linhas.map((l) => {
-              const diff = l.perdaRealVsV1
+              const diff = l.perdaRealComparativo
               const h = Math.max(diff === null ? 0 : 6, (Math.abs(diff || 0) / maxPerdaReal) * 92)
               const positivo = (diff || 0) >= 0
               const visivel = diff !== null
@@ -1495,7 +1577,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
           <table style={{ width: "100%", minWidth: 1080, borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr>
-                {["Mês", "Origem", "Orçado saída", "V1", "Base", "SD3 - V1", "Perda simulada", "Projetado", "Gap simulado"].map((h, idx) => (
+                {["Mês", "Origem", "Orçado saída", "Orçado lib.", "V1", "Base", `SD3 - ${labelComparativoPerda}`, "Perda simulada", "Projetado", "Gap simulado"].map((h, idx) => (
                   <th key={h} style={{ padding: "10px 12px", textAlign: idx <= 1 ? "left" : "right", background: AZUL, color: "rgba(255,255,255,0.86)", fontSize: 10, fontWeight: 850, textTransform: "uppercase", letterSpacing: "0.06em", borderRight: "1px solid rgba(255,255,255,0.12)" }}>{h}</th>
                 ))}
               </tr>
@@ -1506,9 +1588,10 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                   <td style={{ padding: "10px 12px", fontWeight: 900, color: "var(--text-primary)" }}>{l.mes}</td>
                   <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>{l.origem}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 750 }}>{fmt(l.orcado)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 750 }}>{fmt(l.orcadoLiberacao)}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 750 }}>{fmt(l.v1)}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 850 }}>{fmt(l.base)}</td>
-                  <td style={{ padding: "10px 12px", textAlign: "right", color: (l.perdaRealVsV1 || 0) < 0 ? COR_PERDA : (l.perdaRealVsV1 || 0) > 0 ? COR_GANHO : "var(--text-secondary)", fontWeight: 850 }}>{l.perdaRealVsV1 === null ? "—" : fmtSinal(l.perdaRealVsV1)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", color: (l.perdaRealComparativo || 0) < 0 ? COR_PERDA : (l.perdaRealComparativo || 0) > 0 ? COR_GANHO : "var(--text-secondary)", fontWeight: 850 }}>{l.perdaRealComparativo === null ? "—" : fmtSinal(l.perdaRealComparativo)}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: l.perdaSimulada > 0 ? COR_PERDA : "var(--text-secondary)", fontWeight: 850 }}>{fmt(l.perdaSimulada)}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-primary)", fontWeight: 900 }}>{fmt(l.projetadoSimulado)}</td>
                   <td style={{ padding: "10px 12px", textAlign: "right", color: l.gapSimulado < 0 ? COR_PERDA : l.gapSimulado > 0 ? COR_GANHO : "var(--text-secondary)", fontWeight: 900 }}>{fmtSinal(l.gapSimulado)}</td>
@@ -1518,9 +1601,10 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
                 <td style={{ padding: "12px", fontWeight: 950, color: "var(--text-primary)" }}>Total</td>
                 <td style={{ padding: "12px", color: "var(--text-secondary)" }}>Ano</td>
                 <td style={{ padding: "12px", textAlign: "right", fontWeight: 950 }}>{fmt(totalOrcado)}</td>
+                <td style={{ padding: "12px", textAlign: "right", fontWeight: 950 }}>{fmt(orcadoMensalLiberacao.reduce((a, b) => a + b, 0))}</td>
                 <td style={{ padding: "12px", textAlign: "right", fontWeight: 950 }}>{fmt(v1Mensal.reduce((a, b) => a + b, 0))}</td>
                 <td style={{ padding: "12px", textAlign: "right", fontWeight: 950 }}>{fmt(totalBase)}</td>
-                <td style={{ padding: "12px", textAlign: "right", fontWeight: 950, color: mediaPerdaRealVsV1 > 0 ? COR_PERDA : "var(--text-secondary)" }}>{mediaPerdaRealVsV1 > 0 ? `média -${fmt(mediaPerdaRealVsV1)}` : "—"}</td>
+                <td style={{ padding: "12px", textAlign: "right", fontWeight: 950, color: mediaPerdaRealComparativo > 0 ? COR_PERDA : "var(--text-secondary)" }}>{mediaPerdaRealComparativo > 0 ? `média -${fmt(mediaPerdaRealComparativo)}` : "—"}</td>
                 <td style={{ padding: "12px", textAlign: "right", fontWeight: 950, color: totalPerdaSimulada > 0 ? COR_PERDA : "var(--text-secondary)" }}>{fmt(totalPerdaSimulada)}</td>
                 <td style={{ padding: "12px", textAlign: "right", fontWeight: 950 }}>{fmt(totalSimulado)}</td>
                 <td style={{ padding: "12px", textAlign: "right", fontWeight: 950, color: gapSimulado < 0 ? COR_PERDA : COR_GANHO }}>{fmtSinal(gapSimulado)}</td>
