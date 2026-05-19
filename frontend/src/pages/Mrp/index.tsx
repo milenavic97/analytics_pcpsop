@@ -719,11 +719,12 @@ type DadosVersaoConsolidado = {
   porMes: number[]
 }
 
-function GraficoAnualVertical({ dadosVersao, divisor, labelUnidade, orcadoAnualCaixas }: {
+function GraficoAnualVertical({ dadosVersao, divisor, labelUnidade, orcadoAnualCaixas, mostrarLegenda }: {
   dadosVersao: DadosVersaoConsolidado[]
   divisor: number
   labelUnidade: string
   orcadoAnualCaixas: number | null
+  mostrarLegenda: boolean
 }) {
   if (!dadosVersao.length) return null
 
@@ -731,36 +732,46 @@ function GraficoAnualVertical({ dadosVersao, divisor, labelUnidade, orcadoAnualC
     ? unidadeValor(orcadoAnualCaixas, divisor)
     : null
 
-  const barras = [
-    ...(orcadoValor != null ? [{ key: "orcado", label: "Orçado", valor: orcadoValor, tipo: "orcado" as const }] : []),
-    ...dadosVersao.map((d, idx) => ({
-      key: d.rodada.id || `v-${idx}`,
-      label: `V${d.rodada.versao}`,
-      valor: d.porMes.reduce((a, b) => a + b, 0) / divisor,
-      tipo: idx === dadosVersao.length - 1 ? "atual" as const : "versao" as const,
-      deltaAnterior: idx > 0 ? (d.porMes.reduce((a, b) => a + b, 0) - dadosVersao[idx - 1].porMes.reduce((a, b) => a + b, 0)) / divisor : null,
-    })),
-  ]
+  const barras = dadosVersao.map((d, idx) => ({
+    key: d.rodada.id || `v-${idx}`,
+    label: `V${d.rodada.versao}`,
+    valor: d.porMes.reduce((a, b) => a + b, 0) / divisor,
+    tipo: idx === dadosVersao.length - 1 ? "atual" as const : idx === 0 ? "base" as const : "versao" as const,
+    deltaAnterior: idx > 0 ? (d.porMes.reduce((a, b) => a + b, 0) - dadosVersao[idx - 1].porMes.reduce((a, b) => a + b, 0)) / divisor : null,
+  }))
 
-  const valores = barras.map((b) => b.valor).filter((v) => Number.isFinite(v) && v > 0)
-  const minValor = Math.min(...valores)
-  const maxValor = Math.max(...valores)
-  const range = Math.max(1, maxValor - minValor)
-  const escalaMin = Math.max(0, minValor - range * 0.45)
-  const escalaMax = maxValor + range * 0.25
-  const escalaRange = Math.max(1, escalaMax - escalaMin)
+  const valores = [
+    ...barras.map((b) => b.valor),
+    ...(orcadoValor != null ? [orcadoValor] : []),
+  ].filter((v) => Number.isFinite(v) && v > 0)
+
+  const maxValor = Math.max(...valores, 1)
+  const chartHeight = 230
+  const topPadding = 26
+  const barAreaHeight = 172
+  const escalaMax = maxValor * 1.08
+
   const totalAtual = dadosVersao[dadosVersao.length - 1].porMes.reduce((a, b) => a + b, 0) / divisor
   const totalBase = dadosVersao[0].porMes.reduce((a, b) => a + b, 0) / divisor
   const deltaVsBase = totalAtual - totalBase
   const deltaVsOrcado = orcadoValor != null ? totalAtual - orcadoValor : null
+  const orcadoTop = orcadoValor != null
+    ? topPadding + (barAreaHeight - Math.max(2, (orcadoValor / escalaMax) * barAreaHeight))
+    : null
+
+  const corVersao = (tipo: "base" | "versao" | "atual") => {
+    if (tipo === "atual") return AZUL
+    if (tipo === "base") return "#94A3B8"
+    return "#CBD5E1"
+  }
 
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 20, background: "var(--bg-secondary)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 12 }}>
         <div>
           <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Comparativo anual</p>
           <h3 style={{ margin: "4px 0 0", fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>Total projetado por versão</h3>
-          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>Valores em {labelUnidade}. Escala ajustada para evidenciar variações pequenas entre versões.</p>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>Barras no mesmo eixo. A linha de referência mostra o orçado anual.</p>
         </div>
         <div style={{ textAlign: "right" }}>
           <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Δ V1 → atual</p>
@@ -771,26 +782,63 @@ function GraficoAnualVertical({ dadosVersao, divisor, labelUnidade, orcadoAnualC
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${barras.length}, minmax(90px, 1fr))`, gap: 18, alignItems: "end", minHeight: 230, padding: "10px 4px 0" }}>
+      {mostrarLegenda && (
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 8 }}>
+          {barras.map((b) => (
+            <span key={b.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: corVersao(b.tipo) }} />
+              {b.label}{b.tipo === "atual" ? " atual" : ""}
+            </span>
+          ))}
+          {orcadoValor != null && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
+              <span style={{ width: 18, height: 3, borderRadius: 99, background: "#EA580C" }} />
+              Orçado
+            </span>
+          )}
+        </div>
+      )}
+
+      <div style={{ position: "relative", height: chartHeight, padding: `${topPadding}px 8px 0`, borderBottom: "1px solid var(--border)" }}>
+        {orcadoValor != null && orcadoTop != null && (
+          <div style={{ position: "absolute", left: 8, right: 8, top: orcadoTop, height: 0, borderTop: "3px solid #EA580C", zIndex: 1 }}>
+            <span style={{ position: "absolute", right: 0, top: -22, fontSize: 11, fontWeight: 800, color: "#EA580C", background: "var(--bg-secondary)", paddingLeft: 8 }}>
+              Orçado {fmt(orcadoValor)} {labelUnidade}
+            </span>
+          </div>
+        )}
+
+        <div style={{ position: "relative", zIndex: 2, height: barAreaHeight, display: "grid", gridTemplateColumns: `repeat(${barras.length}, minmax(110px, 1fr))`, gap: 26, alignItems: "end" }}>
+          {barras.map((b) => {
+            const h = Math.max(6, (b.valor / escalaMax) * barAreaHeight)
+            const cor = corVersao(b.tipo)
+            return (
+              <div key={b.key} style={{ height: barAreaHeight, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-primary)", marginBottom: 6 }}>{fmt(b.valor)}</div>
+                <div title={`${b.label}: ${fmt(b.valor)} ${labelUnidade}`} style={{ width: "min(72px, 64%)", height: h, borderRadius: "12px 12px 4px 4px", background: cor, boxShadow: b.tipo === "atual" ? "0 14px 30px rgba(23,55,94,0.18)" : undefined }} />
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${barras.length}, minmax(110px, 1fr))`, gap: 26, padding: "8px 8px 0" }}>
         {barras.map((b, idx) => {
-          const h = 62 + ((b.valor - escalaMin) / escalaRange) * 138
-          const cor = b.tipo === "orcado" ? "#EA580C" : b.tipo === "atual" ? AZUL : "#CBD5E1"
-          const textoCor = b.tipo === "atual" ? AZUL : b.tipo === "orcado" ? "#EA580C" : "var(--text-secondary)"
-          const deltaBase = b.tipo !== "orcado" ? b.valor - totalBase : null
-          const deltaAnt = "deltaAnterior" in b ? b.deltaAnterior : null
+          const deltaBase = b.valor - totalBase
+          const deltaAnt = b.deltaAnterior
+          const showDeltaBase = idx > 0 && Math.abs(deltaBase) > 0.0001
           return (
-            <div key={b.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-primary)", marginBottom: 6 }}>{fmt(b.valor)}</div>
-              <div style={{ width: "min(76px, 62%)", height: h, borderRadius: "12px 12px 4px 4px", background: cor, boxShadow: b.tipo === "atual" ? "0 14px 30px rgba(23,55,94,0.18)" : undefined, opacity: b.tipo === "orcado" ? 0.95 : 1 }} />
-              <div style={{ marginTop: 8, fontSize: 13, fontWeight: 800, color: textoCor, display: "flex", alignItems: "center", gap: 5 }}>
+            <div key={`${b.key}-label`} style={{ textAlign: "center", minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: b.tipo === "atual" ? AZUL : b.tipo === "base" ? "var(--text-primary)" : "var(--text-secondary)", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
                 {b.label}
+                {b.tipo === "base" && <span style={{ fontSize: 9, fontWeight: 800, background: "var(--bg-primary)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 99, padding: "2px 6px" }}>BASE</span>}
                 {b.tipo === "atual" && <span style={{ fontSize: 9, fontWeight: 800, background: AZUL, color: "#fff", borderRadius: 99, padding: "2px 6px" }}>ATUAL</span>}
               </div>
-              {b.tipo !== "orcado" && deltaBase != null && idx > (orcadoValor != null ? 1 : 0) && (
-                <div style={{ fontSize: 10, fontWeight: 700, color: deltaBase < 0 ? "#DC2626" : "#16A34A", marginTop: 2 }}>{fmtSinal(deltaBase)} vs V1</div>
-              )}
+              <div style={{ height: 16, fontSize: 10, fontWeight: 800, color: showDeltaBase ? (deltaBase < 0 ? "#DC2626" : "#16A34A") : "var(--text-secondary)", marginTop: 3 }}>
+                {showDeltaBase ? `${fmtSinal(deltaBase)} vs V1` : "—"}
+              </div>
               {deltaAnt != null && deltaAnt !== 0 && (
-                <div style={{ fontSize: 10, color: "var(--text-secondary)", marginTop: 1 }}>{fmtSinal(deltaAnt)} vs anterior</div>
+                <div style={{ height: 14, fontSize: 10, color: "var(--text-secondary)" }}>{fmtSinal(deltaAnt)} vs anterior</div>
               )}
             </div>
           )
@@ -804,50 +852,62 @@ function unidadeValor(caixas: number, divisor: number) {
   return divisor === 500 ? caixas : caixas * 500
 }
 
-function GraficoMensalVersoes({ dadosVersao, divisor, anoAnalise }: {
+function GraficoMensalVersoes({ dadosVersao, divisor, anoAnalise, mostrarLegenda }: {
   dadosVersao: DadosVersaoConsolidado[]
   divisor: number
   anoAnalise: number
+  mostrarLegenda: boolean
 }) {
   if (!dadosVersao.length) return null
 
   const valores = dadosVersao.flatMap((d) => d.porMes.map((v) => v / divisor)).filter((v) => v > 0)
   const max = Math.max(...valores, 1)
-  const larguraGrupo = Math.max(92, dadosVersao.length * 20 + 34)
+  const larguraGrupo = Math.max(112, dadosVersao.length * 28 + 42)
+
+  const corVersao = (idx: number) => {
+    if (idx === dadosVersao.length - 1) return AZUL
+    if (idx === 0) return "#94A3B8"
+    return "#CBD5E1"
+  }
 
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 20, background: "var(--bg-secondary)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
           <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Evolução mensal</p>
           <h3 style={{ margin: "4px 0 0", fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>Versões por mês — {anoAnalise}</h3>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>Rótulos sempre visíveis para facilitar leitura executiva.</p>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          {dadosVersao.map((d, idx) => (
-            <span key={d.rodada.id || idx} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: idx === dadosVersao.length - 1 ? AZUL : idx === 0 ? "#94A3B8" : "#CBD5E1" }} />
-              V{d.rodada.versao}{idx === dadosVersao.length - 1 ? " atual" : ""}
-            </span>
-          ))}
-        </div>
+        {mostrarLegenda && (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            {dadosVersao.map((d, idx) => (
+              <span key={d.rodada.id || idx} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: corVersao(idx) }} />
+                V{d.rodada.versao}{idx === dadosVersao.length - 1 ? " atual" : ""}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <div style={{ overflowX: "auto", paddingBottom: 2 }}>
-        <div style={{ minWidth: Math.max(920, larguraGrupo * 12), height: 270, display: "flex", alignItems: "flex-end", gap: 10, borderBottom: "1px solid var(--border)", padding: "24px 8px 0" }}>
+        <div style={{ minWidth: Math.max(1020, larguraGrupo * 12), height: 310, display: "flex", alignItems: "flex-end", gap: 10, borderBottom: "1px solid var(--border)", padding: "24px 8px 0" }}>
           {MESES.map((mes, mesIdx) => {
             const base = dadosVersao[0]?.porMes[mesIdx] || 0
             const atual = dadosVersao[dadosVersao.length - 1]?.porMes[mesIdx] || 0
             const delta = (atual - base) / divisor
             return (
               <div key={mes} style={{ width: larguraGrupo, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
-                <div style={{ height: 205, display: "flex", alignItems: "flex-end", gap: 4 }}>
+                <div style={{ height: 232, display: "flex", alignItems: "flex-end", gap: 6 }}>
                   {dadosVersao.map((d, idx) => {
                     const valor = d.porMes[mesIdx] / divisor
-                    const h = Math.max(3, (valor / max) * 185)
-                    const cor = idx === dadosVersao.length - 1 ? AZUL : idx === 0 ? "#94A3B8" : "#CBD5E1"
+                    const h = Math.max(valor > 0 ? 4 : 0, (valor / max) * 170)
+                    const cor = corVersao(idx)
                     return (
-                      <div key={d.rodada.id || idx} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end" }}>
-                        {idx === dadosVersao.length - 1 && valor > 0 && <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: 9, fontWeight: 800, color: "#fff", position: "absolute", marginBottom: Math.min(h - 8, 150) }}>{fmt(valor)}</span>}
-                        <div title={`V${d.rodada.versao} · ${mes}: ${fmt(valor)}`} style={{ width: 14, height: h, borderRadius: "6px 6px 2px 2px", background: cor }} />
+                      <div key={d.rodada.id || idx} style={{ height: 220, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", minWidth: 22 }}>
+                        <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: 9, fontWeight: 800, color: "var(--text-primary)", marginBottom: 5, minHeight: 38 }}>
+                          {valor > 0 ? fmt(valor) : "—"}
+                        </span>
+                        <div title={`V${d.rodada.versao} · ${mes}: ${fmt(valor)}`} style={{ width: 16, height: h, borderRadius: "6px 6px 2px 2px", background: cor }} />
                       </div>
                     )
                   })}
@@ -877,6 +937,7 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
   const divisor = unidade === "caixas" ? 500 : 1
   const labelUnidade = unidade === "caixas" ? "cx" : "tb"
   const [orcadoAnualCaixas, setOrcadoAnualCaixas] = useState<number | null>(null)
+  const [mostrarLegenda, setMostrarLegenda] = useState(true)
 
   useEffect(() => {
     getOrcadoFaturamento()
@@ -950,13 +1011,31 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
               {MESES[mesAnalise - 1]}/{anoAnalise} — V{rodadaAtual?.versao} ({rodadas.length} {rodadas.length === 1 ? "versão" : "versões"})
             </h2>
           </div>
-          <div style={{ display: "flex", borderRadius: 12, border: "1px solid var(--border)", padding: 4, background: "var(--bg-primary)" }}>
-            {(["caixas", "tubetes"] as UnidadeConsolidado[]).map((opcao) => (
-              <button key={opcao} type="button" onClick={() => setUnidade(opcao)}
-                style={{ borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: unidade === opcao ? AZUL : "transparent", color: unidade === opcao ? "#fff" : "var(--text-secondary)" }}>
-                {opcao === "caixas" ? "Caixas" : "Tubetes"}
-              </button>
-            ))}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={() => setMostrarLegenda((prev) => !prev)}
+              style={{
+                borderRadius: 12,
+                border: "1px solid var(--border)",
+                padding: "9px 12px",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                background: mostrarLegenda ? "#EFF6FF" : "var(--bg-primary)",
+                color: mostrarLegenda ? AZUL : "var(--text-secondary)",
+              }}
+            >
+              {mostrarLegenda ? "Ocultar legendas" : "Mostrar legendas"}
+            </button>
+            <div style={{ display: "flex", borderRadius: 12, border: "1px solid var(--border)", padding: 4, background: "var(--bg-primary)" }}>
+              {(["caixas", "tubetes"] as UnidadeConsolidado[]).map((opcao) => (
+                <button key={opcao} type="button" onClick={() => setUnidade(opcao)}
+                  style={{ borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: unidade === opcao ? AZUL : "transparent", color: unidade === opcao ? "#fff" : "var(--text-secondary)" }}>
+                  {opcao === "caixas" ? "Caixas" : "Tubetes"}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
@@ -974,10 +1053,11 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
         divisor={divisor}
         labelUnidade={labelUnidade}
         orcadoAnualCaixas={orcadoAnualCaixas}
+        mostrarLegenda={mostrarLegenda}
       />
 
       {/* Bloco 3: Evolução mensal */}
-      <GraficoMensalVersoes dadosVersao={dadosVersao} divisor={divisor} anoAnalise={anoAnalise} />
+      <GraficoMensalVersoes dadosVersao={dadosVersao} divisor={divisor} anoAnalise={anoAnalise} mostrarLegenda={mostrarLegenda} />
 
       {/* Bloco 4: Tabela mensal */}
       <div style={{ border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden", background: "var(--bg-secondary)" }}>
