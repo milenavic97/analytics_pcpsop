@@ -116,6 +116,21 @@ function fmt(value?: number | null, decimais = 0) {
   return Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: decimais })
 }
 
+function fmtAbrev(value?: number | null) {
+  const n = Number(value || 0)
+  const abs = Math.abs(n)
+
+  if (abs >= 1_000_000) {
+    return `${(n / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`
+  }
+
+  if (abs >= 1_000) {
+    return `${(n / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mil`
+  }
+
+  return n.toLocaleString("pt-BR", { maximumFractionDigits: 0 })
+}
+
 function fmtData(date?: string | null) {
   if (!date) return "-"
   return new Date(`${date}T00:00:00`).toLocaleDateString("pt-BR")
