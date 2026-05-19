@@ -717,24 +717,55 @@ function GraficoExecutivoAnual({ dadosVersao, divisor, labelUnidade }: {
 }) {
   if (!dadosVersao.length) return null
 
-  const base = dadosVersao[0]
-  const totalBase = base.porMes.reduce((a, b) => a + b, 0) / divisor
-  const linhas = dadosVersao.map((item, idx) => {
-    const total = item.porMes.reduce((a, b) => a + b, 0) / divisor
-    const deltaBase = total - totalBase
-    const deltaAnterior = idx > 0 ? total - (dadosVersao[idx - 1].porMes.reduce((a, b) => a + b, 0) / divisor) : 0
-    return { item, total, deltaBase, deltaAnterior, isAtual: idx === dadosVersao.length - 1, isBase: idx === 0 }
+  // Orçado anual de faturamento exibido na Overview.
+  // Depois podemos trocar para vir da API/Overview, mas deixei centralizado aqui.
+  const ORCADO_ANUAL_CX = 209298
+  const orcadoTubetes = ORCADO_ANUAL_CX * 500
+
+  const versoes = dadosVersao.map((item, idx) => {
+    const totalTubetes = item.porMes.reduce((a, b) => a + b, 0)
+    const total = totalTubetes / divisor
+    const totalBase = dadosVersao[0].porMes.reduce((a, b) => a + b, 0) / divisor
+    const totalAnterior = idx > 0 ? dadosVersao[idx - 1].porMes.reduce((a, b) => a + b, 0) / divisor : total
+    return {
+      label: `V${item.rodada.versao}`,
+      total,
+      deltaBase: total - totalBase,
+      deltaAnterior: idx > 0 ? total - totalAnterior : 0,
+      isAtual: idx === dadosVersao.length - 1,
+      isBase: idx === 0,
+    }
   })
-  const maxDelta = Math.max(...linhas.map((l) => Math.abs(l.deltaBase)), 1)
-  const atual = linhas[linhas.length - 1]
+
+  const barras = [
+    {
+      label: "Orçado",
+      total: orcadoTubetes / divisor,
+      deltaBase: null as number | null,
+      deltaAnterior: null as number | null,
+      isAtual: false,
+      isBase: false,
+      isOrcado: true,
+    },
+    ...versoes.map((v) => ({ ...v, isOrcado: false })),
+  ]
+
+  const valores = barras.map((b) => b.total).filter((v) => Number.isFinite(v))
+  const minValor = Math.min(...valores)
+  const maxValor = Math.max(...valores)
+  const range = Math.max(maxValor - minValor, 1)
+  const piso = Math.max(0, minValor - range * 0.35)
+  const teto = maxValor + range * 0.18
+  const escala = Math.max(teto - piso, 1)
+  const atual = versoes[versoes.length - 1]
 
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 18, background: "var(--bg-secondary)", minHeight: 260 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
+    <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 18, background: "var(--bg-secondary)", minHeight: 310 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
         <div>
           <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Comparativo anual</p>
-          <h3 style={{ margin: "4px 0 0", fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>Delta do total projetado</h3>
-          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>V1 como base. Mostra ganho/perda acumulada no ano.</p>
+          <h3 style={{ margin: "4px 0 0", fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>Total projetado vs orçado</h3>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-secondary)" }}>Orçado anual da Overview + todas as versões do mês.</p>
         </div>
         <div style={{ textAlign: "right" }}>
           <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Δ V1 → Atual</p>
@@ -743,50 +774,43 @@ function GraficoExecutivoAnual({ dadosVersao, divisor, labelUnidade }: {
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {linhas.map(({ item, total, deltaBase, deltaAnterior, isAtual, isBase }) => {
-          const largura = isBase ? 0 : Math.max(3, Math.min(50, (Math.abs(deltaBase) / maxDelta) * 46))
-          const negativo = deltaBase < 0
-          const positivo = deltaBase > 0
+      <div style={{ position: "relative", height: 205, display: "grid", gridTemplateColumns: `repeat(${barras.length}, minmax(90px, 1fr))`, gap: 18, alignItems: "end", padding: "8px 8px 0", borderBottom: "1px solid var(--border)" }}>
+        {barras.map((barra) => {
+          const altura = Math.max(24, ((barra.total - piso) / escala) * 150)
+          const negativo = (barra.deltaBase || 0) < 0
+          const positivo = (barra.deltaBase || 0) > 0
+          const bg = barra.isOrcado ? "#F97316" : barra.isAtual ? AZUL : "rgba(23,55,94,0.25)"
           return (
-            <div key={item.rodada.id || item.rodada.versao} style={{ display: "grid", gridTemplateColumns: "70px 1fr 120px", gap: 12, alignItems: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: isAtual ? AZUL : "var(--text-primary)" }}>V{item.rodada.versao}</span>
-                {isAtual && <span style={{ fontSize: 9, fontWeight: 800, background: AZUL, color: "#fff", borderRadius: 99, padding: "2px 6px" }}>ATUAL</span>}
-                {isBase && <span style={{ fontSize: 9, fontWeight: 700, background: "var(--bg-primary)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 99, padding: "2px 6px" }}>BASE</span>}
+            <div key={barra.label} style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-primary)", marginBottom: 7, whiteSpace: "nowrap" }}>{fmt(barra.total)}</div>
+              <div style={{ width: 54, height: altura, borderRadius: "12px 12px 4px 4px", background: bg, boxShadow: barra.isAtual ? "0 18px 32px rgba(23,55,94,0.18)" : undefined }} />
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, minHeight: 18 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: barra.isAtual ? AZUL : "var(--text-primary)" }}>{barra.label}</span>
+                {barra.isAtual && <span style={{ fontSize: 9, fontWeight: 800, background: AZUL, color: "#fff", borderRadius: 99, padding: "2px 6px" }}>ATUAL</span>}
+                {barra.isBase && <span style={{ fontSize: 9, fontWeight: 700, background: "var(--bg-primary)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 99, padding: "2px 6px" }}>BASE</span>}
               </div>
-
-              <div>
-                <div style={{ position: "relative", height: 24, borderRadius: 999, background: "var(--bg-primary)", border: "1px solid var(--border)", overflow: "hidden" }}>
-                  <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: "rgba(15,23,42,0.18)" }} />
-                  {isBase ? (
-                    <div style={{ position: "absolute", left: "calc(50% - 5px)", top: 6, width: 10, height: 10, borderRadius: 99, background: AZUL }} />
-                  ) : (
-                    <div style={{
-                      position: "absolute",
-                      top: 4,
-                      height: 14,
-                      borderRadius: 999,
-                      left: negativo ? `${50 - largura}%` : "50%",
-                      width: `${largura}%`,
-                      background: negativo ? "#DC2626" : positivo ? "#16A34A" : "var(--border)",
-                      opacity: isAtual ? 1 : 0.75,
-                    }} />
-                  )}
+              {!barra.isOrcado && barra.deltaBase !== 0 && (
+                <div style={{ fontSize: 10, fontWeight: 800, color: negativo ? "#DC2626" : positivo ? "#16A34A" : "var(--text-secondary)", marginTop: 2 }}>
+                  {fmtSinal(barra.deltaBase)} vs V1
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: "var(--text-secondary)" }}>
-                  <span>perda</span><span>base V1</span><span>ganho</span>
+              )}
+              {!barra.isOrcado && barra.deltaAnterior !== null && barra.deltaAnterior !== 0 && (
+                <div style={{ fontSize: 10, color: "var(--text-secondary)", marginTop: 1 }}>
+                  {fmtSinal(barra.deltaAnterior)} vs anterior
                 </div>
-              </div>
-
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>{fmt(total)} {labelUnidade}</div>
-                {!isBase && <div style={{ fontSize: 11, fontWeight: 700, color: deltaBase < 0 ? "#DC2626" : deltaBase > 0 ? "#16A34A" : "var(--text-secondary)" }}>{fmtSinal(deltaBase)} vs V1</div>}
-                {!isBase && deltaAnterior !== 0 && <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>{fmtSinal(deltaAnterior)} vs anterior</div>}
-              </div>
+              )}
             </div>
           )
         })}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+        <p style={{ margin: 0, fontSize: 11, color: "var(--text-secondary)" }}>
+          Escala aproximada para comparar diferenças pequenas sem distorcer a ordem dos valores.
+        </p>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: (orcadoTubetes / divisor - atual.total) > 0 ? "#B91C1C" : "#15803D" }}>
+          Gap vs orçado: {fmtSinal(atual.total - (orcadoTubetes / divisor))} {labelUnidade}
+        </p>
       </div>
     </div>
   )
