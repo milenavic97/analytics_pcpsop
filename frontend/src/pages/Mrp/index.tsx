@@ -406,6 +406,11 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
       ? Number(mudanca.gap_horas_produtivas_dia)
       : horasReaisCogtive - horasPlanejadasGantt
   const temHorasOperacionais = horasPlanejadasGantt > 0 || horasReaisCogtive > 0
+  const recursoMudanca = String(mudanca.recurso || "").trim().toUpperCase()
+  const taxaTubetesHora =
+    Number(mudanca.un_hora_nova || mudanca.un_hora_anterior || 0) ||
+    (recursoMudanca === "L2" ? 6000 : 13500)
+  const gapTubetesAprox = gapHorasProdutivas * taxaTubetesHora
 
   const montarDate = (data?: string | null, hora?: string | null) => {
     if (!data || !hora) return null
@@ -659,7 +664,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                  gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
                   gap: 12,
                   flexShrink: 0,
                 }}
@@ -721,7 +726,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                         {temHorasOperacionais ? `${gapHorasProdutivas > 0 ? "+" : ""}${fmtHoraProdutiva(gapHorasProdutivas)}` : "-"}
                       </div>
                       <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
-                        real vs planejado
+                        ≈ {fmtSinal(gapTubetesAprox, 0)} tubetes
                       </div>
                     </div>
                   </div>
@@ -743,31 +748,39 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1.2fr 1fr 1fr",
-                  gap: 12,
-                  flexShrink: 0,
-                }}
-              >
-                <div style={{ ...cardBase(false), padding: "12px 14px" }}>
-                  <div className="card-label">Leitura operacional</div>
-                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
-                    O atraso deve ser lido comparando horas produtivas planejadas no Gantt com horas produtivas reais no Cogtive. As paradas abaixo são contexto do dia, não causa automática.
+                <div style={cardBase(false)}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 13, background: "rgba(239,68,68,0.10)", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Clock3 size={19} />
+                    </div>
+                    <div>
+                      <div className="card-label">Parada simultânea</div>
+                      <div style={{ fontSize: 23, fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.05 }}>
+                        {formatarDuracaoParada(coberturaLinha.simultaneaHoras)}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        2+ máquinas juntas
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div style={{ ...cardBase(false), padding: "12px 14px" }}>
-                  <div className="card-label">Parada simultânea</div>
-                  <div style={{ marginTop: 5, fontSize: 20, fontWeight: 900, color: "var(--text-primary)" }}>{formatarDuracaoParada(coberturaLinha.simultaneaHoras)}</div>
-                  <div style={{ marginTop: 3, fontSize: 11, color: "var(--text-secondary)" }}>2+ equipamentos parados juntos</div>
-                </div>
-                <div style={{ ...cardBase(false), padding: "12px 14px" }}>
-                  <div className="card-label">Parada parcial</div>
-                  <div style={{ marginTop: 5, fontSize: 20, fontWeight: 900, color: "var(--text-primary)" }}>{formatarDuracaoParada(coberturaLinha.parcialHoras)}</div>
-                  <div style={{ marginTop: 3, fontSize: 11, color: "var(--text-secondary)" }}>apenas uma máquina parada</div>
+
+                <div style={cardBase(false)}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 13, background: "rgba(16,185,129,0.10)", color: "#059669", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Factory size={19} />
+                    </div>
+                    <div>
+                      <div className="card-label">Parada parcial</div>
+                      <div style={{ fontSize: 23, fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.05 }}>
+                        {formatarDuracaoParada(coberturaLinha.parcialHoras)}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        uma máquina parada
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
