@@ -325,17 +325,53 @@ function calcularCoberturaParalela(paradas: ParadaCogtive[]) {
 }
 
 function formatarHorarioParada(p: ParadaCogtive) {
-  const dataIni = (p.data_inicial || (p as any).data_inicio || "") as string
-  const dataFim = (p.data_final || (p as any).data_fim || "") as string
-  const hIni = horaCurta(p.hora_inicio)
-  const hFim = horaCurta(p.hora_fim)
+  const dataIniRaw = (p.data_inicial || (p as any).data_inicio || "") as string
+  const dataFimRaw = (p.data_final || (p as any).data_fim || "") as string
+  const horaInicioRaw = p.hora_inicio ? String(p.hora_inicio) : ""
+  const horaFimRaw = p.hora_fim ? String(p.hora_fim) : ""
+  const duracaoSeg = Math.max(0, Math.round(Number(p.duracao_horas || 0) * 3600))
 
-  const dIni = dataCurta(dataIni)
-  const dFim = dataCurta(dataFim)
+  const montarDate = (data?: string | null, hora?: string | null) => {
+    if (!data || !hora) return null
+    const dataBase = String(data).slice(0, 10)
+    const horaBase = String(hora).slice(0, 8)
+    const dt = new Date(`${dataBase}T${horaBase}`)
+    return Number.isNaN(dt.getTime()) ? null : dt
+  }
+
+  let fimDt = montarDate(dataFimRaw, horaFimRaw)
+  let inicioDt = montarDate(dataIniRaw, horaInicioRaw)
+
+  // Quando o backend ainda não tem hora de início, calcula pelo fim - duração.
+  // Isso cobre paradas que começaram no dia anterior e terminaram no dia de referência.
+  if (!inicioDt && fimDt && duracaoSeg > 0) {
+    inicioDt = new Date(fimDt.getTime() - duracaoSeg * 1000)
+  }
+
+  if (!fimDt && inicioDt && duracaoSeg > 0) {
+    fimDt = new Date(inicioDt.getTime() + duracaoSeg * 1000)
+  }
+
+  const fmtDiaHora = (dt: Date) =>
+    `${dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+
+  const fmtHora = (dt: Date) =>
+    dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+
+  if (inicioDt && fimDt) {
+    const mesmoDia = inicioDt.toDateString() === fimDt.toDateString()
+    if (mesmoDia) return `${fmtHora(inicioDt)} → ${fmtHora(fimDt)}`
+    return `${fmtDiaHora(inicioDt)} → ${fmtDiaHora(fimDt)}`
+  }
+
+  const dIni = dataCurta(dataIniRaw)
+  const dFim = dataCurta(dataFimRaw)
+  const hIni = horaCurta(horaInicioRaw)
+  const hFim = horaCurta(horaFimRaw)
   const mudouDia = dIni && dFim && dIni !== dFim
 
   if (mudouDia) return `${dIni} ${hIni} → ${dFim} ${hFim}`
-  if (dIni && hIni === "--:--") return `${dIni} ${hIni} → ${hFim}`
+  if (dFim) return `${dFim} ${hIni} → ${hFim}`
   return `${hIni} → ${hFim}`
 }
 
@@ -455,7 +491,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
           border: "1px solid rgba(245,158,11,0.28)",
           whiteSpace: "nowrap",
         }}
-        title="Paradas registradas no Cognitive no dia de referência. Não é causa automática do atraso."
+        title="Paradas registradas no Cogtive no dia de referência. Não é causa automática do atraso."
       >
         {total} parada{total !== 1 ? "s" : ""} · {formatarDuracaoParada(coberturaLinha.linhaHoras || horas)}
       </button>
@@ -530,7 +566,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                   </div>
 
                   <div style={{ marginTop: 4, fontSize: 12, color: "var(--text-secondary)" }}>
-                    Eventos do Cognitive, exceto produção. Referência usada: fim anterior do lote.
+                    Eventos do Cogtive, exceto produção. Referência usada: fim anterior do lote.
                   </div>
                 </div>
               </div>
@@ -684,7 +720,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                     </div>
 
                     <div>
-                      <div className="card-label">Eventos Cognitive</div>
+                      <div className="card-label">Eventos Cogtive</div>
                       <div style={{ fontSize: 24, fontWeight: 950, color: "var(--text-primary)", lineHeight: 1.05 }}>
                         {total}
                       </div>
@@ -789,7 +825,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                   flexShrink: 0,
                 }}
               >
-                Paradas capturadas no Cognitive no dia {dataRef}. Em L1, o tempo parado da linha considera sobreposição entre máquinas em paralelo.
+                Paradas capturadas no Cogtive no dia {dataRef}. Em L1, o tempo parado da linha considera sobreposição entre máquinas em paralelo.
               </div>
 
               <div
