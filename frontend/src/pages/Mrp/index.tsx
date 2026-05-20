@@ -119,6 +119,10 @@ type MudancaRealizado = {
   paradas_dia_fim_anterior?: ParadaCogtive[]
   total_paradas_dia_fim_anterior?: number | null
   horas_paradas_dia_fim_anterior?: number | null
+  data_referencia_operacional?: string | null
+  horas_produtivas_planejadas_dia?: number | null
+  horas_produtivas_reais_dia?: number | null
+  gap_horas_produtivas_dia?: number | null
 }
 
 type Column = {
@@ -190,6 +194,11 @@ function formatarDuracaoParada(horas?: number | null) {
   if (m > 0 && s > 0) return `${m}min ${s}s`
   if (m > 0) return `${m}min`
   return `${s}s`
+}
+
+function fmtHoraProdutiva(value?: number | null) {
+  const n = Number(value || 0)
+  return `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}h`
 }
 
 function horaCurta(hora?: string | null) {
@@ -383,15 +392,60 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
   const [eventoAberto, setEventoAberto] = useState<string | null>(null)
 
   if (!total) {
-    return (
-      <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
-        Sem paradas
-      </span>
-    )
+    return <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>Sem paradas</span>
   }
 
-  const dataRef = fmtData(mudanca.data_fim_anterior)
+  const dataRefIso = mudanca.data_referencia_operacional || mudanca.data_fim_anterior || null
+  const dataRef = fmtData(dataRefIso)
   const coberturaLinha = calcularCoberturaParalela(paradas)
+
+  const horasPlanejadasGantt = Number(mudanca.horas_produtivas_planejadas_dia || 0)
+  const horasReaisCogtive = Number(mudanca.horas_produtivas_reais_dia || 0)
+  const gapHorasProdutivas =
+    mudanca.gap_horas_produtivas_dia !== undefined && mudanca.gap_horas_produtivas_dia !== null
+      ? Number(mudanca.gap_horas_produtivas_dia)
+      : horasReaisCogtive - horasPlanejadasGantt
+  const temHorasOperacionais = horasPlanejadasGantt > 0 || horasReaisCogtive > 0
+
+  const montarDate = (data?: string | null, hora?: string | null) => {
+    if (!data || !hora) return null
+    const dataBase = String(data).slice(0, 10)
+    const horaBase = String(hora).slice(0, 8)
+    const dt = new Date(`${dataBase}T${horaBase}`)
+    return Number.isNaN(dt.getTime()) ? null : dt
+  }
+
+  const formatarPeriodoParada = (p: ParadaCogtive) => {
+    const dataIniRaw = (p.data_inicial || (p as any).data_inicio || dataRefIso || "") as string
+    const dataFimRaw = (p.data_final || (p as any).data_fim || dataRefIso || "") as string
+    const horaInicioRaw = p.hora_inicio ? String(p.hora_inicio).slice(0, 8) : ""
+    const horaFimRaw = p.hora_fim ? String(p.hora_fim).slice(0, 8) : ""
+    const duracaoSeg = Math.max(0, Math.round(Number(p.duracao_horas || 0) * 3600))
+
+    let fimDt = montarDate(dataFimRaw, horaFimRaw)
+    let inicioDt = montarDate(dataIniRaw, horaInicioRaw)
+
+    if (!inicioDt && fimDt && duracaoSeg > 0) {
+      inicioDt = new Date(fimDt.getTime() - duracaoSeg * 1000)
+    }
+
+    if (!fimDt && inicioDt && duracaoSeg > 0) {
+      fimDt = new Date(inicioDt.getTime() + duracaoSeg * 1000)
+    }
+
+    const fmtDiaHora = (dt: Date) =>
+      `${dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+
+    const fmtHora = (dt: Date) =>
+      dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+
+    if (inicioDt && fimDt) {
+      const mesmoDia = inicioDt.toDateString() === fimDt.toDateString()
+      return mesmoDia ? `${fmtHora(inicioDt)} → ${fmtHora(fimDt)}` : `${fmtDiaHora(inicioDt)} → ${fmtDiaHora(fimDt)}`
+    }
+
+    return formatarHorarioParada(p)
+  }
 
   const equipamentosMap = new Map<
     string,
@@ -416,9 +470,8 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
     item.operacionalHoras = calcularCoberturaParalela(item.paradas).linhaHoras
   }
 
-  const equipamentosOrdenados = [...equipamentosMap.entries()].sort(
-    (a, b) => b[1].totalHoras - a[1].totalHoras
-  )
+  const equipamentosOrdenados = [...equipamentosMap.entries()].sort((a, b) => b[1].totalHoras - a[1].totalHoras)
+  const totalEquipamentos = equipamentosOrdenados.length
 
   const paradasFiltradas =
     equipamentoSelecionado === "TODOS"
@@ -451,7 +504,6 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
   const eventosOrdenados = [...eventosMap.entries()].sort((a, b) => b[1].totalHoras - a[1].totalHoras)
   const maxHoras = Math.max(...eventosOrdenados.map(([, item]) => item.totalHoras), 0.0001)
   const totalHorasFiltro = paradasFiltradas.reduce((acc, p) => acc + Number(p.duracao_horas || 0), 0)
-  const totalEquipamentos = equipamentosOrdenados.length
 
   const abrirModal = () => {
     setEquipamentoSelecionado("TODOS")
@@ -464,13 +516,15 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
     setEventoAberto(null)
   }
 
-  const cardStyle = (ativo = false): React.CSSProperties => ({
-    border: ativo ? "1px solid #F59E0B" : "1px solid var(--border)",
-    borderRadius: 18,
-    padding: 16,
-    background: ativo ? "linear-gradient(135deg, rgba(245,158,11,0.14), rgba(245,158,11,0.05))" : "var(--bg-primary)",
-    boxShadow: ativo ? "0 8px 24px rgba(245,158,11,0.14)" : "none",
+  const cardBase = (ativo = false) => ({
+    border: ativo ? "1px solid rgba(234,88,12,0.55)" : "1px solid var(--border)",
+    borderRadius: 14,
+    padding: "14px 16px",
+    background: ativo ? "#FFF7ED" : "var(--bg-secondary)",
+    boxShadow: ativo ? "0 8px 18px rgba(234,88,12,0.10)" : "0 1px 2px rgba(15,23,42,0.03)",
   })
+
+  const badgeValor = `${total} parada${total !== 1 ? "s" : ""} · ${formatarDuracaoParada(coberturaLinha.linhaHoras || horas)}`
 
   return (
     <>
@@ -483,7 +537,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
           alignItems: "center",
           gap: 6,
           borderRadius: 999,
-          padding: "4px 9px",
+          padding: "4px 10px",
           fontSize: 11,
           fontWeight: 800,
           color: "#B45309",
@@ -493,7 +547,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
         }}
         title="Paradas registradas no Cogtive no dia de referência. Não é causa automática do atraso."
       >
-        {total} parada{total !== 1 ? "s" : ""} · {formatarDuracaoParada(coberturaLinha.linhaHoras || horas)}
+        {badgeValor}
       </button>
 
       {modalAberto && (
@@ -502,22 +556,22 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
             position: "fixed",
             inset: 0,
             zIndex: 9999,
-            background: "rgba(15,23,42,0.46)",
+            background: "rgba(15,23,42,0.48)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: 18,
+            padding: 16,
           }}
           onClick={() => setModalAberto(false)}
         >
           <div
             style={{
-              width: "min(1450px, 96vw)",
-              height: "min(88vh, 920px)",
-              borderRadius: 24,
+              width: "min(1580px, 97vw)",
+              height: "min(92vh, 980px)",
+              borderRadius: 22,
               border: "1px solid var(--border)",
               background: "var(--bg-secondary)",
-              boxShadow: "0 28px 80px rgba(15,23,42,0.34)",
+              boxShadow: "0 30px 90px rgba(15,23,42,0.34)",
               overflow: "hidden",
               display: "flex",
               flexDirection: "column",
@@ -526,22 +580,22 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
           >
             <div
               style={{
-                padding: "18px 24px",
+                padding: "16px 22px",
                 borderBottom: "1px solid var(--border)",
-                background: "linear-gradient(180deg, var(--bg-secondary), var(--bg-primary))",
+                background: "var(--bg-secondary)",
                 display: "flex",
+                alignItems: "center",
                 justifyContent: "space-between",
-                alignItems: "flex-start",
                 gap: 18,
                 flexShrink: 0,
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
                 <div
                   style={{
                     width: 42,
                     height: 42,
-                    borderRadius: 16,
+                    borderRadius: 14,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -550,22 +604,21 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                     flexShrink: 0,
                   }}
                 >
-                  <CalendarDays size={21} />
+                  <CalendarDays size={20} />
                 </div>
 
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div
                     style={{
-                      fontSize: 22,
-                      fontWeight: 950,
+                      fontSize: 21,
+                      fontWeight: 900,
                       color: "var(--text-primary)",
-                      letterSpacing: "-0.025em",
+                      letterSpacing: "-0.02em",
                     }}
                   >
                     Paradas do dia {dataRef}
                   </div>
-
-                  <div style={{ marginTop: 4, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <div style={{ marginTop: 3, fontSize: 12, color: "var(--text-secondary)" }}>
                     Eventos do Cogtive, exceto produção. Referência usada: fim anterior do lote.
                   </div>
                 </div>
@@ -577,7 +630,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                 style={{
                   width: 38,
                   height: 38,
-                  borderRadius: 14,
+                  borderRadius: 12,
                   border: "1px solid var(--border)",
                   background: "var(--bg-secondary)",
                   color: "var(--text-secondary)",
@@ -595,11 +648,11 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
 
             <div
               style={{
-                padding: 18,
+                padding: 16,
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
-                gap: 14,
+                gap: 12,
                 minHeight: 0,
               }}
             >
@@ -611,124 +664,110 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                   flexShrink: 0,
                 }}
               >
-                <div style={cardStyle(equipamentoSelecionado === "TODOS")} onClick={() => selecionarEquipamento("TODOS")}>
+                <div style={cardBase(false)}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 13, background: "rgba(37,99,235,0.10)", color: "#2563EB", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <CalendarDays size={19} />
+                    </div>
+                    <div>
+                      <div className="card-label">Horas planejadas Gantt</div>
+                      <div style={{ fontSize: 23, fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.05 }}>
+                        {temHorasOperacionais ? fmtHoraProdutiva(horasPlanejadasGantt) : "-"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        capacidade produtiva prevista
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={cardBase(false)}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 13, background: "rgba(16,185,129,0.10)", color: "#059669", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Factory size={19} />
+                    </div>
+                    <div>
+                      <div className="card-label">Horas produtivas Cogtive</div>
+                      <div style={{ fontSize: 23, fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.05 }}>
+                        {temHorasOperacionais ? fmtHoraProdutiva(horasReaisCogtive) : "-"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        produção real registrada
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={cardBase(gapHorasProdutivas < 0)}>
                   <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
                     <div
                       style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 16,
+                        width: 38,
+                        height: 38,
+                        borderRadius: 13,
+                        background: gapHorasProdutivas < 0 ? "rgba(220,38,38,0.10)" : "rgba(16,185,129,0.10)",
+                        color: gapHorasProdutivas < 0 ? "#DC2626" : "#059669",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        background: "rgba(245,158,11,0.14)",
-                        color: "#B45309",
                         flexShrink: 0,
                       }}
                     >
-                      <Clock3 size={21} />
+                      {gapHorasProdutivas < 0 ? <TrendingDown size={19} /> : <TrendingUp size={19} />}
                     </div>
+                    <div>
+                      <div className="card-label">Gap produtivo</div>
+                      <div style={{ fontSize: 23, fontWeight: 900, color: gapHorasProdutivas < 0 ? "#DC2626" : "#059669", lineHeight: 1.05 }}>
+                        {temHorasOperacionais ? `${gapHorasProdutivas > 0 ? "+" : ""}${fmtHoraProdutiva(gapHorasProdutivas)}` : "-"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        real vs planejado
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-                    <div style={{ minWidth: 0 }}>
-                      <div className="card-label">Tempo parado da linha</div>
-                      <div style={{ fontSize: 24, fontWeight: 950, color: "var(--text-primary)", lineHeight: 1.05 }}>
+                <div style={cardBase(false)}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 13, background: "rgba(245,158,11,0.12)", color: "#B45309", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Clock3 size={19} />
+                    </div>
+                    <div>
+                      <div className="card-label">Paradas do dia</div>
+                      <div style={{ fontSize: 23, fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.05 }}>
                         {formatarDuracaoParada(coberturaLinha.linhaHoras)}
                       </div>
-                      <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-secondary)" }}>
-                        união dos intervalos em paralelo
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        {total} eventos · união dos intervalos
                       </div>
                     </div>
                   </div>
                 </div>
+              </div>
 
-                <div style={cardStyle(false)}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 16,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "rgba(220,38,38,0.10)",
-                        color: "#DC2626",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Clock3 size={21} />
-                    </div>
-
-                    <div>
-                      <div className="card-label">Parada simultânea</div>
-                      <div style={{ fontSize: 24, fontWeight: 950, color: "var(--text-primary)", lineHeight: 1.05 }}>
-                        {formatarDuracaoParada(coberturaLinha.simultaneaHoras)}
-                      </div>
-                      <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-secondary)" }}>
-                        2+ equipamentos parados juntos
-                      </div>
-                    </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1.2fr 1fr 1fr",
+                  gap: 12,
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ ...cardBase(false), padding: "12px 14px" }}>
+                  <div className="card-label">Leitura operacional</div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                    O atraso deve ser lido comparando horas produtivas planejadas no Gantt com horas produtivas reais no Cogtive. As paradas abaixo são contexto do dia, não causa automática.
                   </div>
                 </div>
-
-                <div style={cardStyle(false)}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 16,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "rgba(16,185,129,0.10)",
-                        color: "#059669",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Factory size={21} />
-                    </div>
-
-                    <div>
-                      <div className="card-label">Parada parcial</div>
-                      <div style={{ fontSize: 24, fontWeight: 950, color: "var(--text-primary)", lineHeight: 1.05 }}>
-                        {formatarDuracaoParada(coberturaLinha.parcialHoras)}
-                      </div>
-                      <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-secondary)" }}>
-                        só uma máquina parada
-                      </div>
-                    </div>
-                  </div>
+                <div style={{ ...cardBase(false), padding: "12px 14px" }}>
+                  <div className="card-label">Parada simultânea</div>
+                  <div style={{ marginTop: 5, fontSize: 20, fontWeight: 900, color: "var(--text-primary)" }}>{formatarDuracaoParada(coberturaLinha.simultaneaHoras)}</div>
+                  <div style={{ marginTop: 3, fontSize: 11, color: "var(--text-secondary)" }}>2+ equipamentos parados juntos</div>
                 </div>
-
-                <div style={cardStyle(false)}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 16,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "rgba(37,99,235,0.10)",
-                        color: "#2563EB",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <BarChart3 size={21} />
-                    </div>
-
-                    <div>
-                      <div className="card-label">Eventos Cogtive</div>
-                      <div style={{ fontSize: 24, fontWeight: 950, color: "var(--text-primary)", lineHeight: 1.05 }}>
-                        {total}
-                      </div>
-                      <div style={{ marginTop: 5, fontSize: 11, color: "var(--text-secondary)" }}>
-                        {totalEquipamentos} equipamento{totalEquipamentos !== 1 ? "s" : ""} envolvido{totalEquipamentos !== 1 ? "s" : ""}
-                      </div>
-                    </div>
-                  </div>
+                <div style={{ ...cardBase(false), padding: "12px 14px" }}>
+                  <div className="card-label">Parada parcial</div>
+                  <div style={{ marginTop: 5, fontSize: 20, fontWeight: 900, color: "var(--text-primary)" }}>{formatarDuracaoParada(coberturaLinha.parcialHoras)}</div>
+                  <div style={{ marginTop: 3, fontSize: 11, color: "var(--text-secondary)" }}>apenas uma máquina parada</div>
                 </div>
               </div>
 
@@ -750,64 +789,36 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                       type="button"
                       onClick={() => selecionarEquipamento(ativo ? "TODOS" : equipamento)}
                       style={{
-                        ...cardStyle(ativo),
+                        ...cardBase(ativo),
                         textAlign: "left",
                         cursor: "pointer",
-                        minHeight: 112,
+                        minHeight: 96,
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                         <div style={{ minWidth: 0 }}>
-                          <div
-                            style={{
-                              fontSize: 12,
-                              fontWeight: 950,
-                              color: "var(--text-primary)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                            title={equipamento}
-                          >
+                          <div style={{ fontSize: 12, fontWeight: 900, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={equipamento}>
                             {equipamento}
                           </div>
-
-                          <div style={{ marginTop: 7, fontSize: 22, fontWeight: 950, color: "#B45309" }}>
+                          <div style={{ marginTop: 6, fontSize: 21, fontWeight: 900, color: "#B45309" }}>
                             {formatarDuracaoParada(dados.totalHoras)}
                           </div>
-
                           <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-secondary)" }}>
                             {dados.ocorrencias} parada{dados.ocorrencias !== 1 ? "s" : ""}
                           </div>
                         </div>
-
                         <ChevronDown
                           size={17}
                           style={{
                             color: ativo ? "#B45309" : "var(--text-secondary)",
                             transform: ativo ? "rotate(180deg)" : "rotate(0deg)",
                             transition: "transform 150ms ease",
+                            flexShrink: 0,
                           }}
                         />
                       </div>
-
-                      <div
-                        style={{
-                          marginTop: 13,
-                          height: 8,
-                          borderRadius: 999,
-                          background: "rgba(148,163,184,0.18)",
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: "100%",
-                            width: `${pct}%`,
-                            borderRadius: 999,
-                            background: "linear-gradient(90deg,#F59E0B,#FB923C)",
-                          }}
-                        />
+                      <div style={{ marginTop: 11, height: 7, borderRadius: 999, background: "rgba(148,163,184,0.18)", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${pct}%`, borderRadius: 999, background: "linear-gradient(90deg,#F59E0B,#FB923C)" }} />
                       </div>
                     </button>
                   )
@@ -816,22 +827,8 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
 
               <div
                 style={{
-                  border: "1px solid rgba(245,158,11,0.28)",
-                  background: "rgba(245,158,11,0.08)",
-                  borderRadius: 14,
-                  padding: "10px 12px",
-                  color: "#92400E",
-                  fontSize: 12,
-                  flexShrink: 0,
-                }}
-              >
-                Paradas capturadas no Cogtive no dia {dataRef}. Em L1, o tempo parado da linha considera sobreposição entre máquinas em paralelo.
-              </div>
-
-              <div
-                style={{
                   border: "1px solid var(--border)",
-                  borderRadius: 20,
+                  borderRadius: 18,
                   overflow: "hidden",
                   background: "var(--bg-secondary)",
                   minHeight: 0,
@@ -842,7 +839,7 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
               >
                 <div
                   style={{
-                    padding: "14px 16px",
+                    padding: "13px 16px",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
@@ -853,17 +850,12 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                   }}
                 >
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 950, color: "var(--text-primary)" }}>
-                      Ranking de paradas
-                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: "var(--text-primary)" }}>Ranking de paradas</div>
                     <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-secondary)" }}>
                       {equipamentoSelecionado === "TODOS" ? "Todos os equipamentos" : equipamentoSelecionado}
                     </div>
                   </div>
-
-                  <div style={{ fontSize: 13, fontWeight: 900, color: "#B45309" }}>
-                    {formatarDuracaoParada(totalHorasFiltro)}
-                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: "#B45309" }}>{formatarDuracaoParada(totalHorasFiltro)}</div>
                 </div>
 
                 <div style={{ overflowY: "auto", minHeight: 0, flex: 1 }}>
@@ -879,52 +871,19 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                           style={{
                             width: "100%",
                             border: 0,
-                            background: aberto ? "rgba(245,158,11,0.04)" : "transparent",
+                            background: aberto ? "#FFF7ED" : "transparent",
                             cursor: "pointer",
-                            padding: "13px 16px",
+                            padding: "12px 16px",
                             textAlign: "left",
                           }}
                         >
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "minmax(0, 1fr) 120px 140px 36px",
-                              gap: 16,
-                              alignItems: "center",
-                            }}
-                          >
+                          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 130px 120px 40px", gap: 16, alignItems: "center" }}>
                             <div style={{ minWidth: 0 }}>
-                              <div
-                                style={{
-                                  fontWeight: 950,
-                                  fontSize: 12,
-                                  color: "var(--text-primary)",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                }}
-                                title={evento}
-                              >
+                              <div style={{ fontWeight: 900, fontSize: 12, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={evento}>
                                 {evento}
                               </div>
-
-                              <div
-                                style={{
-                                  marginTop: 8,
-                                  height: 9,
-                                  borderRadius: 999,
-                                  background: "rgba(148,163,184,0.18)",
-                                  overflow: "hidden",
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    width: `${pct}%`,
-                                    height: "100%",
-                                    background: "linear-gradient(90deg,#F59E0B,#FB923C)",
-                                    borderRadius: 999,
-                                  }}
-                                />
+                              <div style={{ marginTop: 7, height: 8, borderRadius: 999, background: "rgba(148,163,184,0.18)", overflow: "hidden" }}>
+                                <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg,#F59E0B,#FB923C)", borderRadius: 999 }} />
                               </div>
                             </div>
 
@@ -932,47 +891,18 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                               {dados.ocorrencias} ocorrência{dados.ocorrencias !== 1 ? "s" : ""}
                             </div>
 
-                            <div style={{ textAlign: "right" }}>
-                              <div style={{ fontSize: 14, fontWeight: 950, color: "#B45309" }}>
-                                {formatarDuracaoParada(dados.totalHoras)}
-                              </div>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: "#B45309", textAlign: "right" }}>
+                              {formatarDuracaoParada(dados.totalHoras)}
                             </div>
 
-                            <ChevronDown
-                              size={18}
-                              style={{
-                                color: aberto ? "#B45309" : "var(--text-secondary)",
-                                transform: aberto ? "rotate(180deg)" : "rotate(0deg)",
-                                transition: "transform 150ms ease",
-                              }}
-                            />
+                            <ChevronDown size={18} style={{ color: aberto ? "#B45309" : "var(--text-secondary)", transform: aberto ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 150ms ease" }} />
                           </div>
                         </button>
 
                         {aberto && (
                           <div style={{ padding: "0 16px 14px" }}>
-                            <div
-                              style={{
-                                border: "1px solid var(--border)",
-                                borderRadius: 14,
-                                overflow: "hidden",
-                                background: "var(--bg-primary)",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "220px 110px minmax(0, 1fr)",
-                                  gap: 14,
-                                  padding: "10px 12px",
-                                  borderBottom: "1px solid var(--border)",
-                                  fontSize: 10,
-                                  fontWeight: 950,
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.04em",
-                                  color: "var(--text-secondary)",
-                                }}
-                              >
+                            <div style={{ border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", background: "var(--bg-primary)" }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "250px 110px minmax(0, 1fr)", gap: 14, padding: "9px 12px", borderBottom: "1px solid var(--border)", fontSize: 10, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-secondary)" }}>
                                 <div>Período</div>
                                 <div>Duração</div>
                                 <div>Equipamento</div>
@@ -986,27 +916,18 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                                     key={`${evento}-${idx}`}
                                     style={{
                                       display: "grid",
-                                      gridTemplateColumns: "220px 110px minmax(0, 1fr)",
+                                      gridTemplateColumns: "250px 110px minmax(0, 1fr)",
                                       gap: 14,
-                                      padding: "10px 12px",
+                                      padding: "9px 12px",
                                       borderBottom: idx === dados.detalhes.length - 1 ? "none" : "1px solid var(--border)",
                                       fontSize: 12,
                                       color: "var(--text-primary)",
                                       alignItems: "center",
                                     }}
                                   >
-                                    <div>{formatarHorarioParada(p)}</div>
-                                    <div style={{ fontWeight: 950, color: "#B45309" }}>
-                                      {formatarDuracaoParada(p.duracao_horas)}
-                                    </div>
-                                    <div
-                                      style={{
-                                        overflow: "hidden",
-                                        textOverflow: "ellipsis",
-                                        whiteSpace: "nowrap",
-                                      }}
-                                      title={p.equipamento || "Sem equipamento"}
-                                    >
+                                    <div>{formatarPeriodoParada(p)}</div>
+                                    <div style={{ fontWeight: 900, color: "#B45309" }}>{formatarDuracaoParada(p.duracao_horas)}</div>
+                                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.equipamento || "Sem equipamento"}>
                                       {p.equipamento || "Sem equipamento"}
                                     </div>
                                   </div>
