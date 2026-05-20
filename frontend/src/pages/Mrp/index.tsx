@@ -175,9 +175,28 @@ function resumoParadasCogtive(m: MudancaRealizado) {
   return { total, horas }
 }
 
+function formatarDuracaoParada(horas?: number | null) {
+  const totalSeg = Math.max(0, Math.round(Number(horas || 0) * 3600))
+  const h = Math.floor(totalSeg / 3600)
+  const m = Math.floor((totalSeg % 3600) / 60)
+  const s = totalSeg % 60
+
+  if (h > 0 && m > 0) return `${h}h ${m}min`
+  if (h > 0) return `${h}h`
+  if (m > 0 && s > 0) return `${m}min ${s}s`
+  if (m > 0) return `${m}min`
+  return `${s}s`
+}
+
+function horaCurta(hora?: string | null) {
+  if (!hora) return "--:--"
+  return String(hora).slice(0, 5)
+}
+
 function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
   const paradas = mudanca.paradas_dia_fim_anterior || []
   const { total, horas } = resumoParadasCogtive(mudanca)
+  const [equipamentoSelecionado, setEquipamentoSelecionado] = useState<string>("TODOS")
 
   if (!total) {
     return (
@@ -186,6 +205,60 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
       </span>
     )
   }
+
+  const dataRef = fmtData(mudanca.data_fim_anterior)
+
+  const equipamentosMap = new Map<string, { totalHoras: number; ocorrencias: number }>()
+
+  for (const p of paradas) {
+    const equipamento = p.equipamento || "Sem equipamento"
+    const h = Number(p.duracao_horas || 0)
+
+    if (!equipamentosMap.has(equipamento)) {
+      equipamentosMap.set(equipamento, { totalHoras: 0, ocorrencias: 0 })
+    }
+
+    const item = equipamentosMap.get(equipamento)!
+    item.totalHoras += h
+    item.ocorrencias += 1
+  }
+
+  const equipamentosOrdenados = [...equipamentosMap.entries()].sort(
+    (a, b) => b[1].totalHoras - a[1].totalHoras
+  )
+
+  const paradasFiltradas =
+    equipamentoSelecionado === "TODOS"
+      ? paradas
+      : paradas.filter((p) => (p.equipamento || "Sem equipamento") === equipamentoSelecionado)
+
+  const eventosMap = new Map<
+    string,
+    {
+      totalHoras: number
+      ocorrencias: number
+      detalhes: ParadaCogtive[]
+    }
+  >()
+
+  for (const p of paradasFiltradas) {
+    const evento = p.evento || p.tipo_evento || "Parada sem descrição"
+    const h = Number(p.duracao_horas || 0)
+
+    if (!eventosMap.has(evento)) {
+      eventosMap.set(evento, { totalHoras: 0, ocorrencias: 0, detalhes: [] })
+    }
+
+    const item = eventosMap.get(evento)!
+    item.totalHoras += h
+    item.ocorrencias += 1
+    item.detalhes.push(p)
+  }
+
+  const eventosOrdenados = [...eventosMap.entries()].sort((a, b) => b[1].totalHoras - a[1].totalHoras)
+  const maxHoras = Math.max(...eventosOrdenados.map(([, item]) => item.totalHoras), 0.0001)
+
+  const totalHorasFiltro = paradasFiltradas.reduce((acc, p) => acc + Number(p.duracao_horas || 0), 0)
 
   return (
     <details>
@@ -204,70 +277,306 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
           border: "1px solid rgba(245,158,11,0.25)",
           whiteSpace: "nowrap",
         }}
-        title="Paradas registradas no Cognitive no dia do fim anterior. Não é causa automática do atraso."
+        title="Paradas registradas no Cognitive no dia de referência. Não é causa automática do atraso."
       >
-        {total} parada{total !== 1 ? "s" : ""} · {fmtHorasParada(horas)}h
+        {total} parada{total !== 1 ? "s" : ""} · {formatarDuracaoParada(horas)}
       </summary>
 
       <div
         style={{
           marginTop: 8,
-          minWidth: 260,
-          maxWidth: 360,
-          borderRadius: 12,
+          width: 620,
+          maxWidth: "calc(100vw - 64px)",
+          borderRadius: 16,
           border: "1px solid var(--border)",
           background: "var(--bg-secondary)",
           overflow: "hidden",
-          boxShadow: "0 8px 18px rgba(15,23,42,0.08)",
+          boxShadow: "0 12px 30px rgba(15,23,42,0.14)",
         }}
       >
         <div
           style={{
-            padding: "8px 10px",
-            fontSize: 10,
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            color: "var(--text-secondary)",
+            padding: "12px 14px",
+            borderBottom: "1px solid var(--border)",
             background: "var(--bg-primary)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "var(--text-secondary)",
+            }}
+          >
+            Paradas do dia {dataRef}
+          </div>
+
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 11,
+              color: "var(--text-secondary)",
+            }}
+          >
+            Contexto operacional do Cognitive para o dia de referência.
+          </div>
+        </div>
+
+        <div
+          style={{
+            padding: 12,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))",
+            gap: 10,
             borderBottom: "1px solid var(--border)",
           }}
         >
-          Paradas no dia do fim anterior
-        </div>
+          <button
+            type="button"
+            onClick={() => setEquipamentoSelecionado("TODOS")}
+            style={{
+              textAlign: "left",
+              border: equipamentoSelecionado === "TODOS" ? "1px solid #F59E0B" : "1px solid var(--border)",
+              borderRadius: 12,
+              padding: 10,
+              background: equipamentoSelecionado === "TODOS" ? "rgba(245,158,11,0.10)" : "var(--bg-primary)",
+              cursor: "pointer",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                color: "var(--text-secondary)",
+                fontWeight: 800,
+                textTransform: "uppercase",
+              }}
+            >
+              Todos equipamentos
+            </div>
 
-        <div style={{ maxHeight: 180, overflowY: "auto" }}>
-          {paradas.length > 0 ? (
-            paradas.map((p, idx) => (
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 18,
+                fontWeight: 800,
+                color: "var(--text-primary)",
+              }}
+            >
+              {formatarDuracaoParada(horas)}
+            </div>
+
+            <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-secondary)" }}>
+              {total} parada{total !== 1 ? "s" : ""}
+            </div>
+          </button>
+
+          {equipamentosOrdenados.map(([equipamento, dados]) => (
+            <button
+              key={equipamento}
+              type="button"
+              onClick={() =>
+                setEquipamentoSelecionado((atual) => (atual === equipamento ? "TODOS" : equipamento))
+              }
+              style={{
+                textAlign: "left",
+                border: equipamentoSelecionado === equipamento ? "1px solid #F59E0B" : "1px solid var(--border)",
+                borderRadius: 12,
+                padding: 10,
+                background: equipamentoSelecionado === equipamento ? "rgba(245,158,11,0.10)" : "var(--bg-primary)",
+                cursor: "pointer",
+              }}
+            >
               <div
-                key={`${p.evento || "parada"}-${idx}`}
                 style={{
-                  padding: "8px 10px",
-                  borderBottom: idx < paradas.length - 1 ? "1px solid var(--border)" : undefined,
+                  fontSize: 10,
+                  color: "var(--text-secondary)",
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+                title={equipamento}
+              >
+                {equipamento}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 18,
+                  fontWeight: 800,
+                  color: "var(--text-primary)",
                 }}
               >
-                <div style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: 11 }}>
-                  {p.evento || p.tipo_evento || "Parada sem descrição"}
-                </div>
-                <div style={{ marginTop: 3, color: "var(--text-secondary)", fontSize: 10, lineHeight: 1.4 }}>
-                  {p.equipamento || "-"} · {fmtHorasParada(p.duracao_horas)}h
-                  {(p.hora_inicio || p.hora_fim) && (
-                    <> · {p.hora_inicio || "--:--"} até {p.hora_fim || "--:--"}</>
-                  )}
-                </div>
+                {formatarDuracaoParada(dados.totalHoras)}
               </div>
-            ))
-          ) : (
-            <div style={{ padding: "8px 10px", color: "var(--text-secondary)", fontSize: 11 }}>
-              Total informado pelo backend: {total} parada{total !== 1 ? "s" : ""}, {fmtHorasParada(horas)}h.
-            </div>
-          )}
+
+              <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-secondary)" }}>
+                {dados.ocorrencias} parada{dados.ocorrencias !== 1 ? "s" : ""}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div
+          style={{
+            padding: "10px 14px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-primary)" }}>
+            Ranking de paradas
+          </div>
+
+          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+            {equipamentoSelecionado === "TODOS" ? "Todos equipamentos" : equipamentoSelecionado} · {formatarDuracaoParada(totalHorasFiltro)}
+          </div>
+        </div>
+
+        <div style={{ maxHeight: 430, overflowY: "auto" }}>
+          {eventosOrdenados.map(([evento, dados]) => {
+            const pct = Math.max(4, (dados.totalHoras / maxHoras) * 100)
+
+            return (
+              <details key={evento} style={{ borderBottom: "1px solid var(--border)" }}>
+                <summary
+                  style={{
+                    listStyle: "none",
+                    cursor: "pointer",
+                    padding: "12px 14px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(0, 1fr) 110px",
+                      gap: 12,
+                      alignItems: "center",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          marginBottom: 6,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontWeight: 800,
+                            fontSize: 12,
+                            color: "var(--text-primary)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={evento}
+                        >
+                          {evento}
+                        </div>
+
+                        <div style={{ fontSize: 10, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                          {dados.ocorrencias} ocorrência{dados.ocorrencias !== 1 ? "s" : ""}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          height: 9,
+                          borderRadius: 999,
+                          background: "rgba(148,163,184,0.18)",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${pct}%`,
+                            height: "100%",
+                            background: "linear-gradient(90deg,#F59E0B,#FB923C)",
+                            borderRadius: 999,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 14, fontWeight: 900, color: "#B45309" }}>
+                        {formatarDuracaoParada(dados.totalHoras)}
+                      </div>
+
+                      <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>
+                        clique para detalhar
+                      </div>
+                    </div>
+                  </div>
+                </summary>
+
+                <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {dados.detalhes
+                    .slice()
+                    .sort((a, b) => String(a.hora_inicio || "").localeCompare(String(b.hora_inicio || "")))
+                    .map((p, idx) => (
+                      <div
+                        key={`${evento}-${idx}`}
+                        style={{
+                          border: "1px solid var(--border)",
+                          borderRadius: 10,
+                          padding: 10,
+                          background: "var(--bg-primary)",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "minmax(0, 1fr) auto",
+                            gap: 12,
+                            alignItems: "start",
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontWeight: 800,
+                                fontSize: 11,
+                                color: "var(--text-primary)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                              title={p.equipamento || "Sem equipamento"}
+                            >
+                              {p.equipamento || "Sem equipamento"}
+                            </div>
+
+                            <div style={{ marginTop: 3, fontSize: 10, color: "var(--text-secondary)" }}>
+                              {horaCurta(p.hora_inicio)} às {horaCurta(p.hora_fim)}
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: 11, fontWeight: 900, color: "#B45309", whiteSpace: "nowrap" }}>
+                            {formatarDuracaoParada(p.duracao_horas)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </details>
+            )
+          })}
         </div>
       </div>
     </details>
   )
 }
-
 function fmtSinal(value?: number | null, decimais = 0) {
   const n = Number(value || 0)
   return `${n > 0 ? "+" : ""}${fmt(n, decimais)}`
