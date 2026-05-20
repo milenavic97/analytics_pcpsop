@@ -4,6 +4,10 @@ import {
   ArrowDown,
   ArrowUp,
   CalendarDays,
+  BarChart3,
+  ChevronDown,
+  Clock3,
+  Factory,
   CheckCircle2,
   Copy,
   Filter,
@@ -193,10 +197,63 @@ function horaCurta(hora?: string | null) {
   return String(hora).slice(0, 5)
 }
 
+function segundosDeHora(hora?: string | null) {
+  if (!hora) return null
+  const partes = String(hora).split(":").map((p) => Number(p))
+  if (partes.some((p) => Number.isNaN(p))) return null
+  const [h = 0, m = 0, sec = 0] = partes
+  return h * 3600 + m * 60 + sec
+}
+
+function duracaoOperacionalPorUniao(paradas: ParadaCogtive[]) {
+  const intervalos: Array<[number, number]> = []
+  let fallbackSegundos = 0
+
+  for (const p of paradas) {
+    const ini = segundosDeHora(p.hora_inicio)
+    let fim = segundosDeHora(p.hora_fim)
+    const duracaoSeg = Math.max(0, Number(p.duracao_horas || 0) * 3600)
+
+    if (ini === null || fim === null) {
+      fallbackSegundos += duracaoSeg
+      continue
+    }
+
+    if (fim < ini) fim += 24 * 3600
+    if (fim === ini && duracaoSeg > 0) fim = ini + duracaoSeg
+    if (fim > ini) intervalos.push([ini, fim])
+  }
+
+  if (!intervalos.length) return fallbackSegundos / 3600
+
+  intervalos.sort((a, b) => a[0] - b[0])
+
+  let total = 0
+  let [iniAtual, fimAtual] = intervalos[0]
+
+  for (let i = 1; i < intervalos.length; i += 1) {
+    const [ini, fim] = intervalos[i]
+
+    if (ini <= fimAtual) {
+      fimAtual = Math.max(fimAtual, fim)
+    } else {
+      total += fimAtual - iniAtual
+      iniAtual = ini
+      fimAtual = fim
+    }
+  }
+
+  total += fimAtual - iniAtual
+
+  return (total + fallbackSegundos) / 3600
+}
+
 function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
   const paradas = mudanca.paradas_dia_fim_anterior || []
   const { total, horas } = resumoParadasCogtive(mudanca)
+  const [modalAberto, setModalAberto] = useState(false)
   const [equipamentoSelecionado, setEquipamentoSelecionado] = useState<string>("TODOS")
+  const [eventoAberto, setEventoAberto] = useState<string | null>(null)
 
   if (!total) {
     return (
@@ -208,19 +265,27 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
 
   const dataRef = fmtData(mudanca.data_fim_anterior)
 
-  const equipamentosMap = new Map<string, { totalHoras: number; ocorrencias: number }>()
+  const equipamentosMap = new Map<
+    string,
+    { totalHoras: number; operacionalHoras: number; ocorrencias: number; paradas: ParadaCogtive[] }
+  >()
 
   for (const p of paradas) {
     const equipamento = p.equipamento || "Sem equipamento"
     const h = Number(p.duracao_horas || 0)
 
     if (!equipamentosMap.has(equipamento)) {
-      equipamentosMap.set(equipamento, { totalHoras: 0, ocorrencias: 0 })
+      equipamentosMap.set(equipamento, { totalHoras: 0, operacionalHoras: 0, ocorrencias: 0, paradas: [] })
     }
 
     const item = equipamentosMap.get(equipamento)!
     item.totalHoras += h
     item.ocorrencias += 1
+    item.paradas.push(p)
+  }
+
+  for (const [, item] of equipamentosMap.entries()) {
+    item.operacionalHoras = duracaoOperacionalPorUniao(item.paradas)
   }
 
   const equipamentosOrdenados = [...equipamentosMap.entries()].sort(
@@ -257,241 +322,360 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
 
   const eventosOrdenados = [...eventosMap.entries()].sort((a, b) => b[1].totalHoras - a[1].totalHoras)
   const maxHoras = Math.max(...eventosOrdenados.map(([, item]) => item.totalHoras), 0.0001)
-
   const totalHorasFiltro = paradasFiltradas.reduce((acc, p) => acc + Number(p.duracao_horas || 0), 0)
+  const tempoOperacionalLinha = duracaoOperacionalPorUniao(paradas)
+  const totalEquipamentos = equipamentosOrdenados.length
+
+  const abrirModal = () => {
+    setEquipamentoSelecionado("TODOS")
+    setEventoAberto(null)
+    setModalAberto(true)
+  }
+
+  const selecionarEquipamento = (equipamento: string) => {
+    setEquipamentoSelecionado(equipamento)
+    setEventoAberto(null)
+  }
 
   return (
-    <details>
-      <summary
+    <>
+      <button
+        type="button"
+        onClick={abrirModal}
         style={{
           cursor: "pointer",
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
           borderRadius: 999,
-          padding: "4px 8px",
+          padding: "4px 9px",
           fontSize: 11,
-          fontWeight: 700,
+          fontWeight: 800,
           color: "#B45309",
           background: "rgba(245,158,11,0.10)",
-          border: "1px solid rgba(245,158,11,0.25)",
+          border: "1px solid rgba(245,158,11,0.28)",
           whiteSpace: "nowrap",
         }}
         title="Paradas registradas no Cognitive no dia de referência. Não é causa automática do atraso."
       >
-        {total} parada{total !== 1 ? "s" : ""} · {formatarDuracaoParada(horas)}
-      </summary>
+        {total} parada{total !== 1 ? "s" : ""} · {formatarDuracaoParada(tempoOperacionalLinha || horas)}
+      </button>
 
-      <div
-        style={{
-          marginTop: 8,
-          width: 620,
-          maxWidth: "calc(100vw - 64px)",
-          borderRadius: 16,
-          border: "1px solid var(--border)",
-          background: "var(--bg-secondary)",
-          overflow: "hidden",
-          boxShadow: "0 12px 30px rgba(15,23,42,0.14)",
-        }}
-      >
+      {modalAberto && (
         <div
           style={{
-            padding: "12px 14px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-primary)",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 800,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "var(--text-secondary)",
-            }}
-          >
-            Paradas do dia {dataRef}
-          </div>
-
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: 11,
-              color: "var(--text-secondary)",
-            }}
-          >
-            Contexto operacional do Cognitive para o dia de referência.
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: 12,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))",
-            gap: 10,
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setEquipamentoSelecionado("TODOS")}
-            style={{
-              textAlign: "left",
-              border: equipamentoSelecionado === "TODOS" ? "1px solid #F59E0B" : "1px solid var(--border)",
-              borderRadius: 12,
-              padding: 10,
-              background: equipamentoSelecionado === "TODOS" ? "rgba(245,158,11,0.10)" : "var(--bg-primary)",
-              cursor: "pointer",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 10,
-                color: "var(--text-secondary)",
-                fontWeight: 800,
-                textTransform: "uppercase",
-              }}
-            >
-              Todos equipamentos
-            </div>
-
-            <div
-              style={{
-                marginTop: 6,
-                fontSize: 18,
-                fontWeight: 800,
-                color: "var(--text-primary)",
-              }}
-            >
-              {formatarDuracaoParada(horas)}
-            </div>
-
-            <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-secondary)" }}>
-              {total} parada{total !== 1 ? "s" : ""}
-            </div>
-          </button>
-
-          {equipamentosOrdenados.map(([equipamento, dados]) => (
-            <button
-              key={equipamento}
-              type="button"
-              onClick={() =>
-                setEquipamentoSelecionado((atual) => (atual === equipamento ? "TODOS" : equipamento))
-              }
-              style={{
-                textAlign: "left",
-                border: equipamentoSelecionado === equipamento ? "1px solid #F59E0B" : "1px solid var(--border)",
-                borderRadius: 12,
-                padding: 10,
-                background: equipamentoSelecionado === equipamento ? "rgba(245,158,11,0.10)" : "var(--bg-primary)",
-                cursor: "pointer",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-secondary)",
-                  fontWeight: 800,
-                  textTransform: "uppercase",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-                title={equipamento}
-              >
-                {equipamento}
-              </div>
-
-              <div
-                style={{
-                  marginTop: 6,
-                  fontSize: 18,
-                  fontWeight: 800,
-                  color: "var(--text-primary)",
-                }}
-              >
-                {formatarDuracaoParada(dados.totalHoras)}
-              </div>
-
-              <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-secondary)" }}>
-                {dados.ocorrencias} parada{dados.ocorrencias !== 1 ? "s" : ""}
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div
-          style={{
-            padding: "10px 14px",
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(15,23,42,0.42)",
             display: "flex",
-            justifyContent: "space-between",
             alignItems: "center",
-            gap: 12,
-            borderBottom: "1px solid var(--border)",
+            justifyContent: "center",
+            padding: 24,
           }}
+          onClick={() => setModalAberto(false)}
         >
-          <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-primary)" }}>
-            Ranking de paradas
-          </div>
-
-          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-            {equipamentoSelecionado === "TODOS" ? "Todos equipamentos" : equipamentoSelecionado} · {formatarDuracaoParada(totalHorasFiltro)}
-          </div>
-        </div>
-
-        <div style={{ maxHeight: 430, overflowY: "auto" }}>
-          {eventosOrdenados.map(([evento, dados]) => {
-            const pct = Math.max(4, (dados.totalHoras / maxHoras) * 100)
-
-            return (
-              <details key={evento} style={{ borderBottom: "1px solid var(--border)" }}>
-                <summary
-                  style={{
-                    listStyle: "none",
-                    cursor: "pointer",
-                    padding: "12px 14px",
-                  }}
-                >
+          <div
+            style={{
+              width: "min(1180px, calc(100vw - 48px))",
+              maxHeight: "82vh",
+              borderRadius: 22,
+              border: "1px solid var(--border)",
+              background: "var(--bg-secondary)",
+              boxShadow: "0 24px 70px rgba(15,23,42,0.30)",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "18px 22px",
+                borderBottom: "1px solid var(--border)",
+                background: "linear-gradient(180deg, var(--bg-secondary), var(--bg-primary))",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 18,
+              }}
+            >
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <div
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "minmax(0, 1fr) 110px",
-                      gap: 12,
+                      width: 34,
+                      height: 34,
+                      borderRadius: 12,
+                      display: "flex",
                       alignItems: "center",
+                      justifyContent: "center",
+                      background: "rgba(245,158,11,0.12)",
+                      color: "#B45309",
                     }}
                   >
+                    <CalendarDays size={18} />
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 18,
+                        fontWeight: 900,
+                        color: "var(--text-primary)",
+                        letterSpacing: "-0.02em",
+                      }}
+                    >
+                      Paradas do dia {dataRef}
+                    </div>
+
+                    <div style={{ marginTop: 3, fontSize: 12, color: "var(--text-secondary)" }}>
+                      Eventos do Cognitive, exceto produção. Referência usada: fim anterior do lote.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setModalAberto(false)}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 12,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-secondary)",
+                  color: "var(--text-secondary)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+                aria-label="Fechar"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div style={{ padding: 18, overflowY: "auto" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                  gap: 12,
+                  marginBottom: 14,
+                }}
+              >
+                <div
+                  style={{
+                    border: equipamentoSelecionado === "TODOS" ? "1px solid #F59E0B" : "1px solid var(--border)",
+                    borderRadius: 16,
+                    padding: 14,
+                    background: equipamentoSelecionado === "TODOS" ? "rgba(245,158,11,0.10)" : "var(--bg-primary)",
+                    cursor: "pointer",
+                  }}
+                  onClick={() => selecionarEquipamento("TODOS")}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 14,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "rgba(245,158,11,0.12)",
+                        color: "#B45309",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Clock3 size={19} />
+                    </div>
+
                     <div style={{ minWidth: 0 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: 10,
-                          marginBottom: 6,
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontWeight: 800,
-                            fontSize: 12,
-                            color: "var(--text-primary)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                          title={evento}
-                        >
-                          {evento}
+                      <div className="card-label">Tempo operacional</div>
+                      <div style={{ fontSize: 21, fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.1 }}>
+                        {formatarDuracaoParada(tempoOperacionalLinha)}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        União dos intervalos em paralelo
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 16,
+                    padding: 14,
+                    background: "var(--bg-primary)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 14,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "rgba(37,99,235,0.10)",
+                        color: "#2563EB",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <BarChart3 size={19} />
+                    </div>
+
+                    <div>
+                      <div className="card-label">Eventos</div>
+                      <div style={{ fontSize: 21, fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.1 }}>
+                        {total}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        registros no Cognitive
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 16,
+                    padding: 14,
+                    background: "var(--bg-primary)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 14,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "rgba(16,185,129,0.10)",
+                        color: "#059669",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Factory size={19} />
+                    </div>
+
+                    <div>
+                      <div className="card-label">Equipamentos</div>
+                      <div style={{ fontSize: 21, fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.1 }}>
+                        {totalEquipamentos}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        com paradas no dia
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 16,
+                    padding: 14,
+                    background: "var(--bg-primary)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 14,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "rgba(239,68,68,0.10)",
+                        color: "#DC2626",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Clock3 size={19} />
+                    </div>
+
+                    <div>
+                      <div className="card-label">Soma por equipamento</div>
+                      <div style={{ fontSize: 21, fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.1 }}>
+                        {formatarDuracaoParada(horas)}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)" }}>
+                        pode sobrepor em L1
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: 12,
+                  marginBottom: 14,
+                }}
+              >
+                {equipamentosOrdenados.map(([equipamento, dados]) => {
+                  const pct = Math.min(100, Math.max(4, (dados.totalHoras / Math.max(horas, 0.0001)) * 100))
+                  const ativo = equipamentoSelecionado === equipamento
+
+                  return (
+                    <button
+                      key={equipamento}
+                      type="button"
+                      onClick={() => selecionarEquipamento(ativo ? "TODOS" : equipamento)}
+                      style={{
+                        textAlign: "left",
+                        border: ativo ? "1px solid #F59E0B" : "1px solid var(--border)",
+                        borderRadius: 16,
+                        padding: 14,
+                        background: ativo ? "rgba(245,158,11,0.10)" : "var(--bg-primary)",
+                        cursor: "pointer",
+                        minHeight: 112,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 900,
+                              color: "var(--text-primary)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={equipamento}
+                          >
+                            {equipamento}
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 19, fontWeight: 900, color: "#B45309" }}>
+                            {formatarDuracaoParada(dados.totalHoras)}
+                          </div>
+
+                          <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-secondary)" }}>
+                            {dados.ocorrencias} parada{dados.ocorrencias !== 1 ? "s" : ""}
+                          </div>
                         </div>
 
-                        <div style={{ fontSize: 10, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
-                          {dados.ocorrencias} ocorrência{dados.ocorrencias !== 1 ? "s" : ""}
-                        </div>
+                        <ChevronDown size={16} style={{ color: ativo ? "#B45309" : "var(--text-secondary)" }} />
                       </div>
 
                       <div
                         style={{
-                          height: 9,
+                          marginTop: 12,
+                          height: 7,
                           borderRadius: 999,
                           background: "rgba(148,163,184,0.18)",
                           overflow: "hidden",
@@ -499,82 +683,225 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                       >
                         <div
                           style={{
-                            width: `${pct}%`,
                             height: "100%",
-                            background: "linear-gradient(90deg,#F59E0B,#FB923C)",
+                            width: `${pct}%`,
                             borderRadius: 999,
+                            background: "linear-gradient(90deg,#F59E0B,#FB923C)",
                           }}
                         />
                       </div>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid rgba(245,158,11,0.28)",
+                  background: "rgba(245,158,11,0.08)",
+                  borderRadius: 14,
+                  padding: "10px 12px",
+                  color: "#92400E",
+                  fontSize: 12,
+                  marginBottom: 14,
+                }}
+              >
+                Paradas capturadas no Cognitive no dia {dataRef}. O tempo operacional considera sobreposição de máquinas em paralelo.
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: 18,
+                  overflow: "hidden",
+                  background: "var(--bg-secondary)",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "13px 16px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 12,
+                    borderBottom: "1px solid var(--border)",
+                    background: "var(--bg-primary)",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: "var(--text-primary)" }}>
+                      Ranking de paradas
                     </div>
-
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: 14, fontWeight: 900, color: "#B45309" }}>
-                        {formatarDuracaoParada(dados.totalHoras)}
-                      </div>
-
-                      <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>
-                        clique para detalhar
-                      </div>
+                    <div style={{ marginTop: 2, fontSize: 11, color: "var(--text-secondary)" }}>
+                      {equipamentoSelecionado === "TODOS" ? "Todos os equipamentos" : equipamentoSelecionado}
                     </div>
                   </div>
-                </summary>
 
-                <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  {dados.detalhes
-                    .slice()
-                    .sort((a, b) => String(a.hora_inicio || "").localeCompare(String(b.hora_inicio || "")))
-                    .map((p, idx) => (
-                      <div
-                        key={`${evento}-${idx}`}
-                        style={{
-                          border: "1px solid var(--border)",
-                          borderRadius: 10,
-                          padding: 10,
-                          background: "var(--bg-primary)",
-                        }}
-                      >
-                        <div
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#B45309" }}>
+                    {formatarDuracaoParada(totalHorasFiltro)}
+                  </div>
+                </div>
+
+                <div style={{ maxHeight: 430, overflowY: "auto" }}>
+                  {eventosOrdenados.map(([evento, dados]) => {
+                    const pct = Math.max(4, (dados.totalHoras / maxHoras) * 100)
+                    const aberto = eventoAberto === evento
+
+                    return (
+                      <div key={evento} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <button
+                          type="button"
+                          onClick={() => setEventoAberto(aberto ? null : evento)}
                           style={{
-                            display: "grid",
-                            gridTemplateColumns: "minmax(0, 1fr) auto",
-                            gap: 12,
-                            alignItems: "start",
+                            width: "100%",
+                            border: 0,
+                            background: "transparent",
+                            cursor: "pointer",
+                            padding: "13px 16px",
+                            textAlign: "left",
                           }}
                         >
-                          <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "minmax(0, 1fr) 95px 115px 28px",
+                              gap: 14,
+                              alignItems: "center",
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{
+                                  fontWeight: 900,
+                                  fontSize: 12,
+                                  color: "var(--text-primary)",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                                title={evento}
+                              >
+                                {evento}
+                              </div>
+
+                              <div
+                                style={{
+                                  marginTop: 7,
+                                  height: 9,
+                                  borderRadius: 999,
+                                  background: "rgba(148,163,184,0.18)",
+                                  overflow: "hidden",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: `${pct}%`,
+                                    height: "100%",
+                                    background: "linear-gradient(90deg,#F59E0B,#FB923C)",
+                                    borderRadius: 999,
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            <div style={{ fontSize: 11, color: "var(--text-secondary)", textAlign: "right" }}>
+                              {dados.ocorrencias} ocorrência{dados.ocorrencias !== 1 ? "s" : ""}
+                            </div>
+
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontSize: 14, fontWeight: 900, color: "#B45309" }}>
+                                {formatarDuracaoParada(dados.totalHoras)}
+                              </div>
+                            </div>
+
+                            <ChevronDown
+                              size={17}
+                              style={{
+                                color: aberto ? "#B45309" : "var(--text-secondary)",
+                                transform: aberto ? "rotate(180deg)" : "rotate(0deg)",
+                                transition: "transform 150ms ease",
+                              }}
+                            />
+                          </div>
+                        </button>
+
+                        {aberto && (
+                          <div style={{ padding: "0 16px 14px" }}>
                             <div
                               style={{
-                                fontWeight: 800,
-                                fontSize: 11,
-                                color: "var(--text-primary)",
+                                border: "1px solid var(--border)",
+                                borderRadius: 14,
                                 overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
+                                background: "var(--bg-primary)",
                               }}
-                              title={p.equipamento || "Sem equipamento"}
                             >
-                              {p.equipamento || "Sem equipamento"}
-                            </div>
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "90px 90px 110px minmax(0, 1fr)",
+                                  gap: 12,
+                                  padding: "9px 12px",
+                                  borderBottom: "1px solid var(--border)",
+                                  fontSize: 10,
+                                  fontWeight: 900,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.04em",
+                                  color: "var(--text-secondary)",
+                                }}
+                              >
+                                <div>Início</div>
+                                <div>Fim</div>
+                                <div>Duração</div>
+                                <div>Equipamento</div>
+                              </div>
 
-                            <div style={{ marginTop: 3, fontSize: 10, color: "var(--text-secondary)" }}>
-                              {horaCurta(p.hora_inicio)} às {horaCurta(p.hora_fim)}
+                              {dados.detalhes
+                                .slice()
+                                .sort((a, b) => String(a.hora_inicio || "").localeCompare(String(b.hora_inicio || "")))
+                                .map((p, idx) => (
+                                  <div
+                                    key={`${evento}-${idx}`}
+                                    style={{
+                                      display: "grid",
+                                      gridTemplateColumns: "90px 90px 110px minmax(0, 1fr)",
+                                      gap: 12,
+                                      padding: "9px 12px",
+                                      borderBottom: idx === dados.detalhes.length - 1 ? "none" : "1px solid var(--border)",
+                                      fontSize: 12,
+                                      color: "var(--text-primary)",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <div>{horaCurta(p.hora_inicio)}</div>
+                                    <div>{horaCurta(p.hora_fim)}</div>
+                                    <div style={{ fontWeight: 900, color: "#B45309" }}>
+                                      {formatarDuracaoParada(p.duracao_horas)}
+                                    </div>
+                                    <div
+                                      style={{
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                      title={p.equipamento || "Sem equipamento"}
+                                    >
+                                      {p.equipamento || "Sem equipamento"}
+                                    </div>
+                                  </div>
+                                ))}
                             </div>
                           </div>
-
-                          <div style={{ fontSize: 11, fontWeight: 900, color: "#B45309", whiteSpace: "nowrap" }}>
-                            {formatarDuracaoParada(p.duracao_horas)}
-                          </div>
-                        </div>
+                        )}
                       </div>
-                    ))}
+                    )
+                  })}
                 </div>
-              </details>
-            )
-          })}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-    </details>
+      )}
+    </>
   )
 }
 function fmtSinal(value?: number | null, decimais = 0) {
