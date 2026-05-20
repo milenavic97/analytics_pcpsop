@@ -79,6 +79,18 @@ type EdicaoEtapa = {
 
 type Toast = { tipo: "success" | "error"; titulo: string; mensagem: string }
 
+type ParadaCogtive = {
+  recurso?: string | null
+  equipamento?: string | null
+  tipo_evento?: string | null
+  evento?: string | null
+  data_inicial?: string | null
+  data_final?: string | null
+  hora_inicio?: string | null
+  hora_fim?: string | null
+  duracao_horas?: number | null
+}
+
 type MudancaRealizado = {
   lote?: string | null
   lote_real_cogtive?: string | null
@@ -100,6 +112,9 @@ type MudancaRealizado = {
   tipo_impacto?: "atrasou" | "antecipou" | "sem_mudanca_data" | "sem_comparativo" | string
   delta_un_hora?: number | null
   delta_un_hora_pct?: number | null
+  paradas_dia_fim_anterior?: ParadaCogtive[]
+  total_paradas_dia_fim_anterior?: number | null
+  horas_paradas_dia_fim_anterior?: number | null
 }
 
 type Column = {
@@ -140,6 +155,117 @@ function fmtData(date?: string | null) {
 function fmtPct(value?: number | null) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "-"
   return `${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
+}
+
+function fmtHorasParada(value?: number | null) {
+  const n = Number(value || 0)
+  return n.toLocaleString("pt-BR", {
+    minimumFractionDigits: n % 1 ? 1 : 0,
+    maximumFractionDigits: 1,
+  })
+}
+
+function resumoParadasCogtive(m: MudancaRealizado) {
+  const total = Number(m.total_paradas_dia_fim_anterior ?? m.paradas_dia_fim_anterior?.length ?? 0)
+  const horas = Number(
+    m.horas_paradas_dia_fim_anterior ??
+      (m.paradas_dia_fim_anterior || []).reduce((acc, p) => acc + Number(p.duracao_horas || 0), 0)
+  )
+
+  return { total, horas }
+}
+
+function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
+  const paradas = mudanca.paradas_dia_fim_anterior || []
+  const { total, horas } = resumoParadasCogtive(mudanca)
+
+  if (!total) {
+    return (
+      <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+        Sem paradas
+      </span>
+    )
+  }
+
+  return (
+    <details>
+      <summary
+        style={{
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          borderRadius: 999,
+          padding: "4px 8px",
+          fontSize: 11,
+          fontWeight: 700,
+          color: "#B45309",
+          background: "rgba(245,158,11,0.10)",
+          border: "1px solid rgba(245,158,11,0.25)",
+          whiteSpace: "nowrap",
+        }}
+        title="Paradas registradas no Cognitive no dia do fim anterior. Não é causa automática do atraso."
+      >
+        {total} parada{total !== 1 ? "s" : ""} · {fmtHorasParada(horas)}h
+      </summary>
+
+      <div
+        style={{
+          marginTop: 8,
+          minWidth: 260,
+          maxWidth: 360,
+          borderRadius: 12,
+          border: "1px solid var(--border)",
+          background: "var(--bg-secondary)",
+          overflow: "hidden",
+          boxShadow: "0 8px 18px rgba(15,23,42,0.08)",
+        }}
+      >
+        <div
+          style={{
+            padding: "8px 10px",
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "var(--text-secondary)",
+            background: "var(--bg-primary)",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          Paradas no dia do fim anterior
+        </div>
+
+        <div style={{ maxHeight: 180, overflowY: "auto" }}>
+          {paradas.length > 0 ? (
+            paradas.map((p, idx) => (
+              <div
+                key={`${p.evento || "parada"}-${idx}`}
+                style={{
+                  padding: "8px 10px",
+                  borderBottom: idx < paradas.length - 1 ? "1px solid var(--border)" : undefined,
+                }}
+              >
+                <div style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: 11 }}>
+                  {p.evento || p.tipo_evento || "Parada sem descrição"}
+                </div>
+                <div style={{ marginTop: 3, color: "var(--text-secondary)", fontSize: 10, lineHeight: 1.4 }}>
+                  {p.equipamento || "-"} · {fmtHorasParada(p.duracao_horas)}h
+                  {(p.hora_inicio || p.hora_fim) && (
+                    <> · {p.hora_inicio || "--:--"} até {p.hora_fim || "--:--"}</>
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div style={{ padding: "8px 10px", color: "var(--text-secondary)", fontSize: 11 }}>
+              Total informado pelo backend: {total} parada{total !== 1 ? "s" : ""}, {fmtHorasParada(horas)}h.
+            </div>
+          )}
+        </div>
+      </div>
+    </details>
+  )
 }
 
 function fmtSinal(value?: number | null, decimais = 0) {
@@ -719,7 +845,7 @@ function PainelRealizado({ mudancasRealizado, divisor, labelUnidade }: {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: "var(--bg-primary)" }}>
-              {["Lote", "Produto", "Recurso", "Fim planejado", "Fim real", "Impacto", "UN/H ant.", "UN/H nova", "Δ UN/H"].map((h, i) => (
+              {["Lote", "Produto", "Recurso", "Fim planejado", "Fim real", "Impacto", "Paradas dia", "UN/H ant.", "UN/H nova", "Δ UN/H"].map((h, i) => (
                 <th key={h} style={{ padding: "9px 12px", textAlign: i >= 3 ? "center" : "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-secondary)", borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
@@ -743,6 +869,9 @@ function PainelRealizado({ mudancasRealizado, divisor, labelUnidade }: {
                       {atrasou ? <ArrowDown size={10} /> : antecipou ? <ArrowUp size={10} /> : <Minus size={10} />}
                       {atrasou ? `+${Math.abs(Number(m.impacto_dias || 0))}d` : antecipou ? `-${Math.abs(Number(m.impacto_dias || 0))}d` : "="}
                     </span>
+                  </td>
+                  <td style={{ padding: "9px 12px", textAlign: "center", verticalAlign: "top" }}>
+                    <ParadasCogtiveCell mudanca={m} />
                   </td>
                   <td style={{ padding: "9px 12px", textAlign: "center", color: "var(--text-secondary)" }}>{fmt(m.un_hora_anterior)}</td>
                   <td style={{ padding: "9px 12px", textAlign: "center", fontWeight: 700, color: "var(--text-primary)" }}>{fmt(m.un_hora_nova)}</td>
@@ -2917,8 +3046,8 @@ export default function Mrp() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: "var(--bg-primary)" }}>
-                      {["Lote", "Produto", "Fim anterior", "Fim Cogtive", "Impacto", "UN/H ant.", "UN/H nova", "Δ UN/H %", "Mês Lib.", "Motivo", "Ações"].map((h, i) => (
-                        <th key={h} style={{ padding: "10px 14px", textAlign: i >= 2 && i <= 7 ? "center" : "left", fontWeight: 600, fontSize: 11, color: "var(--text-secondary)", borderBottom: "2px solid var(--border)", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
+                      {["Lote", "Produto", "Fim anterior", "Fim Cogtive", "Impacto", "Paradas no dia", "UN/H ant.", "UN/H nova", "Δ UN/H %", "Mês Lib.", "Motivo", "Ações"].map((h, i) => (
+                        <th key={h} style={{ padding: "10px 14px", textAlign: i >= 2 && i <= 8 ? "center" : "left", fontWeight: 600, fontSize: 11, color: "var(--text-secondary)", borderBottom: "2px solid var(--border)", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -2938,6 +3067,9 @@ export default function Mrp() {
                             {m.tipo_impacto === "antecipou" && <ArrowUp size={11} />}
                             {textoImpacto(m.tipo_impacto, m.impacto_dias)}
                           </span>
+                        </td>
+                        <td style={{ padding: "10px 14px", textAlign: "center", verticalAlign: "top" }}>
+                          <ParadasCogtiveCell mudanca={m} />
                         </td>
                         <td style={{ padding: "10px 14px", textAlign: "center", color: "var(--text-secondary)" }}>{fmt(m.un_hora_anterior)}</td>
                         <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>{fmt(m.un_hora_nova)}</td>
