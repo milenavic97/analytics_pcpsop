@@ -16,6 +16,7 @@ import {
   BarChart,
   CartesianGrid,
   ComposedChart,
+  LabelList,
   Legend,
   Line,
   ResponsiveContainer,
@@ -246,25 +247,60 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                 <div className="h-[260px]">
                   {sb8Diario.length ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={sb8Diario} margin={{ top: 8, right: 18, left: 0, bottom: 24 }}>
+                      <BarChart
+                        data={sb8Diario}
+                        margin={{ top: 28, right: 18, left: 0, bottom: 24 }}
+                        barCategoryGap="45%"
+                      >
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                        <XAxis dataKey="data" tickFormatter={(value) => String(value).slice(8, 10)} tick={{ fontSize: 11, fill: "#64748B" }} />
+                        <XAxis
+                          dataKey="data"
+                          tickFormatter={(value) => String(value).slice(8, 10)}
+                          tick={{ fontSize: 11, fill: "#64748B" }}
+                        />
                         <YAxis tick={{ fontSize: 11, fill: "#64748B" }} width={64} />
-                        <Tooltip labelFormatter={(value) => fmtDate(String(value))} formatter={(value: any) => [fmtNumber(Number(value), 0), "Saldo SB8"]} />
+                        <Tooltip
+                          labelFormatter={(value) => fmtDate(String(value))}
+                          formatter={(value: any, name: any) => [
+                            fmtNumber(Number(value), 0),
+                            name === "saldo_normal"
+                              ? "Saldo armazém do tipo"
+                              : name === "saldo_quarentena"
+                                ? "Saldo quarentena 98"
+                                : String(name),
+                          ]}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
                         <Bar
                           dataKey="saldo_normal"
-                          name="Saldo normal"
+                          name="Saldo armazém do tipo"
                           stackId="sb8"
                           fill="#163B63"
-                          radius={[8, 8, 0, 0]}
-                        />
+                          barSize={46}
+                          radius={[0, 0, 6, 6]}
+                        >
+                          <LabelList
+                            dataKey="saldo_normal"
+                            position="insideTop"
+                            formatter={(value: any) => fmtCompact(Number(value))}
+                            style={{ fontSize: 11, fontWeight: 700, fill: "#FFFFFF" }}
+                          />
+                        </Bar>
                         <Bar
                           dataKey="saldo_quarentena"
-                          name="Quarentena"
+                          name="Saldo quarentena 98"
                           stackId="sb8"
                           fill="#F59E0B"
-                          radius={[8, 8, 0, 0]}
-                        />
+                          barSize={46}
+                          radius={[6, 6, 0, 0]}
+                        >
+                          <LabelList
+                            dataKey="saldo_quarentena"
+                            position="top"
+                            formatter={(value: any) => Number(value || 0) > 0 ? fmtCompact(Number(value)) : ""}
+                            style={{ fontSize: 11, fontWeight: 700, fill: "#92400E" }}
+                          />
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
