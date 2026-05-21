@@ -377,7 +377,15 @@ export default function AgingEstoquePage() {
     let mounted = true
     setLoadingItens(true)
     setError("")
-    getAgingItens({ page, page_size: PAGE_SIZE, status, tipo, busca: buscaAplicada })
+    getAgingItens({
+        page,
+        page_size: PAGE_SIZE,
+        status,
+        tipo,
+        busca: buscaAplicada,
+        sort_key: sortKey || undefined,
+        sort_direction: sortDirection,
+      })
       .then((res) => {
         if (!mounted) return
         setItensResp(res as AgingItensResponse)
@@ -390,12 +398,13 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingItens(false)
       })
     return () => { mounted = false }
-  }, [page, status, tipo, buscaAplicada])
+  }, [page, status, tipo, buscaAplicada, sortKey, sortDirection])
 
   const itens = itensResp?.itens || []
   const totalPages = Math.max(1, itensResp?.total_pages || 1)
 
   const handleSort = (column: SortKey) => {
+    setPage(1)
     if (sortKey === column) {
       setSortDirection((current) => (current === "asc" ? "desc" : "asc"))
       return
@@ -417,15 +426,8 @@ export default function AgingEstoquePage() {
     }
   }
 
-  const itensOrdenados = useMemo(() => {
-    if (!sortKey) return itens
-    return [...itens].sort((a, b) => {
-      const aValue = Number((a as any)[sortKey] || 0)
-      const bValue = Number((b as any)[sortKey] || 0)
-      if (aValue === bValue) return 0
-      return sortDirection === "asc" ? aValue - bValue : bValue - aValue
-    })
-  }, [itens, sortKey, sortDirection])
+  // A ordenação é feita no backend para ordenar a base inteira, não apenas a página atual.
+  const itensOrdenados = itens
 
   const topExcesso = useMemo(() => resumo?.top_excesso || [], [resumo])
   const topCriticos = useMemo(() => resumo?.top_criticos || [], [resumo])
