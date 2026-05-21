@@ -947,3 +947,145 @@ export interface Sd3RealizadoItem {
 export async function getMrpSd3Realizado(ano: number): Promise<Sd3RealizadoItem[]> {
   return apiFetch(`/mrp/sd3-realizado?ano=${ano}`)
 }
+
+
+// ─────────────────────────────────────────────────────────────
+// Aging / Cobertura de Estoque
+// ─────────────────────────────────────────────────────────────
+
+export type AgingStatus =
+  | "RUPTURA"
+  | "CRITICO"
+  | "ATENCAO"
+  | "SAUDAVEL"
+  | "EXCESSO"
+  | "SEM_GIRO"
+  | "SEM_CONSUMO"
+  | string
+
+export interface AgingPedidoAberto {
+  pedido_numero?: string | null
+  sc_numero?: string | null
+  quantidade_pendente: number
+  data_prevista_entrega?: string | null
+  fornecedor?: string | null
+  comprador?: string | null
+  status_entrega?: string | null
+}
+
+export interface AgingHistoricoConsumo {
+  periodo: string
+  campo: string
+  consumo: number
+}
+
+export interface AgingEstoqueItem {
+  codigo: string
+  produto?: string | null
+  unid?: string | null
+  armaz?: string | null
+  nome_2?: string | null
+  tipo?: string | null
+  grupo?: string | null
+  grupo_descricao?: string | null
+
+  saldo: number
+  qtd_pedidos_abertos: number
+  estoque_mais_pedidos: number
+
+  media_3m: number
+  media_6m: number
+  media_9m: number
+  maior_media: number
+
+  lead_time_dias: number
+  qtd_minima: number
+  consumo_durante_lt: number
+  estoque_ideal: number
+
+  cobertura_dias: number
+  cobertura_futura_dias: number
+  gap_volume: number
+
+  giro_estoque: number
+  maior_media_50: number
+  saldo_menos_maior_media_50: number
+
+  menor_data_entrega?: string | null
+  pedidos?: AgingPedidoAberto[]
+
+  status: AgingStatus
+  historico_consumo?: AgingHistoricoConsumo[]
+}
+
+export interface AgingResumo {
+  total_itens: number
+  ruptura: number
+  critico: number
+  atencao: number
+  saudavel: number
+  excesso: number
+  sem_giro: number
+  saldo_total: number
+  pedidos_total: number
+  gap_total: number
+  cobertura_media_dias: number
+  cobertura_futura_media_dias: number
+}
+
+export interface AgingFaixaCobertura {
+  faixa: string
+  itens: number
+}
+
+export interface AgingPorTipo {
+  tipo: string
+  itens: number
+  criticos: number
+  excesso: number
+  saldo: number
+}
+
+export interface AgingDashboard {
+  data_snapshot_consumo?: string | null
+  data_snapshot_mrp?: string | null
+  total_itens: number
+  total_filtrado?: number
+  resumo: AgingResumo
+  itens: AgingEstoqueItem[]
+  faixas_cobertura: AgingFaixaCobertura[]
+  por_tipo: AgingPorTipo[]
+  top_excesso: AgingEstoqueItem[]
+  top_criticos: AgingEstoqueItem[]
+}
+
+export async function getAgingEstoqueDashboard(params?: {
+  status?: string
+  tipo?: string
+  busca?: string
+}): Promise<AgingDashboard> {
+  const query = new URLSearchParams()
+
+  if (params?.status && params.status !== "TODOS") {
+    query.set("status", params.status)
+  }
+
+  if (params?.tipo && params.tipo !== "TODOS") {
+    query.set("tipo", params.tipo)
+  }
+
+  if (params?.busca) {
+    query.set("busca", params.busca)
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : ""
+
+  return apiFetch(`/aging-estoque/dashboard${suffix}`)
+}
+
+export async function getAgingEstoqueItem(
+  codigo: string
+): Promise<AgingEstoqueItem> {
+  return apiFetch(`/aging-estoque/item/${codigo}`)
+}
+
