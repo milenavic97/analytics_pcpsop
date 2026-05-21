@@ -8,7 +8,7 @@ import { ProducaoPage } from "./pages/Producao"
 import { DadosPage } from "./pages/Dados"
 import { OrdensPage } from "./pages/Ordens"
 import Mrp from "./pages/Mrp"
-import AgingEstoquePage from "./pages/AgingEstoque"
+import AgingEstoquePage from "./pages/AnaliseMrp"
 
 import { CalendarioParadasPage } from "./pages/calendario-paradas"
 
