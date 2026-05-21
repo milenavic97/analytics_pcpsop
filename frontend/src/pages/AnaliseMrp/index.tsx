@@ -442,8 +442,7 @@ export default function AgingEstoquePage() {
       header.join(";"),
       ...rows.map((r) =>
         header
-          .map((h) => String((r as any)[h] ?? "").replaceAll(";", ","))
-          .join(";")
+.map((h) => String((r as any)[h] ?? "").replace(/;/g, ","))          .join(";")
       ),
     ].join("\n")
 
