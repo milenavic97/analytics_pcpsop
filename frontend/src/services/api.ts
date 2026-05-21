@@ -950,7 +950,7 @@ export async function getMrpSd3Realizado(ano: number): Promise<Sd3RealizadoItem[
 
 
 // ─────────────────────────────────────────────────────────────
-// Aging / Cobertura de Estoque
+// Gestão de Estoque / Aging e Cobertura
 // ─────────────────────────────────────────────────────────────
 
 export type AgingStatus =
@@ -965,9 +965,12 @@ export type AgingStatus =
 
 export interface AgingPedidoAberto {
   pedido_numero?: string | null
+  pedido?: string | null
   sc_numero?: string | null
-  quantidade_pendente: number
+  quantidade_pendente?: number
+  quantidade?: number
   data_prevista_entrega?: string | null
+  data_entrega?: string | null
   fornecedor?: string | null
   comprador?: string | null
   status_entrega?: string | null
@@ -975,7 +978,7 @@ export interface AgingPedidoAberto {
 
 export interface AgingHistoricoConsumo {
   periodo: string
-  campo: string
+  campo?: string
   consumo: number
 }
 
@@ -1000,16 +1003,16 @@ export interface AgingEstoqueItem {
 
   lead_time_dias: number
   qtd_minima: number
-  consumo_durante_lt: number
+  consumo_durante_lt?: number
   estoque_ideal: number
 
   cobertura_dias: number
   cobertura_futura_dias: number
   gap_volume: number
 
-  giro_estoque: number
-  maior_media_50: number
-  saldo_menos_maior_media_50: number
+  giro_estoque?: number
+  maior_media_50?: number
+  saldo_menos_maior_media_50?: number
 
   menor_data_entrega?: string | null
   pedidos?: AgingPedidoAberto[]
@@ -1025,7 +1028,7 @@ export interface AgingResumo {
   atencao: number
   saudavel: number
   excesso: number
-  sem_giro: number
+  sem_giro?: number
   saldo_total: number
   pedidos_total: number
   gap_total: number
@@ -1046,25 +1049,46 @@ export interface AgingPorTipo {
   saldo: number
 }
 
-export interface AgingDashboard {
+export interface AgingResumoResponse {
   data_snapshot_consumo?: string | null
   data_snapshot_mrp?: string | null
-  total_itens: number
-  total_filtrado?: number
   resumo: AgingResumo
-  itens: AgingEstoqueItem[]
-  faixas_cobertura: AgingFaixaCobertura[]
-  por_tipo: AgingPorTipo[]
+  faixas_cobertura?: AgingFaixaCobertura[]
+  por_tipo?: AgingPorTipo[]
   top_excesso: AgingEstoqueItem[]
   top_criticos: AgingEstoqueItem[]
 }
 
-export async function getAgingEstoqueDashboard(params?: {
+export interface AgingItensResponse {
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+  itens: AgingEstoqueItem[]
+}
+
+// Mantido por compatibilidade com a versão anterior da tela.
+export interface AgingDashboard extends AgingResumoResponse {
+  total_itens?: number
+  total_filtrado?: number
+  itens: AgingEstoqueItem[]
+}
+
+export async function getAgingResumo(): Promise<AgingResumoResponse> {
+  return apiFetch("/aging-estoque/resumo")
+}
+
+export async function getAgingItens(params?: {
+  page?: number
+  page_size?: number
   status?: string
   tipo?: string
   busca?: string
-}): Promise<AgingDashboard> {
+}): Promise<AgingItensResponse> {
   const query = new URLSearchParams()
+
+  query.set("page", String(params?.page || 1))
+  query.set("page_size", String(params?.page_size || 100))
 
   if (params?.status && params.status !== "TODOS") {
     query.set("status", params.status)
@@ -1078,9 +1102,7 @@ export async function getAgingEstoqueDashboard(params?: {
     query.set("busca", params.busca)
   }
 
-  const suffix = query.toString() ? `?${query.toString()}` : ""
-
-  return apiFetch(`/aging-estoque/dashboard${suffix}`)
+  return apiFetch(`/aging-estoque/itens?${query.toString()}`)
 }
 
 export async function getAgingEstoqueItem(
@@ -1089,3 +1111,30 @@ export async function getAgingEstoqueItem(
   return apiFetch(`/aging-estoque/item/${codigo}`)
 }
 
+// Compatibilidade: se alguma parte antiga ainda chamar dashboard,
+// montamos o formato anterior usando os endpoints leves.
+export async function getAgingEstoqueDashboard(params?: {
+  status?: string
+  tipo?: string
+  busca?: string
+}): Promise<AgingDashboard> {
+  const [resumo, itens] = await Promise.all([
+    getAgingResumo(),
+    getAgingItens({
+      page: 1,
+      page_size: 100,
+      status: params?.status,
+      tipo: params?.tipo,
+      busca: params?.busca,
+    }),
+  ])
+
+  return {
+    ...resumo,
+    total_itens: resumo.resumo?.total_itens || itens.total,
+    total_filtrado: itens.total,
+    itens: itens.itens,
+    faixas_cobertura: resumo.faixas_cobertura || [],
+    por_tipo: resumo.por_tipo || [],
+  }
+}
