@@ -11,6 +11,7 @@ import {
   CalendarDays,
   GitBranch,
   ShieldAlert,
+  PackageSearch,
 } from "lucide-react"
 import { clsx } from "clsx"
 
@@ -41,9 +42,10 @@ const NAV = [
   },
   {
     id: "analise-mrp",
-    label: "Análise MRP",
+    label: "Aging Estoque",
     path: "/analise-mrp",
-    Icon: ShieldAlert,
+    Icon: PackageSearch,
+  PackageSearch,
   },
   {
     id: "calendario-paradas",
