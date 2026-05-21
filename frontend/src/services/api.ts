@@ -1084,6 +1084,8 @@ export async function getAgingItens(params?: {
   status?: string
   tipo?: string
   busca?: string
+  sort_key?: string
+  sort_direction?: "asc" | "desc"
 }): Promise<AgingItensResponse> {
   const query = new URLSearchParams()
 
@@ -1102,13 +1104,15 @@ export async function getAgingItens(params?: {
     query.set("busca", params.busca)
   }
 
-  return apiFetch(`/aging-estoque/itens?${query.toString()}`)
-}
+  if (params?.sort_key) {
+    query.set("sort_key", params.sort_key)
+  }
 
-export async function getAgingEstoqueItem(
-  codigo: string
-): Promise<AgingEstoqueItem> {
-  return apiFetch(`/aging-estoque/item/${codigo}`)
+  if (params?.sort_direction) {
+    query.set("sort_direction", params.sort_direction)
+  }
+
+  return apiFetch(`/aging-estoque/itens?${query.toString()}`)
 }
 
 // Compatibilidade: se alguma parte antiga ainda chamar dashboard,
