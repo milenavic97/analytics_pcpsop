@@ -251,7 +251,9 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                         <XAxis dataKey="data" tickFormatter={(value) => String(value).slice(8, 10)} tick={{ fontSize: 11, fill: "#64748B" }} />
                         <YAxis tick={{ fontSize: 11, fill: "#64748B" }} width={64} />
                         <Tooltip labelFormatter={(value) => fmtDate(String(value))} formatter={(value: any) => [fmtNumber(Number(value), 0), "Saldo SB8"]} />
-                        <Bar dataKey="saldo" name="Saldo SB8" fill="#163B63" radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="saldo_normal" stackId="a"
+                    fill="#1d4ed8"
+                    name="Saldo Normal" name="Saldo SB8" fill="#163B63" radius={[8, 8, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
