@@ -42,6 +42,33 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; border: string }
   SEM_CONSUMO: { bg: "rgba(100,116,139,0.10)", color: "#475569", border: "rgba(100,116,139,0.24)" },
 }
 
+
+type SortDirection = "asc" | "desc"
+type SortKey =
+  | "saldo"
+  | "qtd_pedidos_abertos"
+  | "estoque_mais_pedidos"
+  | "maior_media"
+  | "lead_time_dias"
+  | "qtd_minima"
+  | "estoque_ideal"
+  | "cobertura_dias"
+  | "cobertura_futura_dias"
+  | "gap_volume"
+
+const NUMERIC_COLUMNS: { key: SortKey; label: string; suffix?: string }[] = [
+  { key: "saldo", label: "Saldo" },
+  { key: "qtd_pedidos_abertos", label: "Pedidos" },
+  { key: "estoque_mais_pedidos", label: "Estoque + pedidos" },
+  { key: "maior_media", label: "Maior média" },
+  { key: "lead_time_dias", label: "LT", suffix: "d" },
+  { key: "qtd_minima", label: "Qtd. mínima" },
+  { key: "estoque_ideal", label: "Estoque ideal" },
+  { key: "cobertura_dias", label: "Cobertura", suffix: "d" },
+  { key: "cobertura_futura_dias", label: "Cob. futura", suffix: "d" },
+  { key: "gap_volume", label: "Gap" },
+]
+
 interface AgingResumoResponse {
   data_snapshot_consumo?: string | null
   data_snapshot_mrp?: string | null
@@ -101,6 +128,37 @@ function StatusBadge({ status }: { status: string }) {
     >
       {STATUS_LABEL[status] || status}
     </span>
+  )
+}
+
+function SortableTh({
+  label,
+  column,
+  sortKey,
+  sortDirection,
+  onSort,
+}: {
+  label: string
+  column: SortKey
+  sortKey: SortKey | null
+  sortDirection: SortDirection
+  onSort: (column: SortKey) => void
+}) {
+  const active = sortKey === column
+  const arrow = active ? (sortDirection === "asc" ? "↑" : "↓") : "↕"
+
+  return (
+    <th className="px-4 py-3 text-right">
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className="inline-flex items-center justify-end gap-1 rounded-md text-right font-bold text-white/95 transition hover:text-white"
+        title={`Ordenar por ${label}`}
+      >
+        <span>{label}</span>
+        <span className={active ? "text-white" : "text-white/55"}>{arrow}</span>
+      </button>
+    </th>
   )
 }
 
@@ -227,6 +285,8 @@ export default function AgingEstoquePage() {
   const [buscaAplicada, setBuscaAplicada] = useState("")
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<AgingEstoqueItem | null>(null)
+  const [sortKey, setSortKey] = useState<SortKey | null>(null)
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
 
   useEffect(() => {
     let mounted = true
@@ -292,6 +352,29 @@ export default function AgingEstoquePage() {
   const itens = itensResp?.itens || []
   const totalPages = Math.max(1, itensResp?.total_pages || 1)
 
+  const handleSort = (column: SortKey) => {
+    if (sortKey === column) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"))
+      return
+    }
+
+    setSortKey(column)
+    setSortDirection("desc")
+  }
+
+  const itensOrdenados = useMemo(() => {
+    if (!sortKey) return itens
+
+    return [...itens].sort((a, b) => {
+      const aValue = Number((a as any)[sortKey] || 0)
+      const bValue = Number((b as any)[sortKey] || 0)
+
+      if (aValue === bValue) return 0
+
+      return sortDirection === "asc" ? aValue - bValue : bValue - aValue
+    })
+  }, [itens, sortKey, sortDirection])
+
   const topExcesso = useMemo(() => resumo?.top_excesso || [], [resumo])
   const topCriticos = useMemo(() => resumo?.top_criticos || [], [resumo])
 
@@ -317,7 +400,7 @@ export default function AgingEstoquePage() {
   }
 
   return (
-    <div className="min-h-screen p-6 space-y-6">
+    <div className="min-h-screen p-6 space-y-5">
       <div className="fade-in flex flex-col justify-between gap-4 md:flex-row md:items-end">
         <div>
           <p className="text-[10px] font-medium uppercase tracking-widest mb-1" style={{ color: "var(--text-secondary)" }}>
@@ -442,29 +525,32 @@ export default function AgingEstoquePage() {
           </p>
         </div>
 
-        <div className="overflow-auto">
-          <table className="w-full min-w-[1280px] text-sm">
-            <thead className="text-left text-[11px] uppercase tracking-wide text-white" style={{ background: "#163B63" }}>
+        <div
+          className="overflow-auto"
+          style={{ maxHeight: "calc(100vh - 360px)" }}
+        >
+          <table className="w-full min-w-[1420px] text-sm">
+            <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Código</th>
                 <th className="px-4 py-3">Produto</th>
                 <th className="px-4 py-3">Tipo</th>
-                <th className="px-4 py-3 text-right">Saldo</th>
-                <th className="px-4 py-3 text-right">Pedidos</th>
-                <th className="px-4 py-3 text-right">Estoque + pedidos</th>
-                <th className="px-4 py-3 text-right">Maior média</th>
-                <th className="px-4 py-3 text-right">LT</th>
-                <th className="px-4 py-3 text-right">Qtd. mínima</th>
-                <th className="px-4 py-3 text-right">Estoque ideal</th>
-                <th className="px-4 py-3 text-right">Cobertura</th>
-                <th className="px-4 py-3 text-right">Cob. futura</th>
-                <th className="px-4 py-3 text-right">Gap</th>
+                {NUMERIC_COLUMNS.map((col) => (
+                  <SortableTh
+                    key={col.key}
+                    label={col.label}
+                    column={col.key}
+                    sortKey={sortKey}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                  />
+                ))}
               </tr>
             </thead>
 
             <tbody>
-              {itens.map((item) => (
+              {itensOrdenados.map((item) => (
                 <tr key={`${item.codigo}-${item.tipo}`} className="cursor-pointer border-t transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }} onClick={() => setSelected(item)}>
                   <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
                   <td className="px-4 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo}</td>
