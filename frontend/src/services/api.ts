@@ -1132,7 +1132,13 @@ export async function getAgingEstoqueDashboard(params?: {
       busca: params?.busca,
     }),
   ])
-
+export async function getAgingEstoqueItem(
+  codigo: string
+): Promise<AgingEstoqueItem> {
+  return apiFetch(
+    `/aging-estoque/item/${codigo}`
+  )
+}
   return {
     ...resumo,
     total_itens: resumo.resumo?.total_itens || itens.total,
