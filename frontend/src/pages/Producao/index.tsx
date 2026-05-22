@@ -109,7 +109,7 @@ export function ProducaoPage() {
       setErro("")
 
       const response = await fetch(
-        `${API_URL}/producao/overview-planejado-realizado?ano=2026&mes=${mes}&linha=${linha}`
+        `${API_URL}/overview-producao/resumo?ano=2026&mes=${mes}&linha=${linha}`
       )
 
       if (!response.ok) {
@@ -158,7 +158,7 @@ export function ProducaoPage() {
           </p>
 
           <h1 className="text-4xl font-bold text-slate-900">
-            Produção Planejada x Realizada
+            Overview Produção
           </h1>
 
           <p className="mt-2 text-slate-500">
