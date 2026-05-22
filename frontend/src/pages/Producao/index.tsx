@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import axios from "axios"
+
 import {
   ResponsiveContainer,
   LineChart,
@@ -108,20 +108,20 @@ export function ProducaoPage() {
       setLoading(true)
       setErro("")
 
-      const response = await axios.get<ResponseData>(
-        `${API_URL}/producao/overview-planejado-realizado`,
-        {
-          params: {
-            ano: 2026,
-            mes,
-            linha,
-          },
-        }
+      const response = await fetch(
+        `${API_URL}/producao/overview-planejado-realizado?ano=2026&mes=${mes}&linha=${linha}`
       )
 
-      setData(response.data)
+      if (!response.ok) {
+        throw new Error("Erro ao carregar produção")
+      }
+
+      const json = await response.json()
+
+      setData(json)
     } catch (err) {
       console.error(err)
+
       setErro(
         err instanceof Error
           ? err.message
@@ -140,14 +140,18 @@ export function ProducaoPage() {
 
   const aderenciaColor = useMemo(() => {
     const pct = resumo?.aderencia_pct || 0
+
     if (pct >= 95) return "text-green-600"
     if (pct >= 80) return "text-yellow-600"
+
     return "text-red-500"
   }, [resumo])
 
   return (
     <div className="space-y-6 p-6">
+
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+
         <div>
           <p className="text-xs uppercase tracking-widest text-slate-400">
             Produção
@@ -163,6 +167,7 @@ export function ProducaoPage() {
         </div>
 
         <div className="flex gap-3">
+
           <select
             value={mes}
             onChange={(e) => setMes(Number(e.target.value))}
@@ -184,7 +189,9 @@ export function ProducaoPage() {
             <option value="L1">L1</option>
             <option value="L2">L2</option>
           </select>
+
         </div>
+
       </div>
 
       {loading && (
@@ -201,7 +208,9 @@ export function ProducaoPage() {
 
       {!loading && !erro && data && (
         <>
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+
             <Card
               title="Planejado V1"
               value={formatNumber(resumo?.planejado_v1_cx)}
@@ -221,6 +230,7 @@ export function ProducaoPage() {
             />
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
               <p className="text-xs uppercase tracking-wide text-slate-500">
                 Aderência
               </p>
@@ -240,10 +250,13 @@ export function ProducaoPage() {
                   }}
                 />
               </div>
+
             </div>
+
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+
             <div className="mb-5">
               <p className="text-xs uppercase tracking-widest text-slate-400">
                 Evolução mensal
@@ -255,12 +268,19 @@ export function ProducaoPage() {
             </div>
 
             <div className="h-[420px]">
+
               <ResponsiveContainer width="100%" height="100%">
+
                 <LineChart data={data.meses}>
+
                   <CartesianGrid strokeDasharray="3 3" />
+
                   <XAxis dataKey="mes_label" />
+
                   <YAxis />
+
                   <Tooltip />
+
                   <Legend />
 
                   <Line
@@ -286,13 +306,19 @@ export function ProducaoPage() {
                     stroke="#16A34A"
                     strokeWidth={4}
                   />
+
                 </LineChart>
+
               </ResponsiveContainer>
+
             </div>
+
           </div>
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+
               <div className="mb-5">
                 <p className="text-xs uppercase tracking-widest text-slate-400">
                   Produção por linha
@@ -304,12 +330,19 @@ export function ProducaoPage() {
               </div>
 
               <div className="h-[320px]">
+
                 <ResponsiveContainer width="100%" height="100%">
+
                   <BarChart data={data.por_linha}>
+
                     <CartesianGrid strokeDasharray="3 3" />
+
                     <XAxis dataKey="linha" />
+
                     <YAxis />
+
                     <Tooltip />
+
                     <Legend />
 
                     <Bar
@@ -325,12 +358,17 @@ export function ProducaoPage() {
                       fill="#16A34A"
                       radius={[8, 8, 0, 0]}
                     />
+
                   </BarChart>
+
                 </ResponsiveContainer>
+
               </div>
+
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm overflow-auto">
+
               <div className="mb-5">
                 <p className="text-xs uppercase tracking-widest text-slate-400">
                   Grupos
@@ -342,7 +380,9 @@ export function ProducaoPage() {
               </div>
 
               <table className="w-full text-sm">
+
                 <thead className="bg-slate-100 text-slate-600 uppercase text-xs">
+
                   <tr>
                     <th className="px-3 py-3 text-left">Grupo</th>
                     <th className="px-3 py-3 text-right">Planejado</th>
@@ -350,14 +390,18 @@ export function ProducaoPage() {
                     <th className="px-3 py-3 text-right">Gap</th>
                     <th className="px-3 py-3 text-right">Aderência</th>
                   </tr>
+
                 </thead>
 
                 <tbody>
+
                   {data.por_grupo.map((item, idx) => (
+
                     <tr
                       key={`${item.grupo}-${idx}`}
                       className="border-t border-slate-100"
                     >
+
                       <td className="px-3 py-3 font-semibold text-slate-800">
                         {item.grupo}
                       </td>
@@ -383,14 +427,22 @@ export function ProducaoPage() {
                       <td className="px-3 py-3 text-right font-bold">
                         {item.aderencia_pct}%
                       </td>
+
                     </tr>
+
                   ))}
+
                 </tbody>
+
               </table>
+
             </div>
+
           </div>
+
         </>
       )}
+
     </div>
   )
 }
