@@ -5,8 +5,8 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
-  Legend,
   LabelList,
+  Legend,
   Line,
   ResponsiveContainer,
   Tooltip,
@@ -153,11 +153,7 @@ function formatHoras(value?: number) {
 }
 
 function tooltipValue(dataKey: string, value: number) {
-  if (
-    dataKey.includes("pct") ||
-    dataKey.includes("aderencia") ||
-    dataKey === "aderencia_plot"
-  ) {
+  if (dataKey.includes("pct") || dataKey.includes("aderencia")) {
     return formatPercent(value)
   }
 
@@ -166,6 +162,99 @@ function tooltipValue(dataKey: string, value: number) {
   }
 
   return formatCx(value)
+}
+
+function formatChartLabel(value?: number) {
+  if (!value || value === 0) return ""
+  return formatNumber(value)
+}
+
+function formatChartPercent(value?: number) {
+  if (!value || value === 0) return ""
+  return formatPercent(value)
+}
+
+function percentLabelColor(value?: number) {
+  if (!value || value === 0) return COLORS.green
+  if (value >= 95) return COLORS.green
+  if (value >= 80) return COLORS.orange
+  return COLORS.red
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function TopValueLabel(props: any) {
+  const { x, y, width, value, fill = "#64748B" } = props
+  if (!value || Number(value) === 0) return null
+
+  return (
+    <text
+      x={x + width / 2}
+      y={y - 7}
+      textAnchor="middle"
+      fontSize={11}
+      fontWeight={700}
+      fill={fill}
+    >
+      {formatNumber(Number(value))}
+    </text>
+  )
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function InsideBarLabel(props: any) {
+  const { x, y, width, value } = props
+  if (!value || Number(value) === 0) return null
+
+  return (
+    <text
+      x={x + width / 2}
+      y={y + 18}
+      textAnchor="middle"
+      fontSize={11}
+      fontWeight={700}
+      fill="#FFFFFF"
+    >
+      {formatNumber(Number(value))}
+    </text>
+  )
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function LineValueLabel(props: any) {
+  const { x, y, value, stroke = COLORS.v1 } = props
+  if (!value || Number(value) === 0) return null
+
+  return (
+    <text
+      x={x}
+      y={y - 8}
+      textAnchor="middle"
+      fontSize={11}
+      fontWeight={700}
+      fill={stroke}
+    >
+      {formatNumber(Number(value))}
+    </text>
+  )
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function PercentValueLabel(props: any) {
+  const { x, y, value } = props
+  if (!value || Number(value) === 0) return null
+
+  return (
+    <text
+      x={x}
+      y={y - 10}
+      textAnchor="middle"
+      fontSize={11}
+      fontWeight={800}
+      fill={percentLabelColor(Number(value))}
+    >
+      {formatPercent(Number(value))}
+    </text>
+  )
 }
 
 function Card({
@@ -250,99 +339,6 @@ function Toggle({
   )
 }
 
-
-function BarTopLabel({ x, y, width, value, fill = "#64748B" }: any) {
-  const numero = Number(value || 0)
-
-  if (!numero) return null
-
-  return (
-    <text
-      x={Number(x) + Number(width) / 2}
-      y={Number(y) - 8}
-      textAnchor="middle"
-      fill={fill}
-      fontSize={11}
-      fontWeight={700}
-    >
-      {formatNumber(numero)}
-    </text>
-  )
-}
-
-function BarInsideLabel({ x, y, width, value }: any) {
-  const numero = Number(value || 0)
-
-  if (!numero) return null
-
-  return (
-    <text
-      x={Number(x) + Number(width) / 2}
-      y={Number(y) + 18}
-      textAnchor="middle"
-      fill="#FFFFFF"
-      fontSize={11}
-      fontWeight={800}
-    >
-      {formatNumber(numero)}
-    </text>
-  )
-}
-
-function PercentLabel({ x, y, value }: any) {
-  const numero = Number(value || 0)
-
-  if (!numero) return null
-
-  return (
-    <text
-      x={Number(x)}
-      y={Number(y) - 10}
-      textAnchor="middle"
-      fill={numero >= 95 ? COLORS.green : numero >= 80 ? COLORS.orange : COLORS.red}
-      fontSize={11}
-      fontWeight={800}
-    >
-      {formatPercent(numero)}
-    </text>
-  )
-}
-
-function MarkerLabel({ x, y, value, fill = COLORS.v1 }: any) {
-  const numero = Number(value || 0)
-
-  if (!numero) return null
-
-  return (
-    <text
-      x={Number(x)}
-      y={Number(y) - 8}
-      textAnchor="middle"
-      fill={fill}
-      fontSize={11}
-      fontWeight={800}
-    >
-      {formatNumber(numero)}
-    </text>
-  )
-}
-
-function HorizontalTick({ cx, cy, stroke = COLORS.v1 }: any) {
-  if (cx == null || cy == null) return null
-
-  return (
-    <line
-      x1={Number(cx) - 18}
-      x2={Number(cx) + 18}
-      y1={Number(cy)}
-      y2={Number(cy)}
-      stroke={stroke}
-      strokeWidth={3}
-      strokeLinecap="round"
-    />
-  )
-}
-
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
 
@@ -424,16 +420,22 @@ export function ProducaoPage() {
 
   const chartData = useMemo(() => {
     return (data?.meses || []).map((item) => {
-      const aderencia = Number(item.aderencia_pct || 0)
+      const planejadoAtual = Number(item.planejado_atual_cx || 0)
+      const realizado = Number(item.realizado_cx || 0)
+      const v1 = Number(item.planejado_v1_cx || 0)
       const orcado = Number(item.orcado_cx || 0)
+      const aderencia = Number(item.aderencia_pct || 0)
 
       return {
         ...item,
         gap_cx: item.gap_cx ?? item.gap_vs_atual_cx ?? 0,
         orcado_cx: orcado,
-        orcado_marker: orcado > 0 ? orcado : null,
-        v1_marker: Number(item.planejado_v1_cx || 0) > 0 ? item.planejado_v1_cx : null,
-        aderencia_plot: aderencia > 0 ? aderencia : null,
+        planejado_v1_plot_cx: v1 > 0 ? v1 : null,
+        orcado_plot_cx: orcado > 0 ? orcado : null,
+        aderencia_plot_pct:
+          realizado > 0 && planejadoAtual > 0 && aderencia > 0
+            ? Math.min(aderencia, 120)
+            : null,
       }
     })
   }, [data])
@@ -691,14 +693,14 @@ export function ProducaoPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
                   data={chartData}
-                  barCategoryGap="34%"
-                  barGap={-34}
-                  margin={{ top: 46, right: 12, left: 0, bottom: 0 }}
+                  barCategoryGap="32%"
+                  barGap={-32}
+                  margin={{ top: 42, right: 22, left: 0, bottom: 4 }}
                 >
                   <CartesianGrid
                     vertical={false}
                     stroke="#EEF2F7"
-                    opacity={0.22}
+                    strokeDasharray="3 3"
                   />
 
                   <XAxis
@@ -721,17 +723,18 @@ export function ProducaoPage() {
                     yAxisId="right"
                     orientation="right"
                     domain={[0, 120]}
+                    ticks={[0, 30, 60, 90, 120]}
                     tick={{ fill: "#64748B", fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(value) => `${value}%`}
                     hide={!toggles.atingimento}
-                    width={46}
+                    width={48}
                   />
 
                   <Tooltip
                     content={<CustomTooltip />}
-                    cursor={{ fill: "rgba(15, 23, 42, 0.025)" }}
+                    cursor={{ fill: "rgba(15, 23, 42, 0.03)" }}
                   />
 
                   {toggles.planejado && (
@@ -741,14 +744,12 @@ export function ProducaoPage() {
                       name="Planejado Atual"
                       fill={COLORS.softBlue}
                       radius={[7, 7, 0, 0]}
-                      barSize={34}
-                      maxBarSize={56}
+                      barSize={36}
+                      maxBarSize={54}
                     >
                       <LabelList
                         dataKey="planejado_atual_cx"
-                        content={(props) => (
-                          <BarTopLabel {...props} fill="#64748B" />
-                        )}
+                        content={<TopValueLabel fill="#64748B" />}
                       />
                     </Bar>
                   )}
@@ -761,11 +762,11 @@ export function ProducaoPage() {
                       fill={COLORS.darkBlue}
                       radius={[7, 7, 0, 0]}
                       barSize={24}
-                      maxBarSize={42}
+                      maxBarSize={36}
                     >
                       <LabelList
                         dataKey="realizado_cx"
-                        content={(props) => <BarInsideLabel {...props} />}
+                        content={<InsideBarLabel />}
                       />
                     </Bar>
                   )}
@@ -774,18 +775,26 @@ export function ProducaoPage() {
                     <Line
                       yAxisId="left"
                       type="linear"
-                      dataKey="v1_marker"
+                      dataKey="planejado_v1_plot_cx"
                       name="V1"
-                      stroke="transparent"
-                      dot={<HorizontalTick stroke={COLORS.v1} />}
-                      activeDot={false}
-                      isAnimationActive={false}
+                      stroke={COLORS.v1}
+                      strokeWidth={3}
+                      dot={{
+                        r: 4,
+                        fill: COLORS.v1,
+                        stroke: COLORS.v1,
+                        strokeWidth: 1,
+                      }}
+                      activeDot={{
+                        r: 5,
+                        fill: COLORS.v1,
+                        stroke: COLORS.v1,
+                      }}
+                      connectNulls={false}
                     >
                       <LabelList
-                        dataKey="v1_marker"
-                        content={(props) => (
-                          <MarkerLabel {...props} fill={COLORS.v1} />
-                        )}
+                        dataKey="planejado_v1_plot_cx"
+                        content={<LineValueLabel stroke={COLORS.v1} />}
                       />
                     </Line>
                   )}
@@ -794,18 +803,17 @@ export function ProducaoPage() {
                     <Line
                       yAxisId="left"
                       type="linear"
-                      dataKey="orcado_marker"
+                      dataKey="orcado_plot_cx"
                       name="Orçado"
-                      stroke="transparent"
-                      dot={<HorizontalTick stroke={COLORS.orange} />}
+                      stroke={COLORS.orange}
+                      strokeWidth={3}
+                      dot={false}
                       activeDot={false}
-                      isAnimationActive={false}
+                      connectNulls={false}
                     >
                       <LabelList
-                        dataKey="orcado_marker"
-                        content={(props) => (
-                          <MarkerLabel {...props} fill={COLORS.orange} />
-                        )}
+                        dataKey="orcado_plot_cx"
+                        content={<LineValueLabel stroke={COLORS.orange} />}
                       />
                     </Line>
                   )}
@@ -813,22 +821,27 @@ export function ProducaoPage() {
                   {toggles.atingimento && (
                     <Line
                       yAxisId="right"
-                      type="linear"
-                      dataKey="aderencia_plot"
+                      type="monotone"
+                      dataKey="aderencia_plot_pct"
                       name="% Ating. Real vs. Planejado"
                       stroke={COLORS.green}
                       strokeWidth={2.5}
                       dot={{
                         r: 4,
                         fill: COLORS.green,
-                        stroke: "#FFFFFF",
-                        strokeWidth: 2,
+                        stroke: COLORS.green,
+                        strokeWidth: 1,
+                      }}
+                      activeDot={{
+                        r: 5,
+                        fill: COLORS.green,
+                        stroke: COLORS.green,
                       }}
                       connectNulls={false}
                     >
                       <LabelList
-                        dataKey="aderencia_plot"
-                        content={(props) => <PercentLabel {...props} />}
+                        dataKey="aderencia_plot_pct"
+                        content={<PercentValueLabel />}
                       />
                     </Line>
                   )}
