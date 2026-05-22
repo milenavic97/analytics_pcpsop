@@ -305,7 +305,7 @@ export function ProducaoPage() {
           </h1>
 
           <p className="mt-2 text-slate-500">
-            Planejado de produção vs. realizado do Cognitive por mês e linha.
+            Planejado de produção vs. realizado do Cogtive por mês e linha.
           </p>
         </div>
 
