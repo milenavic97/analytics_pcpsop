@@ -6,6 +6,7 @@ import {
   Cell,
   ComposedChart,
   Legend,
+  LabelList,
   Line,
   ResponsiveContainer,
   Tooltip,
@@ -152,7 +153,11 @@ function formatHoras(value?: number) {
 }
 
 function tooltipValue(dataKey: string, value: number) {
-  if (dataKey.includes("pct") || dataKey.includes("aderencia")) {
+  if (
+    dataKey.includes("pct") ||
+    dataKey.includes("aderencia") ||
+    dataKey === "aderencia_plot"
+  ) {
     return formatPercent(value)
   }
 
@@ -245,6 +250,99 @@ function Toggle({
   )
 }
 
+
+function BarTopLabel({ x, y, width, value, fill = "#64748B" }: any) {
+  const numero = Number(value || 0)
+
+  if (!numero) return null
+
+  return (
+    <text
+      x={Number(x) + Number(width) / 2}
+      y={Number(y) - 8}
+      textAnchor="middle"
+      fill={fill}
+      fontSize={11}
+      fontWeight={700}
+    >
+      {formatNumber(numero)}
+    </text>
+  )
+}
+
+function BarInsideLabel({ x, y, width, value }: any) {
+  const numero = Number(value || 0)
+
+  if (!numero) return null
+
+  return (
+    <text
+      x={Number(x) + Number(width) / 2}
+      y={Number(y) + 18}
+      textAnchor="middle"
+      fill="#FFFFFF"
+      fontSize={11}
+      fontWeight={800}
+    >
+      {formatNumber(numero)}
+    </text>
+  )
+}
+
+function PercentLabel({ x, y, value }: any) {
+  const numero = Number(value || 0)
+
+  if (!numero) return null
+
+  return (
+    <text
+      x={Number(x)}
+      y={Number(y) - 10}
+      textAnchor="middle"
+      fill={numero >= 95 ? COLORS.green : numero >= 80 ? COLORS.orange : COLORS.red}
+      fontSize={11}
+      fontWeight={800}
+    >
+      {formatPercent(numero)}
+    </text>
+  )
+}
+
+function MarkerLabel({ x, y, value, fill = COLORS.v1 }: any) {
+  const numero = Number(value || 0)
+
+  if (!numero) return null
+
+  return (
+    <text
+      x={Number(x)}
+      y={Number(y) - 8}
+      textAnchor="middle"
+      fill={fill}
+      fontSize={11}
+      fontWeight={800}
+    >
+      {formatNumber(numero)}
+    </text>
+  )
+}
+
+function HorizontalTick({ cx, cy, stroke = COLORS.v1 }: any) {
+  if (cx == null || cy == null) return null
+
+  return (
+    <line
+      x1={Number(cx) - 18}
+      x2={Number(cx) + 18}
+      y1={Number(cy)}
+      y2={Number(cy)}
+      stroke={stroke}
+      strokeWidth={3}
+      strokeLinecap="round"
+    />
+  )
+}
+
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
 
@@ -325,11 +423,19 @@ export function ProducaoPage() {
   const resumo = data?.resumo
 
   const chartData = useMemo(() => {
-    return (data?.meses || []).map((item) => ({
-      ...item,
-      gap_cx: item.gap_cx ?? item.gap_vs_atual_cx ?? 0,
-      orcado_cx: item.orcado_cx ?? 0,
-    }))
+    return (data?.meses || []).map((item) => {
+      const aderencia = Number(item.aderencia_pct || 0)
+      const orcado = Number(item.orcado_cx || 0)
+
+      return {
+        ...item,
+        gap_cx: item.gap_cx ?? item.gap_vs_atual_cx ?? 0,
+        orcado_cx: orcado,
+        orcado_marker: orcado > 0 ? orcado : null,
+        v1_marker: Number(item.planejado_v1_cx || 0) > 0 ? item.planejado_v1_cx : null,
+        aderencia_plot: aderencia > 0 ? aderencia : null,
+      }
+    })
   }, [data])
 
   const aderenciaColor =
@@ -585,14 +691,14 @@ export function ProducaoPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
                   data={chartData}
-                  barCategoryGap="22%"
-                  barGap={-28}
-                  margin={{ top: 30, right: 16, left: 0, bottom: 0 }}
+                  barCategoryGap="34%"
+                  barGap={-34}
+                  margin={{ top: 46, right: 12, left: 0, bottom: 0 }}
                 >
                   <CartesianGrid
                     vertical={false}
                     stroke="#EEF2F7"
-                    opacity={0.35}
+                    opacity={0.22}
                   />
 
                   <XAxis
@@ -623,8 +729,10 @@ export function ProducaoPage() {
                     width={46}
                   />
 
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
-                  <Legend />
+                  <Tooltip
+                    content={<CustomTooltip />}
+                    cursor={{ fill: "rgba(15, 23, 42, 0.025)" }}
+                  />
 
                   {toggles.planejado && (
                     <Bar
@@ -632,10 +740,17 @@ export function ProducaoPage() {
                       dataKey="planejado_atual_cx"
                       name="Planejado Atual"
                       fill={COLORS.softBlue}
-                      radius={[6, 6, 0, 0]}
+                      radius={[7, 7, 0, 0]}
                       barSize={34}
-                      maxBarSize={74}
-                    />
+                      maxBarSize={56}
+                    >
+                      <LabelList
+                        dataKey="planejado_atual_cx"
+                        content={(props) => (
+                          <BarTopLabel {...props} fill="#64748B" />
+                        )}
+                      />
+                    </Bar>
                   )}
 
                   {toggles.realizado && (
@@ -644,46 +759,78 @@ export function ProducaoPage() {
                       dataKey="realizado_cx"
                       name="Realizado"
                       fill={COLORS.darkBlue}
-                      radius={[6, 6, 0, 0]}
-                      barSize={22}
-                      maxBarSize={54}
-                    />
+                      radius={[7, 7, 0, 0]}
+                      barSize={24}
+                      maxBarSize={42}
+                    >
+                      <LabelList
+                        dataKey="realizado_cx"
+                        content={(props) => <BarInsideLabel {...props} />}
+                      />
+                    </Bar>
                   )}
 
                   {toggles.v1 && (
-                    <Bar
+                    <Line
                       yAxisId="left"
-                      dataKey="planejado_v1_cx"
+                      type="linear"
+                      dataKey="v1_marker"
                       name="V1"
-                      fill={COLORS.v1}
-                      radius={[4, 4, 0, 0]}
-                      barSize={8}
-                      maxBarSize={18}
-                    />
+                      stroke="transparent"
+                      dot={<HorizontalTick stroke={COLORS.v1} />}
+                      activeDot={false}
+                      isAnimationActive={false}
+                    >
+                      <LabelList
+                        dataKey="v1_marker"
+                        content={(props) => (
+                          <MarkerLabel {...props} fill={COLORS.v1} />
+                        )}
+                      />
+                    </Line>
                   )}
 
                   {toggles.orcado && (
-                    <Bar
+                    <Line
                       yAxisId="left"
-                      dataKey="orcado_cx"
+                      type="linear"
+                      dataKey="orcado_marker"
                       name="Orçado"
-                      fill={COLORS.orange}
-                      radius={[4, 4, 0, 0]}
-                      barSize={4}
-                      maxBarSize={10}
-                    />
+                      stroke="transparent"
+                      dot={<HorizontalTick stroke={COLORS.orange} />}
+                      activeDot={false}
+                      isAnimationActive={false}
+                    >
+                      <LabelList
+                        dataKey="orcado_marker"
+                        content={(props) => (
+                          <MarkerLabel {...props} fill={COLORS.orange} />
+                        )}
+                      />
+                    </Line>
                   )}
 
                   {toggles.atingimento && (
                     <Line
                       yAxisId="right"
                       type="linear"
-                      dataKey="aderencia_pct"
+                      dataKey="aderencia_plot"
                       name="% Ating. Real vs. Planejado"
                       stroke={COLORS.green}
-                      strokeWidth={3}
-                      dot={{ r: 4, fill: COLORS.green }}
-                    />
+                      strokeWidth={2.5}
+                      dot={{
+                        r: 4,
+                        fill: COLORS.green,
+                        stroke: "#FFFFFF",
+                        strokeWidth: 2,
+                      }}
+                      connectNulls={false}
+                    >
+                      <LabelList
+                        dataKey="aderencia_plot"
+                        content={(props) => <PercentLabel {...props} />}
+                      />
+                    </Line>
                   )}
                 </ComposedChart>
               </ResponsiveContainer>
