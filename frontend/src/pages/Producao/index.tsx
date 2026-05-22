@@ -1,6 +1,3 @@
-# src/pages/Producao/index.tsx
-
-```tsx
 import { useEffect, useMemo, useState } from "react"
 import {
   ResponsiveContainer,
@@ -107,7 +104,7 @@ function Card({
   )
 }
 
-export default function ProducaoPage() {
+export function ProducaoPage() {
   const [loading, setLoading] = useState(true)
   const [linha, setLinha] = useState("TODAS")
   const [mes, setMes] = useState(new Date().getMonth() + 1)
@@ -147,6 +144,7 @@ export default function ProducaoPage() {
 
     if (pct >= 95) return "text-green-600"
     if (pct >= 80) return "text-yellow-600"
+
     return "text-red-500"
   }, [resumo])
 
@@ -194,6 +192,7 @@ export default function ProducaoPage() {
           </select>
 
         </div>
+
       </div>
 
       {loading && (
@@ -226,6 +225,7 @@ export default function ProducaoPage() {
             />
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
               <p className="text-xs uppercase tracking-wide text-slate-500">
                 Aderência
               </p>
@@ -237,9 +237,15 @@ export default function ProducaoPage() {
               <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100">
                 <div
                   className="h-full rounded-full bg-[#17375E]"
-                  style={{ width: `${Math.min(resumo?.aderencia_pct || 0, 100)}%` }}
+                  style={{
+                    width: `${Math.min(
+                      resumo?.aderencia_pct || 0,
+                      100
+                    )}%`,
+                  }}
                 />
               </div>
+
             </div>
 
           </div>
@@ -319,6 +325,7 @@ export default function ProducaoPage() {
               </div>
 
               <div className="h-[320px]">
+
                 <ResponsiveContainer width="100%" height="100%">
 
                   <BarChart data={data.por_linha}>
@@ -350,6 +357,7 @@ export default function ProducaoPage() {
                   </BarChart>
 
                 </ResponsiveContainer>
+
               </div>
 
             </div>
@@ -369,6 +377,7 @@ export default function ProducaoPage() {
               <table className="w-full text-sm">
 
                 <thead className="bg-slate-100 text-slate-600 uppercase text-xs">
+
                   <tr>
                     <th className="px-3 py-3 text-left">Grupo</th>
                     <th className="px-3 py-3 text-right">Planejado</th>
@@ -376,11 +385,13 @@ export default function ProducaoPage() {
                     <th className="px-3 py-3 text-right">Gap</th>
                     <th className="px-3 py-3 text-right">Aderência</th>
                   </tr>
+
                 </thead>
 
                 <tbody>
 
                   {data.por_grupo.map((item, idx) => (
+
                     <tr
                       key={idx}
                       className="border-t border-slate-100"
@@ -413,6 +424,7 @@ export default function ProducaoPage() {
                       </td>
 
                     </tr>
+
                   ))}
 
                 </tbody>
@@ -429,4 +441,3 @@ export default function ProducaoPage() {
     </div>
   )
 }
-```
