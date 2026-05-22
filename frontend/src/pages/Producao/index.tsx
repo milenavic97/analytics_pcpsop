@@ -389,7 +389,7 @@ export function ProducaoPage() {
             <Card
               title="Produção Realizada"
               value={formatNumber(resumo?.realizado_cx)}
-              subtitle="apontamentos Cognitive"
+              subtitle="apontamentos Cogtive"
               icon={Factory}
               accent="green"
             />
