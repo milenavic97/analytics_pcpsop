@@ -31,6 +31,7 @@ const COLORS = {
   navy: "#17375E",
   darkBlue: "#2F3B7C",
   softBlue: "#D6DCE8",
+  v1: "#8FA2BF",
   orange: "#F97316",
   green: "#16A34A",
   red: "#EF4444",
@@ -42,7 +43,17 @@ interface Resumo {
   planejado_atual_cx: number
   realizado_cx: number
   gap_cx: number
+  gap_vs_v1_cx?: number
   aderencia_pct: number
+  aderencia_vs_v1_pct?: number
+  planejado_v1_tb?: number
+  planejado_atual_tb?: number
+  realizado_tb?: number
+  planejado_v1_horas?: number
+  planejado_atual_horas?: number
+  realizado_horas?: number
+  gap_horas?: number
+  aderencia_horas_pct?: number
 }
 
 interface LinhaMes {
@@ -51,8 +62,14 @@ interface LinhaMes {
   planejado_v1_cx: number
   planejado_atual_cx: number
   realizado_cx: number
-  gap_cx: number
+  gap_cx?: number
+  gap_vs_atual_cx?: number
   aderencia_pct: number
+  aderencia_vs_v1_pct?: number
+  planejado_v1_horas?: number
+  planejado_atual_horas?: number
+  realizado_horas?: number
+  aderencia_horas_pct?: number
   orcado_cx?: number
 }
 
@@ -63,6 +80,11 @@ interface LinhaResumo {
   realizado_cx: number
   gap_cx: number
   aderencia_pct: number
+  planejado_v1_horas?: number
+  planejado_atual_horas?: number
+  realizado_horas?: number
+  gap_horas?: number
+  aderencia_horas_pct?: number
 }
 
 interface GrupoResumo {
@@ -84,9 +106,16 @@ interface ResponseData {
   por_linha: LinhaResumo[]
   por_grupo: GrupoResumo[]
   debug?: {
-    planejados_rows?: number
+    planejado_v1_volume_rows?: number
+    planejado_atual_volume_rows?: number
+    horas_v1_rows?: number
+    horas_atual_rows?: number
     realizados_rows?: number
-    observacao_v1?: string
+    criterio_volume_v1?: string
+    criterio_volume_atual?: string
+    criterio_horas?: string
+    criterio_realizado?: string
+    observacao_orcado?: string
   }
 }
 
@@ -101,10 +130,37 @@ function formatNumber(value?: number) {
   return new Intl.NumberFormat("pt-BR").format(Math.round(value || 0))
 }
 
+function formatDecimal(value?: number, digits = 1) {
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value || 0)
+}
+
 function formatPercent(value?: number) {
   return `${new Intl.NumberFormat("pt-BR", {
     maximumFractionDigits: 1,
   }).format(value || 0)}%`
+}
+
+function formatCx(value?: number) {
+  return `${formatNumber(value)} cx`
+}
+
+function formatHoras(value?: number) {
+  return `${formatDecimal(value, 1)} h`
+}
+
+function tooltipValue(dataKey: string, value: number) {
+  if (dataKey.includes("pct") || dataKey.includes("aderencia")) {
+    return formatPercent(value)
+  }
+
+  if (dataKey.includes("horas")) {
+    return formatHoras(value)
+  }
+
+  return formatCx(value)
 }
 
 function Card({
@@ -192,27 +248,27 @@ function Toggle({
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
 
+  const filtered = payload.filter((item: any) => Number(item.value || 0) !== 0)
+
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-xl">
+    <div className="min-w-[220px] rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-xl">
       <p className="mb-2 font-bold text-slate-800">{label}</p>
 
-      {payload.map((item: any) => (
+      {filtered.map((item: any) => (
         <div
           key={item.dataKey}
           className="flex items-center justify-between gap-6 py-0.5"
         >
           <span className="flex items-center gap-2 text-slate-500">
             <span
-              className="h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: item.color }}
+              className="h-2.5 w-2.5 rounded-sm"
+              style={{ backgroundColor: item.color || item.fill }}
             />
             {item.name}
           </span>
 
           <span className="font-bold text-slate-900">
-            {item.dataKey === "aderencia_pct"
-              ? formatPercent(item.value)
-              : formatNumber(item.value)}
+            {tooltipValue(item.dataKey, Number(item.value || 0))}
           </span>
         </div>
       ))}
@@ -230,7 +286,7 @@ export function ProducaoPage() {
     planejado: true,
     realizado: true,
     v1: true,
-    orcado: true,
+    orcado: false,
     atingimento: true,
   })
 
@@ -271,9 +327,8 @@ export function ProducaoPage() {
   const chartData = useMemo(() => {
     return (data?.meses || []).map((item) => ({
       ...item,
-      orcado_cx:
-        item.orcado_cx ??
-        item.planejado_atual_cx,
+      gap_cx: item.gap_cx ?? item.gap_vs_atual_cx ?? 0,
+      orcado_cx: item.orcado_cx ?? 0,
     }))
   }, [data])
 
@@ -293,7 +348,6 @@ export function ProducaoPage() {
 
   return (
     <div className="space-y-6 p-6">
-
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
@@ -306,6 +360,7 @@ export function ProducaoPage() {
 
           <p className="mt-2 text-slate-500">
             Planejado de produção vs. realizado do Cogtive por mês e linha.
+            Volumes em caixas (tubetes / 500).
           </p>
         </div>
 
@@ -372,32 +427,32 @@ export function ProducaoPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
             <Card
               title="Planejado V1"
-              value={formatNumber(resumo?.planejado_v1_cx)}
-              subtitle="baseline da rodada"
+              value={formatCx(resumo?.planejado_v1_cx)}
+              subtitle={`Baseline da rodada • ${formatNumber(resumo?.planejado_v1_tb)} tb`}
               icon={CalendarDays}
               accent="blue"
             />
 
             <Card
               title="Planejado Atual"
-              value={formatNumber(resumo?.planejado_atual_cx)}
-              subtitle="última versão do Gantt"
+              value={formatCx(resumo?.planejado_atual_cx)}
+              subtitle={`Última versão do Gantt • ${formatNumber(resumo?.planejado_atual_tb)} tb`}
               icon={Layers}
               accent="purple"
             />
 
             <Card
               title="Produção Realizada"
-              value={formatNumber(resumo?.realizado_cx)}
-              subtitle="apontamentos Cogtive"
+              value={formatCx(resumo?.realizado_cx)}
+              subtitle={`Apontamentos Cogtive • ${formatNumber(resumo?.realizado_tb)} tb`}
               icon={Factory}
               accent="green"
             />
 
             <Card
               title="Gap"
-              value={formatNumber(resumo?.gap_cx)}
-              subtitle="realizado - planejado"
+              value={formatCx(resumo?.gap_cx)}
+              subtitle="Realizado - planejado atual"
               icon={BarChart3}
               accent={(resumo?.gap_cx || 0) >= 0 ? "green" : "red"}
             />
@@ -414,7 +469,7 @@ export function ProducaoPage() {
                   </h3>
 
                   <p className="mt-2 text-sm text-slate-500">
-                    realizado vs. planejado
+                    Realizado vs. planejado atual
                   </p>
                 </div>
 
@@ -434,6 +489,44 @@ export function ProducaoPage() {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                Horas planejadas
+              </p>
+              <h3 className="mt-4 text-2xl font-bold text-slate-900">
+                {formatHoras(resumo?.planejado_atual_horas)}
+              </h3>
+              <p className="mt-2 text-sm text-slate-500">
+                Disponíveis no MPS
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                Horas realizadas
+              </p>
+              <h3 className="mt-4 text-2xl font-bold text-slate-900">
+                {formatHoras(resumo?.realizado_horas)}
+              </h3>
+              <p className="mt-2 text-sm text-slate-500">
+                Duração registrada no Cogtive
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                Aderência de horas
+              </p>
+              <h3 className="mt-4 text-2xl font-bold text-slate-900">
+                {formatPercent(resumo?.aderencia_horas_pct)}
+              </h3>
+              <p className="mt-2 text-sm text-slate-500">
+                Horas realizadas vs. disponíveis
+              </p>
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
@@ -442,18 +535,18 @@ export function ProducaoPage() {
                 </p>
 
                 <h2 className="text-xl font-bold text-slate-900">
-                  Realizado vs. Planejado vs. Orçado
+                  Realizado vs. Planejado
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Visão mensal da produção, separando baseline, planejamento atual e realizado.
+                  Barras sobrepostas no padrão do Overview. V1 e orçado aparecem como marcas discretas.
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
                 <Toggle
                   active={toggles.planejado}
-                  label="Planejado"
+                  label="Planejado Atual"
                   color={COLORS.softBlue}
                   onClick={() => toggle("planejado")}
                 />
@@ -467,8 +560,8 @@ export function ProducaoPage() {
 
                 <Toggle
                   active={toggles.v1}
-                  label="V1 do mês"
-                  color={COLORS.slate}
+                  label="V1"
+                  color={COLORS.v1}
                   onClick={() => toggle("v1")}
                 />
 
@@ -488,10 +581,19 @@ export function ProducaoPage() {
               </div>
             </div>
 
-            <div className="h-[430px] rounded-2xl border border-slate-200 bg-slate-50/40 p-4">
+            <div className="h-[430px] rounded-2xl border border-slate-200 bg-white p-4">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                <ComposedChart
+                  data={chartData}
+                  barCategoryGap="22%"
+                  barGap={-28}
+                  margin={{ top: 30, right: 16, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    vertical={false}
+                    stroke="#EEF2F7"
+                    opacity={0.35}
+                  />
 
                   <XAxis
                     dataKey="mes_label"
@@ -502,33 +604,37 @@ export function ProducaoPage() {
 
                   <YAxis
                     yAxisId="left"
-                    tick={{ fill: "#64748B", fontSize: 12 }}
+                    tick={{ fill: "#64748B", fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
+                    tickFormatter={(value) => formatNumber(Number(value))}
+                    width={64}
                   />
 
                   <YAxis
                     yAxisId="right"
                     orientation="right"
                     domain={[0, 120]}
-                    tick={{ fill: "#64748B", fontSize: 12 }}
+                    tick={{ fill: "#64748B", fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
+                    tickFormatter={(value) => `${value}%`}
                     hide={!toggles.atingimento}
+                    width={46}
                   />
 
-                  <Tooltip content={<CustomTooltip />} />
-
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
                   <Legend />
 
                   {toggles.planejado && (
                     <Bar
                       yAxisId="left"
                       dataKey="planejado_atual_cx"
-                      name="Planejado - última versão"
+                      name="Planejado Atual"
                       fill={COLORS.softBlue}
-                      radius={[8, 8, 0, 0]}
+                      radius={[6, 6, 0, 0]}
                       barSize={34}
+                      maxBarSize={74}
                     />
                   )}
 
@@ -538,44 +644,45 @@ export function ProducaoPage() {
                       dataKey="realizado_cx"
                       name="Realizado"
                       fill={COLORS.darkBlue}
-                      radius={[8, 8, 0, 0]}
-                      barSize={28}
+                      radius={[6, 6, 0, 0]}
+                      barSize={22}
+                      maxBarSize={54}
                     />
                   )}
 
                   {toggles.v1 && (
-                    <Line
+                    <Bar
                       yAxisId="left"
-                      type="monotone"
                       dataKey="planejado_v1_cx"
-                      name="V1 do mês"
-                      stroke={COLORS.slate}
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
+                      name="V1"
+                      fill={COLORS.v1}
+                      radius={[4, 4, 0, 0]}
+                      barSize={8}
+                      maxBarSize={18}
                     />
                   )}
 
                   {toggles.orcado && (
-                    <Line
+                    <Bar
                       yAxisId="left"
-                      type="monotone"
                       dataKey="orcado_cx"
                       name="Orçado"
-                      stroke={COLORS.orange}
-                      strokeWidth={3}
-                      dot={false}
+                      fill={COLORS.orange}
+                      radius={[4, 4, 0, 0]}
+                      barSize={4}
+                      maxBarSize={10}
                     />
                   )}
 
                   {toggles.atingimento && (
                     <Line
                       yAxisId="right"
-                      type="monotone"
+                      type="linear"
                       dataKey="aderencia_pct"
                       name="% Ating. Real vs. Planejado"
                       stroke={COLORS.green}
                       strokeWidth={3}
-                      dot={{ r: 4 }}
+                      dot={{ r: 4, fill: COLORS.green }}
                     />
                   )}
                 </ComposedChart>
@@ -591,14 +698,19 @@ export function ProducaoPage() {
                 </p>
 
                 <h2 className="text-xl font-bold text-slate-900">
-                  L1 x L2
+                  L1 x L2 — {data.mes_label}/2026
                 </h2>
               </div>
 
               <div className="h-[320px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.por_linha}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                  <BarChart
+                    data={data.por_linha}
+                    barCategoryGap="32%"
+                    barGap={-22}
+                    margin={{ top: 24, right: 10, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid vertical={false} stroke="#EEF2F7" opacity={0.35} />
 
                     <XAxis
                       dataKey="linha"
@@ -608,25 +720,28 @@ export function ProducaoPage() {
                     />
 
                     <YAxis
-                      tick={{ fill: "#64748B", fontSize: 12 }}
+                      tick={{ fill: "#64748B", fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
+                      tickFormatter={(value) => formatNumber(Number(value))}
                     />
 
-                    <Tooltip content={<CustomTooltip />} />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
                     <Legend />
 
                     <Bar
                       dataKey="planejado_atual_cx"
-                      name="Planejado"
+                      name="Planejado Atual"
                       fill={COLORS.softBlue}
-                      radius={[8, 8, 0, 0]}
+                      radius={[6, 6, 0, 0]}
+                      barSize={40}
                     />
 
                     <Bar
                       dataKey="realizado_cx"
                       name="Realizado"
-                      radius={[8, 8, 0, 0]}
+                      radius={[6, 6, 0, 0]}
+                      barSize={26}
                     >
                       {data.por_linha.map((_, idx) => (
                         <Cell key={idx} fill={COLORS.darkBlue} />
@@ -659,9 +774,9 @@ export function ProducaoPage() {
                   <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-500">
                     <tr>
                       <th className="px-4 py-3 text-left">Grupo</th>
-                      <th className="px-4 py-3 text-right">Planejado</th>
-                      <th className="px-4 py-3 text-right">Realizado</th>
-                      <th className="px-4 py-3 text-right">Gap</th>
+                      <th className="px-4 py-3 text-right">Planejado (cx)</th>
+                      <th className="px-4 py-3 text-right">Realizado (cx)</th>
+                      <th className="px-4 py-3 text-right">Gap (cx)</th>
                       <th className="px-4 py-3 text-right">Aderência</th>
                     </tr>
                   </thead>
@@ -721,7 +836,11 @@ export function ProducaoPage() {
               <div className="flex flex-wrap items-center gap-4">
                 <span className="inline-flex items-center gap-2">
                   <Activity className="h-4 w-4" />
-                  Planejados: {data.debug.planejados_rows ?? 0}
+                  V1: {data.debug.planejado_v1_volume_rows ?? 0} linhas
+                </span>
+
+                <span>
+                  Atual: {data.debug.planejado_atual_volume_rows ?? 0} linhas
                 </span>
 
                 <span>
@@ -729,7 +848,7 @@ export function ProducaoPage() {
                 </span>
 
                 <span>
-                  {data.debug.observacao_v1}
+                  {data.debug.observacao_orcado}
                 </span>
               </div>
             </div>
