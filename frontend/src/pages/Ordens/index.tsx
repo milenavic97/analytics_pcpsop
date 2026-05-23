@@ -1552,9 +1552,24 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                       {salvandoNegociacao ? "Salvando..." : "Salvar negociação"}
                     </button>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div
+                    className="overflow-auto rounded-xl"
+                    style={{
+                      maxHeight: 420,
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-secondary)",
+                      position: "relative",
+                    }}
+                  >
                     <table className="w-full text-xs min-w-[1820px]">
-                      <thead>
+                      <thead
+                        style={{
+                          position: "sticky",
+                          top: 0,
+                          zIndex: 30,
+                          background: "var(--bg-secondary)",
+                        }}
+                      >
                         <tr style={{ borderBottom: "1px solid var(--border)" }}>
                           {[
                             "Código",
@@ -1576,7 +1591,21 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                             "Comprador",
                             "Status",
                           ].map(h => (
-                            <th key={h} className="pb-2 pr-4 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)", fontSize: 10 }}>{h}</th>
+                            <th
+                              key={h}
+                              className="py-2 pr-4 text-left font-semibold uppercase tracking-wider"
+                              style={{
+                                color: "var(--text-secondary)",
+                                fontSize: 10,
+                                position: "sticky",
+                                top: 0,
+                                zIndex: 31,
+                                background: "var(--bg-secondary)",
+                                boxShadow: "0 1px 0 var(--border)",
+                              }}
+                            >
+                              {h}
+                            </th>
                           ))}
                         </tr>
                       </thead>
