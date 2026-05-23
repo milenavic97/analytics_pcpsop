@@ -155,6 +155,19 @@ function Connector({ ok }: { ok: boolean }) {
   )
 }
 
+function getDesvioTooltip(lote: LoteRastreamento) {
+  const linhas = [
+    lote.desvio_titulo ? `Motivo: ${lote.desvio_titulo}` : null,
+    lote.desvio_serial ? `Serial: ${lote.desvio_serial}` : null,
+    lote.desvio_estado ? `Estado: ${lote.desvio_estado}` : null,
+    lote.desvio_dias != null ? `Dias de desvio: ${fmt(lote.desvio_dias)}` : null,
+    lote.desvio_setor ? `Setor: ${lote.desvio_setor}` : null,
+    lote.desvio_destino ? `Destino: ${lote.desvio_destino}` : null,
+  ].filter(Boolean)
+
+  return linhas.length ? linhas.join("\n") : "Lote em desvio"
+}
+
 function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
   if (!lote.em_desvio) return null
 
@@ -166,11 +179,13 @@ function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
     .filter(Boolean)
     .join(" · ")
 
+  const tooltip = getDesvioTooltip(lote)
+
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5">
       <span
         className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-        title={lote.desvio_titulo || detalhe || "Lote em desvio"}
+        title={tooltip}
         style={{
           background: "#FEF3C7",
           color: "#92400E",
@@ -184,6 +199,7 @@ function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
       {detalhe && (
         <span
           className="text-[10px]"
+          title={tooltip}
           style={{ color: "var(--text-secondary)" }}
         >
           {detalhe}
@@ -598,6 +614,7 @@ export function RastreamentoLotes() {
                           {(l.em_desvio || (l.atrasado && !l.check_liberado)) && (
                             <AlertTriangle
                               size={12}
+                              title={l.em_desvio ? getDesvioTooltip(l) : "Lote atrasado"}
                               style={{
                                 color: l.em_desvio ? "#92400E" : "#DC2626",
                                 flexShrink: 0,
@@ -627,7 +644,7 @@ export function RastreamentoLotes() {
                         {l.em_desvio && l.desvio_titulo && (
                           <p
                             className="mt-1 max-w-[260px] truncate text-[10px]"
-                            title={l.desvio_titulo}
+                            title={getDesvioTooltip(l)}
                             style={{ color: "var(--text-secondary)" }}
                           >
                             {l.desvio_titulo}
