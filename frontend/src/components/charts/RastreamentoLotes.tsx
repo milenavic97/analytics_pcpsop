@@ -612,14 +612,19 @@ export function RastreamentoLotes() {
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1.5">
                           {(l.em_desvio || (l.atrasado && !l.check_liberado)) && (
-                            <AlertTriangle
-                              size={12}
+                            <span
                               title={l.em_desvio ? getDesvioTooltip(l) : "Lote atrasado"}
-                              style={{
-                                color: l.em_desvio ? "#92400E" : "#DC2626",
-                                flexShrink: 0,
-                              }}
-                            />
+                              className="inline-flex items-center"
+                              style={{ flexShrink: 0 }}
+                            >
+                              <AlertTriangle
+                                size={12}
+                                style={{
+                                  color: l.em_desvio ? "#92400E" : "#DC2626",
+                                  flexShrink: 0,
+                                }}
+                              />
+                            </span>
                           )}
 
                           <span
