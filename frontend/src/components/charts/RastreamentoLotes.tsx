@@ -33,6 +33,13 @@ interface LoteRastreamento {
   atrasado: boolean
   equipamento_atual: string | null
   ordem_op: string | null
+  em_desvio?: boolean
+  desvio_serial?: string | null
+  desvio_titulo?: string | null
+  desvio_estado?: string | null
+  desvio_dias?: number | null
+  desvio_setor?: string | null
+  desvio_destino?: string | null
 }
 
 interface ResumoLiberacao {
@@ -70,15 +77,19 @@ interface RastreamentoData {
   total_lotes_mtd: number
   total_lotes_futuros?: number
   total_lotes_fora_gantt?: number
+  total_lotes_desvio?: number
   total_cx_previsto: number
   total_cx_liberado: number
   total_cx_gap?: number
   total_cx_sd3_mes?: number
   total_cx_fora_gantt?: number
+  total_cx_desvio?: number
   mtd_cx_previsto: number
   mtd_cx_liberado: number
   mtd_cx_gap: number
+  mtd_cx_desvio?: number
   mtd_gap_por_etapa: {
+    desvio?: number
     embalagem: number
     envase: number
     lavagem: number
@@ -144,6 +155,44 @@ function Connector({ ok }: { ok: boolean }) {
   )
 }
 
+function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
+  if (!lote.em_desvio) return null
+
+  const detalhe = [
+    lote.desvio_serial ? `Serial ${lote.desvio_serial}` : null,
+    lote.desvio_estado || null,
+    lote.desvio_dias != null ? `${fmt(lote.desvio_dias)} dias` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      <span
+        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+        title={lote.desvio_titulo || detalhe || "Lote em desvio"}
+        style={{
+          background: "#FEF3C7",
+          color: "#92400E",
+          border: "1px solid #FDE68A",
+        }}
+      >
+        <AlertTriangle size={10} />
+        Em desvio
+      </span>
+
+      {detalhe && (
+        <span
+          className="text-[10px]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          {detalhe}
+        </span>
+      )}
+    </div>
+  )
+}
+
 const MES_LABELS = [
   "Jan",
   "Fev",
@@ -199,10 +248,11 @@ export function RastreamentoLotes() {
     if (apenasAtrasados && (!l.data_lib || l.data_lib > hoje)) return false
     if (filtroGrupo && l.grupo !== filtroGrupo) return false
     if (filtroEtapa === "LIBERADO" && !l.check_liberado) return false
-    if (filtroEtapa === "EMBALAGEM" && (!l.check_embalagem || l.check_liberado)) return false
-    if (filtroEtapa === "ENVASE" && (!l.check_envase || l.check_embalagem)) return false
-    if (filtroEtapa === "LAVAGEM" && (!l.check_lavagem || l.check_envase)) return false
-    if (filtroEtapa === "NAO_INICIADO" && l.check_lavagem) return false
+    if (filtroEtapa === "DESVIO" && !l.em_desvio) return false
+    if (filtroEtapa === "EMBALAGEM" && (!l.check_embalagem || l.check_liberado || l.em_desvio)) return false
+    if (filtroEtapa === "ENVASE" && (!l.check_envase || l.check_embalagem || l.em_desvio)) return false
+    if (filtroEtapa === "LAVAGEM" && (!l.check_lavagem || l.check_envase || l.em_desvio)) return false
+    if (filtroEtapa === "NAO_INICIADO" && (l.check_lavagem || l.em_desvio)) return false
     if (filtroEtapa === "ATRASADO" && (!l.atrasado || l.check_liberado)) return false
 
     return true
@@ -310,10 +360,17 @@ export function RastreamentoLotes() {
           </button>
 
           <div
-            className="grid grid-cols-2 gap-px sm:grid-cols-4"
+            className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-5"
             style={{ background: "var(--border)" }}
           >
             {[
+              {
+                label: "Em Desvio",
+                value: data.mtd_gap_por_etapa.desvio ?? data.mtd_cx_desvio ?? 0,
+                color: "#92400E",
+                icon: AlertTriangle,
+                filtro: "DESVIO",
+              },
               {
                 label: "Em Embalagem",
                 value: data.mtd_gap_por_etapa.embalagem,
@@ -435,6 +492,7 @@ export function RastreamentoLotes() {
           >
             <option value="">Todas as etapas</option>
             <option value="LIBERADO">Liberado</option>
+            <option value="DESVIO">Em Desvio</option>
             <option value="EMBALAGEM">Em Embalagem</option>
             <option value="ENVASE">Em Envase</option>
             <option value="LAVAGEM">Em Lavagem</option>
@@ -526,7 +584,9 @@ export function RastreamentoLotes() {
                       style={{
                         borderBottom: "1px solid var(--border)",
                         background:
-                          l.atrasado && !l.check_liberado
+                          l.em_desvio && !l.check_liberado
+                            ? "rgba(245,158,11,0.05)"
+                            : l.atrasado && !l.check_liberado
                             ? "rgba(220,38,38,0.03)"
                             : i % 2 === 0
                             ? "var(--bg-secondary)"
@@ -535,11 +595,11 @@ export function RastreamentoLotes() {
                     >
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1.5">
-                          {l.atrasado && !l.check_liberado && (
+                          {(l.em_desvio || (l.atrasado && !l.check_liberado)) && (
                             <AlertTriangle
                               size={12}
                               style={{
-                                color: "#DC2626",
+                                color: l.em_desvio ? "#92400E" : "#DC2626",
                                 flexShrink: 0,
                               }}
                             />
@@ -561,6 +621,18 @@ export function RastreamentoLotes() {
                             OP {l.ordem_op}
                           </p>
                         )}
+
+                        <DesvioBadge lote={l} />
+
+                        {l.em_desvio && l.desvio_titulo && (
+                          <p
+                            className="mt-1 max-w-[260px] truncate text-[10px]"
+                            title={l.desvio_titulo}
+                            style={{ color: "var(--text-secondary)" }}
+                          >
+                            {l.desvio_titulo}
+                          </p>
+                        )}
                       </td>
 
                       <td
@@ -574,11 +646,13 @@ export function RastreamentoLotes() {
                         className="px-3 py-3 text-right text-sm"
                         style={{
                           color:
-                            l.atrasado && !l.check_liberado
+                            l.em_desvio && !l.check_liberado
+                              ? "#92400E"
+                              : l.atrasado && !l.check_liberado
                               ? "#DC2626"
                               : "var(--text-secondary)",
                           fontWeight:
-                            l.atrasado && !l.check_liberado ? 600 : 400,
+                            (l.em_desvio || l.atrasado) && !l.check_liberado ? 600 : 400,
                         }}
                       >
                         {fmtData(l.data_lib)}
@@ -724,6 +798,10 @@ export function RastreamentoLotes() {
                     label: "Gap teórico",
                     value:
                       resumo?.gap_teorico_previsto_menos_vinculado ?? 0,
+                  },
+                  {
+                    label: "Pendente em desvio",
+                    value: data.mtd_gap_por_etapa.desvio ?? data.mtd_cx_desvio ?? 0,
                   },
                   {
                     label: "Pendente localizado",
