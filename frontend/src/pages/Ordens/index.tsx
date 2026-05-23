@@ -1554,7 +1554,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs min-w-[1820px]">
-                      <thead>
+                      <thead style={{ position: "sticky", top: 0, zIndex: 20, background: "#F8FAFC" }}>
                         <tr style={{ borderBottom: "1px solid var(--border)" }}>
                           {[
                             "Código",
