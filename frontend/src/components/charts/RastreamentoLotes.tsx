@@ -155,9 +155,31 @@ function Connector({ ok }: { ok: boolean }) {
   )
 }
 
+function getDesvioTitulo(lote: LoteRastreamento) {
+  const item = lote as LoteRastreamento & {
+    titulo?: string | null
+    title?: string | null
+    motivo?: string | null
+    desvio_title?: string | null
+    desvio_motivo?: string | null
+  }
+
+  return (
+    item.desvio_titulo ||
+    item.desvio_motivo ||
+    item.desvio_title ||
+    item.titulo ||
+    item.title ||
+    item.motivo ||
+    null
+  )
+}
+
 function getDesvioTooltip(lote: LoteRastreamento) {
+  const titulo = getDesvioTitulo(lote)
+
   const linhas = [
-    lote.desvio_titulo ? `Motivo: ${lote.desvio_titulo}` : null,
+    titulo ? `Motivo/Título: ${titulo}` : null,
     lote.desvio_serial ? `Serial: ${lote.desvio_serial}` : null,
     lote.desvio_estado ? `Estado: ${lote.desvio_estado}` : null,
     lote.desvio_dias != null ? `Dias de desvio: ${fmt(lote.desvio_dias)}` : null,
@@ -171,6 +193,9 @@ function getDesvioTooltip(lote: LoteRastreamento) {
 function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
   if (!lote.em_desvio) return null
 
+  const titulo = getDesvioTitulo(lote)
+  const tooltip = getDesvioTooltip(lote)
+
   const detalhe = [
     lote.desvio_serial ? `Serial ${lote.desvio_serial}` : null,
     lote.desvio_estado || null,
@@ -179,7 +204,10 @@ function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
     .filter(Boolean)
     .join(" · ")
 
-  const tooltip = getDesvioTooltip(lote)
+  const tituloCurto =
+    titulo && titulo.length > 70
+      ? `${titulo.slice(0, 70)}...`
+      : titulo
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -203,6 +231,16 @@ function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
           style={{ color: "var(--text-secondary)" }}
         >
           {detalhe}
+        </span>
+      )}
+
+      {tituloCurto && (
+        <span
+          className="text-[10px]"
+          title={tooltip}
+          style={{ color: "#92400E" }}
+        >
+          {tituloCurto}
         </span>
       )}
     </div>
