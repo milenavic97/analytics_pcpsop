@@ -1,40 +1,17 @@
-import { useEffect, useState, type ReactNode } from "react"
-import { Navigate } from "react-router-dom"
-import type { User } from "@supabase/supabase-js"
-import { supabase } from "../lib/supabase"
+import type { ReactNode } from "react"
+import { Navigate, useLocation } from "react-router-dom"
+import { ShieldAlert } from "lucide-react"
 
-export function ProtectedRoute({ children }: { children: ReactNode }) {
-  const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<User | null>(null)
+import { useAuth } from "@/contexts/AuthContext"
 
-  useEffect(() => {
-    let alive = true
+type Props = {
+  children: ReactNode
+  permissao?: string
+}
 
-    async function check() {
-      try {
-        const { data } = await supabase.auth.getUser()
-        if (!alive) return
-        setUser(data.user)
-      } catch {
-        if (!alive) return
-        setUser(null)
-      } finally {
-        if (!alive) return
-        setLoading(false)
-      }
-    }
-
-    check()
-
-    const timeout = window.setTimeout(() => {
-      if (alive) setLoading(false)
-    }, 3000)
-
-    return () => {
-      alive = false
-      window.clearTimeout(timeout)
-    }
-  }, [])
+export function ProtectedRoute({ children, permissao }: Props) {
+  const { loading, user, perfil, hasPermission } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -44,7 +21,38 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     )
   }
 
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
+
+  if (permissao && !perfil) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+        <div className="max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center text-amber-800">
+          <ShieldAlert size={28} className="mx-auto mb-3" />
+          <h1 className="text-lg font-bold">Usuário sem perfil configurado</h1>
+          <p className="mt-2 text-sm">
+            Seu login existe, mas ainda não foi configurado na tela de usuários.
+            Peça ao administrador para liberar seu acesso.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (permissao && !hasPermission(permissao)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+        <div className="max-w-md rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-700">
+          <ShieldAlert size={28} className="mx-auto mb-3" />
+          <h1 className="text-lg font-bold">Acesso não permitido</h1>
+          <p className="mt-2 text-sm">
+            Você não possui permissão para visualizar esta página.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return children
 }
