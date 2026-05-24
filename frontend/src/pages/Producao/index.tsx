@@ -152,6 +152,18 @@ function formatHoras(value?: number) {
   return `${formatDecimal(value, 1)} h`
 }
 
+function aderenciaClass(value?: number) {
+  const v = Number(value || 0)
+
+  if (v >= 95) return "text-green-600"
+  if (v >= 80) return "text-orange-500"
+  return "text-red-500"
+}
+
+function getLinhaResumo(data: ResponseData | null, linha: "L1" | "L2") {
+  return (data?.por_linha || []).find((item) => item.linha === linha)
+}
+
 function tooltipValue(dataKey: string, value: number) {
   if (dataKey.includes("pct") || dataKey.includes("aderencia")) {
     return formatPercent(value)
@@ -597,42 +609,120 @@ export function ProducaoPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Horas planejadas
-              </p>
-              <h3 className="mt-4 text-2xl font-bold text-slate-900">
-                {formatHoras(resumo?.planejado_atual_horas)}
-              </h3>
-              <p className="mt-2 text-sm text-slate-500">
-                Disponíveis no MPS
-              </p>
-            </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {(linha === "TODAS" || linha === "L1") && (() => {
+              const item = getLinhaResumo(data, "L1")
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Horas realizadas
-              </p>
-              <h3 className="mt-4 text-2xl font-bold text-slate-900">
-                {formatHoras(resumo?.realizado_horas)}
-              </h3>
-              <p className="mt-2 text-sm text-slate-500">
-                Duração registrada no Cogtive
-              </p>
-            </div>
+              return (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4 flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                        Horas por linha
+                      </p>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Aderência de horas
-              </p>
-              <h3 className="mt-4 text-2xl font-bold text-slate-900">
-                {formatPercent(resumo?.aderencia_horas_pct)}
-              </h3>
-              <p className="mt-2 text-sm text-slate-500">
-                Horas realizadas vs. disponíveis
-              </p>
-            </div>
+                      <h3 className="mt-1 text-xl font-bold text-slate-900">
+                        Linha 1
+                      </h3>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Realizado consolidado por intervalo, sem duplicar MAQ 1 + MAQ 2 em paralelo.
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-blue-50 p-3 text-blue-600">
+                      <Factory className="h-5 w-5" />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Planejado
+                      </p>
+                      <p className="mt-2 text-xl font-bold text-slate-900">
+                        {formatHoras(item?.planejado_atual_horas)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Realizado
+                      </p>
+                      <p className="mt-2 text-xl font-bold text-slate-900">
+                        {formatHoras(item?.realizado_horas)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Aderência
+                      </p>
+                      <p className={`mt-2 text-xl font-bold ${aderenciaClass(item?.aderencia_horas_pct)}`}>
+                        {formatPercent(item?.aderencia_horas_pct)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {(linha === "TODAS" || linha === "L2") && (() => {
+              const item = getLinhaResumo(data, "L2")
+
+              return (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4 flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                        Horas por linha
+                      </p>
+
+                      <h3 className="mt-1 text-xl font-bold text-slate-900">
+                        Linha 2
+                      </h3>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Realizado consolidado a partir dos apontamentos Cogtive da L2.
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-green-50 p-3 text-green-600">
+                      <Factory className="h-5 w-5" />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Planejado
+                      </p>
+                      <p className="mt-2 text-xl font-bold text-slate-900">
+                        {formatHoras(item?.planejado_atual_horas)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Realizado
+                      </p>
+                      <p className="mt-2 text-xl font-bold text-slate-900">
+                        {formatHoras(item?.realizado_horas)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Aderência
+                      </p>
+                      <p className={`mt-2 text-xl font-bold ${aderenciaClass(item?.aderencia_horas_pct)}`}>
+                        {formatPercent(item?.aderencia_horas_pct)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
