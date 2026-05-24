@@ -43,18 +43,27 @@ type FormNovoUsuario = {
 }
 
 function gerarSenhaForte(tamanho = 14) {
-  const chars =
-    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*"
+  const maiusculas = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+  const minusculas = "abcdefghijkmnopqrstuvwxyz"
+  const numeros = "23456789"
+  const especiais = "!@#$%&*"
+  const todos = maiusculas + minusculas + numeros + especiais
 
-  let senha = ""
+  const obrigatorios = [
+    maiusculas[Math.floor(Math.random() * maiusculas.length)],
+    minusculas[Math.floor(Math.random() * minusculas.length)],
+    numeros[Math.floor(Math.random() * numeros.length)],
+    especiais[Math.floor(Math.random() * especiais.length)],
+  ]
 
-  for (let i = 0; i < tamanho; i++) {
-    senha += chars.charAt(
-      Math.floor(Math.random() * chars.length)
-    )
-  }
+  const restante = Array.from(
+    { length: Math.max(tamanho - obrigatorios.length, 0) },
+    () => todos[Math.floor(Math.random() * todos.length)]
+  )
 
-  return senha
+  return [...obrigatorios, ...restante]
+    .sort(() => Math.random() - 0.5)
+    .join("")
 }
 
 async function getToken() {
@@ -63,6 +72,91 @@ async function getToken() {
   } = await supabase.auth.getSession()
 
   return session?.access_token || ""
+}
+
+function normalizarUsuario(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "")
+}
+
+function normalizarEmail(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function FieldLabel({ children }: { children: string }) {
+  return (
+    <label
+      className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide"
+      style={{ color: "var(--text-secondary)" }}
+    >
+      {children}
+    </label>
+  )
+}
+
+function InputBase(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={[
+        "w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition",
+        "focus:ring-2 focus:ring-[#1B3A5C]/15",
+        props.className || "",
+      ].join(" ")}
+      style={{
+        borderColor: "var(--border)",
+        background: "var(--bg-primary)",
+        color: "var(--text-primary)",
+        ...(props.style || {}),
+      }}
+    />
+  )
+}
+
+function SelectBase(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...props}
+      className={[
+        "w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition",
+        "focus:ring-2 focus:ring-[#1B3A5C]/15",
+        props.className || "",
+      ].join(" ")}
+      style={{
+        borderColor: "var(--border)",
+        background: "var(--bg-primary)",
+        color: "var(--text-primary)",
+        ...(props.style || {}),
+      }}
+    />
+  )
+}
+
+function ButtonSecundario({
+  children,
+  onClick,
+  disabled,
+  type = "button",
+}: {
+  children: React.ReactNode
+  onClick?: () => void
+  disabled?: boolean
+  type?: "button" | "submit"
+}) {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className="flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
+      style={{
+        borderColor: "var(--border)",
+        background: "var(--bg-primary)",
+        color: "var(--text-primary)",
+      }}
+    >
+      {children}
+    </button>
+  )
 }
 
 export default function ConfiguracoesPage() {
@@ -74,7 +168,8 @@ export default function ConfiguracoesPage() {
   const [erro, setErro] = useState("")
   const [sucesso, setSucesso] = useState("")
 
-  const [mostrarSenha, setMostrarSenha] = useState(false)
+  const [mostrarSenhaNovo, setMostrarSenhaNovo] = useState(false)
+  const [mostrarSenhaUsuarios, setMostrarSenhaUsuarios] = useState<Record<string, boolean>>({})
 
   const [novaSenha, setNovaSenha] = useState<Record<string, string>>({})
 
@@ -88,35 +183,32 @@ export default function ConfiguracoesPage() {
     permissoes: ["overview"],
   })
 
-  const permissoesDisponiveis = useMemo(
-    () => APP_PAGES,
-    []
-  )
+  const permissoesDisponiveis = useMemo(() => APP_PAGES, [])
 
-  async function apiFetch(
-    path: string,
-    options: RequestInit = {}
-  ) {
+  async function apiFetch(path: string, options: RequestInit = {}) {
     const token = await getToken()
 
-    const response = await fetch(
-      `${API_URL}${path}`,
-      {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          ...(options.headers || {}),
-        },
-      }
-    )
+    const response = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(options.headers || {}),
+      },
+    })
 
-    const data = await response.json()
+    const contentType = response.headers.get("content-type") || ""
+    const data = contentType.includes("application/json")
+      ? await response.json()
+      : await response.text()
 
     if (!response.ok) {
-      throw new Error(
-        data?.detail || "Erro na requisição."
-      )
+      const detail =
+        typeof data === "object" && data && "detail" in data
+          ? String((data as { detail?: unknown }).detail)
+          : "Erro na requisição."
+
+      throw new Error(detail)
     }
 
     return data
@@ -125,16 +217,13 @@ export default function ConfiguracoesPage() {
   async function carregarUsuarios() {
     try {
       setLoading(true)
+      setErro("")
 
       const data = await apiFetch("/usuarios")
 
-      setUsuarios(data || [])
+      setUsuarios(Array.isArray(data) ? data : [])
     } catch (err) {
-      setErro(
-        err instanceof Error
-          ? err.message
-          : "Erro carregando usuários."
-      )
+      setErro(err instanceof Error ? err.message : "Erro carregando usuários.")
     } finally {
       setLoading(false)
     }
@@ -151,12 +240,28 @@ export default function ConfiguracoesPage() {
       return {
         ...prev,
         permissoes: existe
-          ? prev.permissoes.filter(
-              (p) => p !== permissao
-            )
+          ? prev.permissoes.filter((p) => p !== permissao)
           : [...prev.permissoes, permissao],
       }
     })
+  }
+
+  function togglePermissaoUsuario(usuarioId: string, permissao: string) {
+    setUsuarios((prev) =>
+      prev.map((u) => {
+        if (u.id !== usuarioId) return u
+
+        const permissoesAtuais = u.permissoes || []
+        const existe = permissoesAtuais.includes(permissao)
+
+        return {
+          ...u,
+          permissoes: existe
+            ? permissoesAtuais.filter((p) => p !== permissao)
+            : [...permissoesAtuais, permissao],
+        }
+      })
+    )
   }
 
   async function criarUsuario() {
@@ -165,9 +270,35 @@ export default function ConfiguracoesPage() {
       setSucesso("")
       setSaving(true)
 
+      const payload = {
+        ...form,
+        usuario: normalizarUsuario(form.usuario),
+        email: normalizarEmail(form.email),
+        permissoes:
+          form.perfil === "admin"
+            ? permissoesDisponiveis.map((page) => page.id)
+            : form.permissoes,
+      }
+
+      if (!payload.nome.trim()) {
+        throw new Error("Informe o nome do usuário.")
+      }
+
+      if (!payload.usuario.trim()) {
+        throw new Error("Informe o usuário de login.")
+      }
+
+      if (!payload.email.trim()) {
+        throw new Error("Informe o e-mail.")
+      }
+
+      if (!payload.senha || payload.senha.length < 6) {
+        throw new Error("Informe uma senha com pelo menos 6 caracteres.")
+      }
+
       await apiFetch("/usuarios", {
         method: "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       })
 
       setSucesso("Usuário criado com sucesso.")
@@ -184,11 +315,7 @@ export default function ConfiguracoesPage() {
 
       await carregarUsuarios()
     } catch (err) {
-      setErro(
-        err instanceof Error
-          ? err.message
-          : "Erro criando usuário."
-      )
+      setErro(err instanceof Error ? err.message : "Erro criando usuário.")
     } finally {
       setSaving(false)
     }
@@ -200,25 +327,27 @@ export default function ConfiguracoesPage() {
       setSucesso("")
       setSaving(true)
 
+      const permissoes =
+        usuario.perfil === "admin"
+          ? permissoesDisponiveis.map((page) => page.id)
+          : usuario.permissoes || []
+
       await apiFetch(`/usuarios/${usuario.id}`, {
         method: "PUT",
         body: JSON.stringify({
           nome: usuario.nome,
-          usuario: usuario.usuario,
-          email: usuario.email,
+          usuario: normalizarUsuario(usuario.usuario),
+          email: normalizarEmail(usuario.email),
           perfil: usuario.perfil,
           ativo: usuario.ativo,
-          permissoes: usuario.permissoes,
+          permissoes,
         }),
       })
 
       setSucesso("Usuário atualizado.")
+      await carregarUsuarios()
     } catch (err) {
-      setErro(
-        err instanceof Error
-          ? err.message
-          : "Erro salvando usuário."
-      )
+      setErro(err instanceof Error ? err.message : "Erro salvando usuário.")
     } finally {
       setSaving(false)
     }
@@ -229,41 +358,40 @@ export default function ConfiguracoesPage() {
       setErro("")
       setSucesso("")
 
-      await apiFetch(
-        `/usuarios/${usuario.id}/senha`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            senha: novaSenha[usuario.id],
-          }),
-        }
-      )
+      const senha = novaSenha[usuario.id] || ""
 
-      setSucesso(
-        `Senha de ${usuario.nome} alterada.`
-      )
+      if (!senha || senha.length < 6) {
+        throw new Error("Informe uma nova senha com pelo menos 6 caracteres.")
+      }
+
+      await apiFetch(`/usuarios/${usuario.id}/senha`, {
+        method: "PUT",
+        body: JSON.stringify({
+          senha,
+        }),
+      })
+
+      setSucesso(`Senha de ${usuario.nome} alterada.`)
 
       setNovaSenha((prev) => ({
         ...prev,
         [usuario.id]: "",
       }))
     } catch (err) {
-      setErro(
-        err instanceof Error
-          ? err.message
-          : "Erro alterando senha."
-      )
+      setErro(err instanceof Error ? err.message : "Erro alterando senha.")
     }
   }
 
   async function excluirUsuario(usuario: UsuarioApp) {
-    const confirmar = confirm(
-      `Excluir usuário ${usuario.nome}?`
-    )
+    const confirmar = confirm(`Excluir usuário ${usuario.nome}?`)
 
     if (!confirmar) return
 
     try {
+      setErro("")
+      setSucesso("")
+      setSaving(true)
+
       await apiFetch(`/usuarios/${usuario.id}`, {
         method: "DELETE",
       })
@@ -272,16 +400,27 @@ export default function ConfiguracoesPage() {
 
       setSucesso("Usuário removido.")
     } catch (err) {
-      setErro(
-        err instanceof Error
-          ? err.message
-          : "Erro excluindo usuário."
-      )
+      setErro(err instanceof Error ? err.message : "Erro excluindo usuário.")
+    } finally {
+      setSaving(false)
     }
   }
 
+  function atualizarUsuarioLocal(usuarioId: string, campo: keyof UsuarioApp, valor: unknown) {
+    setUsuarios((prev) =>
+      prev.map((u) =>
+        u.id === usuarioId
+          ? {
+              ...u,
+              [campo]: valor,
+            }
+          : u
+      )
+    )
+  }
+
   return (
-    <div className="mx-auto w-full max-w-[1500px] px-4 py-6 md:px-6">
+    <div className="w-full px-4 py-6 md:px-6 lg:px-8">
       <div className="mb-6 flex items-center gap-3">
         <div
           className="flex h-11 w-11 items-center justify-center rounded-2xl"
@@ -309,158 +448,168 @@ export default function ConfiguracoesPage() {
               color: "var(--text-secondary)",
             }}
           >
-            Controle de usuários e permissões.
+            Controle de usuários, senhas e permissões de acesso.
           </p>
         </div>
       </div>
 
       {erro && (
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mb-4 flex max-w-[1280px] items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <AlertCircle size={16} />
           {erro}
         </div>
       )}
 
       {sucesso && (
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <div className="mb-4 flex max-w-[1280px] items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           <CheckCircle2 size={16} />
           {sucesso}
         </div>
       )}
 
       <div
-        className="mb-6 rounded-2xl border p-5"
+        className="mb-6 max-w-[1280px] rounded-2xl border p-5"
         style={{
           borderColor: "var(--border)",
           background: "var(--bg-secondary)",
         }}
       >
-        <div className="mb-5 flex items-center gap-2">
-          <Plus size={18} />
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Plus size={18} />
 
-          <h2
-            className="text-lg font-bold"
-            style={{
-              color: "var(--text-primary)",
-            }}
-          >
-            Novo usuário
-          </h2>
+              <h2
+                className="text-lg font-bold"
+                style={{
+                  color: "var(--text-primary)",
+                }}
+              >
+                Novo usuário
+              </h2>
+            </div>
+
+            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+              Crie o acesso inicial e escolha quais telas esse usuário poderá visualizar.
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <input
-            placeholder="Nome"
-            value={form.nome}
-            onChange={(e) =>
-              setForm((prev) => ({
-                ...prev,
-                nome: e.target.value,
-              }))
-            }
-            className="rounded-xl border px-3 py-2 text-sm"
-          />
-
-          <input
-            placeholder="Usuário"
-            value={form.usuario}
-            onChange={(e) =>
-              setForm((prev) => ({
-                ...prev,
-                usuario: e.target.value,
-              }))
-            }
-            className="rounded-xl border px-3 py-2 text-sm"
-          />
-
-          <input
-            placeholder="Email"
-            value={form.email}
-            onChange={(e) =>
-              setForm((prev) => ({
-                ...prev,
-                email: e.target.value,
-              }))
-            }
-            className="rounded-xl border px-3 py-2 text-sm"
-          />
-
-          <select
-            value={form.perfil}
-            onChange={(e) =>
-              setForm((prev) => ({
-                ...prev,
-                perfil: e.target.value,
-              }))
-            }
-            className="rounded-xl border px-3 py-2 text-sm"
-          >
-            <option value="usuario">
-              Usuário
-            </option>
-
-            <option value="admin">
-              Admin
-            </option>
-          </select>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-3 xl:flex-row">
-          <div className="relative flex-1">
-            <input
-              type={
-                mostrarSenha ? "text" : "password"
-              }
-              placeholder="Senha"
-              value={form.senha}
+          <div>
+            <FieldLabel>Nome</FieldLabel>
+            <InputBase
+              placeholder="Ex.: João Silva"
+              value={form.nome}
               onChange={(e) =>
                 setForm((prev) => ({
                   ...prev,
-                  senha: e.target.value,
+                  nome: e.target.value,
                 }))
               }
-              className="w-full rounded-xl border px-3 py-2 pr-10 text-sm"
             />
-
-            <button
-              type="button"
-              onClick={() =>
-                setMostrarSenha((prev) => !prev)
-              }
-              className="absolute right-3 top-1/2 -translate-y-1/2"
-            >
-              {mostrarSenha ? (
-                <EyeOff size={16} />
-              ) : (
-                <Eye size={16} />
-              )}
-            </button>
           </div>
 
-          <button
-            onClick={() =>
-              setForm((prev) => ({
-                ...prev,
-                senha: gerarSenhaForte(),
-              }))
-            }
-            className="flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold"
-          >
-            <KeyRound size={15} />
-            Gerar senha forte
-          </button>
+          <div>
+            <FieldLabel>Usuário</FieldLabel>
+            <InputBase
+              placeholder="Ex.: joaopcp"
+              value={form.usuario}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  usuario: normalizarUsuario(e.target.value),
+                }))
+              }
+            />
+          </div>
 
-          <button
-            onClick={() =>
-              navigator.clipboard.writeText(
-                form.senha
-              )
-            }
-            className="flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold"
-          >
-            <Copy size={15} />
-            Copiar
-          </button>
+          <div>
+            <FieldLabel>E-mail</FieldLabel>
+            <InputBase
+              placeholder="Ex.: joao@empresa.com"
+              value={form.email}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  email: normalizarEmail(e.target.value),
+                }))
+              }
+            />
+          </div>
+
+          <div>
+            <FieldLabel>Perfil</FieldLabel>
+            <SelectBase
+              value={form.perfil}
+              onChange={(e) => {
+                const perfil = e.target.value
+
+                setForm((prev) => ({
+                  ...prev,
+                  perfil,
+                  permissoes:
+                    perfil === "admin"
+                      ? permissoesDisponiveis.map((page) => page.id)
+                      : prev.permissoes,
+                }))
+              }}
+            >
+              <option value="usuario">Usuário</option>
+              <option value="admin">Admin</option>
+            </SelectBase>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <FieldLabel>Senha inicial</FieldLabel>
+
+          <div className="flex flex-col gap-3 xl:flex-row">
+            <div className="relative flex-1">
+              <InputBase
+                type={mostrarSenhaNovo ? "text" : "password"}
+                placeholder="Digite ou gere uma senha forte"
+                value={form.senha}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    senha: e.target.value,
+                  }))
+                }
+                className="pr-10"
+              />
+
+              <button
+                type="button"
+                onClick={() => setMostrarSenhaNovo((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {mostrarSenhaNovo ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+
+            <ButtonSecundario
+              onClick={() => {
+                setForm((prev) => ({
+                  ...prev,
+                  senha: gerarSenhaForte(),
+                }))
+                setMostrarSenhaNovo(true)
+              }}
+            >
+              <KeyRound size={15} />
+              Gerar senha forte
+            </ButtonSecundario>
+
+            <ButtonSecundario
+              disabled={!form.senha}
+              onClick={() => navigator.clipboard.writeText(form.senha)}
+            >
+              <Copy size={15} />
+              Copiar
+            </ButtonSecundario>
+          </div>
         </div>
 
         <div className="mt-5">
@@ -470,25 +619,29 @@ export default function ConfiguracoesPage() {
               color: "var(--text-secondary)",
             }}
           >
-            Permissões
+            Permissões de acesso
           </p>
 
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {permissoesDisponiveis.map((page) => {
-              const checked =
-                form.permissoes.includes(page.id)
+              const checked = form.perfil === "admin" || form.permissoes.includes(page.id)
 
               return (
                 <label
                   key={page.id}
-                  className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm"
+                  className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition"
+                  style={{
+                    borderColor: checked ? "#93C5FD" : "var(--border)",
+                    background: checked ? "#EFF6FF" : "var(--bg-primary)",
+                    color: checked ? "#1D4ED8" : "var(--text-primary)",
+                    opacity: form.perfil === "admin" ? 0.75 : 1,
+                  }}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
-                    onChange={() =>
-                      togglePermissao(page.id)
-                    }
+                    disabled={form.perfil === "admin"}
+                    onChange={() => togglePermissao(page.id)}
                   />
 
                   {page.label}
@@ -502,19 +655,12 @@ export default function ConfiguracoesPage() {
           <button
             onClick={criarUsuario}
             disabled={saving}
-            className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white"
+            className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               background: "var(--bg-sidebar)",
             }}
           >
-            {saving ? (
-              <Loader2
-                size={15}
-                className="animate-spin"
-              />
-            ) : (
-              <Save size={15} />
-            )}
+            {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
 
             Criar usuário
           </button>
@@ -522,258 +668,241 @@ export default function ConfiguracoesPage() {
       </div>
 
       <div
-        className="rounded-2xl border"
+        className="max-w-[1280px] rounded-2xl border"
         style={{
           borderColor: "var(--border)",
           background: "var(--bg-secondary)",
         }}
       >
-        <div className="flex items-center justify-between border-b px-5 py-4">
-          <div className="flex items-center gap-2">
-            <UserCog size={18} />
+        <div
+          className="flex items-center justify-between border-b px-5 py-4"
+          style={{ borderColor: "var(--border)" }}
+        >
+          <div>
+            <div className="flex items-center gap-2">
+              <UserCog size={18} />
 
-            <h2
-              className="text-lg font-bold"
-              style={{
-                color: "var(--text-primary)",
-              }}
-            >
-              Usuários
-            </h2>
+              <h2
+                className="text-lg font-bold"
+                style={{
+                  color: "var(--text-primary)",
+                }}
+              >
+                Usuários cadastrados
+              </h2>
+            </div>
+
+            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+              Edite dados, permissões e senha dos usuários ativos na ferramenta.
+            </p>
           </div>
 
-          <button
-            onClick={carregarUsuarios}
-            className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold"
-          >
+          <ButtonSecundario onClick={carregarUsuarios}>
             <RefreshCw size={15} />
             Atualizar
-          </button>
+          </ButtonSecundario>
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 p-5 text-sm">
-            <Loader2
-              size={16}
-              className="animate-spin"
-            />
+          <div className="flex items-center gap-2 p-5 text-sm" style={{ color: "var(--text-secondary)" }}>
+            <Loader2 size={16} className="animate-spin" />
             Carregando usuários...
           </div>
         ) : (
-          <div className="divide-y">
-            {usuarios.map((usuario) => (
-              <div
-                key={usuario.id}
-                className="p-5"
-              >
-                <div className="grid gap-4 xl:grid-cols-4">
-                  <input
-                    value={usuario.nome}
-                    onChange={(e) =>
-                      setUsuarios((prev) =>
-                        prev.map((u) =>
-                          u.id === usuario.id
-                            ? {
-                                ...u,
-                                nome:
-                                  e.target.value,
-                              }
-                            : u
-                        )
-                      )
-                    }
-                    className="rounded-xl border px-3 py-2 text-sm"
-                  />
+          <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+            {usuarios.map((usuario) => {
+              const senhaUsuario = novaSenha[usuario.id] || ""
+              const mostrarSenhaUsuario = !!mostrarSenhaUsuarios[usuario.id]
 
-                  <input
-                    value={usuario.usuario}
-                    onChange={(e) =>
-                      setUsuarios((prev) =>
-                        prev.map((u) =>
-                          u.id === usuario.id
-                            ? {
-                                ...u,
-                                usuario:
-                                  e.target.value,
-                              }
-                            : u
-                        )
-                      )
-                    }
-                    className="rounded-xl border px-3 py-2 text-sm"
-                  />
+              return (
+                <div key={usuario.id} className="p-5">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                      <FieldLabel>Nome</FieldLabel>
+                      <InputBase
+                        value={usuario.nome || ""}
+                        onChange={(e) => atualizarUsuarioLocal(usuario.id, "nome", e.target.value)}
+                      />
+                    </div>
 
-                  <input
-                    value={usuario.email}
-                    onChange={(e) =>
-                      setUsuarios((prev) =>
-                        prev.map((u) =>
-                          u.id === usuario.id
-                            ? {
-                                ...u,
-                                email:
-                                  e.target.value,
-                              }
-                            : u
-                        )
-                      )
-                    }
-                    className="rounded-xl border px-3 py-2 text-sm"
-                  />
+                    <div>
+                      <FieldLabel>Usuário</FieldLabel>
+                      <InputBase
+                        value={usuario.usuario || ""}
+                        onChange={(e) =>
+                          atualizarUsuarioLocal(usuario.id, "usuario", normalizarUsuario(e.target.value))
+                        }
+                      />
+                    </div>
 
-                  <select
-                    value={usuario.perfil}
-                    onChange={(e) =>
-                      setUsuarios((prev) =>
-                        prev.map((u) =>
-                          u.id === usuario.id
-                            ? {
-                                ...u,
-                                perfil:
-                                  e.target.value,
-                              }
-                            : u
-                        )
-                      )
-                    }
-                    className="rounded-xl border px-3 py-2 text-sm"
-                  >
-                    <option value="usuario">
-                      Usuário
-                    </option>
+                    <div>
+                      <FieldLabel>E-mail</FieldLabel>
+                      <InputBase
+                        value={usuario.email || ""}
+                        onChange={(e) =>
+                          atualizarUsuarioLocal(usuario.id, "email", normalizarEmail(e.target.value))
+                        }
+                      />
+                    </div>
 
-                    <option value="admin">
-                      Admin
-                    </option>
-                  </select>
-                </div>
+                    <div>
+                      <FieldLabel>Perfil</FieldLabel>
+                      <SelectBase
+                        value={usuario.perfil || "usuario"}
+                        onChange={(e) => {
+                          const perfil = e.target.value
+                          atualizarUsuarioLocal(usuario.id, "perfil", perfil)
 
-                <div className="mt-4">
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    {permissoesDisponiveis.map(
-                      (page) => {
+                          if (perfil === "admin") {
+                            atualizarUsuarioLocal(
+                              usuario.id,
+                              "permissoes",
+                              permissoesDisponiveis.map((page) => page.id)
+                            )
+                          }
+                        }}
+                      >
+                        <option value="usuario">Usuário</option>
+                        <option value="admin">Admin</option>
+                      </SelectBase>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <p
+                      className="mb-2 text-xs font-semibold uppercase"
+                      style={{
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      Permissões
+                    </p>
+
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      {permissoesDisponiveis.map((page) => {
                         const checked =
-                          usuario.permissoes?.includes(
-                            page.id
-                          )
+                          usuario.perfil === "admin" || usuario.permissoes?.includes(page.id)
 
                         return (
                           <label
                             key={page.id}
-                            className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm"
+                            className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition"
+                            style={{
+                              borderColor: checked ? "#93C5FD" : "var(--border)",
+                              background: checked ? "#EFF6FF" : "var(--bg-primary)",
+                              color: checked ? "#1D4ED8" : "var(--text-primary)",
+                              opacity: usuario.perfil === "admin" ? 0.75 : 1,
+                            }}
                           >
                             <input
                               type="checkbox"
                               checked={checked}
-                              onChange={() => {
-                                setUsuarios(
-                                  (prev) =>
-                                    prev.map((u) => {
-                                      if (
-                                        u.id !==
-                                        usuario.id
-                                      )
-                                        return u
-
-                                      const existe =
-                                        u.permissoes.includes(
-                                          page.id
-                                        )
-
-                                      return {
-                                        ...u,
-                                        permissoes:
-                                          existe
-                                            ? u.permissoes.filter(
-                                                (
-                                                  p
-                                                ) =>
-                                                  p !==
-                                                  page.id
-                                              )
-                                            : [
-                                                ...u.permissoes,
-                                                page.id,
-                                              ],
-                                      }
-                                    })
-                                )
-                              }}
+                              disabled={usuario.perfil === "admin"}
+                              onChange={() => togglePermissaoUsuario(usuario.id, page.id)}
                             />
 
                             {page.label}
                           </label>
                         )
-                      }
-                    )}
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <FieldLabel>Alterar senha</FieldLabel>
+
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                      <div className="flex flex-1 gap-2">
+                        <div className="relative flex-1">
+                          <InputBase
+                            type={mostrarSenhaUsuario ? "text" : "password"}
+                            placeholder="Nova senha"
+                            value={senhaUsuario}
+                            onChange={(e) =>
+                              setNovaSenha((prev) => ({
+                                ...prev,
+                                [usuario.id]: e.target.value,
+                              }))
+                            }
+                            className="pr-10"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMostrarSenhaUsuarios((prev) => ({
+                                ...prev,
+                                [usuario.id]: !prev[usuario.id],
+                              }))
+                            }
+                            className="absolute right-3 top-1/2 -translate-y-1/2"
+                            style={{ color: "var(--text-secondary)" }}
+                          >
+                            {mostrarSenhaUsuario ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+
+                        <ButtonSecundario
+                          onClick={() => {
+                            setNovaSenha((prev) => ({
+                              ...prev,
+                              [usuario.id]: gerarSenhaForte(),
+                            }))
+                            setMostrarSenhaUsuarios((prev) => ({
+                              ...prev,
+                              [usuario.id]: true,
+                            }))
+                          }}
+                        >
+                          <KeyRound size={15} />
+                          Gerar
+                        </ButtonSecundario>
+
+                        <ButtonSecundario
+                          disabled={!senhaUsuario}
+                          onClick={() => navigator.clipboard.writeText(senhaUsuario)}
+                        >
+                          <Copy size={15} />
+                          Copiar
+                        </ButtonSecundario>
+
+                        <ButtonSecundario
+                          disabled={!senhaUsuario}
+                          onClick={() => alterarSenha(usuario)}
+                        >
+                          Alterar senha
+                        </ButtonSecundario>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => salvarUsuario(usuario)}
+                          disabled={saving}
+                          className="flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                          style={{
+                            borderColor: "var(--border)",
+                            background: "var(--bg-primary)",
+                            color: "var(--text-primary)",
+                          }}
+                        >
+                          <Save size={15} />
+                          Salvar
+                        </button>
+
+                        <button
+                          onClick={() => excluirUsuario(usuario)}
+                          disabled={saving}
+                          className="flex h-10 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Trash2 size={15} />
+                          Excluir
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-
-                <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="flex flex-1 gap-2">
-                    <input
-                      type="password"
-                      placeholder="Nova senha"
-                      value={
-                        novaSenha[usuario.id] || ""
-                      }
-                      onChange={(e) =>
-                        setNovaSenha((prev) => ({
-                          ...prev,
-                          [usuario.id]:
-                            e.target.value,
-                        }))
-                      }
-                      className="flex-1 rounded-xl border px-3 py-2 text-sm"
-                    />
-
-                    <button
-                      onClick={() =>
-                        setNovaSenha((prev) => ({
-                          ...prev,
-                          [usuario.id]:
-                            gerarSenhaForte(),
-                        }))
-                      }
-                      className="rounded-xl border px-3 py-2"
-                    >
-                      <KeyRound size={15} />
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        alterarSenha(usuario)
-                      }
-                      className="rounded-xl border px-3 py-2 text-sm font-semibold"
-                    >
-                      Alterar senha
-                    </button>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() =>
-                        salvarUsuario(usuario)
-                      }
-                      className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold"
-                    >
-                      <Save size={15} />
-                      Salvar
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        excluirUsuario(usuario)
-                      }
-                      className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600"
-                    >
-                      <Trash2 size={15} />
-                      Excluir
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
