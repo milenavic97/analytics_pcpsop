@@ -1,65 +1,13 @@
 import { useState } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import {
-  LayoutDashboard,
-  Factory,
-  Database,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
-  BarChart3,
-  ClipboardList,
-  CalendarDays,
-  GitBranch,
-  ShieldAlert,
-  PackageSearch,
 } from "lucide-react"
 import { clsx } from "clsx"
 
-const NAV = [
-  {
-    id: "overview",
-    label: "Overview",
-    path: "/",
-    Icon: LayoutDashboard,
-  },
-  {
-    id: "producao",
-    label: "Produção",
-    path: "/producao",
-    Icon: Factory,
-  },
-  {
-    id: "ordens",
-    label: "Ordens de Produção",
-    path: "/ordens",
-    Icon: ClipboardList,
-  },
-  {
-    id: "mps",
-    label: "MPS",
-    path: "/mps",
-    Icon: GitBranch,
-  },
-  {
-    id: "analise-mrp",
-    label: "Aging Estoque",
-    path: "/analise-mrp",
-    Icon: PackageSearch,
-  PackageSearch,
-  },
-  {
-    id: "calendario-paradas",
-    label: "Calendário de Paradas",
-    path: "/calendario-paradas",
-    Icon: CalendarDays,
-  },
-  {
-    id: "dados",
-    label: "Dados",
-    path: "/dados",
-    Icon: Database,
-  },
-]
+import { APP_PAGES } from "@/config/pages"
 
 type Props = {
   mobileOpen?: boolean
@@ -164,11 +112,11 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
             </button>
           )}
 
-          {NAV.map(({ id, label, path, Icon }) => {
+          {APP_PAGES.map(({ id, label, path, icon: Icon }) => {
             const active =
-              path === "/"
-                ? pathname === "/"
-                : pathname.startsWith(path)
+              path === "/overview"
+                ? pathname === "/overview" || pathname === "/"
+                : pathname === path || pathname.startsWith(`${path}/`)
 
             return (
               <NavLink
