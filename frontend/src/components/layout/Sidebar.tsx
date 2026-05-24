@@ -8,6 +8,7 @@ import {
 import { clsx } from "clsx"
 
 import { APP_PAGES } from "@/config/pages"
+import { useAuth } from "@/contexts/AuthContext"
 
 type Props = {
   mobileOpen?: boolean
@@ -17,6 +18,9 @@ type Props = {
 export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const { pathname } = useLocation()
+  const { hasPermission } = useAuth()
+
+  const pages = APP_PAGES.filter((page) => hasPermission(page.id))
 
   return (
     <>
@@ -112,7 +116,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
             </button>
           )}
 
-          {APP_PAGES.map(({ id, label, path, icon: Icon }) => {
+          {pages.map(({ id, label, path, icon: Icon }) => {
             const active =
               path === "/overview"
                 ? pathname === "/overview" || pathname === "/"
