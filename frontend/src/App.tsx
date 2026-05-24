@@ -9,6 +9,7 @@ import { DadosPage } from "./pages/Dados"
 import { OrdensPage } from "./pages/Ordens"
 import Mrp from "./pages/Mrp"
 import AnaliseMrpPage from "./pages/AnaliseMrp"
+import ConfiguracoesPage from "./pages/Configuracoes"
 
 import { CalendarioParadasPage } from "./pages/calendario-paradas"
 
@@ -37,8 +38,11 @@ export default function App() {
           <Route path="/analise-mrp" element={<AnaliseMrpPage />} />
 
           <Route path="/calendario-paradas" element={<CalendarioParadasPage />} />
+
           <Route path="/dados" element={<DadosPage />} />
           <Route path="/dados/:baseId" element={<DadosPage />} />
+
+          <Route path="/configuracoes" element={<ConfiguracoesPage />} />
         </Route>
 
         <Route path="/" element={<Navigate to="/overview" replace />} />
