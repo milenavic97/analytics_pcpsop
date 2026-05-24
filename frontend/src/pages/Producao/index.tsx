@@ -544,19 +544,11 @@ export function ProducaoPage() {
 
       {!loading && !erro && data && (
         <>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <Card
-              title="Planejado V1"
-              value={formatCx(resumo?.planejado_v1_cx)}
-              subtitle={`Baseline da rodada • ${formatNumber(resumo?.planejado_v1_tb)} tb`}
-              icon={CalendarDays}
-              accent="blue"
-            />
-
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Card
               title="Planejado Atual"
               value={formatCx(resumo?.planejado_atual_cx)}
-              subtitle={`Última versão do Gantt • ${formatNumber(resumo?.planejado_atual_tb)} tb`}
+              subtitle={`Total do mês • V1 ${formatCx(resumo?.planejado_v1_cx)} • ${formatNumber(resumo?.planejado_atual_tb)} tb`}
               icon={Layers}
               accent="purple"
             />
@@ -564,24 +556,16 @@ export function ProducaoPage() {
             <Card
               title="Produção Realizada"
               value={formatCx(resumo?.realizado_cx)}
-              subtitle={`Apontamentos Cogtive • ${formatNumber(resumo?.realizado_tb)} tb`}
+              subtitle={`Total do mês • ${formatNumber(resumo?.realizado_tb)} tb`}
               icon={Factory}
               accent="green"
-            />
-
-            <Card
-              title="Gap"
-              value={formatCx(resumo?.gap_cx)}
-              subtitle="Realizado - planejado atual"
-              icon={BarChart3}
-              accent={(resumo?.gap_cx || 0) >= 0 ? "green" : "red"}
             />
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                    Aderência
+                    Aderência Total
                   </p>
 
                   <h3 className={`mt-5 text-3xl font-bold ${aderenciaColor}`}>
@@ -589,7 +573,7 @@ export function ProducaoPage() {
                   </h3>
 
                   <p className="mt-2 text-sm text-slate-500">
-                    Realizado vs. planejado atual
+                    Gap {formatCx(resumo?.gap_cx)} vs. planejado atual
                   </p>
                 </div>
 
@@ -618,7 +602,7 @@ export function ProducaoPage() {
                   <div className="mb-4 flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                        Horas por linha
+                        Performance por linha
                       </p>
 
                       <h3 className="mt-1 text-xl font-bold text-slate-900">
@@ -626,7 +610,7 @@ export function ProducaoPage() {
                       </h3>
 
                       <p className="mt-1 text-sm text-slate-500">
-                        Realizado consolidado por intervalo, sem duplicar MAQ 1 + MAQ 2 em paralelo.
+                        Volume e horas da L1. Horas realizadas sem duplicar MAQ 1 + MAQ 2 em paralelo.
                       </p>
                     </div>
 
@@ -635,10 +619,48 @@ export function ProducaoPage() {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-4">
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        Planejado
+                        Plan. cx
+                      </p>
+                      <p className="mt-2 text-xl font-bold text-slate-900">
+                        {formatNumber(item?.planejado_atual_cx)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Real. cx
+                      </p>
+                      <p className="mt-2 text-xl font-bold text-slate-900">
+                        {formatNumber(item?.realizado_cx)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Gap cx
+                      </p>
+                      <p className={`mt-2 text-xl font-bold ${(item?.gap_cx || 0) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                        {formatNumber(item?.gap_cx)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Ader. cx
+                      </p>
+                      <p className={`mt-2 text-xl font-bold ${aderenciaClass(item?.aderencia_pct)}`}>
+                        {formatPercent(item?.aderencia_pct)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Plan. horas
                       </p>
                       <p className="mt-2 text-xl font-bold text-slate-900">
                         {formatHoras(item?.planejado_atual_horas)}
@@ -647,7 +669,7 @@ export function ProducaoPage() {
 
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        Realizado
+                        Real. horas
                       </p>
                       <p className="mt-2 text-xl font-bold text-slate-900">
                         {formatHoras(item?.realizado_horas)}
@@ -656,7 +678,7 @@ export function ProducaoPage() {
 
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        Aderência
+                        Ader. horas
                       </p>
                       <p className={`mt-2 text-xl font-bold ${aderenciaClass(item?.aderencia_horas_pct)}`}>
                         {formatPercent(item?.aderencia_horas_pct)}
@@ -675,7 +697,7 @@ export function ProducaoPage() {
                   <div className="mb-4 flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                        Horas por linha
+                        Performance por linha
                       </p>
 
                       <h3 className="mt-1 text-xl font-bold text-slate-900">
@@ -683,7 +705,7 @@ export function ProducaoPage() {
                       </h3>
 
                       <p className="mt-1 text-sm text-slate-500">
-                        Realizado consolidado a partir dos apontamentos Cogtive da L2.
+                        Volume e horas da L2 a partir do MPS e dos apontamentos Cogtive.
                       </p>
                     </div>
 
@@ -692,10 +714,48 @@ export function ProducaoPage() {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-4">
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        Planejado
+                        Plan. cx
+                      </p>
+                      <p className="mt-2 text-xl font-bold text-slate-900">
+                        {formatNumber(item?.planejado_atual_cx)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Real. cx
+                      </p>
+                      <p className="mt-2 text-xl font-bold text-slate-900">
+                        {formatNumber(item?.realizado_cx)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Gap cx
+                      </p>
+                      <p className={`mt-2 text-xl font-bold ${(item?.gap_cx || 0) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                        {formatNumber(item?.gap_cx)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Ader. cx
+                      </p>
+                      <p className={`mt-2 text-xl font-bold ${aderenciaClass(item?.aderencia_pct)}`}>
+                        {formatPercent(item?.aderencia_pct)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Plan. horas
                       </p>
                       <p className="mt-2 text-xl font-bold text-slate-900">
                         {formatHoras(item?.planejado_atual_horas)}
@@ -704,7 +764,7 @@ export function ProducaoPage() {
 
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        Realizado
+                        Real. horas
                       </p>
                       <p className="mt-2 text-xl font-bold text-slate-900">
                         {formatHoras(item?.realizado_horas)}
@@ -713,7 +773,7 @@ export function ProducaoPage() {
 
                     <div className="rounded-xl bg-slate-50 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        Aderência
+                        Ader. horas
                       </p>
                       <p className={`mt-2 text-xl font-bold ${aderenciaClass(item?.aderencia_horas_pct)}`}>
                         {formatPercent(item?.aderencia_horas_pct)}
