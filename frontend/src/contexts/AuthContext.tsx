@@ -6,9 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-
 import type { User } from "@supabase/supabase-js"
-
 import { supabase } from "../lib/supabase"
 
 type PerfilUsuario = {
@@ -40,9 +38,7 @@ const AuthContext = createContext<AuthContextType>({
   refreshPerfil: async () => {},
 })
 
-const API_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
-  "https://dfl-sop-api.fly.dev"
+const API_URL = import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev"
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
@@ -55,104 +51,96 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
 
-      const token = session?.access_token
-
-      if (!token) {
-        setPerfil(null)
-        return
-      }
-
-      const response = await fetch(`${API_URL}/usuarios/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      if (!response.ok) {
-        setPerfil(null)
-        return
-      }
-
-      const data = await response.json()
-
-      setPerfil({
-        ...data,
-        permissoes: Array.isArray(data?.permissoes) ? data.permissoes : [],
-      })
-    } catch (err) {
-      console.error("Erro carregando perfil do usuário:", err)
+    if (!token) {
       setPerfil(null)
+      return
     }
+
+    const res = await fetch(`${API_URL}/usuarios/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+
+    if (!res.ok) {
+      setPerfil(null)
+      return
+    }
+
+    const perfilApi = await res.json()
+
+    setPerfil({
+      ...perfilApi,
+      permissoes: Array.isArray(perfilApi?.permissoes)
+        ? perfilApi.permissoes
+        : [],
+    })
   }
 
   async function refreshPerfil() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    setUser(user)
-    await carregarPerfil(user)
+    const { data } = await supabase.auth.getUser()
+    setUser(data.user)
+    await carregarPerfil(data.user)
   }
 
   useEffect(() => {
-    let alive = true
+    let ativo = true
 
-    async function load() {
+    async function iniciar() {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
+        const timeout = new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), 4000)
+        )
 
-        if (!alive) return
+        const getUserPromise = supabase.auth.getUser()
 
-        setUser(user)
-        await carregarPerfil(user)
+        const result = await Promise.race([getUserPromise, timeout])
+
+        if (!ativo) return
+
+        if (!result) {
+          setUser(null)
+          setPerfil(null)
+          return
+        }
+
+        const authUser = result.data.user
+
+        setUser(authUser)
+        await carregarPerfil(authUser)
+      } catch (err) {
+        console.error("Erro no AuthProvider:", err)
+        setUser(null)
+        setPerfil(null)
       } finally {
-        if (alive) setLoading(false)
+        if (ativo) setLoading(false)
       }
     }
 
-    load()
+    iniciar()
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_, session) => {
-      if (!alive) return
-
+    const { data } = supabase.auth.onAuthStateChange((_, session) => {
       const nextUser = session?.user ?? null
-
       setUser(nextUser)
-      setLoading(true)
 
-      try {
-        await carregarPerfil(nextUser)
-      } finally {
-        if (alive) setLoading(false)
-      }
+      carregarPerfil(nextUser).finally(() => {
+        setLoading(false)
+      })
     })
 
     return () => {
-      alive = false
-      subscription.unsubscribe()
+      ativo = false
+      data.subscription.unsubscribe()
     }
   }, [])
 
-  const permissoes = useMemo(() => {
-    return perfil?.permissoes || []
-  }, [perfil])
+  const permissoes = useMemo(() => perfil?.permissoes || [], [perfil])
 
   function hasPermission(permissao?: string) {
     if (!permissao) return true
-
     if (!perfil?.ativo) return false
-
-    if (perfil?.perfil === "admin") return true
-
+    if (perfil.perfil === "admin") return true
     return permissoes.includes(permissao)
   }
 
