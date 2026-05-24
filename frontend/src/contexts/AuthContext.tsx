@@ -27,7 +27,7 @@ type AuthContextType = {
   user: User | null
   perfil: PerfilUsuario | null
   permissoes: string[]
-  hasPermission: (permissao: string) => boolean
+  hasPermission: (permissao?: string) => boolean
   refreshPerfil: () => Promise<void>
 }
 
@@ -40,15 +40,13 @@ const AuthContext = createContext<AuthContextType>({
   refreshPerfil: async () => {},
 })
 
-export function AuthProvider({
-  children,
-}: {
-  children: ReactNode
-}) {
+const API_URL =
+  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
+  "https://dfl-sop-api.fly.dev"
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
-
   const [user, setUser] = useState<User | null>(null)
-
   const [perfil, setPerfil] = useState<PerfilUsuario | null>(null)
 
   async function carregarPerfil(authUser: User | null) {
@@ -69,14 +67,11 @@ export function AuthProvider({
         return
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/usuarios/me`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      )
+      const response = await fetch(`${API_URL}/usuarios/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
 
       if (!response.ok) {
         setPerfil(null)
@@ -85,9 +80,12 @@ export function AuthProvider({
 
       const data = await response.json()
 
-      setPerfil(data)
+      setPerfil({
+        ...data,
+        permissoes: Array.isArray(data?.permissoes) ? data.permissoes : [],
+      })
     } catch (err) {
-      console.error(err)
+      console.error("Erro carregando perfil do usuário:", err)
       setPerfil(null)
     }
   }
@@ -97,20 +95,26 @@ export function AuthProvider({
       data: { user },
     } = await supabase.auth.getUser()
 
+    setUser(user)
     await carregarPerfil(user)
   }
 
   useEffect(() => {
+    let alive = true
+
     async function load() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
 
-      setUser(user)
+        if (!alive) return
 
-      await carregarPerfil(user)
-
-      setLoading(false)
+        setUser(user)
+        await carregarPerfil(user)
+      } finally {
+        if (alive) setLoading(false)
+      }
     }
 
     load()
@@ -118,16 +122,22 @@ export function AuthProvider({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_, session) => {
+      if (!alive) return
+
       const nextUser = session?.user ?? null
 
       setUser(nextUser)
+      setLoading(true)
 
-      await carregarPerfil(nextUser)
-
-      setLoading(false)
+      try {
+        await carregarPerfil(nextUser)
+      } finally {
+        if (alive) setLoading(false)
+      }
     })
 
     return () => {
+      alive = false
       subscription.unsubscribe()
     }
   }, [])
@@ -136,7 +146,9 @@ export function AuthProvider({
     return perfil?.permissoes || []
   }, [perfil])
 
-  function hasPermission(permissao: string) {
+  function hasPermission(permissao?: string) {
+    if (!permissao) return true
+
     if (!perfil?.ativo) return false
 
     if (perfil?.perfil === "admin") return true
