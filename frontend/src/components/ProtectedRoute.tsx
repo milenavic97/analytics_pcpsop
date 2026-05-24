@@ -1,25 +1,22 @@
-import type { ReactNode } from "react"
-import { Navigate, useLocation } from "react-router-dom"
-import { useAuth } from "@/contexts/AuthContext"
+import { useEffect, useState, type ReactNode } from "react"
+import { Navigate } from "react-router-dom"
+import type { User } from "@supabase/supabase-js"
+import { supabase } from "../lib/supabase"
 
-type Props = {
-  children: ReactNode
-  permissao?: string
-}
+export function ProtectedRoute({ children }: { children: ReactNode }) {
+  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(null)
 
-export function ProtectedRoute({ children, permissao }: Props) {
-  const { loading, user, hasPermission } = useAuth()
-  const location = useLocation()
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user)
+      setLoading(false)
+    })
+  }, [])
 
   if (loading) return null
 
-  if (!user) {
-    return <Navigate to="/login" replace state={{ from: location }} />
-  }
-
-  if (permissao && !hasPermission(permissao)) {
-    return <Navigate to="/overview" replace />
-  }
+  if (!user) return <Navigate to="/login" replace />
 
   return children
 }
