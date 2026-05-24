@@ -3,7 +3,8 @@ import {
   Factory,
   ClipboardList,
   Boxes,
-  Database,
+  PackageSearch,
+  DatabaseBackup,
   CalendarDays,
   ShieldCheck,
 } from "lucide-react"
@@ -39,16 +40,16 @@ export const APP_PAGES = [
 
   {
     id: "analise-mrp",
-    label: "Análise MRP",
+    label: "Gestão de Estoques",
     path: "/analise-mrp",
-    icon: Boxes,
+    icon: PackageSearch,
   },
 
   {
     id: "dados",
     label: "Bases de Dados",
     path: "/dados",
-    icon: Database,
+    icon: DatabaseBackup,
   },
 
   {
