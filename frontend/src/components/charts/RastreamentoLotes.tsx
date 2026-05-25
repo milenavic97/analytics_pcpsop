@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState } from "react";
 import {
   RefreshCw,
   AlertTriangle,
@@ -9,107 +9,107 @@ import {
   Waves,
   Shirt,
   X,
-} from "lucide-react"
+} from "lucide-react";
 
 const API_URL =
-  (import.meta as any).env.VITE_API_URL || "https://dfl-sop-api.fly.dev"
+  (import.meta as any).env.VITE_API_URL || "https://dfl-sop-api.fly.dev";
 
 interface LoteRastreamento {
-  lote: string
-  grupo: string
-  qtd_prevista_tb: number
-  qtd_prevista_cx: number
-  qtd_produzida_tb: number
-  qtd_produzida_cx: number
-  qtd_liberada_cx: number
-  sku_pa: string | null
-  data_lib: string | null
-  data_inicio: string | null
-  data_fim: string | null
-  check_lavagem: boolean
-  check_envase: boolean
-  check_embalagem: boolean
-  check_liberado: boolean
-  atrasado: boolean
-  equipamento_atual: string | null
-  ordem_op: string | null
-  em_desvio?: boolean
-  desvio_serial?: string | null
-  desvio_titulo?: string | null
-  desvio_estado?: string | null
-  desvio_dias?: number | null
-  desvio_setor?: string | null
-  desvio_destino?: string | null
+  lote: string;
+  grupo: string;
+  qtd_prevista_tb: number;
+  qtd_prevista_cx: number;
+  qtd_produzida_tb: number;
+  qtd_produzida_cx: number;
+  qtd_liberada_cx: number;
+  sku_pa: string | null;
+  data_lib: string | null;
+  data_inicio: string | null;
+  data_fim: string | null;
+  check_lavagem: boolean;
+  check_envase: boolean;
+  check_embalagem: boolean;
+  check_liberado: boolean;
+  atrasado: boolean;
+  equipamento_atual: string | null;
+  ordem_op: string | null;
+  em_desvio?: boolean;
+  desvio_serial?: string | null;
+  desvio_titulo?: string | null;
+  desvio_estado?: string | null;
+  desvio_dias?: number | null;
+  desvio_setor?: string | null;
+  desvio_destino?: string | null;
 }
 
 interface ResumoLiberacao {
-  previsto_ate_hoje: number
-  liberado_vinculado_lotes_previstos: number
-  liberado_sd3_mtd_total: number
-  liberado_sd3_fora_gantt_mes_atual: number
-  gap_teorico_previsto_menos_vinculado: number
-  pendente_localizado_rastreamento: number
-  residuo_nao_localizado: number
+  previsto_ate_hoje: number;
+  liberado_vinculado_lotes_previstos: number;
+  liberado_sd3_mtd_total: number;
+  liberado_sd3_fora_gantt_mes_atual: number;
+  gap_teorico_previsto_menos_vinculado: number;
+  pendente_localizado_rastreamento: number;
+  residuo_nao_localizado: number;
 }
 
 interface LoteForaGantt {
-  lote: string
-  produto?: string | null
-  descr_prod?: string | null
-  grupo?: string | null
-  qtd_cx: number
-  qtd_prevista_cx?: number
-  dt_emissao?: string | null
-  data_lib_prevista?: string | null
-  data_inicio_prevista?: string | null
-  data_fim_prevista?: string | null
-  linha_prevista?: string | null
-  mes_previsto?: number | null
-  ano_previsto?: number | null
-  grupo_previsto?: string | null
-  motivo?: string | null
+  lote: string;
+  produto?: string | null;
+  descr_prod?: string | null;
+  grupo?: string | null;
+  qtd_cx: number;
+  qtd_prevista_cx?: number;
+  dt_emissao?: string | null;
+  data_lib_prevista?: string | null;
+  data_inicio_prevista?: string | null;
+  data_fim_prevista?: string | null;
+  linha_prevista?: string | null;
+  mes_previsto?: number | null;
+  ano_previsto?: number | null;
+  grupo_previsto?: string | null;
+  motivo?: string | null;
 }
 
 interface RastreamentoData {
-  mes: number
-  ano: number
-  total_lotes: number
-  total_lotes_mtd: number
-  total_lotes_futuros?: number
-  total_lotes_fora_gantt?: number
-  total_lotes_desvio?: number
-  total_cx_previsto: number
-  total_cx_liberado: number
-  total_cx_gap?: number
-  total_cx_sd3_mes?: number
-  total_cx_fora_gantt?: number
-  total_cx_desvio?: number
-  mtd_cx_previsto: number
-  mtd_cx_liberado: number
-  mtd_cx_gap: number
-  mtd_cx_desvio?: number
+  mes: number;
+  ano: number;
+  total_lotes: number;
+  total_lotes_mtd: number;
+  total_lotes_futuros?: number;
+  total_lotes_fora_gantt?: number;
+  total_lotes_desvio?: number;
+  total_cx_previsto: number;
+  total_cx_liberado: number;
+  total_cx_gap?: number;
+  total_cx_sd3_mes?: number;
+  total_cx_fora_gantt?: number;
+  total_cx_desvio?: number;
+  mtd_cx_previsto: number;
+  mtd_cx_liberado: number;
+  mtd_cx_gap: number;
+  mtd_cx_desvio?: number;
   mtd_gap_por_etapa: {
-    desvio?: number
-    embalagem: number
-    envase: number
-    lavagem: number
-    nao_iniciado: number
-  }
-  mtd_resumo_liberacao?: ResumoLiberacao
-  lotes_fora_gantt?: LoteForaGantt[]
-  lotes: LoteRastreamento[]
+    desvio?: number;
+    embalagem: number;
+    envase: number;
+    lavagem: number;
+    nao_iniciado: number;
+  };
+  mtd_resumo_liberacao?: ResumoLiberacao;
+  lotes_fora_gantt?: LoteForaGantt[];
+  lotes: LoteRastreamento[];
 }
 
 function fmt(n?: number | null) {
-  if (n === null || n === undefined) return "—"
-  return new Intl.NumberFormat("pt-BR").format(Math.round(n))
+  if (n === null || n === undefined) return "—";
+  return new Intl.NumberFormat("pt-BR").format(Math.round(n));
 }
 
 function fmtData(iso?: string | null) {
-  if (!iso) return "—"
-  const [y, m, d] = iso.split("-")
-  if (!y || !m || !d) return iso
-  return `${d}/${m}`
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}`;
 }
 
 function Check({
@@ -117,9 +117,9 @@ function Check({
   label,
   icon: Icon,
 }: {
-  ok: boolean
-  label: string
-  icon: React.ElementType
+  ok: boolean;
+  label: string;
+  icon: React.ElementType;
 }) {
   return (
     <div className="flex flex-col items-center gap-1">
@@ -140,7 +140,7 @@ function Check({
         {label}
       </span>
     </div>
-  )
+  );
 }
 
 function Connector({ ok }: { ok: boolean }) {
@@ -152,17 +152,17 @@ function Connector({ ok }: { ok: boolean }) {
         minWidth: 12,
       }}
     />
-  )
+  );
 }
 
 function getDesvioTitulo(lote: LoteRastreamento) {
   const item = lote as LoteRastreamento & {
-    titulo?: string | null
-    title?: string | null
-    motivo?: string | null
-    desvio_title?: string | null
-    desvio_motivo?: string | null
-  }
+    titulo?: string | null;
+    title?: string | null;
+    motivo?: string | null;
+    desvio_title?: string | null;
+    desvio_motivo?: string | null;
+  };
 
   return (
     item.desvio_titulo ||
@@ -172,29 +172,47 @@ function getDesvioTitulo(lote: LoteRastreamento) {
     item.title ||
     item.motivo ||
     null
-  )
+  );
 }
 
 function getDesvioTooltip(lote: LoteRastreamento) {
-  const titulo = getDesvioTitulo(lote)
+  const titulo = getDesvioTitulo(lote);
 
   const linhas = [
     titulo ? `Motivo/Título: ${titulo}` : null,
     lote.desvio_serial ? `Serial: ${lote.desvio_serial}` : null,
     lote.desvio_estado ? `Estado: ${lote.desvio_estado}` : null,
-    lote.desvio_dias != null ? `Dias de desvio: ${fmt(lote.desvio_dias)}` : null,
+    lote.desvio_dias != null
+      ? `Dias de desvio: ${fmt(lote.desvio_dias)}`
+      : null,
     lote.desvio_setor ? `Setor: ${lote.desvio_setor}` : null,
-    lote.desvio_destino ? `Destino: ${lote.desvio_destino}` : null,
-  ].filter(Boolean)
+    getDesvioDestino(lote) ? `Destino: ${getDesvioDestino(lote)}` : null,
+  ].filter(Boolean);
 
-  return linhas.length ? linhas.join("\n") : "Lote em desvio"
+  return linhas.length ? linhas.join("\n") : "Lote em desvio";
+}
+
+function getDesvioDestino(lote: LoteRastreamento) {
+  const item = lote as LoteRastreamento & {
+    destino?: string | null;
+    destino_produto_insumo?: string | null;
+    desvio_destino_produto_insumo?: string | null;
+  };
+
+  return (
+    item.desvio_destino ||
+    item.desvio_destino_produto_insumo ||
+    item.destino_produto_insumo ||
+    item.destino ||
+    null
+  );
 }
 
 function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
-  if (!lote.em_desvio) return null
+  if (!lote.em_desvio) return null;
 
-  const titulo = getDesvioTitulo(lote)
-  const tooltip = getDesvioTooltip(lote)
+  const titulo = getDesvioTitulo(lote);
+  const tooltip = getDesvioTooltip(lote);
 
   const detalhe = [
     lote.desvio_serial ? `Serial ${lote.desvio_serial}` : null,
@@ -202,12 +220,10 @@ function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
     lote.desvio_dias != null ? `${fmt(lote.desvio_dias)} dias` : null,
   ]
     .filter(Boolean)
-    .join(" · ")
+    .join(" · ");
 
   const tituloCurto =
-    titulo && titulo.length > 70
-      ? `${titulo.slice(0, 70)}...`
-      : titulo
+    titulo && titulo.length > 70 ? `${titulo.slice(0, 70)}...` : titulo;
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -244,7 +260,7 @@ function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
         </span>
       )}
     </div>
-  )
+  );
 }
 
 const MES_LABELS = [
@@ -260,67 +276,81 @@ const MES_LABELS = [
   "Out",
   "Nov",
   "Dez",
-]
+];
 
 export function RastreamentoLotes() {
-  const [data, setData] = useState<RastreamentoData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [filtroGrupo, setFiltroGrupo] = useState("")
-  const [filtroEtapa, setFiltroEtapa] = useState("")
-  const [apenasAtrasados, setApenasAtrasados] = useState(true)
-  const [modalAuditoria, setModalAuditoria] = useState(false)
+  const [data, setData] = useState<RastreamentoData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [filtroGrupo, setFiltroGrupo] = useState("");
+  const [filtroEtapa, setFiltroEtapa] = useState("");
+  const [apenasAtrasados, setApenasAtrasados] = useState(true);
+  const [modalAuditoria, setModalAuditoria] = useState(false);
 
   const carregar = async () => {
-    setLoading(true)
+    setLoading(true);
 
     try {
       const res = await fetch(`${API_URL}/overview/rastreamento-lotes`, {
         credentials: "include",
-      })
+      });
 
-      setData(await res.json())
+      setData(await res.json());
     } catch (_) {
-      setData(null)
+      setData(null);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    carregar()
-  }, [])
+    carregar();
+  }, []);
 
-  const mesLabel = data ? MES_LABELS[(data.mes ?? 1) - 1] : ""
+  const mesLabel = data ? MES_LABELS[(data.mes ?? 1) - 1] : "";
 
   const grupos = [
     ...new Set((data?.lotes ?? []).map((l) => l.grupo).filter(Boolean)),
-  ].sort()
+  ].sort();
 
-  const hoje = new Date().toISOString().split("T")[0]
+  const hoje = new Date().toISOString().split("T")[0];
 
   const lotesFiltrados = (data?.lotes ?? []).filter((l) => {
-    if (apenasAtrasados && (!l.data_lib || l.data_lib > hoje)) return false
-    if (filtroGrupo && l.grupo !== filtroGrupo) return false
-    if (filtroEtapa === "LIBERADO" && !l.check_liberado) return false
-    if (filtroEtapa === "DESVIO" && !l.em_desvio) return false
-    if (filtroEtapa === "EMBALAGEM" && (!l.check_embalagem || l.check_liberado || l.em_desvio)) return false
-    if (filtroEtapa === "ENVASE" && (!l.check_envase || l.check_embalagem || l.em_desvio)) return false
-    if (filtroEtapa === "LAVAGEM" && (!l.check_lavagem || l.check_envase || l.em_desvio)) return false
-    if (filtroEtapa === "NAO_INICIADO" && (l.check_lavagem || l.em_desvio)) return false
-    if (filtroEtapa === "ATRASADO" && (!l.atrasado || l.check_liberado)) return false
+    if (apenasAtrasados && (!l.data_lib || l.data_lib > hoje)) return false;
+    if (filtroGrupo && l.grupo !== filtroGrupo) return false;
+    if (filtroEtapa === "LIBERADO" && !l.check_liberado) return false;
+    if (filtroEtapa === "DESVIO" && !l.em_desvio) return false;
+    if (
+      filtroEtapa === "EMBALAGEM" &&
+      (!l.check_embalagem || l.check_liberado || l.em_desvio)
+    )
+      return false;
+    if (
+      filtroEtapa === "ENVASE" &&
+      (!l.check_envase || l.check_embalagem || l.em_desvio)
+    )
+      return false;
+    if (
+      filtroEtapa === "LAVAGEM" &&
+      (!l.check_lavagem || l.check_envase || l.em_desvio)
+    )
+      return false;
+    if (filtroEtapa === "NAO_INICIADO" && (l.check_lavagem || l.em_desvio))
+      return false;
+    if (filtroEtapa === "ATRASADO" && (!l.atrasado || l.check_liberado))
+      return false;
 
-    return true
-  })
+    return true;
+  });
 
-  const resumo = data?.mtd_resumo_liberacao
+  const resumo = data?.mtd_resumo_liberacao;
 
-  const lotesForaGantt = data?.lotes_fora_gantt ?? []
+  const lotesForaGantt = data?.lotes_fora_gantt ?? [];
 
   const thBase =
-    "px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-right whitespace-nowrap"
+    "px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-right whitespace-nowrap";
 
   const thLeft =
-    "px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-left"
+    "px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-left";
 
   return (
     <div className="space-y-4">
@@ -385,12 +415,12 @@ export function RastreamentoLotes() {
                 >
                   {data.mtd_cx_gap > 0
                     ? `Deveriam ter liberado ${fmt(
-                        data.mtd_cx_previsto
+                        data.mtd_cx_previsto,
                       )} cx até hoje — só liberou ${fmt(
-                        data.mtd_cx_liberado
+                        data.mtd_cx_liberado,
                       )} cx`
                     : `Todas as ${fmt(
-                        data.mtd_cx_previsto
+                        data.mtd_cx_previsto,
                       )} cx previstas até hoje foram liberadas!`}
                 </p>
 
@@ -457,8 +487,8 @@ export function RastreamentoLotes() {
               <button
                 key={k.label}
                 onClick={() => {
-                  setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro)
-                  setApenasAtrasados(true)
+                  setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
+                  setApenasAtrasados(true);
                 }}
                 className="px-4 py-3 text-left transition-all"
                 style={{
@@ -484,8 +514,7 @@ export function RastreamentoLotes() {
                 <p
                   className="text-xl font-bold"
                   style={{
-                    color:
-                      k.value > 0 ? k.color : "var(--text-secondary)",
+                    color: k.value > 0 ? k.color : "var(--text-secondary)",
                   }}
                 >
                   {fmt(k.value)} cx
@@ -578,10 +607,7 @@ export function RastreamentoLotes() {
           </button>
         </div>
 
-        <p
-          className="pb-2 text-xs"
-          style={{ color: "var(--text-secondary)" }}
-        >
+        <p className="pb-2 text-xs" style={{ color: "var(--text-secondary)" }}>
           {lotesFiltrados.length} lote
           {lotesFiltrados.length !== 1 ? "s" : ""}
         </p>
@@ -602,7 +628,7 @@ export function RastreamentoLotes() {
       ) : (
         <div className="card overflow-hidden p-0">
           <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
-            <table className="w-full min-w-[800px] border-separate border-spacing-0">
+            <table className="w-full min-w-[980px] border-separate border-spacing-0">
               <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
                 <tr style={{ background: "var(--bg-sidebar)", color: "#fff" }}>
                   <th className={thLeft}>Lote / OP</th>
@@ -616,6 +642,7 @@ export function RastreamentoLotes() {
                   >
                     Etapas
                   </th>
+                  <th className={thLeft}>Destino Produto/Insumo</th>
                   <th className={thBase}>Liberado (cx)</th>
                 </tr>
               </thead>
@@ -624,7 +651,7 @@ export function RastreamentoLotes() {
                 {lotesFiltrados.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="py-12 text-center text-sm"
                       style={{ color: "var(--text-secondary)" }}
                     >
@@ -641,17 +668,22 @@ export function RastreamentoLotes() {
                           l.em_desvio && !l.check_liberado
                             ? "rgba(245,158,11,0.05)"
                             : l.atrasado && !l.check_liberado
-                            ? "rgba(220,38,38,0.03)"
-                            : i % 2 === 0
-                            ? "var(--bg-secondary)"
-                            : "var(--bg-primary)",
+                              ? "rgba(220,38,38,0.03)"
+                              : i % 2 === 0
+                                ? "var(--bg-secondary)"
+                                : "var(--bg-primary)",
                       }}
                     >
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1.5">
-                          {(l.em_desvio || (l.atrasado && !l.check_liberado)) && (
+                          {(l.em_desvio ||
+                            (l.atrasado && !l.check_liberado)) && (
                             <span
-                              title={l.em_desvio ? getDesvioTooltip(l) : "Lote atrasado"}
+                              title={
+                                l.em_desvio
+                                  ? getDesvioTooltip(l)
+                                  : "Lote atrasado"
+                              }
                               className="inline-flex items-center"
                               style={{ flexShrink: 0 }}
                             >
@@ -709,10 +741,12 @@ export function RastreamentoLotes() {
                             l.em_desvio && !l.check_liberado
                               ? "#92400E"
                               : l.atrasado && !l.check_liberado
-                              ? "#DC2626"
-                              : "var(--text-secondary)",
+                                ? "#DC2626"
+                                : "var(--text-secondary)",
                           fontWeight:
-                            (l.em_desvio || l.atrasado) && !l.check_liberado ? 600 : 400,
+                            (l.em_desvio || l.atrasado) && !l.check_liberado
+                              ? 600
+                              : 400,
                         }}
                       >
                         {fmtData(l.data_lib)}
@@ -767,6 +801,52 @@ export function RastreamentoLotes() {
                       </td>
 
                       <td
+                        className="px-3 py-3 text-sm"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {getDesvioDestino(l) ? (
+                          <span
+                            className="inline-flex max-w-[220px] items-center rounded-full px-2 py-1 text-[11px] font-semibold"
+                            title={getDesvioDestino(l) || undefined}
+                            style={{
+                              background:
+                                String(getDesvioDestino(l))
+                                  .toUpperCase()
+                                  .includes("REPROV") ||
+                                String(getDesvioDestino(l))
+                                  .toUpperCase()
+                                  .includes("DESCARTE")
+                                  ? "#FEE2E2"
+                                  : String(getDesvioDestino(l))
+                                        .toUpperCase()
+                                        .includes("APROV")
+                                    ? "#DCFCE7"
+                                    : "#F3F4F6",
+                              color:
+                                String(getDesvioDestino(l))
+                                  .toUpperCase()
+                                  .includes("REPROV") ||
+                                String(getDesvioDestino(l))
+                                  .toUpperCase()
+                                  .includes("DESCARTE")
+                                  ? "#991B1B"
+                                  : String(getDesvioDestino(l))
+                                        .toUpperCase()
+                                        .includes("APROV")
+                                    ? "#166534"
+                                    : "var(--text-secondary)",
+                            }}
+                          >
+                            <span className="truncate">
+                              {getDesvioDestino(l)}
+                            </span>
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+
+                      <td
                         className="px-3 py-3 text-right text-sm font-semibold"
                         style={{
                           color: l.check_liberado
@@ -774,9 +854,7 @@ export function RastreamentoLotes() {
                             : "var(--text-secondary)",
                         }}
                       >
-                        {l.qtd_liberada_cx > 0
-                          ? fmt(l.qtd_liberada_cx)
-                          : "—"}
+                        {l.qtd_liberada_cx > 0 ? fmt(l.qtd_liberada_cx) : "—"}
                       </td>
                     </tr>
                   ))
@@ -831,8 +909,7 @@ export function RastreamentoLotes() {
                 {[
                   {
                     label: "Previsto até hoje",
-                    value:
-                      resumo?.previsto_ate_hoje ?? data.mtd_cx_previsto,
+                    value: resumo?.previsto_ate_hoje ?? data.mtd_cx_previsto,
                   },
                   {
                     label: "Liberado vinculado aos lotes",
@@ -856,12 +933,12 @@ export function RastreamentoLotes() {
                   },
                   {
                     label: "Gap teórico",
-                    value:
-                      resumo?.gap_teorico_previsto_menos_vinculado ?? 0,
+                    value: resumo?.gap_teorico_previsto_menos_vinculado ?? 0,
                   },
                   {
                     label: "Pendente em desvio",
-                    value: data.mtd_gap_por_etapa.desvio ?? data.mtd_cx_desvio ?? 0,
+                    value:
+                      data.mtd_gap_por_etapa.desvio ?? data.mtd_cx_desvio ?? 0,
                   },
                   {
                     label: "Pendente localizado",
@@ -875,9 +952,7 @@ export function RastreamentoLotes() {
                   },
                   {
                     label: "Lotes fora do Gantt",
-                    value:
-                      data.total_lotes_fora_gantt ??
-                      lotesForaGantt.length,
+                    value: data.total_lotes_fora_gantt ?? lotesForaGantt.length,
                     suffix: "",
                   },
                 ].map((item) => (
@@ -929,7 +1004,9 @@ export function RastreamentoLotes() {
 
                 <div className="overflow-auto" style={{ maxHeight: 320 }}>
                   <table className="w-full min-w-[900px] text-sm">
-                    <thead style={{ background: "var(--bg-sidebar)", color: "#fff" }}>
+                    <thead
+                      style={{ background: "var(--bg-sidebar)", color: "#fff" }}
+                    >
                       <tr>
                         <th className="px-3 py-2 text-left text-[10px] uppercase">
                           Lote
@@ -1002,9 +1079,7 @@ export function RastreamentoLotes() {
                               {item.grupo_previsto || "—"}
                             </td>
 
-                            <td className="px-3 py-2">
-                              {item.motivo || "—"}
-                            </td>
+                            <td className="px-3 py-2">{item.motivo || "—"}</td>
                           </tr>
                         ))
                       )}
@@ -1017,5 +1092,5 @@ export function RastreamentoLotes() {
         </div>
       )}
     </div>
-  )
+  );
 }
