@@ -78,11 +78,7 @@ function formatNumber(value?: number) {
 }
 
 function formatPercent(value?: number) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "percent",
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  }).format(value ?? 0)
+  return `${(value ?? 0).toFixed(1)}%`
 }
 
 function CardKpi({
@@ -143,7 +139,7 @@ export default function FaturamentoPage() {
 
   useEffect(() => {
     carregarResumo()
-  }, [])
+  }, [ano, bloco])
 
   const skusFiltrados = useMemo(() => {
     const termo = buscaSku.trim().toLowerCase()
@@ -165,7 +161,7 @@ export default function FaturamentoPage() {
       Real: m.real ?? 0,
       Forecast: m.forecast ?? 0,
       Orçado: m.orcado ?? 0,
-      FA: (m.fa ?? 0) * 100,
+      FA: m.fa ?? 0,
     }))
   }, [dados])
 
@@ -216,50 +212,17 @@ export default function FaturamentoPage() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <CardKpi
-          title="Realizado SD2 YTD"
-          value={formatNumber(dados?.cards?.real_ytd)}
-          icon={DollarSign}
-        />
-
-        <CardKpi
-          title="Forecast S&OP"
-          value={formatNumber(dados?.cards?.forecast_total)}
-          icon={TrendingUp}
-        />
-
-        <CardKpi
-          title="Orçado"
-          value={formatNumber(dados?.cards?.orcado_total)}
-          icon={Target}
-        />
-
-        <CardKpi
-          title="Gap vs Forecast"
-          value={formatNumber(dados?.cards?.gap_vs_forecast)}
-          icon={BarChart3}
-        />
-
-        <CardKpi
-          title="WMAPE"
-          value={formatPercent(dados?.cards?.wmape)}
-          subtitle="Erro ponderado"
-          icon={BarChart3}
-        />
-
-        <CardKpi
-          title="Forecast Accuracy"
-          value={formatPercent(dados?.cards?.fa)}
-          subtitle="1 - WMAPE"
-          icon={Target}
-        />
+        <CardKpi title="Realizado SD2 YTD" value={formatNumber(dados?.cards?.real_ytd)} icon={DollarSign} />
+        <CardKpi title="Forecast S&OP" value={formatNumber(dados?.cards?.forecast_total)} icon={TrendingUp} />
+        <CardKpi title="Orçado" value={formatNumber(dados?.cards?.orcado_total)} icon={Target} />
+        <CardKpi title="Gap vs Forecast" value={formatNumber(dados?.cards?.gap_vs_forecast)} icon={BarChart3} />
+        <CardKpi title="WMAPE" value={formatPercent(dados?.cards?.wmape)} subtitle="Erro ponderado" icon={BarChart3} />
+        <CardKpi title="Forecast Accuracy" value={formatPercent(dados?.cards?.fa)} subtitle="1 - WMAPE" icon={Target} />
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4">
-          <h2 className="text-lg font-semibold text-slate-900">
-            Visão mensal
-          </h2>
+          <h2 className="text-lg font-semibold text-slate-900">Visão mensal</h2>
           <p className="text-sm text-slate-500">
             Comparativo entre realizado, forecast, orçamento e FA.
           </p>
@@ -288,14 +251,7 @@ export default function FaturamentoPage() {
               <Bar yAxisId="left" dataKey="Real" fill="#17375E" radius={[6, 6, 0, 0]} />
               <Bar yAxisId="left" dataKey="Forecast" fill="#7EA6C8" radius={[6, 6, 0, 0]} />
               <Bar yAxisId="left" dataKey="Orçado" fill="#CBD5E1" radius={[6, 6, 0, 0]} />
-              <Line
-                yAxisId="right"
-                type="monotone"
-                dataKey="FA"
-                stroke="#0F172A"
-                strokeWidth={3}
-                dot={{ r: 4 }}
-              />
+              <Line yAxisId="right" type="monotone" dataKey="FA" stroke="#0F172A" strokeWidth={3} dot={{ r: 4 }} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
