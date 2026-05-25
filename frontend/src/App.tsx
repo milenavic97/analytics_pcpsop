@@ -11,6 +11,7 @@ import { OrdensPage } from "./pages/Ordens"
 import Mrp from "./pages/Mrp"
 import AnaliseMrpPage from "./pages/AnaliseMrp"
 import ConfiguracoesPage from "./pages/Configuracoes"
+import FaturamentoPage from "./pages/Faturamento"
 
 import { CalendarioParadasPage } from "./pages/calendario-paradas"
 
@@ -44,6 +45,15 @@ export default function App() {
               element={
                 <ProtectedRoute permissao="producao">
                   <ProducaoPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/faturamento"
+              element={
+                <ProtectedRoute permissao="faturamento">
+                  <FaturamentoPage />
                 </ProtectedRoute>
               }
             />
