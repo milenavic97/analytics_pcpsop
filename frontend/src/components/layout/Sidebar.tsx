@@ -1,30 +1,42 @@
 import { useMemo } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import clsx from "clsx"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react"
 
 import { APP_PAGES } from "@/config/pages"
 
 type Props = {
-  collapsed: boolean
-  onToggle: () => void
+  collapsed?: boolean
+  onToggle?: () => void
+  mobileOpen?: boolean
+  onCloseMobile?: () => void
 }
 
-export function Sidebar({ collapsed, onToggle }: Props) {
+export function Sidebar({
+  collapsed = false,
+  onToggle = () => {},
+}: Props) {
   const { pathname } = useLocation()
 
-  // REMOVIDO FILTRO DE PERMISSÃO
+  // SEM FILTRO DE PERMISSÃO
   const pages = APP_PAGES
 
   const activePage = useMemo(() => {
-    return pages.find((page) => pathname.startsWith(page.path))
+    return pages.find((page) =>
+      pathname.startsWith(page.path)
+    )
   }, [pathname, pages])
 
   return (
     <aside
       className={clsx(
         "flex h-screen flex-col border-r border-slate-800 bg-[#17375E] text-white transition-all duration-300",
-        collapsed ? "w-[60px]" : "w-[260px]"
+        collapsed
+          ? "w-[60px]"
+          : "w-[260px]"
       )}
     >
       {/* HEADER */}
@@ -60,7 +72,9 @@ export function Sidebar({ collapsed, onToggle }: Props) {
 
           const active =
             pathname === page.path ||
-            pathname.startsWith(`${page.path}/`) ||
+            pathname.startsWith(
+              `${page.path}/`
+            ) ||
             activePage?.id === page.id
 
           return (
@@ -77,7 +91,9 @@ export function Sidebar({ collapsed, onToggle }: Props) {
               <Icon size={20} />
 
               {!collapsed && (
-                <span className="truncate">{page.label}</span>
+                <span className="truncate">
+                  {page.label}
+                </span>
               )}
             </NavLink>
           )
@@ -89,7 +105,8 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         <div
           className={clsx(
             "flex items-center gap-3 rounded-xl bg-white/10 px-3 py-3 text-sm",
-            collapsed && "justify-center"
+            collapsed &&
+              "justify-center"
           )}
         >
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 font-semibold">
@@ -98,7 +115,10 @@ export function Sidebar({ collapsed, onToggle }: Props) {
 
           {!collapsed && (
             <div className="min-w-0">
-              <p className="truncate font-medium">PCP Analytics</p>
+              <p className="truncate font-medium">
+                PCP Analytics
+              </p>
+
               <p className="truncate text-xs text-slate-300">
                 Dashboard operacional
               </p>
