@@ -7,6 +7,7 @@ import {
   DatabaseBackup,
   CalendarDays,
   ShieldCheck,
+  DollarSign,
 } from "lucide-react"
 
 export const APP_PAGES = [
@@ -22,6 +23,13 @@ export const APP_PAGES = [
     label: "Produção",
     path: "/producao",
     icon: Factory,
+  },
+
+  {
+    id: "faturamento",
+    label: "Faturamento",
+    path: "/faturamento",
+    icon: DollarSign,
   },
 
   {
