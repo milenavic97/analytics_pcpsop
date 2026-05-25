@@ -10,7 +10,7 @@ import {
   Legend,
 } from "recharts"
 
-import { api } from "../../services/api"
+import api from "../../services/api"
 
 type LinhaMes = {
   mes: number
