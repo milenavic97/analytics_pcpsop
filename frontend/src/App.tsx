@@ -52,7 +52,7 @@ export default function App() {
             <Route
               path="/faturamento"
               element={
-                <ProtectedRoute permissao="faturamento">
+                <ProtectedRoute>
                   <FaturamentoPage />
                 </ProtectedRoute>
               }
