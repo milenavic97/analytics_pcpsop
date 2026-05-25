@@ -1148,3 +1148,30 @@ export async function getAgingEstoqueItem(
     `/aging-estoque/item/${codigo}`
   )
 }
+// ─────────────────────────────────────────────────────────────
+// Faturamento
+// ─────────────────────────────────────────────────────────────
+
+export async function getResumoFaturamento(params?: {
+  ano?: number
+  bloco?: string
+}) {
+  const query = new URLSearchParams()
+
+  if (params?.ano) {
+    query.set("ano", String(params.ano))
+  }
+
+  if (params?.bloco) {
+    query.set("bloco", params.bloco)
+  }
+
+  const qs = query.toString()
+
+  return apiFetch(
+    `/faturamento/resumo${
+      qs ? `?${qs}` : ""
+    }`
+  )
+}
+
