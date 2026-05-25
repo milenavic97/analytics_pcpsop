@@ -88,12 +88,12 @@ export default function FaturamentoPage() {
       setLoading(true)
 
       const response =
-        await getResumoFaturamento({
-          ano,
-          bloco,
-        })
+  await getResumoFaturamento({
+    ano,
+    bloco,
+  })
 
-      setDados(response)
+setDados(response as Resumo)
     } catch (e) {
       console.error(e)
     } finally {
