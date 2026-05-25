@@ -3,494 +3,396 @@ import {
   DollarSign,
   TrendingUp,
   Target,
-  AlertTriangle,
-  RefreshCcw,
+  BarChart3,
+  Search,
+  Loader2,
 } from "lucide-react"
-
 import {
   ResponsiveContainer,
-  LineChart,
+  ComposedChart,
+  Bar,
   Line,
-  CartesianGrid,
   XAxis,
   YAxis,
   Tooltip,
   Legend,
-  LabelList,
+  CartesianGrid,
 } from "recharts"
 
 import { getResumoFaturamento } from "../../services/api"
 
-type LinhaMensal = {
-  mes: number
-  real: number
-  forecast: number
-  orcado: number
+type Cards = {
+  real_ytd?: number
+  forecast_total?: number
+  orcado_total?: number
+  gap_vs_forecast?: number
+  wmape?: number
+  fa?: number
 }
 
-type GrupoFA = {
-  grupo: string
-  real: number
-  forecast: number
-  wmape: number
-  fa: number
+type Mes = {
+  mes?: number
+  mes_nome?: string
+  real?: number
+  forecast?: number
+  orcado?: number
+  wmape?: number
+  fa?: number
 }
 
-type SkuFA = {
-  sku: string
-  grupo: string
-  mes: number
-  real: number
-  forecast: number
-  erro: number
-  fa: number
+type Grupo = {
+  grupo?: string
+  real?: number
+  forecast?: number
+  orcado?: number
+  wmape?: number
+  fa?: number
+}
+
+type Sku = {
+  sku?: string
+  descricao?: string
+  grupo?: string
+  real?: number
+  forecast?: number
+  orcado?: number
+  wmape?: number
+  fa?: number
 }
 
 type Resumo = {
-  wmape: number
-  forecast_accuracy: number
-  total_real: number
-  total_forecast: number
-  total_orcado: number
-  mensal: LinhaMensal[]
-  grupos: GrupoFA[]
-  skus: SkuFA[]
+  ano: number
+  bloco: string
+  cards: Cards
+  meses: Mes[]
+  grupos: Grupo[]
+  skus: Sku[]
 }
 
-const meses = [
-  "Jan",
-  "Fev",
-  "Mar",
-  "Abr",
-  "Mai",
-  "Jun",
-  "Jul",
-  "Ago",
-  "Set",
-  "Out",
-  "Nov",
-  "Dez",
-]
+const AZUL = "#17375E"
+
+function formatNumber(value?: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 0,
+  }).format(value ?? 0)
+}
+
+function formatPercent(value?: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value ?? 0)
+}
+
+function CardKpi({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+}: {
+  title: string
+  value: string
+  subtitle?: string
+  icon: any
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-slate-500">{title}</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">{value}</p>
+          {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
+        </div>
+
+        <div className="rounded-xl bg-slate-100 p-3">
+          <Icon size={20} color={AZUL} />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function FaturamentoPage() {
+  const [dados, setDados] = useState<Resumo | null>(null)
   const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
 
   const [ano, setAno] = useState(2026)
+  const [bloco, setBloco] = useState("ANESTESICOS")
+  const [buscaSku, setBuscaSku] = useState("")
 
-  const [bloco, setBloco] =
-    useState("ANESTESICOS")
-
-  const [dados, setDados] =
-    useState<Resumo | null>(null)
-
-  const carregar = async () => {
+  async function carregarResumo() {
     try {
       setLoading(true)
+      setErro(null)
 
-      const response =
-  await getResumoFaturamento({
-    ano,
-    bloco,
-  })
+      const response = await getResumoFaturamento({
+        ano,
+        bloco,
+      })
 
-setDados(response as Resumo)
-    } catch (e) {
-      console.error(e)
+      setDados(response as Resumo)
+    } catch (error) {
+      console.error(error)
+      setErro("Não foi possível carregar os dados de faturamento.")
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    carregar()
-  }, [ano, bloco])
+    carregarResumo()
+  }, [])
 
-  const grafico = useMemo(() => {
-    if (!dados) return []
+  const skusFiltrados = useMemo(() => {
+    const termo = buscaSku.trim().toLowerCase()
 
-    return dados.mensal.map((m) => ({
-      mes: meses[m.mes - 1],
-      Real: m.real,
-      Forecast: m.forecast,
-      Orçado: m.orcado,
+    if (!termo) return dados?.skus ?? []
+
+    return (dados?.skus ?? []).filter((item) => {
+      return (
+        String(item.sku ?? "").toLowerCase().includes(termo) ||
+        String(item.descricao ?? "").toLowerCase().includes(termo) ||
+        String(item.grupo ?? "").toLowerCase().includes(termo)
+      )
+    })
+  }, [dados, buscaSku])
+
+  const mesesGrafico = useMemo(() => {
+    return (dados?.meses ?? []).map((m) => ({
+      mes: m.mes_nome ?? String(m.mes ?? ""),
+      Real: m.real ?? 0,
+      Forecast: m.forecast ?? 0,
+      Orçado: m.orcado ?? 0,
+      FA: (m.fa ?? 0) * 100,
     }))
   }, [dados])
 
   return (
-    <div className="space-y-6">
-      {/* HEADER */}
-
-      <div className="flex items-start justify-between">
+    <div className="min-h-screen bg-slate-50 p-6">
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">
-            Comercial · Demanda
-          </p>
-
-          <h1 className="text-4xl font-bold text-slate-900">
+          <h1 className="text-2xl font-semibold text-slate-900">
             Faturamento
           </h1>
-
-          <p className="text-slate-500 mt-2">
-            Realizado SD2 vs Forecast
-            S&OP.
+          <p className="mt-1 text-sm text-slate-500">
+            Realizado SD2, Forecast S&amp;OP, Orçado, WMAPE e Forecast Accuracy.
           </p>
         </div>
 
-        <div className="flex items-end gap-3">
-          <div>
-            <p className="text-xs text-slate-400 mb-1 uppercase font-semibold">
-              Ano
-            </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={ano}
+            onChange={(e) => setAno(Number(e.target.value))}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm outline-none focus:border-[#17375E]"
+          >
+            <option value={2026}>2026</option>
+          </select>
 
-            <select
-              value={ano}
-              onChange={(e) =>
-                setAno(Number(e.target.value))
-              }
-              className="h-11 rounded-xl border border-slate-200 px-4 bg-white"
-            >
-              <option value={2026}>
-                2026
-              </option>
-            </select>
-          </div>
-
-          <div>
-            <p className="text-xs text-slate-400 mb-1 uppercase font-semibold">
-              Bloco
-            </p>
-
-            <select
-              value={bloco}
-              onChange={(e) =>
-                setBloco(e.target.value)
-              }
-              className="h-11 rounded-xl border border-slate-200 px-4 bg-white"
-            >
-              <option value="ANESTESICOS">
-                Anestésicos
-              </option>
-
-              <option value="PPS">
-                PPS
-              </option>
-
-              <option value="TODOS">
-                Todos
-              </option>
-            </select>
-          </div>
+          <select
+            value={bloco}
+            onChange={(e) => setBloco(e.target.value)}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm outline-none focus:border-[#17375E]"
+          >
+            <option value="ANESTESICOS">ANESTÉSICOS</option>
+          </select>
 
           <button
-            onClick={carregar}
-            className="h-11 px-4 rounded-xl bg-[#17375E] text-white flex items-center gap-2"
+            onClick={carregarResumo}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#17375E] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-60"
           >
-            <RefreshCcw size={16} />
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <BarChart3 size={16} />}
             Atualizar
           </button>
         </div>
       </div>
 
-      {/* CARDS */}
+      {erro && (
+        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {erro}
+        </div>
+      )}
 
-      <div className="grid grid-cols-5 gap-4">
-        <Card
-          title="Realizado YTD"
-          value={`${dados?.total_real?.toLocaleString(
-            "pt-BR"
-          ) || 0} cx`}
-          subtitle="Vendas realizadas"
-          icon={
-            <DollarSign
-              className="text-blue-600"
-              size={20}
-            />
-          }
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <CardKpi
+          title="Realizado SD2 YTD"
+          value={formatNumber(dados?.cards?.real_ytd)}
+          icon={DollarSign}
         />
 
-        <Card
-          title="Forecast"
-          value={`${dados?.total_forecast?.toLocaleString(
-            "pt-BR"
-          ) || 0} cx`}
-          subtitle="Plano S&OP"
-          icon={
-            <TrendingUp
-              className="text-emerald-600"
-              size={20}
-            />
-          }
+        <CardKpi
+          title="Forecast S&OP"
+          value={formatNumber(dados?.cards?.forecast_total)}
+          icon={TrendingUp}
         />
 
-        <Card
+        <CardKpi
           title="Orçado"
-          value={`${dados?.total_orcado?.toLocaleString(
-            "pt-BR"
-          ) || 0} cx`}
-          subtitle="Meta comercial"
-          icon={
-            <Target
-              className="text-orange-600"
-              size={20}
-            />
-          }
+          value={formatNumber(dados?.cards?.orcado_total)}
+          icon={Target}
         />
 
-        <Card
+        <CardKpi
+          title="Gap vs Forecast"
+          value={formatNumber(dados?.cards?.gap_vs_forecast)}
+          icon={BarChart3}
+        />
+
+        <CardKpi
           title="WMAPE"
-          value={`${dados?.wmape || 0}%`}
+          value={formatPercent(dados?.cards?.wmape)}
           subtitle="Erro ponderado"
-          icon={
-            <AlertTriangle
-              className="text-red-500"
-              size={20}
-            />
-          }
+          icon={BarChart3}
         />
 
-        <Card
+        <CardKpi
           title="Forecast Accuracy"
-          value={`${
-            dados?.forecast_accuracy || 0
-          }%`}
-          subtitle="FA SKU mês"
-          icon={
-            <Target
-              className="text-pink-600"
-              size={20}
-            />
-          }
+          value={formatPercent(dados?.cards?.fa)}
+          subtitle="1 - WMAPE"
+          icon={Target}
         />
       </div>
 
-      {/* GRAFICO */}
-
-      <div className="bg-white border border-slate-200 rounded-3xl p-5">
-        <div className="mb-5">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">
-            Evolução mensal
-          </p>
-
-          <h2 className="text-2xl font-bold text-slate-900">
-            Real x Forecast x
-            Orçado
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-slate-900">
+            Visão mensal
           </h2>
+          <p className="text-sm text-slate-500">
+            Comparativo entre realizado, forecast, orçamento e FA.
+          </p>
         </div>
 
-        <div style={{ height: 420 }}>
-          <ResponsiveContainer
-            width="100%"
-            height="100%"
-          >
-            <LineChart data={grafico}>
-              <CartesianGrid
-                strokeDasharray="0"
-                vertical={false}
-                stroke="#F1F5F9"
+        <div className="h-[360px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={mesesGrafico}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+              <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
+              <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                tick={{ fontSize: 12 }}
+                domain={[0, 100]}
+                tickFormatter={(value) => `${value}%`}
               />
-
-              <XAxis dataKey="mes" />
-
-              <YAxis />
-
-              <Tooltip />
-
+              <Tooltip
+                formatter={(value: any, name: any) => {
+                  if (name === "FA") return [`${Number(value).toFixed(1)}%`, name]
+                  return [formatNumber(Number(value)), name]
+                }}
+              />
               <Legend />
-
+              <Bar yAxisId="left" dataKey="Real" fill="#17375E" radius={[6, 6, 0, 0]} />
+              <Bar yAxisId="left" dataKey="Forecast" fill="#7EA6C8" radius={[6, 6, 0, 0]} />
+              <Bar yAxisId="left" dataKey="Orçado" fill="#CBD5E1" radius={[6, 6, 0, 0]} />
               <Line
+                yAxisId="right"
                 type="monotone"
-                dataKey="Real"
-                stroke="#17375E"
-                strokeWidth={4}
-              >
-                <LabelList
-                  dataKey="Real"
-                  position="top"
-                />
-              </Line>
-
-              <Line
-                type="monotone"
-                dataKey="Forecast"
-                stroke="#16A34A"
+                dataKey="FA"
+                stroke="#0F172A"
                 strokeWidth={3}
-              >
-                <LabelList
-                  dataKey="Forecast"
-                  position="top"
-                />
-              </Line>
-
-              <Line
-                type="monotone"
-                dataKey="Orçado"
-                stroke="#94A3B8"
-                strokeWidth={3}
-              >
-                <LabelList
-                  dataKey="Orçado"
-                  position="top"
-                />
-              </Line>
-            </LineChart>
+                dot={{ r: 4 }}
+              />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* TABELAS */}
-
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden">
-          <div className="p-5">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">
-              Forecast Accuracy
-            </p>
-
-            <h2 className="text-2xl font-bold text-slate-900">
-              Por Grupo
-            </h2>
-          </div>
-
-          <table className="w-full">
-            <thead className="bg-[#17375E] text-white">
-              <tr>
-                <th className="px-4 py-3 text-left">
-                  Grupo
-                </th>
-
-                <th className="px-4 py-3 text-right">
-                  Real
-                </th>
-
-                <th className="px-4 py-3 text-right">
-                  Forecast
-                </th>
-
-                <th className="px-4 py-3 text-right">
-                  FA
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {dados?.grupos?.map((g) => (
-                <tr
-                  key={g.grupo}
-                  className="border-b border-slate-100"
-                >
-                  <td className="px-4 py-3">
-                    {g.grupo}
-                  </td>
-
-                  <td className="px-4 py-3 text-right">
-                    {g.real.toLocaleString(
-                      "pt-BR"
-                    )}
-                  </td>
-
-                  <td className="px-4 py-3 text-right">
-                    {g.forecast.toLocaleString(
-                      "pt-BR"
-                    )}
-                  </td>
-
-                  <td className="px-4 py-3 text-right font-semibold">
-                    {g.fa}%
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden">
-          <div className="p-5">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">
-              Forecast Accuracy
-            </p>
-
-            <h2 className="text-2xl font-bold text-slate-900">
-              Piores SKUs
-            </h2>
-          </div>
-
-          <table className="w-full">
-            <thead className="bg-[#17375E] text-white">
-              <tr>
-                <th className="px-4 py-3 text-left">
-                  SKU
-                </th>
-
-                <th className="px-4 py-3 text-left">
-                  Grupo
-                </th>
-
-                <th className="px-4 py-3 text-right">
-                  FA
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {dados?.skus
-                ?.slice(0, 12)
-                ?.map((s, i) => (
-                  <tr
-                    key={`${s.sku}-${i}`}
-                    className="border-b border-slate-100"
-                  >
-                    <td className="px-4 py-3">
-                      {s.sku}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      {s.grupo}
-                    </td>
-
-                    <td className="px-4 py-3 text-right font-semibold text-red-500">
-                      {s.fa}%
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {loading && (
-        <div className="text-center text-slate-400">
-          Carregando...
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Card({
-  title,
-  value,
-  subtitle,
-  icon,
-}: any) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-3xl p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400 font-semibold">
-            {title}
-          </p>
-
-          <h2 className="text-4xl font-bold text-slate-900 mt-3">
-            {value}
+      <div className="mt-6 grid gap-6 xl:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-slate-900">
+            Visão por grupo
           </h2>
 
-          <p className="text-slate-500 mt-3">
-            {subtitle}
-          </p>
+          <div className="overflow-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-[#17375E] text-white">
+                  <th className="px-4 py-3 text-left font-medium">Grupo</th>
+                  <th className="px-4 py-3 text-right font-medium">Real</th>
+                  <th className="px-4 py-3 text-right font-medium">Forecast</th>
+                  <th className="px-4 py-3 text-right font-medium">Orçado</th>
+                  <th className="px-4 py-3 text-right font-medium">WMAPE</th>
+                  <th className="px-4 py-3 text-right font-medium">FA</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {(dados?.grupos ?? []).map((item, index) => (
+                  <tr key={`${item.grupo}-${index}`} className="border-b border-slate-100">
+                    <td className="px-4 py-3 text-slate-700">{item.grupo ?? "-"}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{formatNumber(item.real)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{formatNumber(item.forecast)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{formatNumber(item.orcado)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{formatPercent(item.wmape)}</td>
+                    <td className="px-4 py-3 text-right font-medium text-slate-900">{formatPercent(item.fa)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <div className="h-12 w-12 rounded-2xl bg-slate-50 flex items-center justify-center">
-          {icon}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Visão por SKU
+              </h2>
+              <p className="text-sm text-slate-500">
+                Erro calculado no nível SKU x mês.
+              </p>
+            </div>
+
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={buscaSku}
+                onChange={(e) => setBuscaSku(e.target.value)}
+                placeholder="Buscar SKU, descrição ou grupo"
+                className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-[#17375E] md:w-72"
+              />
+            </div>
+          </div>
+
+          <div className="max-h-[460px] overflow-auto">
+            <table className="min-w-full text-sm">
+              <thead className="sticky top-0">
+                <tr className="bg-[#17375E] text-white">
+                  <th className="px-4 py-3 text-left font-medium">SKU</th>
+                  <th className="px-4 py-3 text-left font-medium">Descrição</th>
+                  <th className="px-4 py-3 text-left font-medium">Grupo</th>
+                  <th className="px-4 py-3 text-right font-medium">Real</th>
+                  <th className="px-4 py-3 text-right font-medium">Forecast</th>
+                  <th className="px-4 py-3 text-right font-medium">FA</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {skusFiltrados.map((item, index) => (
+                  <tr key={`${item.sku}-${index}`} className="border-b border-slate-100">
+                    <td className="px-4 py-3 font-medium text-slate-900">{item.sku ?? "-"}</td>
+                    <td className="px-4 py-3 text-slate-700">{item.descricao ?? "-"}</td>
+                    <td className="px-4 py-3 text-slate-700">{item.grupo ?? "-"}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{formatNumber(item.real)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{formatNumber(item.forecast)}</td>
+                    <td className="px-4 py-3 text-right font-medium text-slate-900">{formatPercent(item.fa)}</td>
+                  </tr>
+                ))}
+
+                {!loading && skusFiltrados.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                      Nenhum SKU encontrado.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
