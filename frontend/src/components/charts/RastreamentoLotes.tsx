@@ -283,6 +283,7 @@ export function RastreamentoLotes() {
   const [loading, setLoading] = useState(true);
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
+  const [filtroStatus, setFiltroStatus] = useState("");
   const [apenasAtrasados, setApenasAtrasados] = useState(true);
   const [modalAuditoria, setModalAuditoria] = useState(false);
 
@@ -317,8 +318,9 @@ export function RastreamentoLotes() {
   const lotesFiltrados = (data?.lotes ?? []).filter((l) => {
     if (apenasAtrasados && (!l.data_lib || l.data_lib > hoje)) return false;
     if (filtroGrupo && l.grupo !== filtroGrupo) return false;
+    if (filtroStatus === "EM_DESVIO" && !l.em_desvio) return false;
+    if (filtroStatus === "SEM_DESVIO" && l.em_desvio) return false;
     if (filtroEtapa === "LIBERADO" && !l.check_liberado) return false;
-    if (filtroEtapa === "DESVIO" && !l.em_desvio) return false;
     if (
       filtroEtapa === "EMBALAGEM" &&
       (!l.check_embalagem || l.check_liberado || l.em_desvio)
@@ -575,7 +577,6 @@ export function RastreamentoLotes() {
           >
             <option value="">Todas as etapas</option>
             <option value="LIBERADO">Liberado</option>
-            <option value="DESVIO">Em Desvio</option>
             <option value="EMBALAGEM">Em Embalagem</option>
             <option value="ENVASE">Em Envase</option>
             <option value="LAVAGEM">Em Lavagem</option>
@@ -592,23 +593,24 @@ export function RastreamentoLotes() {
             Status
           </label>
 
-          <button
-            onClick={() => {
-              setFiltroEtapa(filtroEtapa === "DESVIO" ? "" : "DESVIO");
+          <select
+            value={filtroStatus}
+            onChange={(e) => {
+              setFiltroStatus(e.target.value);
               setApenasAtrasados(true);
             }}
-            className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors"
+            className="rounded-lg border px-3 py-2 text-sm outline-none"
             style={{
-              background: filtroEtapa === "DESVIO"
-                ? "#FEF3C7"
-                : "var(--bg-secondary)",
-              borderColor: filtroEtapa === "DESVIO" ? "#F59E0B" : "var(--border)",
-              color: filtroEtapa === "DESVIO" ? "#92400E" : "var(--text-secondary)",
+              background: "var(--bg-secondary)",
+              borderColor: "var(--border)",
+              color: "var(--text-primary)",
+              minWidth: 140,
             }}
           >
-            <AlertTriangle size={14} />
-            Em desvio
-          </button>
+            <option value="">Todos</option>
+            <option value="EM_DESVIO">Em desvio</option>
+            <option value="SEM_DESVIO">Sem desvio</option>
+          </select>
         </div>
 
         <div className="flex flex-col gap-1">
