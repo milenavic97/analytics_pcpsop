@@ -24,13 +24,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
 
-          <Route
-            element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }
-          >
+          {/* REMOVIDO ProtectedRoute do Layout */}
+          <Route element={<Layout />}>
             <Route
               path="/overview"
               element={
