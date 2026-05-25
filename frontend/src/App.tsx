@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 
-import { ProtectedRoute } from "./components/ProtectedRoute"
 import { AuthProvider } from "./contexts/AuthContext"
 
 import { LoginPage } from "./pages/Login"
@@ -24,103 +23,22 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
 
-          {/* REMOVIDO ProtectedRoute do Layout */}
           <Route element={<Layout />}>
-            <Route
-              path="/overview"
-              element={
-                <ProtectedRoute permissao="overview">
-                  <OverviewPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/producao/*"
-              element={
-                <ProtectedRoute permissao="producao">
-                  <ProducaoPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/faturamento"
-              element={
-                <ProtectedRoute>
-                  <FaturamentoPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/ordens"
-              element={
-                <ProtectedRoute permissao="ordens">
-                  <OrdensPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/mps"
-              element={
-                <ProtectedRoute permissao="mps">
-                  <Mrp />
-                </ProtectedRoute>
-              }
-            />
-
+            <Route path="/overview" element={<OverviewPage />} />
+            <Route path="/producao/*" element={<ProducaoPage />} />
+            <Route path="/faturamento" element={<FaturamentoPage />} />
+            <Route path="/ordens" element={<OrdensPage />} />
+            <Route path="/mps" element={<Mrp />} />
             <Route path="/mrp" element={<Navigate to="/mps" replace />} />
-
-            <Route
-              path="/analise-mrp"
-              element={
-                <ProtectedRoute permissao="analise-mrp">
-                  <AnaliseMrpPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/calendario-paradas"
-              element={
-                <ProtectedRoute permissao="calendario-paradas">
-                  <CalendarioParadasPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/dados"
-              element={
-                <ProtectedRoute permissao="dados">
-                  <DadosPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/dados/:baseId"
-              element={
-                <ProtectedRoute permissao="dados">
-                  <DadosPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/configuracoes"
-              element={
-                <ProtectedRoute permissao="configuracoes">
-                  <ConfiguracoesPage />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/analise-mrp" element={<AnaliseMrpPage />} />
+            <Route path="/calendario-paradas" element={<CalendarioParadasPage />} />
+            <Route path="/dados" element={<DadosPage />} />
+            <Route path="/dados/:baseId" element={<DadosPage />} />
+            <Route path="/configuracoes" element={<ConfiguracoesPage />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/overview" replace />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to="/overview" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
