@@ -589,7 +589,7 @@ export function RastreamentoLotes() {
             className="text-[10px] font-semibold uppercase tracking-wider"
             style={{ color: "var(--text-secondary)" }}
           >
-            Filtro rápido
+            Status
           </label>
 
           <button
