@@ -11,6 +11,7 @@ import Mrp from "./pages/Mrp"
 import AnaliseMrpPage from "./pages/AnaliseMrp"
 import ConfiguracoesPage from "./pages/Configuracoes"
 import FaturamentoPage from "./pages/Faturamento"
+import DesviosPage from "./pages/Desvios"
 
 import { CalendarioParadasPage } from "./pages/calendario-paradas"
 
@@ -27,6 +28,7 @@ export default function App() {
             <Route path="/overview" element={<OverviewPage />} />
             <Route path="/producao/*" element={<ProducaoPage />} />
             <Route path="/faturamento" element={<FaturamentoPage />} />
+            <Route path="/desvios" element={<DesviosPage />} />
             <Route path="/ordens" element={<OrdensPage />} />
             <Route path="/mps" element={<Mrp />} />
             <Route path="/mrp" element={<Navigate to="/mps" replace />} />
