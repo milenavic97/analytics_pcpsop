@@ -50,6 +50,29 @@ type DesvioAtual = {
   destino?: string
   dias_desvio?: number
   setor?: string
+  data_lib?: string
+  mes_lib?: number
+  ano_lib?: number
+  grupo_produto?: string
+  linha?: string
+  qtd_prevista?: number
+}
+
+function formatData(data?: string) {
+  if (!data) return "-"
+  return new Date(`${data}T00:00:00`).toLocaleDateString("pt-BR")
+}
+
+function formatMes(mes?: number, ano?: number) {
+  if (!mes || !ano) return "-"
+  return `${String(mes).padStart(2, "0")}/${ano}`
+}
+
+function formatNumero(valor?: number) {
+  if (valor === null || valor === undefined) return "-"
+  return new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 0,
+  }).format(valor)
 }
 
 export default function DesviosPage() {
@@ -110,7 +133,6 @@ export default function DesviosPage() {
       await carregar()
     } catch (err) {
       console.error(err)
-
       setErroUpload(
         err instanceof Error
           ? err.message
@@ -131,7 +153,9 @@ export default function DesviosPage() {
       String(item.lote || "").toLowerCase().includes(termo) ||
       String(item.destino || "").toLowerCase().includes(termo) ||
       String(item.estado || "").toLowerCase().includes(termo) ||
-      String(item.setor || "").toLowerCase().includes(termo)
+      String(item.setor || "").toLowerCase().includes(termo) ||
+      String(item.grupo_produto || "").toLowerCase().includes(termo) ||
+      String(item.linha || "").toLowerCase().includes(termo)
     )
   }, [atuais, busca])
 
@@ -143,7 +167,7 @@ export default function DesviosPage() {
             Monitor de Desvios
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Histórico, rastreabilidade e alterações automáticas entre uploads.
+            Histórico, rastreabilidade e impacto dos lotes travados na liberação.
           </p>
         </div>
 
@@ -280,14 +304,14 @@ export default function DesviosPage() {
               Desvios atuais
             </h2>
             <p className="text-sm text-slate-500">
-              Último snapshot carregado.
+              Último snapshot carregado cruzado com o último Gantt de liberação.
             </p>
           </div>
 
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar lote, desvio, status..."
+            placeholder="Buscar lote, desvio, mês, status..."
             className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E] md:w-80"
           />
         </div>
@@ -300,6 +324,11 @@ export default function DesviosPage() {
                 <th className="px-4 py-3 text-left font-medium">Lote</th>
                 <th className="px-4 py-3 text-left font-medium">Estado</th>
                 <th className="px-4 py-3 text-left font-medium">Destino</th>
+                <th className="px-4 py-3 text-left font-medium">Mês Lib.</th>
+                <th className="px-4 py-3 text-left font-medium">Data Lib.</th>
+                <th className="px-4 py-3 text-left font-medium">Grupo</th>
+                <th className="px-4 py-3 text-left font-medium">Linha</th>
+                <th className="px-4 py-3 text-right font-medium">Qtd Prev.</th>
                 <th className="px-4 py-3 text-right font-medium">Dias</th>
                 <th className="px-4 py-3 text-left font-medium">Setor</th>
               </tr>
@@ -309,9 +338,14 @@ export default function DesviosPage() {
               {atuaisFiltrados.map((item, idx) => (
                 <tr key={`${item.serial}-${item.lote}-${idx}`} className="border-b border-slate-100">
                   <td className="px-4 py-3 font-medium text-slate-900">{item.serial || "-"}</td>
-                  <td className="px-4 py-3 text-slate-700">{item.lote || "-"}</td>
+                  <td className="px-4 py-3 font-medium text-slate-700">{item.lote || "-"}</td>
                   <td className="px-4 py-3 text-slate-700">{item.estado || "-"}</td>
                   <td className="px-4 py-3 text-slate-700">{item.destino || "-"}</td>
+                  <td className="px-4 py-3 text-slate-700">{formatMes(item.mes_lib, item.ano_lib)}</td>
+                  <td className="px-4 py-3 text-slate-700">{formatData(item.data_lib)}</td>
+                  <td className="px-4 py-3 text-slate-700">{item.grupo_produto || "-"}</td>
+                  <td className="px-4 py-3 text-slate-700">{item.linha || "-"}</td>
+                  <td className="px-4 py-3 text-right text-slate-700">{formatNumero(item.qtd_prevista)}</td>
                   <td className="px-4 py-3 text-right text-slate-700">{item.dias_desvio ?? "-"}</td>
                   <td className="px-4 py-3 text-slate-700">{item.setor || "-"}</td>
                 </tr>
@@ -319,7 +353,7 @@ export default function DesviosPage() {
 
               {!atuaisFiltrados.length && !loading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-500">
                     Nenhum desvio encontrado.
                   </td>
                 </tr>
