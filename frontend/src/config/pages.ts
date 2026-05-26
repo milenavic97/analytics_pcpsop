@@ -8,6 +8,7 @@ import {
   CalendarDays,
   ShieldCheck,
   DollarSign,
+  AlertTriangle,
 } from "lucide-react"
 
 export const APP_PAGES = [
@@ -30,6 +31,13 @@ export const APP_PAGES = [
     label: "Faturamento",
     path: "/faturamento",
     icon: DollarSign,
+  },
+
+  {
+    id: "desvios",
+    label: "Desvios",
+    path: "/desvios",
+    icon: AlertTriangle,
   },
 
   {
