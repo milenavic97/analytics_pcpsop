@@ -1197,6 +1197,7 @@ export async function getDesviosAtuais() {
 
 export async function uploadDesvios(file: File) {
   const form = new FormData()
+
   form.append("file", file)
 
   const res = await fetch(`${API_URL}/desvios/upload`, {
@@ -1211,9 +1212,15 @@ export async function uploadDesvios(file: File) {
 
     throw new Error(
       (err as { detail: string }).detail ||
-        "Erro ao subir arquivo de desvios"
+        "Erro no upload de desvios"
     )
   }
 
   return res.json()
+}
+
+export async function limparDesvios() {
+  return apiFetch("/desvios/limpar", {
+    method: "DELETE",
+  })
 }
