@@ -59,7 +59,6 @@ type Resumo = {
 
 function formatNumero(valor?: number) {
   if (!valor) return "-"
-
   return new Intl.NumberFormat("pt-BR", {
     maximumFractionDigits: 0,
   }).format(valor)
@@ -121,6 +120,7 @@ function renderEstadoTag(estado?: string) {
 export default function DesviosPage() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [confirmarLimpeza, setConfirmarLimpeza] = useState(false)
 
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [erroUpload, setErroUpload] = useState("")
@@ -189,12 +189,6 @@ export default function DesviosPage() {
   }
 
   async function handleLimparDados() {
-    const confirmar = window.confirm(
-      "Tem certeza que deseja excluir todos os dados de desvios? Essa ação não pode ser desfeita."
-    )
-
-    if (!confirmar) return
-
     try {
       setLoading(true)
       setErroUpload("")
@@ -206,6 +200,7 @@ export default function DesviosPage() {
       setEventos([])
       setSnapshots([])
       setDesvios([])
+      setConfirmarLimpeza(false)
 
       await carregar()
     } catch (err) {
@@ -314,7 +309,7 @@ export default function DesviosPage() {
           </button>
 
           <button
-            onClick={handleLimparDados}
+            onClick={() => setConfirmarLimpeza(true)}
             disabled={loading || uploading}
             className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
           >
@@ -446,9 +441,7 @@ export default function DesviosPage() {
               <AvisoAlteracao
                 title="Lotes adicionados"
                 color="green"
-                text={novosLotes
-                  .map((e) => `${e.lote} no ${e.serial}`)
-                  .join("; ")}
+                text={novosLotes.map((e) => `${e.lote} no ${e.serial}`).join("; ")}
               />
             )}
 
@@ -456,9 +449,7 @@ export default function DesviosPage() {
               <AvisoAlteracao
                 title="Lotes removidos"
                 color="red"
-                text={lotesRemovidos
-                  .map((e) => `${e.lote} do ${e.serial}`)
-                  .join("; ")}
+                text={lotesRemovidos.map((e) => `${e.lote} do ${e.serial}`).join("; ")}
               />
             )}
 
@@ -466,10 +457,7 @@ export default function DesviosPage() {
               <AvisoAlteracao
                 title="Novos desvios"
                 color="blue"
-                text={novosDesvios
-                  .map((e) => e.serial)
-                  .filter(Boolean)
-                  .join("; ")}
+                text={novosDesvios.map((e) => e.serial).filter(Boolean).join("; ")}
               />
             )}
 
@@ -477,10 +465,7 @@ export default function DesviosPage() {
               <AvisoAlteracao
                 title="Desvios removidos"
                 color="slate"
-                text={desviosRemovidos
-                  .map((e) => e.serial)
-                  .filter(Boolean)
-                  .join("; ")}
+                text={desviosRemovidos.map((e) => e.serial).filter(Boolean).join("; ")}
               />
             )}
 
@@ -498,6 +483,49 @@ export default function DesviosPage() {
           </div>
         )}
       </div>
+
+      {confirmarLimpeza && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start gap-4">
+              <div className="rounded-2xl bg-red-50 p-3 text-red-600">
+                <Trash2 size={22} />
+              </div>
+
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-slate-900">
+                  Excluir dados de desvios
+                </h3>
+
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Tem certeza que deseja excluir todos os snapshots, eventos e desvios carregados?
+                </p>
+
+                <p className="mt-2 text-sm font-medium text-red-600">
+                  Essa ação não pode ser desfeita.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmarLimpeza(false)}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+
+              <button
+                onClick={handleLimparDados}
+                disabled={loading}
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                Excluir dados
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
