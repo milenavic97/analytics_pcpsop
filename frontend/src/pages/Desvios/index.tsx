@@ -39,14 +39,11 @@ type Desvio = {
   setor?: string
   titulo?: string
   dias_desvio?: number
-
   qtd_lotes: number
   lotes_texto: string
-
   meses_lib_texto?: string
   grupos_produto_texto?: string
   linhas_texto?: string
-
   qtd_prevista_total?: number
 }
 
@@ -60,7 +57,6 @@ type Resumo = {
 
 function formatNumero(valor?: number) {
   if (!valor) return "-"
-
   return new Intl.NumberFormat("pt-BR", {
     maximumFractionDigits: 0,
   }).format(valor)
@@ -96,10 +92,10 @@ export default function DesviosPage() {
         getDesviosAtuais(),
       ])
 
-      setResumo(resumoResp)
-      setEventos(eventosResp || [])
-      setSnapshots(snapshotsResp || [])
-      setDesvios(desviosResp || [])
+      setResumo(resumoResp as Resumo)
+      setEventos((eventosResp as Evento[]) || [])
+      setSnapshots((snapshotsResp as Snapshot[]) || [])
+      setDesvios((desviosResp as Desvio[]) || [])
     } catch (err) {
       console.error(err)
     } finally {
@@ -118,7 +114,9 @@ export default function DesviosPage() {
       setUploading(true)
       setErroUpload("")
 
-      const resp = await uploadDesvios(arquivo)
+      const resp = await uploadDesvios(arquivo) as {
+        erros?: string[]
+      }
 
       if (resp?.erros?.length) {
         setErroUpload(resp.erros.join(" | "))
@@ -126,11 +124,9 @@ export default function DesviosPage() {
       }
 
       setArquivo(null)
-
       await carregar()
     } catch (err) {
       console.error(err)
-
       setErroUpload(
         err instanceof Error
           ? err.message
@@ -189,7 +185,6 @@ export default function DesviosPage() {
             className="inline-flex items-center gap-2 rounded-xl bg-[#17375E] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
           >
             <Upload size={16} />
-
             {uploading ? "Processando..." : "Upload"}
           </button>
         </div>
@@ -212,30 +207,35 @@ export default function DesviosPage() {
           title="Desvios atuais"
           value={resumo?.total_desvios || 0}
           icon={<FileWarning size={18} />}
+          color="blue"
         />
 
         <Card
           title="Lotes monitorados"
           value={resumo?.total_lotes || 0}
           icon={<AlertTriangle size={18} />}
+          color="amber"
         />
 
         <Card
           title="Novos lotes"
           value={resumo?.novos_lotes || 0}
           icon={<History size={18} />}
+          color="green"
         />
 
         <Card
           title="Lotes removidos"
           value={resumo?.lotes_removidos || 0}
           icon={<AlertTriangle size={18} />}
+          color="red"
         />
 
         <Card
           title="Alterações"
           value={resumo?.alteracoes || 0}
           icon={<Clock3 size={18} />}
+          color="purple"
         />
       </div>
 
@@ -263,49 +263,17 @@ export default function DesviosPage() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="bg-[#17375E] text-white">
-                <th className="px-4 py-3 text-left font-medium">
-                  Desvio
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Estado
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Destino
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Qtd. lotes
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Lotes
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Mês impactado
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Linha
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Grupo
-                </th>
-
-                <th className="px-4 py-3 text-right font-medium">
-                  Qtd prevista
-                </th>
-
-                <th className="px-4 py-3 text-right font-medium">
-                  Dias
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Setor
-                </th>
+                <th className="px-4 py-3 text-left font-medium">Desvio</th>
+                <th className="px-4 py-3 text-left font-medium">Estado</th>
+                <th className="px-4 py-3 text-left font-medium">Destino</th>
+                <th className="px-4 py-3 text-left font-medium">Qtd. lotes</th>
+                <th className="px-4 py-3 text-left font-medium">Lotes</th>
+                <th className="px-4 py-3 text-left font-medium">Mês impactado</th>
+                <th className="px-4 py-3 text-left font-medium">Linha</th>
+                <th className="px-4 py-3 text-left font-medium">Grupo</th>
+                <th className="px-4 py-3 text-right font-medium">Qtd prevista</th>
+                <th className="px-4 py-3 text-right font-medium">Dias</th>
+                <th className="px-4 py-3 text-left font-medium">Setor</th>
               </tr>
             </thead>
 
@@ -331,9 +299,9 @@ export default function DesviosPage() {
                     {item.qtd_lotes}
                   </td>
 
-                  <td className="max-w-[320px] px-4 py-4 text-slate-700">
+                  <td className="max-w-[360px] px-4 py-4 text-slate-700">
                     <div className="line-clamp-3">
-                      {item.lotes_texto}
+                      {item.lotes_texto || "-"}
                     </div>
                   </td>
 
@@ -487,11 +455,21 @@ function Card({
   title,
   value,
   icon,
+  color,
 }: {
   title: string
   value: number
   icon: React.ReactNode
+  color: "blue" | "amber" | "green" | "red" | "purple"
 }) {
+  const styles = {
+    blue: "bg-blue-50 text-blue-600",
+    amber: "bg-amber-50 text-amber-600",
+    green: "bg-emerald-50 text-emerald-600",
+    red: "bg-red-50 text-red-600",
+    purple: "bg-violet-50 text-violet-600",
+  }
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -505,7 +483,7 @@ function Card({
           </p>
         </div>
 
-        <div className="rounded-xl bg-slate-100 p-3 text-[#17375E]">
+        <div className={`rounded-xl p-3 ${styles[color]}`}>
           {icon}
         </div>
       </div>
