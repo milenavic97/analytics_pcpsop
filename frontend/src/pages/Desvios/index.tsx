@@ -22,8 +22,6 @@ type Evento = {
   serial?: string
   lote?: string
   descricao?: string
-  valor_antigo?: string
-  valor_novo?: string
 }
 
 type Resumo = {
@@ -52,12 +50,12 @@ type DesvioAtual = {
   destino?: string
   dias_desvio?: number
   setor?: string
-  titulo?: string
 }
 
 export default function DesviosPage() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [erroUpload, setErroUpload] = useState("")
 
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [eventos, setEventos] = useState<Evento[]>([])
@@ -99,14 +97,25 @@ export default function DesviosPage() {
 
     try {
       setUploading(true)
+      setErroUpload("")
 
-      await uploadDesvios(arquivo)
+      const resp = await uploadDesvios(arquivo)
+
+      if (resp?.erros?.length) {
+        setErroUpload(resp.erros.join(" | "))
+        return
+      }
 
       setArquivo(null)
       await carregar()
     } catch (err) {
       console.error(err)
-      alert("Erro ao subir arquivo de desvios.")
+
+      setErroUpload(
+        err instanceof Error
+          ? err.message
+          : "Erro ao subir arquivo de desvios."
+      )
     } finally {
       setUploading(false)
     }
@@ -117,15 +126,13 @@ export default function DesviosPage() {
 
     const termo = busca.toLowerCase()
 
-    return atuais.filter((item) => {
-      return (
-        String(item.serial || "").toLowerCase().includes(termo) ||
-        String(item.lote || "").toLowerCase().includes(termo) ||
-        String(item.destino || "").toLowerCase().includes(termo) ||
-        String(item.estado || "").toLowerCase().includes(termo) ||
-        String(item.setor || "").toLowerCase().includes(termo)
-      )
-    })
+    return atuais.filter((item) =>
+      String(item.serial || "").toLowerCase().includes(termo) ||
+      String(item.lote || "").toLowerCase().includes(termo) ||
+      String(item.destino || "").toLowerCase().includes(termo) ||
+      String(item.estado || "").toLowerCase().includes(termo) ||
+      String(item.setor || "").toLowerCase().includes(termo)
+    )
   }, [atuais, busca])
 
   return (
@@ -147,7 +154,10 @@ export default function DesviosPage() {
               type="file"
               className="hidden"
               accept=".xlsx,.xls"
-              onChange={(e) => setArquivo(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                setErroUpload("")
+                setArquivo(e.target.files?.[0] || null)
+              }}
             />
           </label>
 
@@ -168,6 +178,12 @@ export default function DesviosPage() {
         </div>
       )}
 
+      {erroUpload && (
+        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <strong>Erro no upload:</strong> {erroUpload}
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Card title="Desvios atuais" value={resumo?.total_desvios || 0} icon={<FileWarning size={18} />} />
         <Card title="Lotes monitorados" value={resumo?.total_lotes || 0} icon={<AlertTriangle size={18} />} />
@@ -178,16 +194,14 @@ export default function DesviosPage() {
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold text-slate-900">
-              Eventos recentes
-            </h2>
-            <p className="text-sm text-slate-500">
-              Mudanças detectadas no último snapshot e histórico recente.
-            </p>
-          </div>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Eventos recentes
+          </h2>
+          <p className="text-sm text-slate-500">
+            Mudanças detectadas no último snapshot e histórico recente.
+          </p>
 
-          <div className="space-y-3">
+          <div className="mt-4 space-y-3">
             {eventos.map((evento, idx) => (
               <div
                 key={`${evento.id || idx}`}
@@ -198,23 +212,12 @@ export default function DesviosPage() {
                     <div className="text-sm font-semibold text-slate-900">
                       {evento.tipo_evento}
                     </div>
-
                     <div className="mt-1 text-sm text-slate-600">
                       {evento.descricao || "-"}
                     </div>
-
                     <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
-                      {evento.serial && (
-                        <span>
-                          Desvio: <strong>{evento.serial}</strong>
-                        </span>
-                      )}
-
-                      {evento.lote && (
-                        <span>
-                          Lote: <strong>{evento.lote}</strong>
-                        </span>
-                      )}
+                      {evento.serial && <span>Desvio: <strong>{evento.serial}</strong></span>}
+                      {evento.lote && <span>Lote: <strong>{evento.lote}</strong></span>}
                     </div>
                   </div>
 
@@ -236,16 +239,14 @@ export default function DesviosPage() {
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold text-slate-900">
-              Histórico de snapshots
-            </h2>
-            <p className="text-sm text-slate-500">
-              Uploads realizados com data e hora.
-            </p>
-          </div>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Histórico de snapshots
+          </h2>
+          <p className="text-sm text-slate-500">
+            Uploads realizados com data e hora.
+          </p>
 
-          <div className="space-y-3">
+          <div className="mt-4 space-y-3">
             {snapshots.map((snap) => (
               <div
                 key={snap.snapshot_id}
@@ -307,15 +308,11 @@ export default function DesviosPage() {
             <tbody>
               {atuaisFiltrados.map((item, idx) => (
                 <tr key={`${item.serial}-${item.lote}-${idx}`} className="border-b border-slate-100">
-                  <td className="px-4 py-3 font-medium text-slate-900">
-                    {item.serial || "-"}
-                  </td>
+                  <td className="px-4 py-3 font-medium text-slate-900">{item.serial || "-"}</td>
                   <td className="px-4 py-3 text-slate-700">{item.lote || "-"}</td>
                   <td className="px-4 py-3 text-slate-700">{item.estado || "-"}</td>
                   <td className="px-4 py-3 text-slate-700">{item.destino || "-"}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">
-                    {item.dias_desvio ?? "-"}
-                  </td>
+                  <td className="px-4 py-3 text-right text-slate-700">{item.dias_desvio ?? "-"}</td>
                   <td className="px-4 py-3 text-slate-700">{item.setor || "-"}</td>
                 </tr>
               ))}
