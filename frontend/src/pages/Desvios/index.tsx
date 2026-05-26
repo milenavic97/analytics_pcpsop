@@ -4,6 +4,7 @@ import {
   Clock3,
   FileWarning,
   History,
+  Trash2,
   Upload,
 } from "lucide-react"
 
@@ -13,6 +14,7 @@ import {
   getDesviosSnapshots,
   getDesviosAtuais,
   uploadDesvios,
+  limparDesvios,
 } from "@/services/api"
 
 type Evento = {
@@ -186,6 +188,38 @@ export default function DesviosPage() {
     }
   }
 
+  async function handleLimparDados() {
+    const confirmar = window.confirm(
+      "Tem certeza que deseja excluir todos os dados de desvios? Essa ação não pode ser desfeita."
+    )
+
+    if (!confirmar) return
+
+    try {
+      setLoading(true)
+      setErroUpload("")
+
+      await limparDesvios()
+
+      setArquivo(null)
+      setResumo(null)
+      setEventos([])
+      setSnapshots([])
+      setDesvios([])
+
+      await carregar()
+    } catch (err) {
+      console.error(err)
+      setErroUpload(
+        err instanceof Error
+          ? err.message
+          : "Erro ao limpar dados de desvios."
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const mesesDisponiveis = useMemo(() => {
     const meses = new Set<string>()
 
@@ -277,6 +311,15 @@ export default function DesviosPage() {
           >
             <Upload size={16} />
             {uploading ? "Processando..." : "Upload"}
+          </button>
+
+          <button
+            onClick={handleLimparDados}
+            disabled={loading || uploading}
+            className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+          >
+            <Trash2 size={16} />
+            Excluir dados
           </button>
         </div>
       </div>
