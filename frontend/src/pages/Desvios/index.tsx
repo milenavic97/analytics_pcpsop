@@ -135,17 +135,13 @@ export default function DesviosPage() {
     try {
       setLoading(true)
 
-      const [
-        resumoResp,
-        eventosResp,
-        snapshotsResp,
-        desviosResp,
-      ] = await Promise.all([
-        getDesviosResumo(),
-        getDesviosEventos(),
-        getDesviosSnapshots(),
-        getDesviosAtuais(),
-      ])
+      const [resumoResp, eventosResp, snapshotsResp, desviosResp] =
+        await Promise.all([
+          getDesviosResumo(),
+          getDesviosEventos(),
+          getDesviosSnapshots(),
+          getDesviosAtuais(),
+        ])
 
       setResumo(resumoResp as Resumo)
       setEventos((eventosResp as Evento[]) || [])
@@ -179,15 +175,11 @@ export default function DesviosPage() {
       }
 
       setArquivo(null)
-
       await carregar()
     } catch (err) {
       console.error(err)
-
       setErroUpload(
-        err instanceof Error
-          ? err.message
-          : "Erro ao subir arquivo."
+        err instanceof Error ? err.message : "Erro ao subir arquivo."
       )
     } finally {
       setUploading(false)
@@ -229,16 +221,26 @@ export default function DesviosPage() {
     })
   }, [desvios, busca, filtroMes])
 
-  const avisoAlteracoes = useMemo(() => {
-    if (!eventos.length) return ""
+  const novosLotes = eventos.filter((e) => e.tipo_evento === "NOVO_LOTE")
+  const lotesRemovidos = eventos.filter((e) => e.tipo_evento === "LOTE_REMOVIDO")
+  const novosDesvios = eventos.filter((e) => e.tipo_evento === "NOVO_DESVIO")
+  const desviosRemovidos = eventos.filter((e) => e.tipo_evento === "DESVIO_REMOVIDO")
+  const alteracoesGerais = eventos.filter(
+    (e) =>
+      ![
+        "NOVO_LOTE",
+        "LOTE_REMOVIDO",
+        "NOVO_DESVIO",
+        "DESVIO_REMOVIDO",
+      ].includes(e.tipo_evento)
+  )
 
-    const descricoes = eventos
-      .slice(0, 20)
-      .map((evento) => evento.descricao)
-      .filter(Boolean)
-
-    return descricoes.join(". ")
-  }, [eventos])
+  const temAlteracoes =
+    novosLotes.length ||
+    lotesRemovidos.length ||
+    novosDesvios.length ||
+    desviosRemovidos.length ||
+    alteracoesGerais.length
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -274,7 +276,6 @@ export default function DesviosPage() {
             className="inline-flex items-center gap-2 rounded-xl bg-[#17375E] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
           >
             <Upload size={16} />
-
             {uploading ? "Processando..." : "Upload"}
           </button>
         </div>
@@ -293,40 +294,11 @@ export default function DesviosPage() {
       )}
 
       <div className="grid gap-4 md:grid-cols-5">
-        <Card
-          title="Desvios atuais"
-          value={resumo?.total_desvios || 0}
-          icon={<FileWarning size={18} />}
-          color="blue"
-        />
-
-        <Card
-          title="Lotes monitorados"
-          value={resumo?.total_lotes || 0}
-          icon={<AlertTriangle size={18} />}
-          color="amber"
-        />
-
-        <Card
-          title="Novos lotes"
-          value={resumo?.novos_lotes || 0}
-          icon={<History size={18} />}
-          color="green"
-        />
-
-        <Card
-          title="Lotes removidos"
-          value={resumo?.lotes_removidos || 0}
-          icon={<AlertTriangle size={18} />}
-          color="red"
-        />
-
-        <Card
-          title="Alterações"
-          value={resumo?.alteracoes || 0}
-          icon={<Clock3 size={18} />}
-          color="purple"
-        />
+        <Card title="Desvios atuais" value={resumo?.total_desvios || 0} icon={<FileWarning size={18} />} color="blue" />
+        <Card title="Lotes monitorados" value={resumo?.total_lotes || 0} icon={<AlertTriangle size={18} />} color="amber" />
+        <Card title="Novos lotes" value={resumo?.novos_lotes || 0} icon={<History size={18} />} color="green" />
+        <Card title="Lotes removidos" value={resumo?.lotes_removidos || 0} icon={<AlertTriangle size={18} />} color="red" />
+        <Card title="Alterações" value={resumo?.alteracoes || 0} icon={<Clock3 size={18} />} color="purple" />
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -347,9 +319,7 @@ export default function DesviosPage() {
               onChange={(e) => setFiltroMes(e.target.value)}
               className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E]"
             >
-              <option value="TODOS">
-                Todos os meses
-              </option>
+              <option value="TODOS">Todos os meses</option>
 
               {mesesDisponiveis.map((mes) => (
                 <option key={mes} value={mes}>
@@ -371,112 +341,42 @@ export default function DesviosPage() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="bg-[#17375E] text-white">
-                <th className="px-4 py-3 text-left font-medium">
-                  Desvio
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Estado
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Destino
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Qtd. lotes
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Lotes
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Mês impactado
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Linha
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Grupo
-                </th>
-
-                <th className="px-4 py-3 text-right font-medium">
-                  Qtd prevista
-                </th>
-
-                <th className="px-4 py-3 text-right font-medium">
-                  Dias
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Setor
-                </th>
+                <th className="px-4 py-3 text-left font-medium">Desvio</th>
+                <th className="px-4 py-3 text-left font-medium">Estado</th>
+                <th className="px-4 py-3 text-left font-medium">Destino</th>
+                <th className="px-4 py-3 text-left font-medium">Qtd. lotes</th>
+                <th className="px-4 py-3 text-left font-medium">Lotes</th>
+                <th className="px-4 py-3 text-left font-medium">Mês impactado</th>
+                <th className="px-4 py-3 text-left font-medium">Linha</th>
+                <th className="px-4 py-3 text-left font-medium">Grupo</th>
+                <th className="px-4 py-3 text-right font-medium">Qtd prevista</th>
+                <th className="px-4 py-3 text-right font-medium">Dias</th>
+                <th className="px-4 py-3 text-left font-medium">Setor</th>
               </tr>
             </thead>
 
             <tbody>
               {desviosFiltrados.map((item) => (
-                <tr
-                  key={item.serial}
-                  className="border-b border-slate-100 align-top"
-                >
-                  <td className="px-4 py-4 font-semibold text-slate-900">
-                    {item.serial}
-                  </td>
-
-                  <td className="px-4 py-4">
-                    {renderEstadoTag(item.estado)}
-                  </td>
-
-                  <td className="px-4 py-4">
-                    {renderDestinoTag(item.destino)}
-                  </td>
-
-                  <td className="px-4 py-4 text-slate-700">
-                    {item.qtd_lotes}
-                  </td>
-
+                <tr key={item.serial} className="border-b border-slate-100 align-top">
+                  <td className="px-4 py-4 font-semibold text-slate-900">{item.serial}</td>
+                  <td className="px-4 py-4">{renderEstadoTag(item.estado)}</td>
+                  <td className="px-4 py-4">{renderDestinoTag(item.destino)}</td>
+                  <td className="px-4 py-4 text-slate-700">{item.qtd_lotes}</td>
                   <td className="max-w-[360px] px-4 py-4 text-slate-700">
-                    <div className="line-clamp-3">
-                      {item.lotes_texto || "-"}
-                    </div>
+                    <div className="line-clamp-3">{item.lotes_texto || "-"}</div>
                   </td>
-
-                  <td className="px-4 py-4 text-slate-700">
-                    {item.meses_lib_texto || "-"}
-                  </td>
-
-                  <td className="px-4 py-4 text-slate-700">
-                    {item.linhas_texto || "-"}
-                  </td>
-
-                  <td className="px-4 py-4 text-slate-700">
-                    {item.grupos_produto_texto || "-"}
-                  </td>
-
-                  <td className="px-4 py-4 text-right text-slate-700">
-                    {formatNumero(item.qtd_prevista_total)}
-                  </td>
-
-                  <td className="px-4 py-4 text-right text-slate-700">
-                    {item.dias_desvio || "-"}
-                  </td>
-
-                  <td className="max-w-[260px] px-4 py-4 text-slate-700">
-                    {item.setor || "-"}
-                  </td>
+                  <td className="px-4 py-4 text-slate-700">{item.meses_lib_texto || "-"}</td>
+                  <td className="px-4 py-4 text-slate-700">{item.linhas_texto || "-"}</td>
+                  <td className="px-4 py-4 text-slate-700">{item.grupos_produto_texto || "-"}</td>
+                  <td className="px-4 py-4 text-right text-slate-700">{formatNumero(item.qtd_prevista_total)}</td>
+                  <td className="px-4 py-4 text-right text-slate-700">{item.dias_desvio || "-"}</td>
+                  <td className="max-w-[260px] px-4 py-4 text-slate-700">{item.setor || "-"}</td>
                 </tr>
               ))}
 
               {!desviosFiltrados.length && !loading && (
                 <tr>
-                  <td
-                    colSpan={11}
-                    className="px-4 py-8 text-center text-sm text-slate-500"
-                  >
+                  <td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-500">
                     Nenhum desvio encontrado.
                   </td>
                 </tr>
@@ -497,9 +397,57 @@ export default function DesviosPage() {
           </p>
         </div>
 
-        {avisoAlteracoes ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-7 text-amber-900">
-            {avisoAlteracoes}.
+        {temAlteracoes ? (
+          <div className="space-y-3">
+            {!!novosLotes.length && (
+              <AvisoAlteracao
+                title="Lotes adicionados"
+                color="green"
+                text={novosLotes
+                  .map((e) => `${e.lote} no ${e.serial}`)
+                  .join("; ")}
+              />
+            )}
+
+            {!!lotesRemovidos.length && (
+              <AvisoAlteracao
+                title="Lotes removidos"
+                color="red"
+                text={lotesRemovidos
+                  .map((e) => `${e.lote} do ${e.serial}`)
+                  .join("; ")}
+              />
+            )}
+
+            {!!novosDesvios.length && (
+              <AvisoAlteracao
+                title="Novos desvios"
+                color="blue"
+                text={novosDesvios
+                  .map((e) => e.serial)
+                  .filter(Boolean)
+                  .join("; ")}
+              />
+            )}
+
+            {!!desviosRemovidos.length && (
+              <AvisoAlteracao
+                title="Desvios removidos"
+                color="slate"
+                text={desviosRemovidos
+                  .map((e) => e.serial)
+                  .filter(Boolean)
+                  .join("; ")}
+              />
+            )}
+
+            {!!alteracoesGerais.length && (
+              <AvisoAlteracao
+                title="Alterações gerais"
+                color="amber"
+                text={`${alteracoesGerais.length} alteração(ões) identificadas no último upload.`}
+              />
+            )}
           </div>
         ) : (
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
@@ -507,6 +455,31 @@ export default function DesviosPage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function AvisoAlteracao({
+  title,
+  text,
+  color,
+}: {
+  title: string
+  text: string
+  color: "green" | "red" | "blue" | "amber" | "slate"
+}) {
+  const styles = {
+    green: "border-emerald-100 bg-emerald-50 text-emerald-800",
+    red: "border-red-100 bg-red-50 text-red-800",
+    blue: "border-blue-100 bg-blue-50 text-blue-800",
+    amber: "border-amber-100 bg-amber-50 text-amber-800",
+    slate: "border-slate-200 bg-slate-50 text-slate-700",
+  }
+
+  return (
+    <div className={`rounded-xl border px-4 py-3 text-sm ${styles[color]}`}>
+      <div className="font-semibold">{title}</div>
+      <div className="mt-1 leading-6">{text || "-"}</div>
     </div>
   )
 }
@@ -534,13 +507,8 @@ function Card({
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-slate-500">
-            {title}
-          </p>
-
-          <p className="mt-2 text-3xl font-semibold text-slate-900">
-            {value}
-          </p>
+          <p className="text-sm font-medium text-slate-500">{title}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{value}</p>
         </div>
 
         <div className={`rounded-xl p-3 ${styles[color]}`}>
