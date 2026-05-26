@@ -1175,3 +1175,45 @@ export async function getResumoFaturamento(params?: {
   )
 }
 
+// ─────────────────────────────────────────────────────────────
+// Desvios
+// ─────────────────────────────────────────────────────────────
+
+export async function getDesviosResumo() {
+  return apiFetch("/desvios/resumo")
+}
+
+export async function getDesviosEventos() {
+  return apiFetch("/desvios/eventos")
+}
+
+export async function getDesviosSnapshots() {
+  return apiFetch("/desvios/snapshots")
+}
+
+export async function getDesviosAtuais() {
+  return apiFetch("/desvios/atual")
+}
+
+export async function uploadDesvios(file: File) {
+  const form = new FormData()
+  form.append("file", file)
+
+  const res = await fetch(`${API_URL}/desvios/upload`, {
+    method: "POST",
+    body: form,
+  })
+
+  if (!res.ok) {
+    const err = await res
+      .json()
+      .catch(() => ({ detail: res.statusText }))
+
+    throw new Error(
+      (err as { detail: string }).detail ||
+        "Erro ao subir arquivo de desvios"
+    )
+  }
+
+  return res.json()
+}
