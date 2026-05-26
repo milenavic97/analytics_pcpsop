@@ -57,9 +57,63 @@ type Resumo = {
 
 function formatNumero(valor?: number) {
   if (!valor) return "-"
+
   return new Intl.NumberFormat("pt-BR", {
     maximumFractionDigits: 0,
   }).format(valor)
+}
+
+function renderDestinoTag(destino?: string) {
+  if (!destino || destino === "-") {
+    return (
+      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+        -
+      </span>
+    )
+  }
+
+  const texto = destino.toLowerCase()
+
+  if (texto.includes("reprovado")) {
+    return (
+      <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-700">
+        Reprovado
+      </span>
+    )
+  }
+
+  if (texto.includes("aprovado")) {
+    return (
+      <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
+        Aprovado
+      </span>
+    )
+  }
+
+  return (
+    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+      {destino}
+    </span>
+  )
+}
+
+function renderEstadoTag(estado?: string) {
+  if (!estado) return "-"
+
+  const cor =
+    estado === "6"
+      ? "bg-emerald-100 text-emerald-700"
+      : estado === "4"
+      ? "bg-red-100 text-red-700"
+      : estado === "2"
+      ? "bg-amber-100 text-amber-700"
+      : "bg-slate-100 text-slate-700"
+
+  return (
+    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${cor}`}>
+      {estado}
+    </span>
+  )
 }
 
 export default function DesviosPage() {
@@ -75,6 +129,7 @@ export default function DesviosPage() {
   const [desvios, setDesvios] = useState<Desvio[]>([])
 
   const [busca, setBusca] = useState("")
+  const [filtroMes, setFiltroMes] = useState("TODOS")
 
   async function carregar() {
     try {
@@ -124,9 +179,11 @@ export default function DesviosPage() {
       }
 
       setArquivo(null)
+
       await carregar()
     } catch (err) {
       console.error(err)
+
       setErroUpload(
         err instanceof Error
           ? err.message
@@ -137,19 +194,40 @@ export default function DesviosPage() {
     }
   }
 
+  const mesesDisponiveis = useMemo(() => {
+    const meses = new Set<string>()
+
+    desvios.forEach((d) => {
+      if (!d.meses_lib_texto) return
+
+      d.meses_lib_texto
+        .split(",")
+        .map((x) => x.trim())
+        .forEach((m) => meses.add(m))
+    })
+
+    return Array.from(meses).sort()
+  }, [desvios])
+
   const desviosFiltrados = useMemo(() => {
-    if (!busca.trim()) return desvios
+    return desvios.filter((d) => {
+      const termo = busca.toLowerCase()
 
-    const termo = busca.toLowerCase()
+      const passouBusca =
+        !termo ||
+        String(d.serial || "").toLowerCase().includes(termo) ||
+        String(d.destino || "").toLowerCase().includes(termo) ||
+        String(d.estado || "").toLowerCase().includes(termo) ||
+        String(d.setor || "").toLowerCase().includes(termo) ||
+        String(d.lotes_texto || "").toLowerCase().includes(termo)
 
-    return desvios.filter((d) =>
-      String(d.serial || "").toLowerCase().includes(termo) ||
-      String(d.destino || "").toLowerCase().includes(termo) ||
-      String(d.estado || "").toLowerCase().includes(termo) ||
-      String(d.setor || "").toLowerCase().includes(termo) ||
-      String(d.lotes_texto || "").toLowerCase().includes(termo)
-    )
-  }, [desvios, busca])
+      const passouMes =
+        filtroMes === "TODOS" ||
+        String(d.meses_lib_texto || "").includes(filtroMes)
+
+      return passouBusca && passouMes
+    })
+  }, [desvios, busca, filtroMes])
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -185,6 +263,7 @@ export default function DesviosPage() {
             className="inline-flex items-center gap-2 rounded-xl bg-[#17375E] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
           >
             <Upload size={16} />
+
             {uploading ? "Processando..." : "Upload"}
           </button>
         </div>
@@ -251,12 +330,30 @@ export default function DesviosPage() {
             </p>
           </div>
 
-          <input
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar desvio, lote, setor..."
-            className="w-80 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E]"
-          />
+          <div className="flex items-center gap-3">
+            <select
+              value={filtroMes}
+              onChange={(e) => setFiltroMes(e.target.value)}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E]"
+            >
+              <option value="TODOS">
+                Todos os meses
+              </option>
+
+              {mesesDisponiveis.map((mes) => (
+                <option key={mes} value={mes}>
+                  {mes}
+                </option>
+              ))}
+            </select>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar desvio, lote, setor..."
+              className="w-80 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E]"
+            />
+          </div>
         </div>
 
         <div className="overflow-auto">
@@ -287,12 +384,12 @@ export default function DesviosPage() {
                     {item.serial}
                   </td>
 
-                  <td className="px-4 py-4 text-slate-700">
-                    {item.estado || "-"}
+                  <td className="px-4 py-4">
+                    {renderEstadoTag(item.estado)}
                   </td>
 
-                  <td className="px-4 py-4 text-slate-700">
-                    {item.destino || "-"}
+                  <td className="px-4 py-4">
+                    {renderDestinoTag(item.destino)}
                   </td>
 
                   <td className="px-4 py-4 text-slate-700">
@@ -343,108 +440,6 @@ export default function DesviosPage() {
               )}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-          <h2 className="text-lg font-semibold text-slate-900">
-            Eventos recentes
-          </h2>
-
-          <p className="text-sm text-slate-500">
-            Alterações detectadas entre uploads.
-          </p>
-
-          <div className="mt-4 space-y-3">
-            {eventos.map((evento, idx) => (
-              <div
-                key={`${evento.id || idx}`}
-                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">
-                      {evento.tipo_evento}
-                    </div>
-
-                    <div className="mt-1 text-sm text-slate-600">
-                      {evento.descricao || "-"}
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
-                      {evento.serial && (
-                        <span>
-                          Desvio: <strong>{evento.serial}</strong>
-                        </span>
-                      )}
-
-                      {evento.lote && (
-                        <span>
-                          Lote: <strong>{evento.lote}</strong>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="whitespace-nowrap text-xs text-slate-400">
-                    {evento.data_evento
-                      ? new Date(evento.data_evento).toLocaleString("pt-BR")
-                      : "-"}
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {!eventos.length && !loading && (
-              <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">
-                Nenhum evento encontrado.
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">
-            Histórico de snapshots
-          </h2>
-
-          <p className="text-sm text-slate-500">
-            Uploads realizados.
-          </p>
-
-          <div className="mt-4 space-y-3">
-            {snapshots.map((snap) => (
-              <div
-                key={snap.snapshot_id}
-                className="rounded-xl border border-slate-200 p-4"
-              >
-                <div className="text-sm font-semibold text-slate-900">
-                  {snap.arquivo_origem || "snapshot"}
-                </div>
-
-                <div className="mt-2 space-y-1 text-xs text-slate-500">
-                  <div>
-                    {new Date(snap.data_upload).toLocaleString("pt-BR")}
-                  </div>
-
-                  <div>
-                    {snap.total_desvios} desvios
-                  </div>
-
-                  <div>
-                    {snap.total_lotes} lotes
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {!snapshots.length && !loading && (
-              <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
-                Nenhum snapshot encontrado.
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>
