@@ -7,18 +7,13 @@ import {
   Upload,
 } from "lucide-react"
 
-import { api } from "@/services/api"
-
-type Resumo = {
-  snapshot_id: string
-  ultima_carga: string
-  total_lotes: number
-  total_desvios: number
-  novos_lotes: number
-  lotes_removidos: number
-  alteracoes: number
-  eventos: Evento[]
-}
+import {
+  getDesviosResumo,
+  getDesviosEventos,
+  getDesviosSnapshots,
+  getDesviosAtuais,
+  uploadDesvios,
+} from "@/services/api"
 
 type Evento = {
   id?: string
@@ -29,6 +24,17 @@ type Evento = {
   descricao?: string
   valor_antigo?: string
   valor_novo?: string
+}
+
+type Resumo = {
+  snapshot_id?: string
+  ultima_carga?: string
+  total_lotes: number
+  total_desvios: number
+  novos_lotes: number
+  lotes_removidos: number
+  alteracoes: number
+  eventos: Evento[]
 }
 
 type Snapshot = {
@@ -65,22 +71,18 @@ export default function DesviosPage() {
     try {
       setLoading(true)
 
-      const [
-        resumoResp,
-        eventosResp,
-        snapshotsResp,
-        atuaisResp,
-      ] = await Promise.all([
-        api.get("/desvios/resumo"),
-        api.get("/desvios/eventos"),
-        api.get("/desvios/snapshots"),
-        api.get("/desvios/atual"),
-      ])
+      const [resumoResp, eventosResp, snapshotsResp, atuaisResp] =
+        await Promise.all([
+          getDesviosResumo(),
+          getDesviosEventos(),
+          getDesviosSnapshots(),
+          getDesviosAtuais(),
+        ])
 
-      setResumo(resumoResp.data)
-      setEventos(eventosResp.data || [])
-      setSnapshots(snapshotsResp.data || [])
-      setAtuais(atuaisResp.data || [])
+      setResumo(resumoResp as Resumo)
+      setEventos((eventosResp as Evento[]) || [])
+      setSnapshots((snapshotsResp as Snapshot[]) || [])
+      setAtuais((atuaisResp as DesvioAtual[]) || [])
     } catch (err) {
       console.error(err)
     } finally {
@@ -98,17 +100,9 @@ export default function DesviosPage() {
     try {
       setUploading(true)
 
-      const formData = new FormData()
-      formData.append("file", arquivo)
-
-      await api.post("/desvios/upload", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      })
+      await uploadDesvios(arquivo)
 
       setArquivo(null)
-
       await carregar()
     } catch (err) {
       console.error(err)
@@ -128,41 +122,39 @@ export default function DesviosPage() {
         String(item.serial || "").toLowerCase().includes(termo) ||
         String(item.lote || "").toLowerCase().includes(termo) ||
         String(item.destino || "").toLowerCase().includes(termo) ||
-        String(item.estado || "").toLowerCase().includes(termo)
+        String(item.estado || "").toLowerCase().includes(termo) ||
+        String(item.setor || "").toLowerCase().includes(termo)
       )
     })
   }, [atuais, busca])
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="min-h-screen bg-slate-50 p-6">
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
+          <h1 className="text-2xl font-semibold text-slate-900">
             Monitor de Desvios
           </h1>
-
-          <p className="text-sm text-slate-500 mt-1">
-            Histórico, rastreabilidade e alterações automáticas dos desvios.
+          <p className="mt-1 text-sm text-slate-500">
+            Histórico, rastreabilidade e alterações automáticas entre uploads.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="cursor-pointer rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="cursor-pointer rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
             Selecionar arquivo
             <input
               type="file"
               className="hidden"
               accept=".xlsx,.xls"
-              onChange={(e) => {
-                setArquivo(e.target.files?.[0] || null)
-              }}
+              onChange={(e) => setArquivo(e.target.files?.[0] || null)}
             />
           </label>
 
           <button
             onClick={handleUpload}
             disabled={!arquivo || uploading}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#173963] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#17375E] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
           >
             <Upload size={16} />
             {uploading ? "Processando..." : "Upload"}
@@ -171,68 +163,47 @@ export default function DesviosPage() {
       </div>
 
       {arquivo && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Arquivo selecionado: <strong>{arquivo.name}</strong>
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Card
-          title="Desvios Atuais"
-          value={resumo?.total_desvios || 0}
-          icon={<FileWarning size={18} />}
-        />
-
-        <Card
-          title="Lotes Monitorados"
-          value={resumo?.total_lotes || 0}
-          icon={<AlertTriangle size={18} />}
-        />
-
-        <Card
-          title="Novos Lotes"
-          value={resumo?.novos_lotes || 0}
-          icon={<History size={18} />}
-        />
-
-        <Card
-          title="Alterações"
-          value={resumo?.alteracoes || 0}
-          icon={<Clock3 size={18} />}
-        />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <Card title="Desvios atuais" value={resumo?.total_desvios || 0} icon={<FileWarning size={18} />} />
+        <Card title="Lotes monitorados" value={resumo?.total_lotes || 0} icon={<AlertTriangle size={18} />} />
+        <Card title="Novos lotes" value={resumo?.novos_lotes || 0} icon={<History size={18} />} />
+        <Card title="Lotes removidos" value={resumo?.lotes_removidos || 0} icon={<AlertTriangle size={18} />} />
+        <Card title="Alterações" value={resumo?.alteracoes || 0} icon={<Clock3 size={18} />} />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 xl:col-span-2">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">
-                Eventos recentes
-              </h2>
-
-              <p className="text-sm text-slate-500">
-                Mudanças detectadas automaticamente entre snapshots.
-              </p>
-            </div>
+      <div className="mt-6 grid gap-6 xl:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Eventos recentes
+            </h2>
+            <p className="text-sm text-slate-500">
+              Mudanças detectadas no último snapshot e histórico recente.
+            </p>
           </div>
 
           <div className="space-y-3">
             {eventos.map((evento, idx) => (
               <div
-                key={idx}
+                key={`${evento.id || idx}`}
                 className="rounded-xl border border-slate-200 bg-slate-50 p-4"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-slate-800">
+                    <div className="text-sm font-semibold text-slate-900">
                       {evento.tipo_evento}
                     </div>
 
                     <div className="mt-1 text-sm text-slate-600">
-                      {evento.descricao}
+                      {evento.descricao || "-"}
                     </div>
 
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                    <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
                       {evento.serial && (
                         <span>
                           Desvio: <strong>{evento.serial}</strong>
@@ -247,7 +218,7 @@ export default function DesviosPage() {
                     </div>
                   </div>
 
-                  <div className="text-xs text-slate-400">
+                  <div className="whitespace-nowrap text-xs text-slate-400">
                     {evento.data_evento
                       ? new Date(evento.data_evento).toLocaleString("pt-BR")
                       : "-"}
@@ -264,14 +235,13 @@ export default function DesviosPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
-            <h2 className="text-lg font-semibold">
+            <h2 className="text-lg font-semibold text-slate-900">
               Histórico de snapshots
             </h2>
-
             <p className="text-sm text-slate-500">
-              Uploads realizados.
+              Uploads realizados com data e hora.
             </p>
           </div>
 
@@ -281,22 +251,14 @@ export default function DesviosPage() {
                 key={snap.snapshot_id}
                 className="rounded-xl border border-slate-200 p-4"
               >
-                <div className="text-sm font-semibold text-slate-800">
+                <div className="text-sm font-semibold text-slate-900">
                   {snap.arquivo_origem || "snapshot"}
                 </div>
 
                 <div className="mt-2 space-y-1 text-xs text-slate-500">
-                  <div>
-                    {new Date(snap.data_upload).toLocaleString("pt-BR")}
-                  </div>
-
-                  <div>
-                    {snap.total_desvios} desvios
-                  </div>
-
-                  <div>
-                    {snap.total_lotes} lotes
-                  </div>
+                  <div>{new Date(snap.data_upload).toLocaleString("pt-BR")}</div>
+                  <div>{snap.total_desvios} desvios</div>
+                  <div>{snap.total_lotes} lotes</div>
                 </div>
               </div>
             ))}
@@ -310,13 +272,12 @@ export default function DesviosPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold">
+            <h2 className="text-lg font-semibold text-slate-900">
               Desvios atuais
             </h2>
-
             <p className="text-sm text-slate-500">
               Último snapshot carregado.
             </p>
@@ -326,62 +287,48 @@ export default function DesviosPage() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar lote, desvio, status..."
-            className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm outline-none focus:border-[#173963] md:w-80"
+            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E] md:w-80"
           />
         </div>
 
         <div className="overflow-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-500">
-                <th className="px-3 py-3">Desvio</th>
-                <th className="px-3 py-3">Lote</th>
-                <th className="px-3 py-3">Estado</th>
-                <th className="px-3 py-3">Destino</th>
-                <th className="px-3 py-3">Dias</th>
-                <th className="px-3 py-3">Setor</th>
+              <tr className="bg-[#17375E] text-white">
+                <th className="px-4 py-3 text-left font-medium">Desvio</th>
+                <th className="px-4 py-3 text-left font-medium">Lote</th>
+                <th className="px-4 py-3 text-left font-medium">Estado</th>
+                <th className="px-4 py-3 text-left font-medium">Destino</th>
+                <th className="px-4 py-3 text-right font-medium">Dias</th>
+                <th className="px-4 py-3 text-left font-medium">Setor</th>
               </tr>
             </thead>
 
             <tbody>
               {atuaisFiltrados.map((item, idx) => (
-                <tr
-                  key={idx}
-                  className="border-b border-slate-100"
-                >
-                  <td className="px-3 py-3 font-medium">
+                <tr key={`${item.serial}-${item.lote}-${idx}`} className="border-b border-slate-100">
+                  <td className="px-4 py-3 font-medium text-slate-900">
                     {item.serial || "-"}
                   </td>
-
-                  <td className="px-3 py-3">
-                    {item.lote || "-"}
+                  <td className="px-4 py-3 text-slate-700">{item.lote || "-"}</td>
+                  <td className="px-4 py-3 text-slate-700">{item.estado || "-"}</td>
+                  <td className="px-4 py-3 text-slate-700">{item.destino || "-"}</td>
+                  <td className="px-4 py-3 text-right text-slate-700">
+                    {item.dias_desvio ?? "-"}
                   </td>
-
-                  <td className="px-3 py-3">
-                    {item.estado || "-"}
-                  </td>
-
-                  <td className="px-3 py-3">
-                    {item.destino || "-"}
-                  </td>
-
-                  <td className="px-3 py-3">
-                    {item.dias_desvio || "-"}
-                  </td>
-
-                  <td className="px-3 py-3">
-                    {item.setor || "-"}
-                  </td>
+                  <td className="px-4 py-3 text-slate-700">{item.setor || "-"}</td>
                 </tr>
               ))}
+
+              {!atuaisFiltrados.length && !loading && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                    Nenhum desvio encontrado.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
-
-          {!atuaisFiltrados.length && !loading && (
-            <div className="py-10 text-center text-sm text-slate-500">
-              Nenhum desvio encontrado.
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -398,19 +345,14 @@ function Card({
   icon: React.ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
-      <div className="flex items-center justify-between">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm text-slate-500">
-            {title}
-          </div>
-
-          <div className="mt-2 text-3xl font-bold text-slate-800">
-            {value}
-          </div>
+          <p className="text-sm font-medium text-slate-500">{title}</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-900">{value}</p>
         </div>
 
-        <div className="rounded-xl bg-slate-100 p-3 text-slate-600">
+        <div className="rounded-xl bg-slate-100 p-3 text-[#17375E]">
           {icon}
         </div>
       </div>
