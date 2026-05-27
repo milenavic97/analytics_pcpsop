@@ -3,80 +3,63 @@ import {
   AlertTriangle,
   Clock3,
   FileWarning,
-  History,
+  RefreshCcw,
   Trash2,
   Upload,
 } from "lucide-react"
 
 import {
-  getDesviosResumo,
-  getDesviosEventos,
-  getDesviosSnapshots,
+  clearDesvios,
   getDesviosAtuais,
-  uploadDesvios,
-  limparDesvios,
-} from "@/services/api"
-
-type Evento = {
-  id?: string
-  data_evento?: string
-  tipo_evento: string
-  serial?: string
-  lote?: string
-  descricao?: string
-}
-
-type Snapshot = {
-  snapshot_id: string
-  data_upload: string
-  arquivo_origem?: string
-  total_lotes: number
-  total_desvios: number
-}
-
-type Desvio = {
-  serial: string
-  estado?: string
-  destino?: string
-  setor?: string
- titulo?: string
-  dias_desvio?: number
-  qtd_lotes: number
-  lotes_texto: string
-  meses_lib_texto?: string
-  grupos_produto_texto?: string
-  linhas_texto?: string
-  qtd_prevista_total?: number
-}
+  getDesviosEventos,
+  getDesviosResumo,
+  getDesviosSnapshots,
+  uploadDesviosFile,
+} from "../../services/api"
 
 type Resumo = {
-  total_lotes: number
   total_desvios: number
+  total_lotes: number
   novos_lotes: number
   lotes_removidos: number
   alteracoes: number
 }
 
-function formatNumero(valor?: number) {
-  if (!valor) return "-"
-
-  return new Intl.NumberFormat("pt-BR", {
-    maximumFractionDigits: 0,
-  }).format(valor)
+type Evento = {
+  tipo_evento?: string
+  serial?: string
+  lote?: string
 }
 
-function renderDestinoTag(destino?: string) {
-  if (!destino || destino === "-") {
-    return (
-      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-        -
-      </span>
-    )
-  }
+type Snapshot = {
+  snapshot_id: string
+  data_upload?: string
+  arquivo_origem?: string
+}
 
-  const texto = destino.toLowerCase()
+type Desvio = {
+  serial?: string
+  status?: string
+  destino?: string
+  title?: string
+  qtd_lotes?: number
+  lotes?: string[]
+  mes_impactado?: string
+  linha?: string
+  grupo?: string
+  qtd_prevista?: number
+  dias_desvio?: number
+  setor?: string
+}
 
-  if (texto.includes("reprovado")) {
+function formatarNumero(valor?: number) {
+  return new Intl.NumberFormat("pt-BR").format(valor || 0)
+}
+
+function formatarStatus(status?: string) {
+  if (!status) return "-"
+
+  if (status === "4" || status.toLowerCase().includes("reprov")) {
     return (
       <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-700">
         Reprovado
@@ -84,7 +67,7 @@ function renderDestinoTag(destino?: string) {
     )
   }
 
-  if (texto.includes("aprovado")) {
+  if (status === "6" || status.toLowerCase().includes("aprov")) {
     return (
       <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
         Aprovado
@@ -93,38 +76,44 @@ function renderDestinoTag(destino?: string) {
   }
 
   return (
-    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
-      {destino}
+    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
+      -
     </span>
   )
 }
 
-function renderEstadoTag(estado?: string) {
-  if (!estado) return "-"
-
-  const cor =
-    estado === "6"
-      ? "bg-emerald-100 text-emerald-700"
-      : estado === "4"
-      ? "bg-red-100 text-red-700"
-      : estado === "2"
-      ? "bg-amber-100 text-amber-700"
-      : "bg-slate-100 text-slate-700"
+function AvisoAlteracao({
+  title,
+  text,
+  color,
+}: {
+  title: string
+  text: string
+  color: "green" | "red" | "blue" | "amber" | "slate"
+}) {
+  const colors = {
+    green: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    red: "border-red-200 bg-red-50 text-red-800",
+    blue: "border-blue-200 bg-blue-50 text-blue-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-800",
+    slate: "border-slate-200 bg-slate-50 text-slate-700",
+  }
 
   return (
-    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${cor}`}>
-      {estado}
-    </span>
+    <div className={`rounded-xl border px-4 py-3 ${colors[color]}`}>
+      <div className="text-sm font-semibold">{title}</div>
+
+      <div className="mt-1 text-sm leading-relaxed">
+        {text}
+      </div>
+    </div>
   )
 }
 
 export default function DesviosPage() {
-  const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
-  const [confirmarLimpeza, setConfirmarLimpeza] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   const [arquivo, setArquivo] = useState<File | null>(null)
-  const [erroUpload, setErroUpload] = useState("")
 
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [eventos, setEventos] = useState<Evento[]>([])
@@ -132,26 +121,30 @@ export default function DesviosPage() {
   const [desvios, setDesvios] = useState<Desvio[]>([])
 
   const [busca, setBusca] = useState("")
-  const [filtroMes, setFiltroMes] = useState("TODOS")
+  const [mesFiltro, setMesFiltro] = useState("Todos os meses")
 
   async function carregar() {
     try {
       setLoading(true)
 
-      const [resumoResp, eventosResp, snapshotsResp, desviosResp] =
-        await Promise.all([
-          getDesviosResumo(),
-          getDesviosEventos(),
-          getDesviosSnapshots(),
-          getDesviosAtuais(),
-        ])
+      const [
+        resumoResp,
+        eventosResp,
+        snapshotsResp,
+        desviosResp,
+      ] = await Promise.all([
+        getDesviosResumo(),
+        getDesviosEventos(),
+        getDesviosSnapshots(),
+        getDesviosAtuais(),
+      ])
 
-      setResumo(resumoResp as Resumo)
-      setEventos((eventosResp as Evento[]) || [])
-      setSnapshots((snapshotsResp as Snapshot[]) || [])
-      setDesvios((desviosResp as Desvio[]) || [])
-    } catch (err) {
-      console.error(err)
+      setResumo(resumoResp.data as Resumo)
+      setEventos((eventosResp.data || []) as Evento[])
+      setSnapshots((snapshotsResp.data || []) as Snapshot[])
+      setDesvios((desviosResp.data || []) as Desvio[])
+    } catch (error) {
+      console.error(error)
     } finally {
       setLoading(false)
     }
@@ -165,99 +158,73 @@ export default function DesviosPage() {
     if (!arquivo) return
 
     try {
-      setUploading(true)
-      setErroUpload("")
-
-      const resp = (await uploadDesvios(arquivo)) as {
-        erros?: string[]
-      }
-
-      if (resp?.erros?.length) {
-        setErroUpload(resp.erros.join(" | "))
-        return
-      }
-
-      setArquivo(null)
-      await carregar()
-    } catch (err) {
-      console.error(err)
-
-      setErroUpload(
-        err instanceof Error
-          ? err.message
-          : "Erro ao subir arquivo."
-      )
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  async function handleLimparDados() {
-    try {
       setLoading(true)
 
-      await limparDesvios()
+      await uploadDesviosFile(arquivo)
 
       setArquivo(null)
-      setResumo(null)
-      setEventos([])
-      setSnapshots([])
-      setDesvios([])
-
-      setConfirmarLimpeza(false)
 
       await carregar()
-    } catch (err) {
-      console.error(err)
-
-      setErroUpload(
-        err instanceof Error
-          ? err.message
-          : "Erro ao limpar dados."
-      )
+    } catch (error) {
+      console.error(error)
+      alert("Erro ao subir arquivo.")
     } finally {
       setLoading(false)
     }
   }
 
-  const mesesDisponiveis = useMemo(() => {
-    const meses = new Set<string>()
+  async function handleClear() {
+    try {
+      setLoading(true)
 
-    desvios.forEach((d) => {
-      if (!d.meses_lib_texto) return
+      await clearDesvios()
 
-      d.meses_lib_texto
-        .split(",")
-        .map((x) => x.trim())
-        .forEach((m) => meses.add(m))
+      await carregar()
+    } catch (error) {
+      console.error(error)
+      alert("Erro ao excluir dados.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const meses = useMemo(() => {
+    const values = new Set<string>()
+
+    desvios.forEach((item) => {
+      if (item.mes_impactado) {
+        item.mes_impactado
+          .split(",")
+          .map((v) => v.trim())
+          .forEach((v) => values.add(v))
+      }
     })
 
-    return Array.from(meses).sort()
+    return ["Todos os meses", ...Array.from(values)]
   }, [desvios])
 
   const desviosFiltrados = useMemo(() => {
-    return desvios.filter((d) => {
-      const termo = busca.toLowerCase()
+    return desvios.filter((item) => {
+      const texto = `
+        ${item.serial || ""}
+        ${item.title || ""}
+        ${item.lotes?.join(" ") || ""}
+      `
+        .toLowerCase()
 
-      const passouBusca =
-        !termo ||
-        String(d.serial || "").toLowerCase().includes(termo) ||
-        String(d.destino || "").toLowerCase().includes(termo) ||
-        String(d.estado || "").toLowerCase().includes(termo) ||
-        String(d.setor || "").toLowerCase().includes(termo) ||
-        String(d.titulo || "").toLowerCase().includes(termo) ||
-        String(d.lotes_texto || "").toLowerCase().includes(termo)
+      const matchBusca = texto.includes(busca.toLowerCase())
 
-      const passouMes =
-        filtroMes === "TODOS" ||
-        String(d.meses_lib_texto || "").includes(filtroMes)
+      const matchMes =
+        mesFiltro === "Todos os meses"
+          ? true
+          : item.mes_impactado?.includes(mesFiltro)
 
-      return passouBusca && passouMes
+      return matchBusca && matchMes
     })
-  }, [desvios, busca, filtroMes])
+  }, [desvios, busca, mesFiltro])
 
   const novosLotes = eventos.filter(
-    (e) => e.tipo_evento === "NOVO_LOTE"
+    (e) => e.tipo_evento === "LOTE_ADICIONADO"
   )
 
   const lotesRemovidos = eventos.filter(
@@ -275,25 +242,25 @@ export default function DesviosPage() {
   const alteracoesGerais = eventos.filter(
     (e) =>
       ![
-        "NOVO_LOTE",
+        "LOTE_ADICIONADO",
         "LOTE_REMOVIDO",
         "NOVO_DESVIO",
         "DESVIO_REMOVIDO",
-      ].includes(e.tipo_evento)
+      ].includes(e.tipo_evento || "")
   )
 
   const temAlteracoes =
-    novosLotes.length ||
-    lotesRemovidos.length ||
-    novosDesvios.length ||
-    desviosRemovidos.length ||
-    alteracoesGerais.length
+    novosLotes.length > 0 ||
+    lotesRemovidos.length > 0 ||
+    novosDesvios.length > 0 ||
+    desviosRemovidos.length > 0 ||
+    alteracoesGerais.length > 0
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="mb-6 flex items-start justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">
+          <h1 className="text-3xl font-bold text-slate-900">
             Monitor de Desvios
           </h1>
 
@@ -303,32 +270,31 @@ export default function DesviosPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <label className="cursor-pointer rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+          <label className="cursor-pointer rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
             Selecionar arquivo
 
             <input
               type="file"
-              accept=".xlsx,.xls"
               className="hidden"
-              onChange={(e) => {
-                setErroUpload("")
+              onChange={(e) =>
                 setArquivo(e.target.files?.[0] || null)
-              }}
+              }
             />
           </label>
 
           <button
             onClick={handleUpload}
-            disabled={!arquivo || uploading}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#17375E] px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50"
+            disabled={!arquivo || loading}
+            className="flex items-center gap-2 rounded-xl bg-slate-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
           >
             <Upload size={16} />
-            {uploading ? "Processando..." : "Upload"}
+            Upload
           </button>
 
           <button
-            onClick={() => setConfirmarLimpeza(true)}
-            className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+            onClick={handleClear}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
           >
             <Trash2 size={16} />
             Excluir dados
@@ -336,57 +302,45 @@ export default function DesviosPage() {
         </div>
       </div>
 
-      {arquivo && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-          Arquivo selecionado: <strong>{arquivo.name}</strong>
-        </div>
-      )}
-
-      {erroUpload && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {erroUpload}
-        </div>
-      )}
-
-      <div className="grid gap-4 md:grid-cols-5">
-        <Card
+      <div className="grid grid-cols-5 gap-4">
+        <CardResumo
           title="Desvios atuais"
           value={resumo?.total_desvios || 0}
-          icon={<FileWarning size={18} />}
+          icon={<FileWarning size={16} />}
           color="blue"
         />
 
-        <Card
+        <CardResumo
           title="Lotes monitorados"
           value={resumo?.total_lotes || 0}
-          icon={<AlertTriangle size={18} />}
+          icon={<AlertTriangle size={16} />}
           color="amber"
         />
 
-        <Card
+        <CardResumo
           title="Novos lotes"
           value={resumo?.novos_lotes || 0}
-          icon={<History size={18} />}
+          icon={<RefreshCcw size={16} />}
           color="green"
         />
 
-        <Card
+        <CardResumo
           title="Lotes removidos"
           value={resumo?.lotes_removidos || 0}
-          icon={<AlertTriangle size={18} />}
+          icon={<AlertTriangle size={16} />}
           color="red"
         />
 
-        <Card
+        <CardResumo
           title="Alterações"
           value={resumo?.alteracoes || 0}
-          icon={<Clock3 size={18} />}
+          icon={<Clock3 size={16} />}
           color="purple"
         />
       </div>
 
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between gap-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
               Desvios atuais
@@ -399,204 +353,177 @@ export default function DesviosPage() {
 
           <div className="flex items-center gap-3">
             <select
-              value={filtroMes}
-              onChange={(e) => setFiltroMes(e.target.value)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E]"
+              value={mesFiltro}
+              onChange={(e) => setMesFiltro(e.target.value)}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
             >
-              <option value="TODOS">Todos os meses</option>
-
-              {mesesDisponiveis.map((mes) => (
-                <option key={mes} value={mes}>
-                  {mes}
-                </option>
+              {meses.map((mes) => (
+                <option key={mes}>{mes}</option>
               ))}
             </select>
 
             <input
+              placeholder="Buscar desvio, lote, descrição..."
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar desvio, lote, descrição..."
-              className="w-80 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E]"
+              className="rounded-xl border border-slate-300 px-4 py-2 text-sm"
             />
           </div>
         </div>
 
-        <div className="overflow-auto">
+        <div className="overflow-auto rounded-xl border border-slate-200">
           <table className="min-w-full text-sm">
-            <thead>
-              <tr className="bg-[#17375E] text-white">
-                <th className="px-4 py-3 text-left font-medium">
-                  Desvio
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Estado
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Destino
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Descrição
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Qtd. lotes
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Lotes
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Mês impactado
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Linha
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Grupo
-                </th>
-
-                <th className="px-4 py-3 text-right font-medium">
-                  Qtd prevista
-                </th>
-
-                <th className="px-4 py-3 text-right font-medium">
-                  Dias
-                </th>
-
-                <th className="px-4 py-3 text-left font-medium">
-                  Setor
-                </th>
+            <thead className="bg-[#16345f] text-white">
+              <tr>
+                <th className="px-4 py-3 text-left">Desvio</th>
+                <th className="px-4 py-3 text-left">Estado</th>
+                <th className="px-4 py-3 text-left">Destino</th>
+                <th className="px-4 py-3 text-left">Descrição</th>
+                <th className="px-4 py-3 text-left">Qtd. lotes</th>
+                <th className="px-4 py-3 text-left">Lotes</th>
+                <th className="px-4 py-3 text-left">Mês impactado</th>
+                <th className="px-4 py-3 text-left">Linha</th>
+                <th className="px-4 py-3 text-left">Grupo</th>
+                <th className="px-4 py-3 text-right">Qtd prevista</th>
+                <th className="px-4 py-3 text-right">Dias</th>
+                <th className="px-4 py-3 text-left">Setor</th>
               </tr>
             </thead>
 
             <tbody>
-              {desviosFiltrados.map((item) => (
+              {desviosFiltrados.map((item, index) => (
                 <tr
-                  key={item.serial}
-                  className="border-b border-slate-100 align-top"
+                  key={`${item.serial}-${index}`}
+                  className="border-t border-slate-100"
                 >
                   <td className="px-4 py-4 font-semibold text-slate-900">
                     {item.serial}
                   </td>
 
                   <td className="px-4 py-4">
-                    {renderEstadoTag(item.estado)}
+                    {formatarStatus(item.status)}
                   </td>
 
-                  <td className="px-4 py-4">
-                    {renderDestinoTag(item.destino)}
+                  <td className="px-4 py-4 text-slate-700">
+                    {item.destino || "-"}
+                  </td>
+
+                  <td className="max-w-[280px] px-4 py-4 text-slate-700">
+                    {item.title || "-"}
+                  </td>
+
+                  <td className="px-4 py-4 text-slate-700">
+                    {item.qtd_lotes || 0}
                   </td>
 
                   <td className="max-w-[320px] px-4 py-4 text-slate-700">
-                    <div className="line-clamp-3">
-                      {item.titulo || "-"}
-                    </div>
+                    {item.lotes?.join(", ")}
                   </td>
 
                   <td className="px-4 py-4 text-slate-700">
-                    {item.qtd_lotes}
-                  </td>
-
-                  <td className="max-w-[360px] px-4 py-4 text-slate-700">
-                    <div className="line-clamp-3">
-                      {item.lotes_texto || "-"}
-                    </div>
+                    {item.mes_impactado || "-"}
                   </td>
 
                   <td className="px-4 py-4 text-slate-700">
-                    {item.meses_lib_texto || "-"}
+                    {item.linha || "-"}
                   </td>
 
                   <td className="px-4 py-4 text-slate-700">
-                    {item.linhas_texto || "-"}
-                  </td>
-
-                  <td className="px-4 py-4 text-slate-700">
-                    {item.grupos_produto_texto || "-"}
+                    {item.grupo || "-"}
                   </td>
 
                   <td className="px-4 py-4 text-right text-slate-700">
-                    {formatNumero(item.qtd_prevista_total)}
+                    {formatarNumero(item.qtd_prevista)}
                   </td>
 
                   <td className="px-4 py-4 text-right text-slate-700">
-                    {item.dias_desvio || "-"}
+                    {formatarNumero(item.dias_desvio)}
                   </td>
 
-                  <td className="max-w-[260px] px-4 py-4 text-slate-700">
+                  <td className="px-4 py-4 text-slate-700">
                     {item.setor || "-"}
                   </td>
                 </tr>
               ))}
-
-              {!desviosFiltrados.length && !loading && (
-                <tr>
-                  <td
-                    colSpan={12}
-                    className="px-4 py-8 text-center text-sm text-slate-500"
-                  >
-                    Nenhum desvio encontrado.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {confirmarLimpeza && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="flex items-start gap-4">
-              <div className="rounded-2xl bg-red-50 p-3 text-red-600">
-                <Trash2 size={22} />
-              </div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-slate-900">
+            Alterações detectadas no último upload
+          </h2>
 
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-slate-900">
-                  Excluir dados de desvios
-                </h3>
-
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Tem certeza que deseja excluir todos os snapshots,
-                  eventos e desvios carregados?
-                </p>
-
-                <p className="mt-2 text-sm font-medium text-red-600">
-                  Essa ação não pode ser desfeita.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={() => setConfirmarLimpeza(false)}
-                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Cancelar
-              </button>
-
-              <button
-                onClick={handleLimparDados}
-                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-              >
-                Excluir dados
-              </button>
-            </div>
-          </div>
+          <p className="text-sm text-slate-500">
+            Comparação automática entre o último arquivo enviado e o snapshot anterior.
+          </p>
         </div>
-      )}
+
+        {temAlteracoes ? (
+          <div className="space-y-3">
+            {!!novosLotes.length && (
+              <AvisoAlteracao
+                title="Lotes adicionados"
+                color="green"
+                text={novosLotes
+                  .map((e) => `${e.lote} no ${e.serial}`)
+                  .join("; ")}
+              />
+            )}
+
+            {!!lotesRemovidos.length && (
+              <AvisoAlteracao
+                title="Lotes removidos"
+                color="red"
+                text={lotesRemovidos
+                  .map((e) => `${e.lote} do ${e.serial}`)
+                  .join("; ")}
+              />
+            )}
+
+            {!!novosDesvios.length && (
+              <AvisoAlteracao
+                title="Novos desvios"
+                color="blue"
+                text={novosDesvios
+                  .map((e) => e.serial)
+                  .filter(Boolean)
+                  .join("; ")}
+              />
+            )}
+
+            {!!desviosRemovidos.length && (
+              <AvisoAlteracao
+                title="Desvios removidos"
+                color="slate"
+                text={desviosRemovidos
+                  .map((e) => e.serial)
+                  .filter(Boolean)
+                  .join("; ")}
+              />
+            )}
+
+            {!!alteracoesGerais.length && (
+              <AvisoAlteracao
+                title="Alterações gerais"
+                color="amber"
+                text={`${alteracoesGerais.length} alteração(ões) identificadas no último upload.`}
+              />
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+            Nenhuma alteração detectada no último upload.
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
-function Card({
+function CardResumo({
   title,
   value,
   icon,
@@ -607,28 +534,28 @@ function Card({
   icon: React.ReactNode
   color: "blue" | "amber" | "green" | "red" | "purple"
 }) {
-  const styles = {
+  const colors = {
     blue: "bg-blue-50 text-blue-600",
     amber: "bg-amber-50 text-amber-600",
     green: "bg-emerald-50 text-emerald-600",
     red: "bg-red-50 text-red-600",
-    purple: "bg-violet-50 text-violet-600",
+    purple: "bg-purple-50 text-purple-600",
   }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-500">
-            {title}
-          </p>
+          <div className="text-sm text-slate-500">{title}</div>
 
-          <p className="mt-2 text-3xl font-semibold text-slate-900">
-            {value}
-          </p>
+          <div className="mt-2 text-4xl font-bold text-slate-900">
+            {formatarNumero(value)}
+          </div>
         </div>
 
-        <div className={`rounded-xl p-3 ${styles[color]}`}>
+        <div
+          className={`flex h-10 w-10 items-center justify-center rounded-xl ${colors[color]}`}
+        >
           {icon}
         </div>
       </div>
