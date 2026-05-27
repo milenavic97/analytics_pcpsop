@@ -283,7 +283,6 @@ export function RastreamentoLotes() {
   const [loading, setLoading] = useState(true);
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
-  const [filtroStatus, setFiltroStatus] = useState("");
   const [apenasAtrasados, setApenasAtrasados] = useState(true);
   const [modalAuditoria, setModalAuditoria] = useState(false);
 
@@ -318,9 +317,8 @@ export function RastreamentoLotes() {
   const lotesFiltrados = (data?.lotes ?? []).filter((l) => {
     if (apenasAtrasados && (!l.data_lib || l.data_lib > hoje)) return false;
     if (filtroGrupo && l.grupo !== filtroGrupo) return false;
-    if (filtroStatus === "EM_DESVIO" && !l.em_desvio) return false;
-    if (filtroStatus === "SEM_DESVIO" && l.em_desvio) return false;
     if (filtroEtapa === "LIBERADO" && !l.check_liberado) return false;
+    if (filtroEtapa === "DESVIO" && !l.em_desvio) return false;
     if (
       filtroEtapa === "EMBALAGEM" &&
       (!l.check_embalagem || l.check_liberado || l.em_desvio)
@@ -577,39 +575,12 @@ export function RastreamentoLotes() {
           >
             <option value="">Todas as etapas</option>
             <option value="LIBERADO">Liberado</option>
+            <option value="DESVIO">Em Desvio</option>
             <option value="EMBALAGEM">Em Embalagem</option>
             <option value="ENVASE">Em Envase</option>
             <option value="LAVAGEM">Em Lavagem</option>
             <option value="NAO_INICIADO">Não Iniciado</option>
             <option value="ATRASADO">Atrasados</option>
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label
-            className="text-[10px] font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Status
-          </label>
-
-          <select
-            value={filtroStatus}
-            onChange={(e) => {
-              setFiltroStatus(e.target.value);
-              setApenasAtrasados(true);
-            }}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{
-              background: "var(--bg-secondary)",
-              borderColor: "var(--border)",
-              color: "var(--text-primary)",
-              minWidth: 140,
-            }}
-          >
-            <option value="">Todos</option>
-            <option value="EM_DESVIO">Em desvio</option>
-            <option value="SEM_DESVIO">Sem desvio</option>
           </select>
         </div>
 
@@ -661,7 +632,6 @@ export function RastreamentoLotes() {
               <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
                 <tr style={{ background: "var(--bg-sidebar)", color: "#fff" }}>
                   <th className={thLeft}>Lote / OP</th>
-                  <th className={thLeft}>Destino Produto/Insumo</th>
                   <th className={thLeft}>Grupo</th>
                   <th className={thBase}>Data Lib.</th>
                   <th className={thBase}>Tubetes</th>
@@ -672,6 +642,7 @@ export function RastreamentoLotes() {
                   >
                     Etapas
                   </th>
+                  <th className={thLeft}>Destino Produto/Insumo</th>
                   <th className={thBase}>Liberado (cx)</th>
                 </tr>
               </thead>
@@ -755,51 +726,6 @@ export function RastreamentoLotes() {
                           </p>
                         )}
                       </td>
-                      <td
-                        className="px-3 py-3 text-sm"
-                        style={{ color: "var(--text-primary)" }}
-                      >
-                        {getDesvioDestino(l) ? (
-                          <span
-                            className="inline-flex max-w-[220px] items-center rounded-full px-2 py-1 text-[11px] font-semibold"
-                            title={getDesvioDestino(l) || undefined}
-                            style={{
-                              background:
-                                String(getDesvioDestino(l))
-                                  .toUpperCase()
-                                  .includes("REPROV") ||
-                                String(getDesvioDestino(l))
-                                  .toUpperCase()
-                                  .includes("DESCARTE")
-                                  ? "#FEE2E2"
-                                  : String(getDesvioDestino(l))
-                                        .toUpperCase()
-                                        .includes("APROV")
-                                    ? "#DCFCE7"
-                                    : "#F3F4F6",
-                              color:
-                                String(getDesvioDestino(l))
-                                  .toUpperCase()
-                                  .includes("REPROV") ||
-                                String(getDesvioDestino(l))
-                                  .toUpperCase()
-                                  .includes("DESCARTE")
-                                  ? "#991B1B"
-                                  : String(getDesvioDestino(l))
-                                        .toUpperCase()
-                                        .includes("APROV")
-                                    ? "#166534"
-                                    : "var(--text-secondary)",
-                            }}
-                          >
-                            <span className="truncate">
-                              {getDesvioDestino(l)}
-                            </span>
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
 
                       <td
                         className="px-3 py-3 text-sm"
@@ -874,6 +800,51 @@ export function RastreamentoLotes() {
                         </div>
                       </td>
 
+                      <td
+                        className="px-3 py-3 text-sm"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {getDesvioDestino(l) ? (
+                          <span
+                            className="inline-flex max-w-[220px] items-center rounded-full px-2 py-1 text-[11px] font-semibold"
+                            title={getDesvioDestino(l) || undefined}
+                            style={{
+                              background:
+                                String(getDesvioDestino(l))
+                                  .toUpperCase()
+                                  .includes("REPROV") ||
+                                String(getDesvioDestino(l))
+                                  .toUpperCase()
+                                  .includes("DESCARTE")
+                                  ? "#FEE2E2"
+                                  : String(getDesvioDestino(l))
+                                        .toUpperCase()
+                                        .includes("APROV")
+                                    ? "#DCFCE7"
+                                    : "#F3F4F6",
+                              color:
+                                String(getDesvioDestino(l))
+                                  .toUpperCase()
+                                  .includes("REPROV") ||
+                                String(getDesvioDestino(l))
+                                  .toUpperCase()
+                                  .includes("DESCARTE")
+                                  ? "#991B1B"
+                                  : String(getDesvioDestino(l))
+                                        .toUpperCase()
+                                        .includes("APROV")
+                                    ? "#166534"
+                                    : "var(--text-secondary)",
+                            }}
+                          >
+                            <span className="truncate">
+                              {getDesvioDestino(l)}
+                            </span>
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
 
                       <td
                         className="px-3 py-3 text-right text-sm font-semibold"
