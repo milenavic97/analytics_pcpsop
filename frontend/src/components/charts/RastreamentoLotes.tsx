@@ -14,6 +14,19 @@ import {
 const API_URL =
   (import.meta as any).env.VITE_API_URL || "https://dfl-sop-api.fly.dev";
 
+interface DesvioInfo {
+  serial?: string | null;
+  titulo?: string | null;
+  title?: string | null;
+  motivo?: string | null;
+  estado?: string | null;
+  dias_desvio?: number | null;
+  setor?: string | null;
+  destino?: string | null;
+  desvio_destino?: string | null;
+  destino_produto_insumo?: string | null;
+}
+
 interface LoteRastreamento {
   lote: string;
   grupo: string;
@@ -40,6 +53,8 @@ interface LoteRastreamento {
   desvio_dias?: number | null;
   desvio_setor?: string | null;
   desvio_destino?: string | null;
+  qtd_desvios?: number | null;
+  desvios?: DesvioInfo[] | null;
 }
 
 interface ResumoLiberacao {
@@ -155,7 +170,51 @@ function Connector({ ok }: { ok: boolean }) {
   );
 }
 
+function getListaDesvios(lote: LoteRastreamento): DesvioInfo[] {
+  if (Array.isArray(lote.desvios) && lote.desvios.length > 0) {
+    return lote.desvios;
+  }
+
+  if (!lote.em_desvio) return [];
+
+  return [
+    {
+      serial: lote.desvio_serial,
+      titulo: lote.desvio_titulo,
+      estado: lote.desvio_estado,
+      dias_desvio: lote.desvio_dias,
+      setor: lote.desvio_setor,
+      destino: lote.desvio_destino,
+    },
+  ];
+}
+
+function getTituloDesvioItem(desvio: DesvioInfo) {
+  return (
+    desvio.titulo ||
+    desvio.title ||
+    desvio.motivo ||
+    null
+  );
+}
+
+function getDestinoDesvioItem(desvio: DesvioInfo) {
+  return (
+    desvio.desvio_destino ||
+    desvio.destino_produto_insumo ||
+    desvio.destino ||
+    null
+  );
+}
+
 function getDesvioTitulo(lote: LoteRastreamento) {
+  const desvios = getListaDesvios(lote);
+  const primeiro = desvios[0];
+
+  if (primeiro) {
+    return getTituloDesvioItem(primeiro);
+  }
+
   const item = lote as LoteRastreamento & {
     titulo?: string | null;
     title?: string | null;
@@ -176,23 +235,60 @@ function getDesvioTitulo(lote: LoteRastreamento) {
 }
 
 function getDesvioTooltip(lote: LoteRastreamento) {
-  const titulo = getDesvioTitulo(lote);
+  const desvios = getListaDesvios(lote);
+
+  if (desvios.length > 1) {
+    const linhas = [`${desvios.length} desvios vinculados ao lote ${lote.lote}:`];
+
+    desvios.forEach((d, index) => {
+      const titulo = getTituloDesvioItem(d);
+      const destino = getDestinoDesvioItem(d);
+
+      linhas.push("");
+      linhas.push(`${index + 1}. ${d.serial || "Sem serial"}`);
+
+      if (titulo) linhas.push(`Motivo/Título: ${titulo}`);
+      if (d.estado) linhas.push(`Estado: ${d.estado}`);
+      if (d.dias_desvio != null) linhas.push(`Dias de desvio: ${fmt(d.dias_desvio)}`);
+      if (d.setor) linhas.push(`Setor: ${d.setor}`);
+      if (destino) linhas.push(`Destino: ${destino}`);
+    });
+
+    return linhas.join("\n");
+  }
+
+  const primeiro = desvios[0];
+  const titulo = primeiro ? getTituloDesvioItem(primeiro) : getDesvioTitulo(lote);
+  const destino = primeiro ? getDestinoDesvioItem(primeiro) : getDesvioDestino(lote);
 
   const linhas = [
     titulo ? `Motivo/Título: ${titulo}` : null,
-    lote.desvio_serial ? `Serial: ${lote.desvio_serial}` : null,
-    lote.desvio_estado ? `Estado: ${lote.desvio_estado}` : null,
-    lote.desvio_dias != null
-      ? `Dias de desvio: ${fmt(lote.desvio_dias)}`
+    primeiro?.serial || lote.desvio_serial ? `Serial: ${primeiro?.serial || lote.desvio_serial}` : null,
+    primeiro?.estado || lote.desvio_estado ? `Estado: ${primeiro?.estado || lote.desvio_estado}` : null,
+    primeiro?.dias_desvio != null || lote.desvio_dias != null
+      ? `Dias de desvio: ${fmt(primeiro?.dias_desvio ?? lote.desvio_dias)}`
       : null,
-    lote.desvio_setor ? `Setor: ${lote.desvio_setor}` : null,
-    getDesvioDestino(lote) ? `Destino: ${getDesvioDestino(lote)}` : null,
+    primeiro?.setor || lote.desvio_setor ? `Setor: ${primeiro?.setor || lote.desvio_setor}` : null,
+    destino ? `Destino: ${destino}` : null,
   ].filter(Boolean);
 
   return linhas.length ? linhas.join("\n") : "Lote em desvio";
 }
 
 function getDesvioDestino(lote: LoteRastreamento) {
+  const desvios = getListaDesvios(lote);
+
+  if (desvios.length > 0) {
+    const destinos = desvios
+      .map((d) => getDestinoDesvioItem(d))
+      .filter(Boolean) as string[];
+
+    const unicos = Array.from(new Set(destinos));
+
+    if (unicos.length > 1) return unicos.join(" / ");
+    if (unicos.length === 1) return unicos[0];
+  }
+
   const item = lote as LoteRastreamento & {
     destino?: string | null;
     destino_produto_insumo?: string | null;
@@ -211,19 +307,34 @@ function getDesvioDestino(lote: LoteRastreamento) {
 function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
   if (!lote.em_desvio) return null;
 
+  const desvios = getListaDesvios(lote);
+  const qtdDesvios = lote.qtd_desvios || desvios.length || 1;
   const titulo = getDesvioTitulo(lote);
   const tooltip = getDesvioTooltip(lote);
 
-  const detalhe = [
-    lote.desvio_serial ? `Serial ${lote.desvio_serial}` : null,
-    lote.desvio_estado || null,
-    lote.desvio_dias != null ? `${fmt(lote.desvio_dias)} dias` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const seriais = desvios
+    .map((d) => d.serial)
+    .filter(Boolean) as string[];
+
+  const seriaisTexto = Array.from(new Set(seriais)).join(", ");
+
+  const detalhe =
+    qtdDesvios > 1
+      ? `${qtdDesvios} desvios${seriaisTexto ? `: ${seriaisTexto}` : ""}`
+      : [
+          lote.desvio_serial ? `Serial ${lote.desvio_serial}` : null,
+          lote.desvio_estado || null,
+          lote.desvio_dias != null ? `${fmt(lote.desvio_dias)} dias` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
 
   const tituloCurto =
-    titulo && titulo.length > 70 ? `${titulo.slice(0, 70)}...` : titulo;
+    qtdDesvios > 1
+      ? null
+      : titulo && titulo.length > 70
+        ? `${titulo.slice(0, 70)}...`
+        : titulo;
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -231,13 +342,13 @@ function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
         className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
         title={tooltip}
         style={{
-          background: "#FEF3C7",
-          color: "#92400E",
-          border: "1px solid #FDE68A",
+          background: qtdDesvios > 1 ? "#DBEAFE" : "#FEF3C7",
+          color: qtdDesvios > 1 ? "#1D4ED8" : "#92400E",
+          border: `1px solid ${qtdDesvios > 1 ? "#BFDBFE" : "#FDE68A"}`,
         }}
       >
         <AlertTriangle size={10} />
-        Em desvio
+        {qtdDesvios > 1 ? `${qtdDesvios} desvios` : "Em desvio"}
       </span>
 
       {detalhe && (
@@ -716,7 +827,20 @@ export function RastreamentoLotes() {
 
                         <DesvioBadge lote={l} />
 
-                        {l.em_desvio && l.desvio_titulo && (
+                        {l.em_desvio && getListaDesvios(l).length > 1 && (
+                          <p
+                            className="mt-1 max-w-[320px] truncate text-[10px] font-medium"
+                            title={getDesvioTooltip(l)}
+                            style={{ color: "#1D4ED8" }}
+                          >
+                            {getListaDesvios(l)
+                              .map((d) => d.serial)
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        )}
+
+                        {l.em_desvio && getListaDesvios(l).length <= 1 && l.desvio_titulo && (
                           <p
                             className="mt-1 max-w-[260px] truncate text-[10px]"
                             title={getDesvioTooltip(l)}
