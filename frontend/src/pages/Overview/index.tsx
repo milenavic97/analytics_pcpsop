@@ -15,6 +15,8 @@ import PrevistoAteHojeModal from "@/components/charts/PrevistoAteHojeModal"
 import {
   getOrcadoLiberacao, getOrcadoFaturamento, getProjecaoFaturamento,
   getProjecaoLiberacoes, getEstoqueMensal, getDisponibilidadeMensal,
+  getOverviewFiltrosProdutos,
+  type OverviewFiltros,
 } from "@/services/api"
 
 const TUBETES_POR_CAIXA = 500
@@ -70,6 +72,14 @@ interface GrupoItem { grupo: string; qtd_caixas: number; pct?: number }
 interface DisponibilidadeMes { mes: number; entradas_real_mes_atual?: number | null; entradas_previstas_mtd?: number | null; entradas_previstas_mtd_por_grupo?: GrupoItem[] | null; entradas_real_mes_atual_por_grupo?: GrupoItem[] | null }
 interface DisponibilidadePayload { mes_atual: number; entradas_previstas_mtd: number; entradas_previstas_mtd_por_grupo: GrupoItem[]; meses: DisponibilidadeMes[] }
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
+interface FiltrosProdutosPayload {
+  linha: string[]
+  familia: string[]
+  segmento: string[]
+  grupo: string[]
+  mercado: string[]
+  status_portfolio: string[]
+}
 
 export function OverviewPage() {
   const [modalLib, setModalLib]               = useState(false)
@@ -87,18 +97,48 @@ export function OverviewPage() {
   const [realMtd, setRealMtd]                 = useState(0)
   const [detalhePrevistoHoje, setDetalhePrevistoHoje] = useState<PrevistoHojeItem[]>([])
 
+  const [filtrosDisponiveis, setFiltrosDisponiveis] = useState<FiltrosProdutosPayload>({
+    linha: [],
+    familia: [],
+    segmento: [],
+    grupo: [],
+    mercado: [],
+    status_portfolio: [],
+  })
+
+  const [filtros, setFiltros] = useState<OverviewFiltros>({})
+
+  const filtrosAtivos = Object.values(filtros).filter(Boolean).length
+
+  const limparFiltros = () => {
+    setFiltros({})
+  }
+
+  const alterarFiltro = (campo: keyof OverviewFiltros, valor: string) => {
+    setFiltros((atual) => ({
+      ...atual,
+      [campo]: valor || undefined,
+    }))
+  }
+
   useEffect(() => {
-    getOrcadoLiberacao().then((d: unknown) => setOrcadoLib(d as any)).catch(() => {})
-    getOrcadoFaturamento().then((d: unknown) => setOrcadoFat(d as any)).catch(() => {})
-    getProjecaoFaturamento().then((d: unknown) => setProjFat(d as ProjFat)).catch(() => {})
-    getProjecaoLiberacoes().then((d: unknown) => setProjLib(d as ProjLib)).catch(() => {})
-    getEstoqueMensal().then((d: unknown) => {
+    getOverviewFiltrosProdutos()
+      .then((d: unknown) => setFiltrosDisponiveis(d as FiltrosProdutosPayload))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    getOrcadoLiberacao(filtros).then((d: unknown) => setOrcadoLib(d as any)).catch(() => {})
+    getOrcadoFaturamento(filtros).then((d: unknown) => setOrcadoFat(d as any)).catch(() => {})
+    getProjecaoFaturamento(filtros).then((d: unknown) => setProjFat(d as ProjFat)).catch(() => {})
+    getProjecaoLiberacoes(filtros).then((d: unknown) => setProjLib(d as ProjLib)).catch(() => {})
+    getEstoqueMensal(filtros).then((d: unknown) => {
       const meses = d as EstoqueMes[]
       const jan = meses.find((m) => Number(m.mes) === 1)
       setEstoqueJan(Number(jan?.qtd_caixas || 0))
     }).catch(() => setEstoqueJan(0))
 
-    getDisponibilidadeMensal().then((d: unknown) => {
+    getDisponibilidadeMensal(filtros).then((d: unknown) => {
       const data = d as DisponibilidadePayload
       const mesAtual = data.meses?.find((m) => Number(m.mes) === Number(data.mes_atual))
       const previsto = Number(data.entradas_previstas_mtd || mesAtual?.entradas_previstas_mtd || 0)
@@ -115,7 +155,7 @@ export function OverviewPage() {
         realizado_mtd: Number(realMap.get(g.grupo) || 0),
       })))
     }).catch(() => { setPrevistoHoje(0); setRealMtd(0); setDetalhePrevistoHoje([]) })
-  }, [])
+  }, [filtros])
 
   const pctFat = projFat?.pct_atingimento ?? 0
   const pctLib = projLib?.pct_atingimento ?? 0
@@ -132,9 +172,60 @@ export function OverviewPage() {
     <div className="min-h-screen space-y-6 p-3 md:space-y-8 md:p-6">
 
       {/* Título */}
-      <div className="fade-in">
+      <div className="fade-in flex flex-col gap-1">
         <h1 className="text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>Overview 2026</h1>
+        <p className="text-xs md:text-sm" style={{ color: "var(--text-secondary)" }}>
+          Visão corporativa com filtros por linha, família, segmento, grupo e mercado.
+        </p>
       </div>
+
+      {/* Filtros */}
+      <section className="card fade-in fade-in-1 p-4 md:p-5">
+        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="card-label">Filtros corporativos</p>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+              Os filtros usam a dimensão d_produtos. Deixe em Todos para visão geral.
+            </p>
+          </div>
+
+          <button
+            onClick={limparFiltros}
+            className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={filtrosAtivos === 0}
+          >
+            Limpar filtros
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {[
+            { label: "Linha", campo: "linha" as const, valores: filtrosDisponiveis.linha },
+            { label: "Família", campo: "familia" as const, valores: filtrosDisponiveis.familia },
+            { label: "Segmento", campo: "segmento" as const, valores: filtrosDisponiveis.segmento },
+            { label: "Grupo", campo: "grupo" as const, valores: filtrosDisponiveis.grupo },
+            { label: "Mercado", campo: "mercado" as const, valores: filtrosDisponiveis.mercado },
+          ].map((f) => (
+            <div key={f.campo}>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
+                {f.label}
+              </p>
+              <select
+                value={(filtros[f.campo] as string) || ""}
+                onChange={(e) => alterarFiltro(f.campo, e.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-[#17375E] focus:ring-2 focus:ring-[#17375E]/10"
+              >
+                <option value="">Todos</option>
+                {f.valores.map((valor) => (
+                  <option key={valor} value={valor}>
+                    {valor}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* Faturamento */}
       <section>
