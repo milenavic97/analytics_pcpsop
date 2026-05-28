@@ -110,48 +110,75 @@ export async function excluirRegistros(
 // Overview
 // ─────────────────────────────────────────────────────────────
 
-export async function getOrcadoFaturamento() {
-  return apiFetch("/overview/orcado-faturamento")
+export type OverviewFiltros = {
+  linha?: string
+  familia?: string
+  segmento?: string
+  grupo?: string
+  mercado?: string
+  status_portfolio?: string
 }
 
-export async function getOrcadoFaturamentoDetalhe() {
-  return apiFetch("/overview/orcado-faturamento-detalhe")
+function buildOverviewQuery(filtros?: OverviewFiltros) {
+  const params = new URLSearchParams()
+
+  Object.entries(filtros || {}).forEach(([key, value]) => {
+    const texto = String(value || "").trim()
+    if (texto && texto !== "TODOS" && texto !== "TODAS") {
+      params.set(key, texto)
+    }
+  })
+
+  const query = params.toString()
+  return query ? `?${query}` : ""
 }
 
-export async function getProjecaoFaturamento() {
-  return apiFetch("/overview/projecao-faturamento")
+export async function getOverviewFiltrosProdutos() {
+  return apiFetch("/overview/filtros-produtos")
 }
 
-export async function getProjecaoLiberacoes() {
-  return apiFetch("/overview/projecao-liberacoes")
+export async function getOrcadoFaturamento(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/orcado-faturamento${buildOverviewQuery(filtros)}`)
+}
+
+export async function getOrcadoFaturamentoDetalhe(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/orcado-faturamento-detalhe${buildOverviewQuery(filtros)}`)
+}
+
+export async function getProjecaoFaturamento(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/projecao-faturamento${buildOverviewQuery(filtros)}`)
+}
+
+export async function getProjecaoLiberacoes(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/projecao-liberacoes${buildOverviewQuery(filtros)}`)
 }
 
 export async function getOrcadoLiberacao() {
   return apiFetch("/overview/orcado-liberacao")
 }
 
-export async function getEntradasReaisMensal() {
-  return apiFetch("/overview/entradas-reais-mensal")
+export async function getEntradasReaisMensal(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/entradas-reais-mensal${buildOverviewQuery(filtros)}`)
 }
 
-export async function getForecastMensal() {
-  return apiFetch("/overview/forecast-mensal")
+export async function getForecastMensal(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/forecast-mensal${buildOverviewQuery(filtros)}`)
 }
 
-export async function getVendasReaisMensal() {
-  return apiFetch("/overview/vendas-reais-mensal")
+export async function getVendasReaisMensal(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/vendas-reais-mensal${buildOverviewQuery(filtros)}`)
 }
 
-export async function getEstoqueMensal() {
-  return apiFetch("/overview/estoque-mensal")
+export async function getEstoqueMensal(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/estoque-mensal${buildOverviewQuery(filtros)}`)
 }
 
-export async function getDisponibilidadeMensal() {
-  return apiFetch("/overview/disponibilidade-mensal")
+export async function getDisponibilidadeMensal(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/disponibilidade-mensal${buildOverviewQuery(filtros)}`)
 }
 
-export async function getAtendimentoSku() {
-  return apiFetch("/overview/atendimento-sku")
+export async function getAtendimentoSku(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/atendimento-sku${buildOverviewQuery(filtros)}`)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1197,7 +1224,6 @@ export async function getDesviosAtuais() {
 
 export async function uploadDesvios(file: File) {
   const form = new FormData()
-
   form.append("file", file)
 
   const res = await fetch(`${API_URL}/desvios/upload`, {
@@ -1212,15 +1238,9 @@ export async function uploadDesvios(file: File) {
 
     throw new Error(
       (err as { detail: string }).detail ||
-        "Erro no upload de desvios"
+        "Erro ao subir arquivo de desvios"
     )
   }
 
   return res.json()
-}
-
-export async function limparDesvios() {
-  return apiFetch("/desvios/limpar", {
-    method: "DELETE",
-  })
 }
