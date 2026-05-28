@@ -1067,14 +1067,6 @@ export function RastreamentoLotes() {
                                   : `${rendimento.toFixed(1).replace(".", ",")}%`}
                               </span>
 
-                              {rendimento !== null && (
-                                <span
-                                  className="text-[10px] font-semibold uppercase tracking-wide"
-                                  style={{ color: status.color }}
-                                >
-                                  {status.label}
-                                </span>
-                              )}
                             </div>
                           );
                         })()}
