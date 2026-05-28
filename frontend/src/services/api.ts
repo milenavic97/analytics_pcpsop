@@ -91,6 +91,17 @@ export async function getUploadStatus(baseId: string) {
   return apiFetch(`/upload/status/${baseId}`)
 }
 
+export type UltimaAtualizacaoResponse = {
+  base_id: string
+  ultima_atualizacao: string | null
+}
+
+export async function buscarUltimaAtualizacao(
+  baseId: string
+): Promise<UltimaAtualizacaoResponse> {
+  return apiFetch(`/upload/ultima-atualizacao/${baseId}`)
+}
+
 // ─────────────────────────────────────────────────────────────
 // Dados
 // ─────────────────────────────────────────────────────────────
