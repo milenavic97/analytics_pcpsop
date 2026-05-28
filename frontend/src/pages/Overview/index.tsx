@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import {
-  DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package,
+  DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package, CalendarDays,
 } from "lucide-react"
 
 import { DisponibilidadeModal } from "@/components/charts/DisponibilidadeModal"
@@ -165,12 +165,21 @@ export function OverviewPage() {
       {/* Título */}
       <div className="fade-in flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>
+          <h1 className="text-3xl font-bold tracking-tight md:text-4xl" style={{ color: "var(--text-primary)" }}>
             Overview - Anestésicos Injetáveis
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-  Dados atualizados em: {ultimaAtualizacao}
-</p>
+
+          <div className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 shadow-sm">
+            <CalendarDays className="h-4 w-4 text-slate-500" />
+
+            <span className="text-sm font-medium text-slate-700">
+              Dados atualizados em:
+            </span>
+
+            <span className="text-sm text-slate-500">
+              {ultimaAtualizacao}
+            </span>
+          </div>
         </div>
       </div>
 
