@@ -62,6 +62,27 @@ function fmt(n: number) {
 
 function tubetes(caixas: number) { return caixas * TUBETES_POR_CAIXA }
 
+function formatarDataHoraAtualizacao(value?: string | null) {
+  if (!value) return null
+
+  const data = new Date(value)
+
+  if (Number.isNaN(data.getTime())) return null
+
+  const dataFmt = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(data)
+
+  const horaFmt = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(data)
+
+  return `${dataFmt} às ${horaFmt}`
+}
+
 const MES_LABELS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
 
 interface ProjFat { total_real: number; total_forecast: number; total_projetado: number; total_orcado: number; pct_atingimento: number; delta_caixas: number; ultimo_mes_fechado: number }
@@ -71,6 +92,7 @@ interface GrupoItem { grupo: string; qtd_caixas: number; pct?: number }
 interface DisponibilidadeMes { mes: number; entradas_real_mes_atual?: number | null; entradas_previstas_mtd?: number | null; entradas_previstas_mtd_por_grupo?: GrupoItem[] | null; entradas_real_mes_atual_por_grupo?: GrupoItem[] | null }
 interface DisponibilidadePayload { mes_atual: number; entradas_previstas_mtd: number; entradas_previstas_mtd_por_grupo: GrupoItem[]; meses: DisponibilidadeMes[] }
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
+interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
 export function OverviewPage() {
   const [modalLib, setModalLib]               = useState(false)
@@ -87,34 +109,16 @@ export function OverviewPage() {
   const [previstoHoje, setPrevistoHoje]       = useState(0)
   const [realMtd, setRealMtd]                 = useState(0)
   const [detalhePrevistoHoje, setDetalhePrevistoHoje] = useState<PrevistoHojeItem[]>([])
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null)
 
-  
   useEffect(() => {
-    async function carregarUltimaAtualizacao() {
-      try {
-        const res = await buscarUltimaAtualizacao("sd3_entradas")
+    buscarUltimaAtualizacao("sd3_entradas")
+      .then((d: unknown) => {
+        const payload = d as UltimaAtualizacaoPayload
+        setUltimaAtualizacao(payload?.ultima_atualizacao || null)
+      })
+      .catch(() => setUltimaAtualizacao(null))
 
-        if (res?.ultima_atualizacao) {
-          const data = new Date(res.ultima_atualizacao)
-
-          const formatada = data.toLocaleDateString("pt-BR") +
-            " às " +
-            data.toLocaleTimeString("pt-BR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-
-          setUltimaAtualizacao(formatada)
-        }
-      } catch (e) {
-        console.error(e)
-      }
-    }
-
-    carregarUltimaAtualizacao()
-  }, [])
-
-useEffect(() => {
     getOrcadoLiberacao().then((d: unknown) => setOrcadoLib(d as any)).catch(() => {})
     getOrcadoFaturamento().then((d: unknown) => setOrcadoFat(d as any)).catch(() => {})
     getProjecaoFaturamento().then((d: unknown) => setProjFat(d as ProjFat)).catch(() => {})
@@ -159,13 +163,24 @@ useEffect(() => {
     <div className="min-h-screen space-y-6 p-3 md:space-y-8 md:p-6">
 
       {/* Título */}
-      <div className="fade-in">
-        <h1 className="text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>Overview - Anestésicos Injetáveis</h1>
-        {ultimaAtualizacao && (
-          <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-            Dados atualizados em: {ultimaAtualizacao}
+      <div className="fade-in flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>
+            Overview - Anestésicos Injetáveis
+          </h1>
+          <p className="mt-1 text-xs md:text-sm" style={{ color: "var(--text-secondary)" }}>
+            Visão executiva de faturamento, liberações, disponibilidade e rastreamento operacional.
           </p>
-        )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm md:text-sm">
+          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+            Dados atualizados em:
+          </span>{" "}
+          <span style={{ color: "var(--text-secondary)" }}>
+            {formatarDataHoraAtualizacao(ultimaAtualizacao) || "—"}
+          </span>
+        </div>
       </div>
 
       {/* Faturamento */}
