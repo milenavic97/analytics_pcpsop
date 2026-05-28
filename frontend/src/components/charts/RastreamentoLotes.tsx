@@ -396,6 +396,7 @@ export function RastreamentoLotes() {
   const [filtroEtapa, setFiltroEtapa] = useState("");
   const [apenasAtrasados, setApenasAtrasados] = useState(true);
   const [modalAuditoria, setModalAuditoria] = useState(false);
+  const [retemPorLote, setRetemPorLote] = useState(0.7);
 
   const carregar = async () => {
     setLoading(true);
@@ -462,6 +463,54 @@ export function RastreamentoLotes() {
 
   const thLeft =
     "px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-left";
+
+  function calcularRendimento(lote: LoteRastreamento) {
+    const planejadoCx = Number(lote.qtd_prevista_cx || 0);
+    const liberadoCx = Number(lote.qtd_liberada_cx || 0);
+    const baseRendimento = Math.max(planejadoCx - Number(retemPorLote || 0), 0);
+
+    if (!lote.check_liberado || liberadoCx <= 0 || baseRendimento <= 0) {
+      return null;
+    }
+
+    return (liberadoCx / baseRendimento) * 100;
+  }
+
+  function getRendimentoStatus(rendimento: number | null) {
+    if (rendimento === null) {
+      return {
+        label: "Pendente",
+        color: "var(--text-secondary)",
+        bg: "#F3F4F6",
+        border: "#E5E7EB",
+      };
+    }
+
+    if (rendimento >= 98) {
+      return {
+        label: "Bom",
+        color: "#166534",
+        bg: "#DCFCE7",
+        border: "#BBF7D0",
+      };
+    }
+
+    if (rendimento >= 95) {
+      return {
+        label: "Atenção",
+        color: "#92400E",
+        bg: "#FEF3C7",
+        border: "#FDE68A",
+      };
+    }
+
+    return {
+      label: "Crítico",
+      color: "#991B1B",
+      bg: "#FEE2E2",
+      border: "#FECACA",
+    };
+  }
 
   return (
     <div className="space-y-4">
@@ -718,6 +767,30 @@ export function RastreamentoLotes() {
           </button>
         </div>
 
+        <div className="flex flex-col gap-1">
+          <label
+            className="text-[10px] font-semibold uppercase tracking-wider"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Retém por lote (cx)
+          </label>
+
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            value={retemPorLote}
+            onChange={(e) => setRetemPorLote(Number(e.target.value || 0))}
+            className="rounded-lg border px-3 py-2 text-sm font-semibold outline-none"
+            style={{
+              background: "var(--bg-secondary)",
+              borderColor: "var(--border)",
+              color: "var(--text-primary)",
+              width: 130,
+            }}
+          />
+        </div>
+
         <p className="pb-2 text-xs" style={{ color: "var(--text-secondary)" }}>
           {lotesFiltrados.length} lote
           {lotesFiltrados.length !== 1 ? "s" : ""}
@@ -739,22 +812,22 @@ export function RastreamentoLotes() {
       ) : (
         <div className="card overflow-hidden p-0">
           <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
-            <table className="w-full min-w-[980px] border-separate border-spacing-0">
+            <table className="w-full min-w-[1180px] border-separate border-spacing-0">
               <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
                 <tr style={{ background: "var(--bg-sidebar)", color: "#fff" }}>
                   <th className={thLeft}>Lote / OP</th>
-                  <th className={thLeft}>Grupo</th>
+                  <th className={thLeft}>Destino Produto/Insumo</th>
                   <th className={thBase}>Data Lib.</th>
-                  <th className={thBase}>Tubetes</th>
-                  <th className={thBase}>Caixas</th>
                   <th
                     className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider"
                     style={{ minWidth: 280 }}
                   >
                     Etapas
                   </th>
-                  <th className={thLeft}>Destino Produto/Insumo</th>
+                  <th className={thBase}>Tubetes</th>
+                  <th className={thBase}>Caixas</th>
                   <th className={thBase}>Liberado (cx)</th>
+                  <th className={thBase}>Rendimento</th>
                 </tr>
               </thead>
 
@@ -855,82 +928,9 @@ export function RastreamentoLotes() {
                         className="px-3 py-3 text-sm"
                         style={{ color: "var(--text-primary)" }}
                       >
-                        {l.grupo}
-                      </td>
-
-                      <td
-                        className="px-3 py-3 text-right text-sm"
-                        style={{
-                          color:
-                            l.em_desvio && !l.check_liberado
-                              ? "#92400E"
-                              : l.atrasado && !l.check_liberado
-                                ? "#DC2626"
-                                : "var(--text-secondary)",
-                          fontWeight:
-                            (l.em_desvio || l.atrasado) && !l.check_liberado
-                              ? 600
-                              : 400,
-                        }}
-                      >
-                        {fmtData(l.data_lib)}
-                      </td>
-
-                      <td
-                        className="px-3 py-3 text-right text-sm"
-                        style={{ color: "var(--text-secondary)" }}
-                      >
-                        {l.qtd_prevista_tb > 0 ? fmt(l.qtd_prevista_tb) : "—"}
-                      </td>
-
-                      <td
-                        className="px-3 py-3 text-right text-sm font-semibold"
-                        style={{ color: "var(--text-primary)" }}
-                      >
-                        {l.qtd_prevista_cx > 0 ? fmt(l.qtd_prevista_cx) : "—"}
-                      </td>
-
-                      <td className="px-3 py-3">
-                        <div className="flex items-start justify-center">
-                          <Check
-                            ok={l.check_lavagem}
-                            label="Lavagem"
-                            icon={l.check_lavagem ? CheckCircle2 : XCircle}
-                          />
-
-                          <Connector ok={l.check_envase} />
-
-                          <Check
-                            ok={l.check_envase}
-                            label="Envase"
-                            icon={l.check_envase ? CheckCircle2 : XCircle}
-                          />
-
-                          <Connector ok={l.check_embalagem} />
-
-                          <Check
-                            ok={l.check_embalagem}
-                            label="Embalagem"
-                            icon={l.check_embalagem ? CheckCircle2 : XCircle}
-                          />
-
-                          <Connector ok={l.check_liberado} />
-
-                          <Check
-                            ok={l.check_liberado}
-                            label="Liberado"
-                            icon={l.check_liberado ? CheckCircle2 : XCircle}
-                          />
-                        </div>
-                      </td>
-
-                      <td
-                        className="px-3 py-3 text-sm"
-                        style={{ color: "var(--text-primary)" }}
-                      >
                         {getDesvioDestino(l) ? (
                           <span
-                            className="inline-flex max-w-[220px] items-center rounded-full px-2 py-1 text-[11px] font-semibold"
+                            className="inline-flex max-w-[260px] items-center rounded-full px-2 py-1 text-[11px] font-semibold"
                             title={getDesvioDestino(l) || undefined}
                             style={{
                               background:
@@ -971,6 +971,72 @@ export function RastreamentoLotes() {
                       </td>
 
                       <td
+                        className="px-3 py-3 text-right text-sm"
+                        style={{
+                          color:
+                            l.em_desvio && !l.check_liberado
+                              ? "#92400E"
+                              : l.atrasado && !l.check_liberado
+                                ? "#DC2626"
+                                : "var(--text-secondary)",
+                          fontWeight:
+                            (l.em_desvio || l.atrasado) && !l.check_liberado
+                              ? 600
+                              : 400,
+                        }}
+                      >
+                        {fmtData(l.data_lib)}
+                      </td>
+
+                      <td className="px-3 py-3">
+                        <div className="flex items-start justify-center">
+                          <Check
+                            ok={l.check_lavagem}
+                            label="Lavagem"
+                            icon={l.check_lavagem ? CheckCircle2 : XCircle}
+                          />
+
+                          <Connector ok={l.check_envase} />
+
+                          <Check
+                            ok={l.check_envase}
+                            label="Envase"
+                            icon={l.check_envase ? CheckCircle2 : XCircle}
+                          />
+
+                          <Connector ok={l.check_embalagem} />
+
+                          <Check
+                            ok={l.check_embalagem}
+                            label="Embalagem"
+                            icon={l.check_embalagem ? CheckCircle2 : XCircle}
+                          />
+
+                          <Connector ok={l.check_liberado} />
+
+                          <Check
+                            ok={l.check_liberado}
+                            label="Liberado"
+                            icon={l.check_liberado ? CheckCircle2 : XCircle}
+                          />
+                        </div>
+                      </td>
+
+                      <td
+                        className="px-3 py-3 text-right text-sm"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        {l.qtd_prevista_tb > 0 ? fmt(l.qtd_prevista_tb) : "—"}
+                      </td>
+
+                      <td
+                        className="px-3 py-3 text-right text-sm font-semibold"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {l.qtd_prevista_cx > 0 ? fmt(l.qtd_prevista_cx) : "—"}
+                      </td>
+
+                      <td
                         className="px-3 py-3 text-right text-sm font-semibold"
                         style={{
                           color: l.check_liberado
@@ -979,6 +1045,39 @@ export function RastreamentoLotes() {
                         }}
                       >
                         {l.qtd_liberada_cx > 0 ? fmt(l.qtd_liberada_cx) : "—"}
+                      </td>
+
+                      <td className="px-3 py-3 text-right">
+                        {(() => {
+                          const rendimento = calcularRendimento(l);
+                          const status = getRendimentoStatus(rendimento);
+
+                          return (
+                            <div className="flex flex-col items-end gap-1">
+                              <span
+                                className="inline-flex items-center rounded-full border px-2 py-1 text-xs font-bold"
+                                style={{
+                                  background: status.bg,
+                                  borderColor: status.border,
+                                  color: status.color,
+                                }}
+                              >
+                                {rendimento === null
+                                  ? "—"
+                                  : `${rendimento.toFixed(1).replace(".", ",")}%`}
+                              </span>
+
+                              {rendimento !== null && (
+                                <span
+                                  className="text-[10px] font-semibold uppercase tracking-wide"
+                                  style={{ color: status.color }}
+                                >
+                                  {status.label}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))
