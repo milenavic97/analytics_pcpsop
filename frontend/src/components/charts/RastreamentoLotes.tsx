@@ -554,6 +554,88 @@ export function RastreamentoLotes() {
             </div>
           </button>
 
+          <div
+            className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-5"
+            style={{ background: "var(--border)" }}
+          >
+            {[
+              {
+                label: "Em Desvio",
+                value: data.mtd_gap_por_etapa.desvio ?? data.mtd_cx_desvio ?? 0,
+                color: "#92400E",
+                icon: AlertTriangle,
+                filtro: "DESVIO",
+              },
+              {
+                label: "Em Embalagem",
+                value: data.mtd_gap_por_etapa.embalagem,
+                color: "#EA580C",
+                icon: Package,
+                filtro: "EMBALAGEM",
+              },
+              {
+                label: "Em Envase",
+                value: data.mtd_gap_por_etapa.envase,
+                color: "#2563EB",
+                icon: Waves,
+                filtro: "ENVASE",
+              },
+              {
+                label: "Em Lavagem",
+                value: data.mtd_gap_por_etapa.lavagem,
+                color: "#CA8A04",
+                icon: Shirt,
+                filtro: "LAVAGEM",
+              },
+              {
+                label: "Não Iniciado",
+                value: data.mtd_gap_por_etapa.nao_iniciado,
+                color: "#6B7280",
+                icon: Clock,
+                filtro: "NAO_INICIADO",
+              },
+            ].map((k) => (
+              <button
+                key={k.label}
+                onClick={() => {
+                  setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
+                  setApenasAtrasados(true);
+                }}
+                className="px-4 py-3 text-left transition-all"
+                style={{
+                  background:
+                    filtroEtapa === k.filtro
+                      ? "var(--bg-primary)"
+                      : "var(--bg-secondary)",
+                  opacity: k.value === 0 ? 0.35 : 1,
+                  cursor: k.value === 0 ? "default" : "pointer",
+                }}
+              >
+                <div className="mb-1 flex items-center gap-1.5">
+                  <k.icon size={12} style={{ color: k.color }} />
+
+                  <p
+                    className="text-[11px] font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    {k.label}
+                  </p>
+                </div>
+
+                <p
+                  className="text-xl font-bold"
+                  style={{
+                    color: k.value > 0 ? k.color : "var(--text-secondary)",
+                  }}
+                >
+                  {fmt(k.value)} cx
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
           <label
