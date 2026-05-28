@@ -29,7 +29,42 @@ async function apiFetch<T>(
 // Upload
 // ─────────────────────────────────────────────────────────────
 
-export async function uploadBase(baseId: string, file: File) {
+export type UploadBaseResponse = {
+  total_inserido: number
+  erros?: string[]
+  detail?: string | string[]
+}
+
+export class UploadBaseError extends Error {
+  payload?: unknown
+
+  constructor(message: string, payload?: unknown) {
+    super(message)
+    this.name = "UploadBaseError"
+    this.payload = payload
+  }
+}
+
+function normalizarErroUpload(payload: unknown, fallback: string) {
+  const p = payload as {
+    detail?: string | string[]
+    erros?: string[]
+    message?: string
+  }
+
+  const partes: string[] = []
+
+  if (Array.isArray(p?.detail)) partes.push(...p.detail.map(String))
+  else if (p?.detail) partes.push(String(p.detail))
+
+  if (Array.isArray(p?.erros)) partes.push(...p.erros.map(String))
+
+  if (p?.message) partes.push(String(p.message))
+
+  return partes.length ? partes.join("\n") : fallback
+}
+
+export async function uploadBase(baseId: string, file: File): Promise<UploadBaseResponse> {
   const form = new FormData()
   form.append("file", file)
 
@@ -38,18 +73,18 @@ export async function uploadBase(baseId: string, file: File) {
     body: form,
   })
 
-  if (!res.ok) {
-    const err = await res
-      .json()
-      .catch(() => ({ detail: res.statusText }))
+  const payload = await res
+    .json()
+    .catch(() => null)
 
-    throw new Error(
-      (err as { detail: string }).detail ||
-        "Erro no upload"
+  if (!res.ok) {
+    throw new UploadBaseError(
+      normalizarErroUpload(payload, "Erro no upload"),
+      payload
     )
   }
 
-  return res.json()
+  return payload as UploadBaseResponse
 }
 
 export async function getUploadStatus(baseId: string) {
