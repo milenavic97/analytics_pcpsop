@@ -168,18 +168,9 @@ export function OverviewPage() {
           <h1 className="text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>
             Overview - Anestésicos Injetáveis
           </h1>
-          <p className="mt-1 text-xs md:text-sm" style={{ color: "var(--text-secondary)" }}>
-            Visão executiva de faturamento, liberações, disponibilidade e rastreamento operacional.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm md:text-sm">
-          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
-            Dados atualizados em:
-          </span>{" "}
-          <span style={{ color: "var(--text-secondary)" }}>
-            {formatarDataHoraAtualizacao(ultimaAtualizacao) || "—"}
-          </span>
+          <p className="text-sm text-slate-500 mt-1">
+  Dados atualizados em: {ultimaAtualizacao}
+</p>
         </div>
       </div>
 
