@@ -153,8 +153,8 @@ export async function getProjecaoLiberacoes(filtros?: OverviewFiltros) {
   return apiFetch(`/overview/projecao-liberacoes${buildOverviewQuery(filtros)}`)
 }
 
-export async function getOrcadoLiberacao() {
-  return apiFetch("/overview/orcado-liberacao")
+export async function getOrcadoLiberacao(filtros?: OverviewFiltros) {
+  return apiFetch(`/overview/orcado-liberacao${buildOverviewQuery(filtros)}`)
 }
 
 export async function getEntradasReaisMensal(filtros?: OverviewFiltros) {
@@ -1244,3 +1244,12 @@ export async function uploadDesvios(file: File) {
 
   return res.json()
 }
+
+
+export async function limparDesvios() {
+  return apiFetch("/desvios/limpar", {
+    method: "DELETE",
+  })
+}
+
+export const clearDesvios = limparDesvios
