@@ -6,7 +6,7 @@ import {
   PackageCheck, Warehouse, Factory, BarChart3, ClipboardList, DollarSign,
 } from "lucide-react"
 import { BASES } from "@/data/bases"
-import { uploadBase, getUploadStatus, getDados, inserirRegistro, atualizarRegistro, excluirRegistros } from "@/services/api"
+import { uploadBase, getUploadStatus, getDados, inserirRegistro, atualizarRegistro, excluirRegistros, UploadBaseError } from "@/services/api"
 import { DataTable } from "@/components/ui/DataTable"
 import { RowModal } from "@/components/ui/RowModal"
 
@@ -16,6 +16,69 @@ const ICON_MAP: Record<string, React.ElementType> = {
 }
 
 type StatusLocal = { status: string; nome_arquivo?: string; total_registros?: number }
+
+type ResultadoUpload = {
+  total: number
+  erros: string[]
+  logProdutosCsv?: string | null
+  logProdutosNome?: string | null
+}
+
+const MARCADOR_LOG_FORECAST = "LOG_PRODUTOS_NAO_ENCONTRADOS_FORECAST:"
+
+function extrairLogProdutosForecast(erros: string[]) {
+  const erroComLog = erros.find((erro) => erro.includes(MARCADOR_LOG_FORECAST))
+  if (!erroComLog) return null
+
+  const csv = erroComLog
+    .split(MARCADOR_LOG_FORECAST)[1]
+    ?.trim()
+
+  if (!csv) return null
+
+  return csv
+}
+
+function limparErrosParaTela(erros: string[]) {
+  return erros.map((erro) => {
+    if (!erro.includes(MARCADOR_LOG_FORECAST)) return erro
+
+    const primeiraLinha = erro.split("\n")[0]?.trim()
+    return primeiraLinha || "Log de produtos não encontrados gerado para download."
+  })
+}
+
+function baixarArquivoTexto(nomeArquivo: string, conteudo: string) {
+  const blob = new Blob(["\ufeff" + conteudo], {
+    type: "text/csv;charset=utf-8;",
+  })
+
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = nomeArquivo
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+function errosDoUploadPayload(payload: unknown) {
+  const p = payload as {
+    detail?: string | string[]
+    erros?: string[]
+  }
+
+  const erros: string[] = []
+
+  if (Array.isArray(p?.erros)) erros.push(...p.erros.map(String))
+
+  if (Array.isArray(p?.detail)) erros.push(...p.detail.map(String))
+  else if (p?.detail) erros.push(String(p.detail))
+
+  return erros
+}
+
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "sucesso")     return <span className="badge-ok"><CheckCircle size={11} /> Atualizado</span>
@@ -84,7 +147,7 @@ export function DadosPage() {
 function BaseDetail({ base }: { base: typeof BASES[0] }) {
   const [status, setStatus]               = useState<StatusLocal>({ status: "sem_dados" })
   const [uploading, setUploading]         = useState(false)
-  const [resultado, setResultado]         = useState<{ total: number; erros: string[] } | null>(null)
+  const [resultado, setResultado]         = useState<ResultadoUpload | null>(null)
   const [dados, setDados]                 = useState<Record<string, unknown>[]>([])
   const [total, setTotal]                 = useState(0)
   const [page, setPage]                   = useState(1)
@@ -126,19 +189,45 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
     setResultado(null)
 
     try {
-      const res = await uploadBase(base.id, file) as { total_inserido: number; erros: string[] }
+      const res = await uploadBase(base.id, file)
 
-      setResultado({ total: res.total_inserido, erros: res.erros ?? [] })
+      const errosOriginais = res.erros ?? []
+      const logProdutosCsv = extrairLogProdutosForecast(errosOriginais)
+      const errosTela = limparErrosParaTela(errosOriginais)
+
+      setResultado({
+        total: res.total_inserido,
+        erros: errosTela,
+        logProdutosCsv,
+        logProdutosNome: logProdutosCsv ? `produtos_nao_encontrados_forecast_${new Date().toISOString().slice(0, 10)}.csv` : null,
+      })
+
       setStatus({
-        status: res.erros?.length ? "erro" : "sucesso",
+        status: errosOriginais.length ? "erro" : "sucesso",
         nome_arquivo: file.name,
         total_registros: res.total_inserido,
       })
 
-      carregarDados(1)
+      if (!errosOriginais.length) {
+        carregarDados(1)
+      }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido"
-      setResultado({ total: 0, erros: [msg] })
+      let erros = [err instanceof Error ? err.message : "Erro desconhecido"]
+
+      if (err instanceof UploadBaseError) {
+        const errosPayload = errosDoUploadPayload(err.payload)
+        if (errosPayload.length) erros = errosPayload
+      }
+
+      const logProdutosCsv = extrairLogProdutosForecast(erros)
+      const errosTela = limparErrosParaTela(erros)
+
+      setResultado({
+        total: 0,
+        erros: errosTela,
+        logProdutosCsv,
+        logProdutosNome: logProdutosCsv ? `produtos_nao_encontrados_forecast_${new Date().toISOString().slice(0, 10)}.csv` : null,
+      })
       setStatus({ status: "erro" })
     } finally {
       setUploading(false)
@@ -293,6 +382,24 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
                     • {e}
                   </p>
                 ))}
+
+                {resultado.logProdutosCsv && (
+                  <button
+                    type="button"
+                    onClick={() => baixarArquivoTexto(
+                      resultado.logProdutosNome || "produtos_nao_encontrados_forecast.csv",
+                      resultado.logProdutosCsv || ""
+                    )}
+                    className="mt-3 ml-5 inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-medium"
+                    style={{
+                      border: "1px solid #FCA5A5",
+                      color: "#991B1B",
+                    }}
+                  >
+                    <Download size={14} />
+                    Baixar log de produtos não encontrados
+                  </button>
+                )}
               </div>
             )}
           </div>
