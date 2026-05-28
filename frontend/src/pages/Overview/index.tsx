@@ -15,6 +15,7 @@ import PrevistoAteHojeModal from "@/components/charts/PrevistoAteHojeModal"
 import {
   getOrcadoLiberacao, getOrcadoFaturamento, getProjecaoFaturamento,
   getProjecaoLiberacoes, getEstoqueMensal, getDisponibilidadeMensal,
+  buscarUltimaAtualizacao,
 } from "@/services/api"
 
 const TUBETES_POR_CAIXA = 500
@@ -87,7 +88,33 @@ export function OverviewPage() {
   const [realMtd, setRealMtd]                 = useState(0)
   const [detalhePrevistoHoje, setDetalhePrevistoHoje] = useState<PrevistoHojeItem[]>([])
 
+  
   useEffect(() => {
+    async function carregarUltimaAtualizacao() {
+      try {
+        const res = await buscarUltimaAtualizacao("sd3_entradas")
+
+        if (res?.ultima_atualizacao) {
+          const data = new Date(res.ultima_atualizacao)
+
+          const formatada = data.toLocaleDateString("pt-BR") +
+            " às " +
+            data.toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+
+          setUltimaAtualizacao(formatada)
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
+
+    carregarUltimaAtualizacao()
+  }, [])
+
+useEffect(() => {
     getOrcadoLiberacao().then((d: unknown) => setOrcadoLib(d as any)).catch(() => {})
     getOrcadoFaturamento().then((d: unknown) => setOrcadoFat(d as any)).catch(() => {})
     getProjecaoFaturamento().then((d: unknown) => setProjFat(d as ProjFat)).catch(() => {})
@@ -133,7 +160,12 @@ export function OverviewPage() {
 
       {/* Título */}
       <div className="fade-in">
-        <h1 className="text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>Overview 2026</h1>
+        <h1 className="text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>Overview - Anestésicos Injetáveis</h1>
+        {ultimaAtualizacao && (
+          <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+            Dados atualizados em: {ultimaAtualizacao}
+          </p>
+        )}
       </div>
 
       {/* Faturamento */}
