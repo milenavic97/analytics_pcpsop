@@ -1229,8 +1229,8 @@ export function RastreamentoLotes() {
                         <th className="px-3 py-2 text-left text-[10px] uppercase">
                           Produto
                         </th>
-                        <th className="px-3 py-2 text-left text-[10px] uppercase">
-                          Grupo SD3
+                        <th className="px-3 py-2 text-right text-[10px] uppercase">
+                          Dt Lib. SD3
                         </th>
                         <th className="px-3 py-2 text-right text-[10px] uppercase">
                           Qtd. SD3 cx
@@ -1276,7 +1276,9 @@ export function RastreamentoLotes() {
                               {item.descr_prod || item.produto || "—"}
                             </td>
 
-                            <td className="px-3 py-2">{item.grupo || "—"}</td>
+                            <td className="px-3 py-2 text-right">
+                              {fmtData(item.dt_emissao)}
+                            </td>
 
                             <td className="px-3 py-2 text-right font-semibold">
                               {fmt(item.qtd_cx)}
