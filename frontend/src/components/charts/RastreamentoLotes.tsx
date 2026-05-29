@@ -911,6 +911,7 @@ export function RastreamentoLotes() {
                     />
                   </th>
                   <th className={thLeft}>Lote / OP</th>
+                  <th className={thLeft}>Grupo</th>
                   <th className={thLeft}>Destino Produto/Insumo</th>
                   <th className={thBase}>Data Lib.</th>
                   <th
@@ -1033,6 +1034,13 @@ export function RastreamentoLotes() {
                             {l.desvio_titulo}
                           </p>
                         )}
+                      </td>
+
+                      <td
+                        className="px-3 py-3 text-xs font-semibold"
+                        style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}
+                      >
+                        {l.grupo || "—"}
                       </td>
 
                       <td
