@@ -393,7 +393,7 @@ const MES_LABELS = [
   "Dez",
 ];
 
-export function RastreamentoLotes() {
+export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto: number, mtd_cx_liberado: number) => void } = {}) {
   const [data, setData] = useState<RastreamentoData | null>(null);
   const [loading, setLoading] = useState(true);
   const [filtroGrupo, setFiltroGrupo] = useState("");
@@ -413,7 +413,11 @@ export function RastreamentoLotes() {
         credentials: "include",
       });
 
-      setData(await res.json());
+      const json = await res.json();
+      setData(json);
+      if (onMtdLoad) {
+        onMtdLoad(json.mtd_cx_previsto ?? 0, json.mtd_cx_liberado ?? 0);
+      }
     } catch (_) {
       setData(null);
     } finally {
