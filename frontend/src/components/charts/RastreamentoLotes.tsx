@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   RefreshCw,
   AlertTriangle,
@@ -9,6 +9,10 @@ import {
   Waves,
   Shirt,
   X,
+  Download,
+  ChevronsUpDown,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 
 const API_URL =
@@ -397,6 +401,8 @@ export function RastreamentoLotes() {
   const [apenasAtrasados, setApenasAtrasados] = useState(true);
   const [modalAuditoria, setModalAuditoria] = useState(false);
   const [retemPorLote, setRetemPorLote] = useState(0.7);
+  const [sortRendimento, setSortRendimento] = useState<"asc" | "desc" | null>(null);
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
 
   const carregar = async () => {
     setLoading(true);
@@ -426,7 +432,7 @@ export function RastreamentoLotes() {
 
   const hoje = new Date().toISOString().split("T")[0];
 
-  const lotesFiltrados = (data?.lotes ?? []).filter((l) => {
+  const lotesFiltradosBase = (data?.lotes ?? []).filter((l) => {
     if (apenasAtrasados && (!l.data_lib || l.data_lib > hoje)) return false;
     if (filtroGrupo && l.grupo !== filtroGrupo) return false;
     if (filtroEtapa === "LIBERADO" && !l.check_liberado) return false;
@@ -454,6 +460,17 @@ export function RastreamentoLotes() {
     return true;
   });
 
+  const lotesFiltrados = useMemo(() => {
+    if (!sortRendimento) return lotesFiltradosBase;
+    return [...lotesFiltradosBase].sort((a, b) => {
+      const ra = calcularRendimento(a);
+      const rb = calcularRendimento(b);
+      const va = ra ?? (sortRendimento === "asc" ? Infinity : -Infinity);
+      const vb = rb ?? (sortRendimento === "asc" ? Infinity : -Infinity);
+      return sortRendimento === "asc" ? va - vb : vb - va;
+    });
+  }, [lotesFiltradosBase, sortRendimento, retemPorLote]);
+
   const resumo = data?.mtd_resumo_liberacao;
 
   const lotesForaGantt = data?.lotes_fora_gantt ?? [];
@@ -463,6 +480,66 @@ export function RastreamentoLotes() {
 
   const thLeft =
     "px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-left";
+
+  const todosLotes = lotesFiltrados.map((l) => l.lote);
+  const todosSelecionados = todosLotes.length > 0 && todosLotes.every((id) => selecionados.has(id));
+  const algunsSelecionados = todosLotes.some((id) => selecionados.has(id)) && !todosSelecionados;
+
+  function toggleTodos() {
+    if (todosSelecionados) {
+      setSelecionados(new Set());
+    } else {
+      setSelecionados(new Set(todosLotes));
+    }
+  }
+
+  function toggleLote(lote: string) {
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(lote)) next.delete(lote);
+      else next.add(lote);
+      return next;
+    });
+  }
+
+  function exportarExcel() {
+    const alvo = selecionados.size > 0
+      ? lotesFiltrados.filter((l) => selecionados.has(l.lote))
+      : lotesFiltrados;
+
+    const headers = ["Lote","OP","Grupo","Destino","Data Lib.","Lavagem","Envase","Embalagem","Liberado","Tubetes","Caixas","Liberado (cx)","Rendimento (%)","Em Desvio"];
+    const rows = alvo.map((l) => {
+      const r = calcularRendimento(l);
+      return [
+        l.lote,
+        l.ordem_op || "",
+        l.grupo,
+        getDesvioDestino(l) || "",
+        l.data_lib || "",
+        l.check_lavagem ? "Sim" : "Não",
+        l.check_envase ? "Sim" : "Não",
+        l.check_embalagem ? "Sim" : "Não",
+        l.check_liberado ? "Sim" : "Não",
+        l.qtd_prevista_tb,
+        l.qtd_prevista_cx,
+        l.qtd_liberada_cx,
+        r !== null ? r.toFixed(1) : "",
+        l.em_desvio ? "Sim" : "Não",
+      ];
+    });
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `rastreamento_lotes_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   function calcularRendimento(lote: LoteRastreamento) {
     const planejadoCx = Number(lote.qtd_prevista_cx || 0);
@@ -791,6 +868,15 @@ export function RastreamentoLotes() {
           />
         </div>
 
+        <button
+          onClick={exportarExcel}
+          className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-black/5"
+          style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+        >
+          <Download size={13} />
+          Exportar {selecionados.size > 0 ? `(${selecionados.size})` : ""}
+        </button>
+
         <p className="pb-2 text-xs" style={{ color: "var(--text-secondary)" }}>
           {lotesFiltrados.length} lote
           {lotesFiltrados.length !== 1 ? "s" : ""}
@@ -815,6 +901,15 @@ export function RastreamentoLotes() {
             <table className="w-full min-w-[1180px] border-separate border-spacing-0">
               <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
                 <tr style={{ background: "var(--bg-sidebar)", color: "#fff" }}>
+                  <th className="px-3 py-3 text-center" style={{ width: 36 }}>
+                    <input
+                      type="checkbox"
+                      checked={todosSelecionados}
+                      ref={(el) => { if (el) el.indeterminate = algunsSelecionados; }}
+                      onChange={toggleTodos}
+                      style={{ cursor: "pointer", accentColor: "#fff" }}
+                    />
+                  </th>
                   <th className={thLeft}>Lote / OP</th>
                   <th className={thLeft}>Destino Produto/Insumo</th>
                   <th className={thBase}>Data Lib.</th>
@@ -827,7 +922,15 @@ export function RastreamentoLotes() {
                   <th className={thBase}>Tubetes</th>
                   <th className={thBase}>Caixas</th>
                   <th className={thBase}>Liberado (cx)</th>
-                  <th className={thBase}>Rendimento</th>
+                  <th
+                    className={thBase + " cursor-pointer select-none"}
+                    onClick={() => setSortRendimento((s) => s === "desc" ? "asc" : s === "asc" ? null : "desc")}
+                  >
+                    <span className="inline-flex items-center gap-1 justify-end w-full">
+                      Rendimento
+                      {sortRendimento === "desc" ? <ChevronDown size={12} /> : sortRendimento === "asc" ? <ChevronUp size={12} /> : <ChevronsUpDown size={12} style={{ opacity: 0.4 }} />}
+                    </span>
+                  </th>
                 </tr>
               </thead>
 
@@ -835,7 +938,7 @@ export function RastreamentoLotes() {
                 {lotesFiltrados.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={4}
                       className="py-12 text-center text-sm"
                       style={{ color: "var(--text-secondary)" }}
                     >
@@ -858,6 +961,14 @@ export function RastreamentoLotes() {
                                 : "var(--bg-primary)",
                       }}
                     >
+                      <td className="px-3 py-3 text-center" style={{ width: 36 }}>
+                        <input
+                          type="checkbox"
+                          checked={selecionados.has(l.lote)}
+                          onChange={() => toggleLote(l.lote)}
+                          style={{ cursor: "pointer" }}
+                        />
+                      </td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1.5">
                           {(l.em_desvio ||
@@ -1241,7 +1352,12 @@ export function RastreamentoLotes() {
                         <th className="px-3 py-2 text-right text-[10px] uppercase">
                           Dt Lib. Prev.
                         </th>
-
+                        <th className="px-3 py-2 text-left text-[10px] uppercase">
+                          Grupo Prev.
+                        </th>
+                        <th className="px-3 py-2 text-left text-[10px] uppercase">
+                          Motivo
+                        </th>
                       </tr>
                     </thead>
 
@@ -1249,7 +1365,7 @@ export function RastreamentoLotes() {
                       {lotesForaGantt.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={6}
+                            colSpan={4}
                             className="px-3 py-8 text-center"
                             style={{ color: "var(--text-secondary)" }}
                           >
@@ -1280,14 +1396,8 @@ export function RastreamentoLotes() {
                             </td>
 
                             <td className="px-3 py-2 text-right">
-                              {fmt(item.qtd_prevista_cx)}
-                            </td>
-
-                            <td className="px-3 py-2 text-right">
                               {fmtData(item.data_lib_prevista)}
                             </td>
-
-
                           </tr>
                         ))
                       )}
