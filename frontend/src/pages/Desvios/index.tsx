@@ -283,6 +283,20 @@ export default function DesviosPage() {
           <p className="mt-1 text-sm text-slate-500">
             Histórico, rastreabilidade e impacto dos lotes travados.
           </p>
+          {snapshots.length > 0 && (
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
+              <span>📅</span>
+              <span>
+                Dados atualizados em:{" "}
+                <span className="font-medium text-slate-600">
+                  {new Date([...snapshots].sort((a, b) => new Date(b.data_upload).getTime() - new Date(a.data_upload).getTime())[0].data_upload).toLocaleString("pt-BR", {
+                    day: "2-digit", month: "2-digit", year: "numeric",
+                    hour: "2-digit", minute: "2-digit",
+                  }).replace(",", " às")}
+                </span>
+              </span>
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
