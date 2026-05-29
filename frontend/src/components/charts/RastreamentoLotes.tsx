@@ -7,7 +7,8 @@ import {
   Clock,
   Package,
   Waves,
-  Shirt,
+  Droplets,
+  TrendingDown,
   X,
   Download,
   ChevronsUpDown,
@@ -724,14 +725,14 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 label: "Em Lavagem",
                 value: data.mtd_gap_por_etapa.lavagem,
                 color: "#CA8A04",
-                icon: Shirt,
+                icon: Droplets,
                 filtro: "LAVAGEM",
               },
               {
-                label: "Não Iniciado",
+                label: "Gap Rendimento",
                 value: data.mtd_gap_por_etapa.nao_iniciado,
                 color: "#6B7280",
-                icon: Clock,
+                icon: TrendingDown,
                 filtro: "NAO_INICIADO",
               },
             ].map((k) => (
@@ -830,7 +831,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             <option value="EMBALAGEM">Em Embalagem</option>
             <option value="ENVASE">Em Envase</option>
             <option value="LAVAGEM">Em Lavagem</option>
-            <option value="NAO_INICIADO">Não Iniciado</option>
+            <option value="NAO_INICIADO">Gap Rendimento</option>
             <option value="ATRASADO">Atrasados</option>
           </select>
         </div>
