@@ -835,7 +835,7 @@ export function RastreamentoLotes() {
                 {lotesFiltrados.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={6}
                       className="py-12 text-center text-sm"
                       style={{ color: "var(--text-secondary)" }}
                     >
@@ -1241,12 +1241,7 @@ export function RastreamentoLotes() {
                         <th className="px-3 py-2 text-right text-[10px] uppercase">
                           Dt Lib. Prev.
                         </th>
-                        <th className="px-3 py-2 text-left text-[10px] uppercase">
-                          Grupo Prev.
-                        </th>
-                        <th className="px-3 py-2 text-left text-[10px] uppercase">
-                          Motivo
-                        </th>
+
                       </tr>
                     </thead>
 
@@ -1254,7 +1249,7 @@ export function RastreamentoLotes() {
                       {lotesForaGantt.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={8}
+                            colSpan={6}
                             className="px-3 py-8 text-center"
                             style={{ color: "var(--text-secondary)" }}
                           >
@@ -1292,11 +1287,7 @@ export function RastreamentoLotes() {
                               {fmtData(item.data_lib_prevista)}
                             </td>
 
-                            <td className="px-3 py-2">
-                              {item.grupo_previsto || "—"}
-                            </td>
 
-                            <td className="px-3 py-2">{item.motivo || "—"}</td>
                           </tr>
                         ))
                       )}
