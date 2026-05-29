@@ -411,17 +411,41 @@ export default function FaturamentoPage() {
                 }}
               />
               <Legend />
-              <Bar yAxisId="left" dataKey="Real" fill="#17375E" radius={[6, 6, 0, 0]} />
-              <Bar yAxisId="left" dataKey="Forecast" fill="#7EA6C8" radius={[6, 6, 0, 0]} />
-              {!skuSelecionado && (
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="FA"
-                  stroke="#0F172A"
-                  strokeWidth={3}
-                  dot={{ r: 4 }}
-                />
+              {skuSelecionado ? (
+                <>
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="Real"
+                    stroke="#17375E"
+                    strokeWidth={3}
+                    dot={{ r: 5, fill: "#17375E" }}
+                    label={{ position: "top", fontSize: 11, fill: "#17375E", formatter: (v: number) => v > 0 ? fmt(v) : "" }}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="Forecast"
+                    stroke="#7EA6C8"
+                    strokeWidth={2.5}
+                    strokeDasharray="6 3"
+                    dot={{ r: 4, fill: "#7EA6C8" }}
+                    label={{ position: "top", fontSize: 11, fill: "#7EA6C8", formatter: (v: number) => v > 0 ? fmt(v) : "" }}
+                  />
+                </>
+              ) : (
+                <>
+                  <Bar yAxisId="left" dataKey="Real" fill="#17375E" radius={[6, 6, 0, 0]} />
+                  <Bar yAxisId="left" dataKey="Forecast" fill="#7EA6C8" radius={[6, 6, 0, 0]} />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="FA"
+                    stroke="#0F172A"
+                    strokeWidth={3}
+                    dot={{ r: 4 }}
+                  />
+                </>
               )}
             </ComposedChart>
           </ResponsiveContainer>
