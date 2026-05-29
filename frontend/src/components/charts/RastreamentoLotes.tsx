@@ -402,6 +402,7 @@ export function RastreamentoLotes() {
   const [modalAuditoria, setModalAuditoria] = useState(false);
   const [retemPorLote, setRetemPorLote] = useState(0.7);
   const [sortRendimento, setSortRendimento] = useState<"asc" | "desc" | null>(null);
+  const [sortDataLib, setSortDataLib] = useState<"asc" | "desc" | null>(null);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
 
   const carregar = async () => {
@@ -461,15 +462,24 @@ export function RastreamentoLotes() {
   });
 
   const lotesFiltrados = useMemo(() => {
-    if (!sortRendimento) return lotesFiltradosBase;
-    return [...lotesFiltradosBase].sort((a, b) => {
-      const ra = calcularRendimento(a);
-      const rb = calcularRendimento(b);
-      const va = ra ?? (sortRendimento === "asc" ? Infinity : -Infinity);
-      const vb = rb ?? (sortRendimento === "asc" ? Infinity : -Infinity);
-      return sortRendimento === "asc" ? va - vb : vb - va;
-    });
-  }, [lotesFiltradosBase, sortRendimento, retemPorLote]);
+    let lista = [...lotesFiltradosBase];
+    if (sortDataLib) {
+      lista.sort((a, b) => {
+        const da = a.data_lib || "9999-12-31";
+        const db = b.data_lib || "9999-12-31";
+        return sortDataLib === "asc" ? da.localeCompare(db) : db.localeCompare(da);
+      });
+    } else if (sortRendimento) {
+      lista.sort((a, b) => {
+        const ra = calcularRendimento(a);
+        const rb = calcularRendimento(b);
+        const va = ra ?? (sortRendimento === "asc" ? Infinity : -Infinity);
+        const vb = rb ?? (sortRendimento === "asc" ? Infinity : -Infinity);
+        return sortRendimento === "asc" ? va - vb : vb - va;
+      });
+    }
+    return lista;
+  }, [lotesFiltradosBase, sortRendimento, sortDataLib, retemPorLote]);
 
   const resumo = data?.mtd_resumo_liberacao;
 
@@ -913,7 +923,15 @@ export function RastreamentoLotes() {
                   <th className={thLeft}>Lote / OP</th>
                   <th className={thLeft}>Grupo</th>
                   <th className={thLeft}>Destino Produto/Insumo</th>
-                  <th className={thBase}>Data Lib.</th>
+                  <th
+                    className={thBase + " cursor-pointer select-none"}
+                    onClick={() => setSortDataLib((s) => s === "asc" ? "desc" : s === "desc" ? null : "asc")}
+                  >
+                    <span className="inline-flex items-center gap-1 justify-end w-full">
+                      Data Lib.
+                      {sortDataLib === "asc" ? <ChevronUp size={12} /> : sortDataLib === "desc" ? <ChevronDown size={12} /> : <ChevronsUpDown size={12} style={{ opacity: 0.4 }} />}
+                    </span>
+                  </th>
                   <th
                     className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider"
                     style={{ minWidth: 280 }}
