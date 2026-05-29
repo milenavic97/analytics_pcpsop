@@ -110,6 +110,8 @@ export function OverviewPage() {
   const [realMtd, setRealMtd]                 = useState(0)
   const [detalhePrevistoHoje, setDetalhePrevistoHoje] = useState<PrevistoHojeItem[]>([])
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null)
+  const [mtdCxPrevisto, setMtdCxPrevisto] = useState<number>(0)
+  const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(0)
 
   useEffect(() => {
     buscarUltimaAtualizacao("sd3_entradas")
@@ -132,9 +134,7 @@ export function OverviewPage() {
     getDisponibilidadeMensal().then((d: unknown) => {
       const data = d as DisponibilidadePayload
       const mesAtual = data.meses?.find((m) => Number(m.mes) === Number(data.mes_atual))
-      const previsto = Number(data.entradas_previstas_mtd || mesAtual?.entradas_previstas_mtd || 0)
       const realizado = Number(mesAtual?.entradas_real_mes_atual || 0)
-      setPrevistoHoje(previsto)
       setRealMtd(realizado)
       const previstoGrupos = data.entradas_previstas_mtd_por_grupo || mesAtual?.entradas_previstas_mtd_por_grupo || []
       const realGrupos = mesAtual?.entradas_real_mes_atual_por_grupo || []
@@ -241,10 +241,10 @@ export function OverviewPage() {
           </div>
         </div>
         <div className="mt-6">
-          <GrupoDisponibilidadeTableV2 />
+          <GrupoDisponibilidadeTableV2 mtdCxPrevisto={mtdCxPrevisto} />
         </div>
         <div className="mt-6">
-          <RastreamentoLotes />
+          <RastreamentoLotes onMtdLoad={(p, l) => { setMtdCxPrevisto(p); setMtdCxLiberado(l); }} />
         </div>
       </section>
 
