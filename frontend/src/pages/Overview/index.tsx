@@ -177,7 +177,7 @@ export function OverviewPage() {
             </span>
 
             <span className="text-sm text-slate-500">
-{ultimaAtualizacao ? formatDataHora(ultimaAtualizacao) : "--"}
+{ultimaAtualizacao ? formatarDataHoraAtualizacao(ultimaAtualizacao) : "--"}
             </span>
           </div>
         </div>
