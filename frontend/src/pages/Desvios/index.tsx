@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
+  CalendarDays,
   Clock3,
   FileWarning,
   History,
@@ -284,18 +285,16 @@ export default function DesviosPage() {
             Histórico, rastreabilidade e impacto dos lotes travados.
           </p>
           {snapshots.length > 0 && (
-            <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
-              <span>📅</span>
-              <span>
-                Dados atualizados em:{" "}
-                <span className="font-medium text-slate-600">
-                  {new Date([...snapshots].sort((a, b) => new Date(b.data_upload).getTime() - new Date(a.data_upload).getTime())[0].data_upload).toLocaleString("pt-BR", {
-                    day: "2-digit", month: "2-digit", year: "numeric",
-                    hour: "2-digit", minute: "2-digit",
-                  }).replace(",", " às")}
-                </span>
+            <div className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 shadow-sm">
+              <CalendarDays className="h-4 w-4 text-slate-500" />
+              <span className="text-sm font-medium text-slate-700">Dados atualizados em:</span>
+              <span className="text-sm text-slate-500">
+                {new Date([...snapshots].sort((a, b) => new Date(b.data_upload).getTime() - new Date(a.data_upload).getTime())[0].data_upload).toLocaleString("pt-BR", {
+                  day: "2-digit", month: "2-digit", year: "numeric",
+                  hour: "2-digit", minute: "2-digit",
+                }).replace(",", " às")}
               </span>
-            </p>
+            </div>
           )}
         </div>
 
