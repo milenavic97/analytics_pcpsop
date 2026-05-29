@@ -264,7 +264,10 @@ function SkuModal({
   )
 }
 
-export function GrupoDisponibilidadeTableV2() {
+// ─── CORREÇÃO: aceita mtdCxPrevisto do RastreamentoLotes via prop ─────────────
+// Antes: usava entradasPrevistasMtd da f_liberacao_diaria (plano antigo) → 12.488
+// Depois: usa mtdCxPrevisto do Gantt MRP quando disponível → valor correto
+export function GrupoDisponibilidadeTableV2({ mtdCxPrevisto }: { mtdCxPrevisto?: number } = {}) {
   const [mesAtual, setMesAtual] = useState<MesData | null>(null)
   const [mesAtualNum, setMesAtualNum] = useState<number>(0)
   const [entradasPrevistasMtd, setEntradasPrevistasMtd] = useState<number>(0)
@@ -331,7 +334,9 @@ export function GrupoDisponibilidadeTableV2() {
   }
 
   const totalPrevistoMes = mesAtual?.entradas ?? 0
-  const totalPrevistoMtd = entradasPrevistasMtd
+  // CORREÇÃO: usa mtdCxPrevisto do Gantt MRP quando disponível,
+  // fallback para entradasPrevistasMtd da f_liberacao_diaria
+  const totalPrevistoMtd = (mtdCxPrevisto && mtdCxPrevisto > 0) ? mtdCxPrevisto : entradasPrevistasMtd
   const totalReal = mesAtual?.entradas_real_mes_atual ?? 0
 
   const vsPct = totalPrevistoMtd > 0 ? Math.round((totalReal / totalPrevistoMtd) * 100) : null
