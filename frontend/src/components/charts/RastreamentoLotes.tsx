@@ -406,13 +406,20 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [sortDataLib, setSortDataLib] = useState<"asc" | "desc" | null>(null);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
 
+  const hojeBase = new Date();
+  const [mesSelecionado, setMesSelecionado] = useState(hojeBase.getMonth() + 1);
+  const [anoSelecionado, setAnoSelecionado] = useState(hojeBase.getFullYear());
+
   const carregar = async () => {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_URL}/overview/rastreamento-lotes`, {
-        credentials: "include",
-      });
+      const res = await fetch(
+        `${API_URL}/overview/rastreamento-lotes?mes=${mesSelecionado}&ano=${anoSelecionado}`,
+        {
+          credentials: "include",
+        },
+      );
 
       const json = await res.json();
       setData(json);
@@ -427,8 +434,9 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   };
 
   useEffect(() => {
+    setSelecionados(new Set());
     carregar();
-  }, []);
+  }, [mesSelecionado, anoSelecionado]);
 
   const mesLabel = data ? MES_LABELS[(data.mes ?? 1) - 1] : "";
 
@@ -623,18 +631,77 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           </h2>
         </div>
 
-        <button
-          onClick={carregar}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-semibold"
-          style={{
-            borderColor: "var(--border)",
-            color: "var(--text-secondary)",
-          }}
-        >
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          Atualizar
-        </button>
+        <div className="flex flex-wrap items-end justify-end gap-3">
+          <div className="flex flex-col gap-1">
+            <label
+              className="text-[10px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Mês de análise
+            </label>
+
+            <select
+              value={mesSelecionado}
+              onChange={(e) => setMesSelecionado(Number(e.target.value))}
+              className="rounded-xl border px-3 py-2 text-xs font-semibold outline-none"
+              style={{
+                background: "var(--bg-secondary)",
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+                minWidth: 140,
+              }}
+            >
+              {MES_LABELS.map((label, index) => (
+                <option key={label} value={index + 1}>
+                  {label}/{anoSelecionado}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label
+              className="text-[10px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Ano
+            </label>
+
+            <select
+              value={anoSelecionado}
+              onChange={(e) => setAnoSelecionado(Number(e.target.value))}
+              className="rounded-xl border px-3 py-2 text-xs font-semibold outline-none"
+              style={{
+                background: "var(--bg-secondary)",
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+                minWidth: 100,
+              }}
+            >
+              {[anoSelecionado - 1, anoSelecionado, anoSelecionado + 1]
+                .filter((ano, index, arr) => arr.indexOf(ano) === index)
+                .sort((a, b) => a - b)
+                .map((ano) => (
+                  <option key={ano} value={ano}>
+                    {ano}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <button
+            onClick={carregar}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-semibold"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {data && (
