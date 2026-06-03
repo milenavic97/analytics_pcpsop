@@ -520,6 +520,25 @@ function getEstoqueAtualizadoEm(dados: ResumoViabilidade | null): string | null 
   return null
 }
 
+function getProgramacaoAtualizadaEm(dados: ResumoViabilidade | null): string | null {
+  if (!dados) return null
+
+  const d = dados as unknown as Record<string, unknown>
+
+  const direto = [
+    d.programacao_atualizada_em,
+    d.ultima_atualizacao_programacao,
+    d.data_programacao,
+    d.programacao_ops_atualizada_em,
+    d.updated_at_programacao,
+    d.processado_em_programacao,
+  ].find(Boolean)
+
+  if (direto) return String(direto)
+
+  return null
+}
+
 function fmtDataHora(value: string | null | undefined) {
   if (!value) return null
 
@@ -2028,6 +2047,7 @@ export function OrdensPage() {
   const semMaterial = opsComAjustes.filter(op => op.status === "falta" || op.status === "quarentena").length
   const pctAbertas  = totalMes > 0 ? Math.round((abertas / totalMes) * 100) : 0
   const estoqueAtualizadoEm = fmtDataHora(getEstoqueAtualizadoEm(dados))
+  const programacaoAtualizadaEm = fmtDataHora(getProgramacaoAtualizadaEm(dados))
 
   function uniqueOptions(values: Array<string | null | undefined>): SelectOption[] {
     return Array.from(new Set(values.map(v => String(v || "").trim()).filter(Boolean)))
@@ -2183,6 +2203,23 @@ export function OrdensPage() {
           <p className="mb-1 text-[10px] font-medium uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>Planejamento · Ordens de Produção</p>
           <h1 className="mb-1 text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>Verificação de OPs</h1>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Confira quais OPs sem emissão têm material disponível para abertura no Protheus.</p>
+
+          {dados && !loading && (
+            <div
+              className="mt-3 inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium"
+              style={{
+                background: "var(--bg-secondary)",
+                borderColor: "var(--border)",
+                color: "var(--text-secondary)",
+              }}
+              title="Data/hora da última carga da programação mensal de OPs considerada nesta análise."
+            >
+              <CalendarDays size={14} />
+              <span>
+                Programação atualizada em: {programacaoAtualizadaEm || "não disponível"}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {selecionados.size > 0 && <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{selecionados.size} selecionada{selecionados.size !== 1 ? "s" : ""}</span>}
