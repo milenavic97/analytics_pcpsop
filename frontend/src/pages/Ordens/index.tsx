@@ -542,24 +542,42 @@ function getProgramacaoAtualizadaEm(dados: ResumoViabilidade | null): string | n
 function fmtDataHora(value: string | null | undefined) {
   if (!value) return null
 
-  const raw = String(value)
-  const dt = new Date(raw)
+  const raw = String(value).trim()
 
-  if (!Number.isNaN(dt.getTime())) {
-    const hasTime = /T|\d{2}:\d{2}/.test(raw)
-    return dt.toLocaleString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      ...(hasTime ? { hour: "2-digit", minute: "2-digit" } : {}),
-    })
+  // Quando vier algo já formatado no padrão brasileiro, troca a vírgula por "às".
+  // Ex.: "03/06/2026, 12:58" -> "03/06/2026 às 12:58"
+  const dataHoraBr = raw.match(/^(\d{2}\/\d{2}\/\d{4})(?:,|\s+às\s+|\s+as\s+|\s+)(\d{2}:\d{2})(?::\d{2})?/)
+  if (dataHoraBr) {
+    return `${dataHoraBr[1]} às ${dataHoraBr[2]}`
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
     return fmtData(raw)
   }
 
-  return raw
+  const dt = new Date(raw)
+
+  if (!Number.isNaN(dt.getTime())) {
+    const hasTime = /T|\d{2}:\d{2}/.test(raw)
+    const dataFormatada = dt.toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    })
+
+    if (!hasTime) {
+      return dataFormatada
+    }
+
+    const horaFormatada = dt.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+
+    return `${dataFormatada} às ${horaFormatada}`
+  }
+
+  return raw.replace(/\s*,\s*(\d{1,2}:\d{2})(?::\d{2})?/, " às $1")
 }
 
 function ordenarESequenciarOps(lista: OPEditavel[]) {
