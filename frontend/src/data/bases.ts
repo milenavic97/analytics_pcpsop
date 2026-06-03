@@ -105,6 +105,32 @@ export const BASES: BaseConfig[] = [
     template:  "template_bom_estrutura.xlsx",
     icone:     "ClipboardList",
   },
+
+  {
+    id:        "lotes_teoricos",
+    label:     "Lotes Teóricos",
+    descricao: "Relação entre produto, linha e quantidade teórica de abertura da OP no Protheus. Usado na viabilidade das Ordens de Produção.",
+    colunas: [
+      "codigo_produto",
+      "descricao_produto",
+      "letra_lote",
+      "linha",
+      "qtd_teorica_abertura",
+      "ativo",
+      "observacao",
+    ],
+    template:  "template_lotes_teoricos.xlsx",
+    icone:     "ClipboardList",
+    colunasVisiveis: [
+      { key: "codigo_produto",        label: "Código"       },
+      { key: "descricao_produto",     label: "Produto"      },
+      { key: "letra_lote",            label: "Letra"        },
+      { key: "linha",                 label: "Linha"        },
+      { key: "qtd_teorica_abertura",  label: "Qtd. Teórica" },
+      { key: "ativo",                 label: "Ativo"        },
+      { key: "observacao",            label: "Observação"   },
+    ],
+  },
   {
     id:        "estoque_saldo",
     label:     "Estoque de Insumos (SB8)",
