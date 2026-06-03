@@ -77,6 +77,15 @@ type OPEditavel = OPResult & {
   data_termino?: string | null
   fifo_posicao?: number | null
   gargalo?: Gargalo | null
+  quantidade_programada?: number | null
+  quantidade_teorica?: number | null
+  qtd_teorica_abertura?: number | null
+  quantidade_calculo?: number | null
+  usa_lote_teorico?: boolean | null
+  lote_teorico_encontrado?: boolean | null
+  linha_lote_teorico?: string | null
+  letra_lote_teorico?: string | null
+  observacao_lote_teorico?: string | null
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -393,6 +402,23 @@ Comprador: ${comprador}`
 
 function tipoProduto(linha: string) {
   return linha === "EMBALAGEM" ? "PA" : "PI"
+}
+
+function getQtdTeoricaOP(op: OPEditavel | OPResult): number {
+  const opAny = op as OPEditavel
+  const qtdTeorica = toNumber(
+    opAny.quantidade_teorica
+      ?? opAny.qtd_teorica_abertura
+      ?? opAny.quantidade_calculo
+      ?? opAny.quantidade
+  )
+
+  return qtdTeorica > 0 ? qtdTeorica : toNumber(opAny.quantidade)
+}
+
+function usaLoteTeoricoOP(op: OPEditavel | OPResult): boolean {
+  const opAny = op as OPEditavel
+  return Boolean(opAny.usa_lote_teorico || opAny.lote_teorico_encontrado)
 }
 
 function normalizarTexto(value: unknown) {
@@ -1521,6 +1547,14 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
         </Td>
         <Td className="hidden lg:table-cell w-24 font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{op.op_numero || "—"}</Td>
         <Td className="hidden lg:table-cell w-24 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(op.quantidade)}</Td>
+        <Td className="hidden lg:table-cell w-28 font-semibold" style={{ color: usaLoteTeorico ? "#7C2D12" : "var(--text-secondary)" }}>
+          <Tooltip text={usaLoteTeorico ? "Quantidade teórica usada para cálculo de materiais e abertura da OP no Protheus" : "Sem lote teórico cadastrado: cálculo usa a própria QTD programada"}>
+            <span className="inline-flex items-center gap-1">
+              {fmt(qtdTeorica)}
+              {usaLoteTeorico && <span className="rounded px-1 py-0.5 text-[9px] font-bold" style={{ background: "#FFEDD5", color: "#9A3412" }}>TEÓR.</span>}
+            </span>
+          </Tooltip>
+        </Td>
         <Td className="hidden xl:table-cell w-28 text-xs" style={{ color: "var(--text-secondary)" }}>{fmtData(op.data_lavagem_emb)}</Td>
         <Td className="hidden xl:table-cell w-28 text-xs" style={{ color: "var(--text-secondary)" }}>{fmtData(op.data_inicio_fabricacao)}</Td>
         <Td className="hidden lg:table-cell w-24 text-xs" style={{ color: "var(--text-secondary)" }}>{fmtData(op.data_fim)}</Td>
@@ -1547,8 +1581,15 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
 
       {aberto && (
         <tr>
-          <td colSpan={16} className="px-4 pb-4 pt-1">
+          <td colSpan={17} className="px-4 pb-4 pt-1">
             <div className="rounded-xl p-4 space-y-4" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+              {usaLoteTeorico && (
+                <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E" }}>
+                  <strong>Cálculo com lote teórico:</strong> QTD programada {fmt(op.quantidade)} · QTD teórica para abertura {fmt(qtdTeorica)}
+                  {(op as OPEditavel).letra_lote_teorico ? ` · letra ${(op as OPEditavel).letra_lote_teorico}` : ""}
+                  {(op as OPEditavel).linha_lote_teorico ? ` · linha ${(op as OPEditavel).linha_lote_teorico}` : ""}
+                </div>
+              )}
               {((op as OPEditavel).observacoes || (op as OPEditavel).anotacao) && (
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   {op.observacoes && <div className="rounded-lg px-3 py-2.5" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}><p className="card-label mb-1">Observação</p><p className="text-sm" style={{ color: "var(--text-primary)" }}>{op.observacoes}</p></div>}
@@ -1837,7 +1878,7 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesComp
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", cursor: isAnyResizing ? "col-resize" : undefined }}>
       <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
-        <table className="w-full border-separate border-spacing-0" style={{ minWidth: Math.max(1120, produtoColWidth + gargaloColWidth + 900) }}>
+        <table className="w-full border-separate border-spacing-0" style={{ minWidth: Math.max(1220, produtoColWidth + gargaloColWidth + 1000) }}>
           <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
             <tr style={{ background: TABLE_HEADER_BG }}>
               <th className="pl-3 py-3 w-8">
@@ -1875,6 +1916,7 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesComp
               <th className={`${thCls} hidden md:table-cell w-14`} style={thStyle}>Tipo</th>
               <th className={`${thCls} hidden lg:table-cell w-24`} style={thStyle}>OP</th>
               <th className={`${thCls} hidden lg:table-cell w-24`} style={thStyle}>Qtd.</th>
+              <th className={`${thCls} hidden lg:table-cell w-28`} style={thStyle}>Qtd. Teórica</th>
               <th className={`${thCls} hidden xl:table-cell w-28`} style={thStyle}>Lav. Êmb</th>
               <th className={`${thCls} hidden xl:table-cell w-28`} style={thStyle}>Início Fab.</th>
               <th className={`${thCls} hidden lg:table-cell w-24`} style={thStyle}>Data Fim</th>
@@ -1907,10 +1949,11 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesComp
 // ─── Export Excel ─────────────────────────────────────────────────────────────
 
 function exportarExcel(ops: OPEditavel[], mesRef: string) {
-  const headers = ["#FIFO", "Lote", "Produto", "Código", "Linha", "Tipo", "OP", "Qtd.", "Lav. Êmb", "Início Fab.", "Data Fim", "Status", "Gargalo", "Observação", "Anotação"]
+  const headers = ["#FIFO", "Lote", "Produto", "Código", "Linha", "Tipo", "OP", "Qtd.", "Qtd. Teórica", "Usa Lote Teórico", "Lav. Êmb", "Início Fab.", "Data Fim", "Status", "Gargalo", "Observação", "Anotação"]
   const rows = ops.map(op => [
     op.fifo_posicao ?? "", op.lote, op.produto || op.codigo, op.codigo,
     LINHA_LABEL[op.linha] || op.linha, tipoProduto(op.linha), op.op_numero || "", op.quantidade,
+    getQtdTeoricaOP(op), usaLoteTeoricoOP(op) ? "Sim" : "Não",
     fmtData(op.data_lavagem_emb), fmtData(op.data_inicio_fabricacao), fmtData(op.data_fim),
     STATUS_CONFIG[op.status]?.label || op.status,
     getGargalosOP(op).map(g => `${g.descricao}${g.codigo_comp ? ` (${g.codigo_comp})` : ""} (chegou ${g.saldo_chegou} / necessário ${g.necessario} ${g.unidade})`).join(" | "),
