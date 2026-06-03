@@ -165,11 +165,18 @@ export type OverviewFiltros = {
   status_portfolio?: string
 }
 
-function buildOverviewQuery(filtros?: OverviewFiltros) {
+export type OverviewPeriodo = {
+  mes?: number
+  ano?: number
+}
+
+export type OverviewFiltrosComPeriodo = OverviewFiltros & OverviewPeriodo
+
+function buildOverviewQuery(filtros?: OverviewFiltrosComPeriodo) {
   const params = new URLSearchParams()
 
   Object.entries(filtros || {}).forEach(([key, value]) => {
-    const texto = String(value || "").trim()
+    const texto = String(value ?? "").trim()
     if (texto && texto !== "TODOS" && texto !== "TODAS") {
       params.set(key, texto)
     }
@@ -219,11 +226,11 @@ export async function getEstoqueMensal(filtros?: OverviewFiltros) {
   return apiFetch(`/overview/estoque-mensal${buildOverviewQuery(filtros)}`)
 }
 
-export async function getDisponibilidadeMensal(filtros?: OverviewFiltros) {
+export async function getDisponibilidadeMensal(filtros?: OverviewFiltrosComPeriodo) {
   return apiFetch(`/overview/disponibilidade-mensal${buildOverviewQuery(filtros)}`)
 }
 
-export async function getAtendimentoSku(filtros?: OverviewFiltros) {
+export async function getAtendimentoSku(filtros?: OverviewFiltrosComPeriodo) {
   return apiFetch(`/overview/atendimento-sku${buildOverviewQuery(filtros)}`)
 }
 
@@ -746,6 +753,15 @@ export interface OPResult {
   produto: string
   linha: string
   quantidade: number
+  quantidade_programada?: number | null
+  quantidade_teorica?: number | null
+  qtd_teorica_abertura?: number | null
+  quantidade_calculo?: number | null
+  usa_lote_teorico?: boolean | null
+  lote_teorico_encontrado?: boolean | null
+  linha_lote_teorico?: string | null
+  letra_lote_teorico?: string | null
+  observacao_lote_teorico?: string | null
   data_fim: string | null
   op_numero: string | null
   status: StatusOP
