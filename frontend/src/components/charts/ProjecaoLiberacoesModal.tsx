@@ -40,12 +40,21 @@ interface LinhaResumo {
 
 interface ProjecaoLiberacoesResponse {
   total_real: number
+  total_real_mes_atual?: number
   total_previsto: number
   total_projetado: number
   total_orcado: number
   pct_atingimento: number
   delta_caixas: number
   ultimo_mes_fechado: number
+  mes_atual?: number
+  mes_inicio_previsto?: number
+  fonte_previsto?: string
+  fonte_previsto_detalhe?: string
+  versao_previsto_atual?: string | null
+  realizado_label?: string
+  previsto_label?: string
+  projecao_label?: string
   meses: MesResumo[]
   linhas?: LinhaResumo[]
 }
@@ -146,7 +155,7 @@ const PlannedLabel = (props: any) => {
 
   if (!value || Number(value) <= 0) return null
 
-  const versao = payload?.versao_planejada ? `V${payload.versao_planejada}` : ""
+  const versao = payload?.versao_planejada ? String(payload.versao_planejada) : ""
 
   return (
     <text
@@ -301,7 +310,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <div style={{ display: "grid", gap: 4 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
           <span style={{ color: "var(--text-secondary)" }}>
-            Planejado {row?.versao_planejada ? `(V${row.versao_planejada})` : ""}
+            Planejado {row?.versao_planejada ? `(${row.versao_planejada})` : ""}
           </span>
           <strong style={{ color: "var(--text-primary)" }}>{fmt(row?.planejado)} cx</strong>
         </div>
@@ -705,7 +714,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
             </h2>
 
             <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-              Comparativo por linha: planejado por última versão mensal, V1, realizado, orçado e atingimento.
+              Comparativo por linha: realizado até o mês fechado e previsto pelo Gantt/MPS versionado.
             </p>
           </div>
 
@@ -780,6 +789,10 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0" }}>
                     {fmt(totalRealTb)} tubetes
                   </p>
+
+                  <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "8px 0 0", fontWeight: 600 }}>
+                    {data.realizado_label || "Jan – mês fechado"}
+                  </p>
                 </div>
 
                 <div style={{ background: "var(--bg-primary)", borderRadius: 10, padding: "14px 16px", border: "1px solid var(--border)" }}>
@@ -793,6 +806,10 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
 
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0" }}>
                     {fmt(totalPrevistoTb)} tubetes
+                  </p>
+
+                  <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "8px 0 0", fontWeight: 600 }}>
+                    {data.previsto_label || "Mês atual – Dez pelo Gantt/MPS"}
                   </p>
                 </div>
 
@@ -808,7 +825,25 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0" }}>
                     {fmt(totalProjetadoTb)} tubetes · {fmtPct(data.pct_atingimento)} do orçado
                   </p>
+
+                  <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "8px 0 0", fontWeight: 600 }}>
+                    {data.projecao_label || "Realizado + previsto"}
+                  </p>
                 </div>
+              </div>
+
+              <div
+                style={{
+                  marginBottom: 18,
+                  padding: "10px 12px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: "var(--text-secondary)",
+                  background: "var(--bg-primary)",
+                }}
+              >
+                {data.fonte_previsto_detalhe || "Fonte do previsto: Gantt/MPS versionado"}
               </div>
 
               <div style={{ marginBottom: 18 }}>
@@ -822,7 +857,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                     onClick={() => setShowPlanejado((prev) => !prev)}
                     marker={<span style={{ width: 14, height: 12, borderRadius: 3, background: COR_PLANEJADO }} />}
                   >
-                    Planejado · última versão do mês
+                    Planejado · Gantt/MPS versionado
                   </LegendToggleItem>
 
                   <LegendToggleItem
@@ -928,7 +963,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   background: "var(--bg-primary)",
                 }}
               >
-                Valores principais em caixas. Planejado usa a última versão disponível de cada mês/linha. Referência: 1 caixa contém 500 tubetes.
+                Valores principais em caixas. O previsto vem do Gantt/MPS versionado; meses fechados usam o realizado. Referência: 1 caixa contém 500 tubetes.
               </div>
             </>
           )}
