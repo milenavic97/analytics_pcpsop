@@ -330,6 +330,10 @@ export async function getAtendimentoSku(filtros?: OverviewFiltrosComPeriodo) {
   return apiFetch(`/overview/atendimento-sku${buildOverviewQuery(filtros)}`)
 }
 
+export async function getRastreamentoLotes(filtros?: OverviewPeriodo) {
+  return apiFetch(`/overview/rastreamento-lotes${buildOverviewQuery(filtros)}`)
+}
+
 // ─────────────────────────────────────────────────────────────
 //// ─────────────────────────────────────────────────────────────
 // Produção
