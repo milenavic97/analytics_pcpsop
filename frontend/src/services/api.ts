@@ -8,10 +8,17 @@ const API_URL =
 // Objetivo:
 // - Ao sair e voltar para uma página, reaproveitar os dados carregados.
 // - Evitar chamadas duplicadas simultâneas para o mesmo endpoint.
+// - Persistir o cache no navegador para continuar rápido após F5/fechar e abrir.
 // - Limpar o cache automaticamente depois de uploads/edições/exclusões.
+//
+// Regra de negócio atual:
+// - As bases costumam ser atualizadas uma vez por dia.
+// - Por isso, o cache de GET fica válido por 12 horas.
+// - Qualquer POST/PUT/DELETE/upload limpa o cache e força recálculo.
 
-const API_CACHE_STALE_MS = 5 * 60 * 1000        // dado considerado fresco por 5 min
-const API_CACHE_GC_MS = 30 * 60 * 1000          // remove do cache depois de 30 min
+const API_CACHE_STALE_MS = 12 * 60 * 60 * 1000  // dado considerado fresco por 12h
+const API_CACHE_GC_MS = 24 * 60 * 60 * 1000     // remove do storage depois de 24h
+const API_CACHE_STORAGE_PREFIX = "dfl-api-cache-v2:"
 
 type ApiCacheEntry<T = unknown> = {
   timestamp: number
@@ -19,10 +26,77 @@ type ApiCacheEntry<T = unknown> = {
   promise?: Promise<T>
 }
 
+type ApiStorageEntry<T = unknown> = {
+  timestamp: number
+  data: T
+}
+
 const apiCache = new Map<string, ApiCacheEntry>()
 
 function getApiCacheKey(path: string) {
   return `${API_URL}${path}`
+}
+
+function getStorage() {
+  try {
+    if (typeof window === "undefined") return null
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+function getStorageKey(cacheKey: string) {
+  return `${API_CACHE_STORAGE_PREFIX}${cacheKey}`
+}
+
+function readPersistentCache<T>(cacheKey: string): ApiStorageEntry<T> | null {
+  const storage = getStorage()
+  if (!storage) return null
+
+  const storageKey = getStorageKey(cacheKey)
+
+  try {
+    const raw = storage.getItem(storageKey)
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as ApiStorageEntry<T>
+
+    if (
+      !parsed ||
+      typeof parsed.timestamp !== "number" ||
+      !Object.prototype.hasOwnProperty.call(parsed, "data")
+    ) {
+      storage.removeItem(storageKey)
+      return null
+    }
+
+    if (Date.now() - parsed.timestamp > API_CACHE_STALE_MS) {
+      storage.removeItem(storageKey)
+      return null
+    }
+
+    return parsed
+  } catch {
+    storage.removeItem(storageKey)
+    return null
+  }
+}
+
+function writePersistentCache<T>(cacheKey: string, data: T) {
+  const storage = getStorage()
+  if (!storage) return
+
+  try {
+    const payload: ApiStorageEntry<T> = {
+      timestamp: Date.now(),
+      data,
+    }
+
+    storage.setItem(getStorageKey(cacheKey), JSON.stringify(payload))
+  } catch {
+    // Se o navegador bloquear ou o storage encher, mantém apenas o cache em memória.
+  }
 }
 
 function limparCacheExpirado() {
@@ -33,11 +107,66 @@ function limparCacheExpirado() {
       apiCache.delete(key)
     }
   }
+
+  const storage = getStorage()
+  if (!storage) return
+
+  try {
+    const keysToRemove: string[] = []
+
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i)
+      if (!key || !key.startsWith(API_CACHE_STORAGE_PREFIX)) continue
+
+      try {
+        const raw = storage.getItem(key)
+        if (!raw) {
+          keysToRemove.push(key)
+          continue
+        }
+
+        const parsed = JSON.parse(raw) as ApiStorageEntry
+
+        if (
+          !parsed ||
+          typeof parsed.timestamp !== "number" ||
+          agora - parsed.timestamp > API_CACHE_GC_MS
+        ) {
+          keysToRemove.push(key)
+        }
+      } catch {
+        keysToRemove.push(key)
+      }
+    }
+
+    keysToRemove.forEach((key) => storage.removeItem(key))
+  } catch {
+    // Não bloqueia a tela caso o storage falhe.
+  }
 }
 
 export function clearApiCache(prefix?: string) {
   if (!prefix) {
     apiCache.clear()
+
+    const storage = getStorage()
+    if (!storage) return
+
+    try {
+      const keysToRemove: string[] = []
+
+      for (let i = 0; i < storage.length; i += 1) {
+        const key = storage.key(i)
+        if (key?.startsWith(API_CACHE_STORAGE_PREFIX)) {
+          keysToRemove.push(key)
+        }
+      }
+
+      keysToRemove.forEach((key) => storage.removeItem(key))
+    } catch {
+      // Não bloqueia a mutação caso o storage falhe.
+    }
+
     return
   }
 
@@ -47,6 +176,28 @@ export function clearApiCache(prefix?: string) {
     if (key.startsWith(prefixAbs) || key.includes(prefix)) {
       apiCache.delete(key)
     }
+  }
+
+  const storage = getStorage()
+  if (!storage) return
+
+  try {
+    const keysToRemove: string[] = []
+
+    for (let i = 0; i < storage.length; i += 1) {
+      const storageKey = storage.key(i)
+      if (!storageKey?.startsWith(API_CACHE_STORAGE_PREFIX)) continue
+
+      const cacheKey = storageKey.replace(API_CACHE_STORAGE_PREFIX, "")
+
+      if (cacheKey.startsWith(prefixAbs) || cacheKey.includes(prefix)) {
+        keysToRemove.push(storageKey)
+      }
+    }
+
+    keysToRemove.forEach((key) => storage.removeItem(key))
+  } catch {
+    // Não bloqueia a limpeza caso o storage falhe.
   }
 }
 
@@ -69,6 +220,16 @@ async function apiFetch<T>(
 
     if (cached?.promise) {
       return cached.promise
+    }
+
+    const persisted = readPersistentCache<T>(cacheKey)
+    if (persisted) {
+      apiCache.set(cacheKey, {
+        timestamp: persisted.timestamp,
+        data: persisted.data,
+      })
+
+      return persisted.data
     }
   }
 
@@ -106,10 +267,14 @@ async function apiFetch<T>(
 
     requestPromise
       .then((data) => {
+        const timestamp = Date.now()
+
         apiCache.set(cacheKey, {
-          timestamp: Date.now(),
+          timestamp,
           data,
         })
+
+        writePersistentCache(cacheKey, data)
       })
       .catch(() => {
         apiCache.delete(cacheKey)
