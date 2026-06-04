@@ -1094,6 +1094,21 @@ export async function getOpsViabilidade(
   )
 }
 
+
+export async function getOpsViabilidadeComLeadtime(
+  mesRef: string,
+  leadtimeCompraDias: number
+): Promise<ResumoViabilidade> {
+  const leadtime = Math.max(
+    0,
+    Number.isFinite(leadtimeCompraDias) ? leadtimeCompraDias : 0
+  )
+
+  return apiFetch(
+    `/ops/viabilidade?mes_ref=${encodeURIComponent(mesRef)}&leadtime_compra_dias=${leadtime}`
+  )
+}
+
 export async function getOpsMeses(): Promise<{
   meses: string[]
 }> {
@@ -1676,7 +1691,7 @@ export function prefetchAppData(options?: { initialDelayMs?: number }) {
         if (!mesRef) return
 
         await Promise.allSettled([
-          getOpsViabilidade(mesRef),
+          getOpsViabilidadeComLeadtime(mesRef, 2),
           getOpsResumo(mesRef),
         ])
       })
