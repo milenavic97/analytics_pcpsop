@@ -569,6 +569,26 @@ export async function getRastreamentoLotes(filtros?: OverviewPeriodo) {
 // Produção
 // ─────────────────────────────────────────────────────────────
 
+export async function getOverviewProducaoResumo({
+  ano = 2026,
+  mes,
+  linha = "TODAS",
+}: {
+  ano?: number
+  mes: number
+  linha?: string
+}) {
+  const params = new URLSearchParams()
+
+  params.set("ano", String(ano))
+  params.set("mes", String(mes))
+  params.set("linha", linha)
+
+  return apiFetch(
+    `/overview-producao/resumo?${params.toString()}`
+  )
+}
+
 export async function getProducaoResumoMensal(
   ano = 2026
 ) {
@@ -1783,6 +1803,7 @@ export function prefetchAppData(options?: { initialDelayMs?: number }) {
 
       // 4) Produção/MPS/Faturamento — pré-carrega só os endpoints de resumo.
       await Promise.allSettled([
+        safePrefetch("overview-producao/resumo", () => getOverviewProducaoResumo({ ano, mes, linha: "TODAS" })),
         safePrefetch("producao/resumo", () => getProducaoResumoMensal(ano)),
         safePrefetch("producao/mps-resumo", () => getMpsResumoMensal(ano)),
         safePrefetch("producao/mps-comparativo", () => getMpsComparativoRealPlanejado(ano)),
