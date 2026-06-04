@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useMemo, useState } from "react"
+import { memo, useDeferredValue, useEffect, useMemo, useState, useTransition } from "react"
 import {
   AlertCircle,
   ArrowDown,
@@ -1127,6 +1127,16 @@ const COLUMNS: Column[] = [
 
 const FROZEN_COLUMNS = COLUMNS.filter((c) => c.frozen)
 const FROZEN_COLUMNS_WIDTH = FROZEN_COLUMNS.reduce((total, col) => total + col.width, 0)
+const COLUMN_RENDER_META = COLUMNS.map((col) => {
+  const frozenIndex = FROZEN_COLUMNS.findIndex((c) => c.key === col.key)
+  const frozen = frozenIndex >= 0
+  return {
+    col,
+    frozenIndex,
+    frozen,
+    left: frozen ? getLeftOffset(frozenIndex, FROZEN_COLUMNS) : undefined,
+  }
+})
 const SCROLL_COLUMNS = COLUMNS.filter((c) => !c.frozen)
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
@@ -2946,13 +2956,17 @@ export default function Mrp() {
     mesProducao: "", anoProducao: "", mesLiberacao: "", anoLiberacao: "", recurso: "L1",
   })
   const [abaMps, setAbaMps] = useState<AbaMps>("detalhado")
+  const [isPendingAbaMps, startTransitionAbaMps] = useTransition()
   const abaMpsRenderizada = useDeferredValue(abaMps)
-  const trocandoAbaMps = abaMps !== abaMpsRenderizada
+  const trocandoAbaMps = isPendingAbaMps || abaMps !== abaMpsRenderizada
+  const filtrosRenderizados = useDeferredValue(filtros)
+  const trocandoFiltros = filtros !== filtrosRenderizados
   const [etapasPorRodada, setEtapasPorRodada] = useState<Record<string, MrpEtapa[]>>({})
+  const [carregandoComparativo, setCarregandoComparativo] = useState(false)
 
   function trocarAbaMps(aba: AbaMps) {
     if (aba === abaMps) return
-    setAbaMps(aba)
+    startTransitionAbaMps(() => setAbaMps(aba))
   }
 
   function showToast(data: Toast, duration = 4000) {
@@ -2993,12 +3007,51 @@ export default function Mrp() {
     const mesmoMesAno = todasRodadas
       .filter((r) => r.mes === rodadaReferencia.mes && r.ano === rodadaReferencia.ano)
       .sort((a, b) => (a.versao || 0) - (b.versao || 0))
-    const mapa: Record<string, MrpEtapa[]> = {}
-    await Promise.all(mesmoMesAno.map(async (r) => {
-      if (!r.id) return
-      try { mapa[r.id] = await getMrpEtapas(r.id) } catch { mapa[r.id] = [] }
-    }))
-    setEtapasPorRodada(mapa)
+
+    if (!mesmoMesAno.length) {
+      setEtapasPorRodada({})
+      return
+    }
+
+    const ids = mesmoMesAno.map((r) => r.id).filter(Boolean) as string[]
+    const faltantes = ids.filter((id) => !etapasPorRodada[id])
+
+    if (!faltantes.length) return
+
+    setCarregandoComparativo(true)
+    try {
+      const mapa: Record<string, MrpEtapa[]> = { ...etapasPorRodada }
+
+      await Promise.all(mesmoMesAno.map(async (r) => {
+        if (!r.id || mapa[r.id]) return
+        try {
+          mapa[r.id] = await getMrpEtapas(r.id)
+        } catch {
+          mapa[r.id] = []
+        }
+      }))
+
+      setEtapasPorRodada(mapa)
+    } finally {
+      setCarregandoComparativo(false)
+    }
+  }
+
+  function agendarComparativo(rodadaReferencia: MrpRodada, todasRodadas: MrpRodada[]) {
+    const executar = () => {
+      void carregarComparativo(rodadaReferencia, todasRodadas)
+    }
+
+    const w = window as any
+    if (typeof w.requestIdleCallback === "function") {
+      const id = w.requestIdleCallback(executar, { timeout: 5000 })
+      return () => {
+        if (typeof w.cancelIdleCallback === "function") w.cancelIdleCallback(id)
+      }
+    }
+
+    const id = window.setTimeout(executar, 900)
+    return () => window.clearTimeout(id)
   }
 
   async function handleCriarRodada(nome: string, mes: number, ano: number, versao: number, obs: string) {
@@ -3178,13 +3231,25 @@ export default function Mrp() {
   useEffect(() => { carregarRodadas() }, [])
 
   useEffect(() => {
+    let cancelarComparativo: (() => void) | undefined
+
     if (rodadaSelecionada?.id) {
-      carregarDadosRodada(rodadaSelecionada.id)
-      carregarComparativo(rodadaSelecionada, rodadas)
+      void carregarDadosRodada(rodadaSelecionada.id)
+      cancelarComparativo = agendarComparativo(rodadaSelecionada, rodadas)
     } else {
       setEtapas([]); setAlocacoes([]); setMudancasRealizado([]); setEtapasPorRodada({}); setEdicoes({})
     }
+
+    return () => cancelarComparativo?.()
   }, [rodadaSelecionada?.id])
+
+  useEffect(() => {
+    if (!rodadaSelecionada?.id) return
+    if (abaMps !== "consolidado" && abaMps !== "perdas") return
+    if (etapasPorRodada[rodadaSelecionada.id]) return
+
+    void carregarComparativo(rodadaSelecionada, rodadas)
+  }, [abaMps, rodadaSelecionada?.id, rodadas.length])
 
   useEffect(() => {
     const datas = etapas.map((e) => e.data_inicio).filter(Boolean) as string[]
@@ -3211,7 +3276,7 @@ export default function Mrp() {
 
   const opcoesPeriodo = useMemo(() => gerarOpcoesMeses(hoje.getFullYear()), [])
   const etapasComEdicoes = useMemo(() => etapas.map(etapaComEdicao), [etapas, edicoes])
-  const etapasDoRecurso = useMemo(() => etapasComEdicoes.filter((e) => e.recurso === (filtros.recurso || "L1")), [etapasComEdicoes, filtros.recurso])
+  const etapasDoRecurso = useMemo(() => etapasComEdicoes.filter((e) => e.recurso === (filtrosRenderizados.recurso || "L1")), [etapasComEdicoes, filtrosRenderizados.recurso])
 
   const opcoesFiltros = useMemo(() => ({
     lote: uniqueSorted(etapasDoRecurso.map((e) => e.lote)),
@@ -3224,6 +3289,8 @@ export default function Mrp() {
   }), [etapasDoRecurso])
 
   const produtosUnicos = useMemo(() => uniqueSorted(etapas.map((e) => e.descricao_produto)), [etapas])
+  const produtoOptions = useMemo(() => produtosUnicos.map((p) => <option key={p} value={p}>{p}</option>), [produtosUnicos])
+  const mesOptions = useMemo(() => MESES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>), [])
 
   const alocacaoMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -3247,11 +3314,14 @@ export default function Mrp() {
     return map
   }, [alocacoes])
 
-  const etapasFiltradas = useMemo(() => filtrarEtapas(etapasComEdicoes, filtros), [etapasComEdicoes, filtros])
-  const recursoSelecionado = filtros.recurso || "L1"
+  const etapasFiltradas = useMemo(() => filtrarEtapas(etapasComEdicoes, filtrosRenderizados), [etapasComEdicoes, filtrosRenderizados])
+  const recursoSelecionado = filtrosRenderizados.recurso || "L1"
   const totalPaginas = Math.max(1, Math.ceil(etapasFiltradas.length / PAGE_SIZE))
   const paginaCorrigida = Math.min(pagina, totalPaginas)
-  const etapasPagina = etapasFiltradas.slice((paginaCorrigida - 1) * PAGE_SIZE, paginaCorrigida * PAGE_SIZE)
+  const etapasPagina = useMemo(
+    () => etapasFiltradas.slice((paginaCorrigida - 1) * PAGE_SIZE, paginaCorrigida * PAGE_SIZE),
+    [etapasFiltradas, paginaCorrigida]
+  )
 
   const mudancasDoRecurso = useMemo(
     () => mudancasRealizado.filter((m) => identificarRecursoMudanca(m) === recursoSelecionado),
@@ -3530,9 +3600,9 @@ export default function Mrp() {
         ))}
       </div>
 
-      {trocandoAbaMps && (
+      {(trocandoAbaMps || trocandoFiltros || carregandoComparativo) && (
         <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          Atualizando visão...
+          {carregandoComparativo ? "Preparando comparativo em segundo plano..." : "Atualizando visão..."}
         </div>
       )}
 
@@ -3559,7 +3629,14 @@ export default function Mrp() {
       {abaMpsRenderizada === "detalhado" && (
         <>
           {/* Tabela Gantt */}
-          <div className="card overflow-hidden">
+          <div
+            className="card overflow-hidden"
+            style={{
+              contain: "layout paint",
+              contentVisibility: "auto",
+              containIntrinsicSize: "900px",
+            }}
+          >
             <div className="flex items-center justify-between px-5 py-3 text-white" style={{ background: AZUL }}>
               <div>
                 <h2 className="font-semibold">Programação — {recursoSelecionado}</h2>
@@ -3572,7 +3649,7 @@ export default function Mrp() {
               </span>
             </div>
 
-            <div style={{ maxHeight: 640, overflow: "auto" }}>
+            <div style={{ maxHeight: 640, overflow: "auto", contain: "layout paint", willChange: "scroll-position" }}>
               <table style={{ borderCollapse: "separate", borderSpacing: 0, fontSize: 12 }}>
                 <thead style={{ position: "sticky", top: 0, zIndex: 40 }}>
                   <tr>
@@ -3587,11 +3664,9 @@ export default function Mrp() {
                     ))}
                   </tr>
                   <tr style={{ background: AZUL }}>
-                    {COLUMNS.map((col) => {
-                      const fi = FROZEN_COLUMNS.findIndex((c) => c.key === col.key)
-                      const frozen = fi >= 0
+                    {COLUMN_RENDER_META.map(({ col, frozen, left }) => {
                       return (
-                        <th key={col.key} rowSpan={2} style={{ position: frozen ? "sticky" : undefined, left: frozen ? getLeftOffset(fi, FROZEN_COLUMNS) : undefined, zIndex: frozen ? 50 : undefined, background: AZUL, color: "rgba(255,255,255,0.9)", padding: "8px 10px", textAlign: col.align || "left", minWidth: col.width, width: col.width, fontSize: 10, fontWeight: 600, whiteSpace: "pre-line", borderRight: "1px solid rgba(255,255,255,0.1)" }}>
+                        <th key={col.key} rowSpan={2} style={{ position: frozen ? "sticky" : undefined, left, zIndex: frozen ? 50 : undefined, background: AZUL, color: "rgba(255,255,255,0.9)", padding: "8px 10px", textAlign: col.align || "left", minWidth: col.width, width: col.width, fontSize: 10, fontWeight: 600, whiteSpace: "pre-line", borderRight: "1px solid rgba(255,255,255,0.1)" }}>
                           {col.label}
                         </th>
                       )
@@ -3616,16 +3691,14 @@ export default function Mrp() {
                 <tbody style={{ background: "var(--bg-secondary)" }}>
                   {etapasPagina.map((etapa) => (
                     <tr key={etapa.id} className="hover:bg-slate-50 transition-colors">
-                      {COLUMNS.map((col) => {
-                        const fi = FROZEN_COLUMNS.findIndex((c) => c.key === col.key)
-                        const frozen = fi >= 0
+                      {COLUMN_RENDER_META.map(({ col, frozen, left }) => {
                         const editado = !!etapa.id && !!edicoes[etapa.id]
                         return (
-                          <td key={col.key} style={{ position: frozen ? "sticky" : undefined, left: frozen ? getLeftOffset(fi, FROZEN_COLUMNS) : undefined, zIndex: frozen ? 30 : undefined, background: editado ? "#FEFCE8" : "var(--bg-secondary)", padding: "8px 10px", textAlign: col.align || "left", minWidth: col.width, width: col.width, borderBottom: "1px solid var(--border)", borderRight: frozen ? "1px solid var(--border)" : undefined, color: "var(--text-primary)", fontSize: 12 }}>
+                          <td key={col.key} style={{ position: frozen ? "sticky" : undefined, left, zIndex: frozen ? 30 : undefined, background: editado ? "#FEFCE8" : "var(--bg-secondary)", padding: "8px 10px", textAlign: col.align || "left", minWidth: col.width, width: col.width, borderBottom: "1px solid var(--border)", borderRight: frozen ? "1px solid var(--border)" : undefined, color: "var(--text-primary)", fontSize: 12 }}>
                             {col.key === "produto" ? (
                               <select value={etapa.descricao_produto || ""} onChange={(e) => aplicarEdicaoProduto(etapa, e.target.value)}
                                 style={{ width: "100%", background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "2px 6px", fontSize: 12, outline: "none", color: "var(--text-primary)" }}>
-                                {produtosUnicos.map((p) => <option key={p} value={p}>{p}</option>)}
+                                {produtoOptions}
                               </select>
                             ) : col.key === "meslib" ? (
                               <select
@@ -3635,7 +3708,7 @@ export default function Mrp() {
                                 onFocus={(e) => e.currentTarget.style.borderColor = "var(--border)"}
                                 onBlur={(e) => e.currentTarget.style.borderColor = etapa.mes_lib_manual ? "rgba(234,179,8,0.4)" : "transparent"}
                               >
-                                {MESES.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+                                {mesOptions}
                               </select>
                             ) : col.key === "anolib" ? (
                               <input
