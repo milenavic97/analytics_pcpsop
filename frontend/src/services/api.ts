@@ -1585,6 +1585,10 @@ export async function getDesviosAtuais() {
   return apiFetch("/desvios/atual")
 }
 
+export async function getDesviosHistoricoAnual(ano: number) {
+  return apiFetch(`/desvios/historico-anual?ano=${ano}`)
+}
+
 export async function uploadDesvios(file: File) {
   const form = new FormData()
   form.append("file", file)
@@ -1705,6 +1709,7 @@ export function prefetchAppData(options?: { initialDelayMs?: number }) {
         safePrefetch("desvios/eventos", () => getDesviosEventos()),
         safePrefetch("desvios/snapshots", () => getDesviosSnapshots()),
         safePrefetch("desvios/atual", () => getDesviosAtuais()),
+        safePrefetch(`desvios/historico-anual/${ano}`, () => getDesviosHistoricoAnual(ano)),
       ])
 
       if (cancelled) return
