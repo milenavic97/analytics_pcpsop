@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 import {
   getOpsMeses,
+  getOpsViabilidadeComLeadtime,
   atualizarRegistro,
   getAjustesComprasOps,
   salvarAjusteCompraOP,
@@ -19,21 +20,6 @@ import {
   type StatusOP,
 } from "@/services/api"
 
-const API_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
-  "https://dfl-sop-api.fly.dev"
-
-async function getOpsViabilidadeComLeadtime(mesRef: string, leadtimeCompraDias: number): Promise<ResumoViabilidade> {
-  const leadtime = Math.max(0, Number.isFinite(leadtimeCompraDias) ? leadtimeCompraDias : 0)
-  const res = await fetch(`${API_URL}/ops/viabilidade?mes_ref=${encodeURIComponent(mesRef)}&leadtime_compra_dias=${leadtime}`)
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error((err as { detail?: string }).detail || `Erro ${res.status}`)
-  }
-
-  return res.json() as Promise<ResumoViabilidade>
-}
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
