@@ -15,9 +15,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
-
-const API_URL =
-  (import.meta as any).env.VITE_API_URL || "https://dfl-sop-api.fly.dev";
+import { getRastreamentoLotes } from "@/services/api";
 
 interface DesvioInfo {
   serial?: string | null;
@@ -414,14 +412,11 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     setLoading(true);
 
     try {
-      const res = await fetch(
-        `${API_URL}/overview/rastreamento-lotes?mes=${mesSelecionado}&ano=${anoSelecionado}`,
-        {
-          credentials: "include",
-        },
-      );
+      const json = await getRastreamentoLotes({
+        mes: mesSelecionado,
+        ano: anoSelecionado,
+      }) as RastreamentoData;
 
-      const json = await res.json();
       setData(json);
       if (onMtdLoad) {
         onMtdLoad(json.mtd_cx_previsto ?? 0, json.mtd_cx_liberado ?? 0);
