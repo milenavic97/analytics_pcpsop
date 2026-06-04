@@ -50,28 +50,6 @@ function getStorageKey(cacheKey: string) {
   return `${API_CACHE_STORAGE_PREFIX}${cacheKey}`
 }
 
-function garantirArray<T>(valor: unknown): T[] {
-  if (Array.isArray(valor)) {
-    return valor as T[]
-  }
-
-  const obj = valor as { data?: unknown; items?: unknown; results?: unknown }
-
-  if (Array.isArray(obj?.data)) {
-    return obj.data as T[]
-  }
-
-  if (Array.isArray(obj?.items)) {
-    return obj.items as T[]
-  }
-
-  if (Array.isArray(obj?.results)) {
-    return obj.results as T[]
-  }
-
-  return []
-}
-
 function readPersistentCache<T>(cacheKey: string): ApiStorageEntry<T> | null {
   const storage = getStorage()
   if (!storage) return null
@@ -496,6 +474,71 @@ export async function getOrcadoLiberacao(filtros?: OverviewFiltros) {
 export async function getEntradasReaisMensal(filtros?: OverviewFiltros) {
   return apiFetch(`/overview/entradas-reais-mensal${buildOverviewQuery(filtros)}`)
 }
+
+function extrairSd3RealizadoMensal(data: unknown) {
+  const d = data as Record<string, unknown>
+  const candidatos = [
+    d.meses,
+    d.dados,
+    d.data,
+    d.resultados,
+    Array.isArray(data) ? data : null,
+  ]
+
+  const arr = candidatos.find((x) => Array.isArray(x)) as
+    | Array<Record<string, unknown>>
+    | undefined
+
+  if (!arr?.length) {
+    return Array.from({ length: 12 }, () => null as number | null)
+  }
+
+  return Array.from({ length: 12 }, (_, idx) => {
+    const mes = idx + 1
+    const item = arr.find((m) => Number(m.mes ?? m.mes_numero ?? m.month) === mes)
+
+    if (!item) return null
+
+    const valor = Number(
+      item.qtd_caixas ??
+        item.caixas ??
+        item.total_caixas ??
+        item.realizado_caixas ??
+        item.quantidade_caixas ??
+        0
+    )
+
+    return Number.isFinite(valor) && valor > 0 ? valor : null
+  })
+}
+
+export async function getSd3RealizadoMensal(
+  ano = new Date().getFullYear()
+): Promise<Array<number | null>> {
+  const endpoints = [
+    `/sd3/realizado-mensal?ano=${ano}`,
+    `/dados/sd3/realizado-mensal?ano=${ano}`,
+    `/overview/entradas-reais-mensal?ano=${ano}`,
+    `/overview/sd3-realizado-mensal?ano=${ano}`,
+    `/overview/faturamento-real-mensal?ano=${ano}`,
+  ]
+
+  for (const endpoint of endpoints) {
+    try {
+      const json = await apiFetch<unknown>(endpoint)
+      const meses = extrairSd3RealizadoMensal(json)
+
+      if (meses.some((v) => v !== null)) {
+        return meses
+      }
+    } catch {
+      // Tenta o próximo endpoint/fallback.
+    }
+  }
+
+  return Array.from({ length: 12 }, () => null as number | null)
+}
+
 
 export async function getForecastMensal(filtros?: OverviewFiltros) {
   return apiFetch(`/overview/forecast-mensal${buildOverviewQuery(filtros)}`)
@@ -1596,23 +1639,19 @@ export async function getDesviosResumo() {
 }
 
 export async function getDesviosEventos() {
-  const resp = await apiFetch<unknown>("/desvios/eventos")
-  return garantirArray(resp)
+  return apiFetch("/desvios/eventos")
 }
 
 export async function getDesviosSnapshots() {
-  const resp = await apiFetch<unknown>("/desvios/snapshots")
-  return garantirArray(resp)
+  return apiFetch("/desvios/snapshots")
 }
 
 export async function getDesviosAtuais() {
-  const resp = await apiFetch<unknown>("/desvios/atual")
-  return garantirArray(resp)
+  return apiFetch("/desvios/atual")
 }
 
 export async function getDesviosHistoricoAnual(ano: number) {
-  const resp = await apiFetch<unknown>(`/desvios/historico-anual?ano=${ano}`)
-  return garantirArray(resp)
+  return apiFetch(`/desvios/historico-anual?ano=${ano}`)
 }
 
 export async function uploadDesvios(file: File) {
@@ -1707,6 +1746,7 @@ export function prefetchAppData(options?: { initialDelayMs?: number }) {
         safePrefetch("overview/estoque-mensal", () => getEstoqueMensal()),
         safePrefetch("overview/disponibilidade-mensal", () => getDisponibilidadeMensal({ mes, ano })),
         safePrefetch("overview/rastreamento-lotes", () => getRastreamentoLotes({ mes, ano })),
+        safePrefetch("overview/sd3-realizado-mensal", () => getSd3RealizadoMensal(ano)),
       ])
 
       if (cancelled) return
@@ -1741,10 +1781,13 @@ export function prefetchAppData(options?: { initialDelayMs?: number }) {
       if (cancelled) return
       await delay(1200)
 
-      // 4) MRP/Faturamento — evita endpoints antigos que podem não existir no backend atual.
-      // Prefetch deve chamar apenas rotas confirmadas para não gerar 404 no console.
+      // 4) Produção/MPS/Faturamento — pré-carrega só os endpoints de resumo.
       await Promise.allSettled([
+        safePrefetch("producao/resumo", () => getProducaoResumoMensal(ano)),
+        safePrefetch("producao/mps-resumo", () => getMpsResumoMensal(ano)),
+        safePrefetch("producao/mps-comparativo", () => getMpsComparativoRealPlanejado(ano)),
         safePrefetch("mrp/rodadas", () => getMrpRodadas()),
+        safePrefetch("analise-mrp/resumo", () => getAnaliseMrpResumo()),
         safePrefetch("faturamento/resumo", () => getResumoFaturamento({ ano })),
       ])
     })()
