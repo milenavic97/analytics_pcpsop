@@ -3,13 +3,15 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Clock,
   ChevronDown, ChevronUp, RefreshCw,
   CalendarDays, PackageCheck, PackageX, ClipboardList,
-  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart,
+  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart, Upload,
 } from "lucide-react"
 import {
   getOpsMeses,
   atualizarRegistro,
   getAjustesComprasOps,
   salvarAjusteCompraOP,
+  uploadBase,
+  buscarUltimaAtualizacao,
   type AjusteCompraOP,
   type OPResult,
   type ResumoViabilidade,
@@ -115,6 +117,38 @@ const STATUS_CONFIG: Record<StatusOP, {
   falta:      { label: "Falta Mat.", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B", icon: XCircle,       dot: "#DC2626" },
   sem_bom:    { label: "Sem BOM",    bg: "#F5F3FF", border: "#DDD6FE", text: "#5B21B6", icon: AlertTriangle, dot: "#7C3AED" },
 }
+
+type BaseOperacionalOrdensId = "programacao_ops" | "bom_estrutura" | "lotes_teoricos"
+
+const BASES_OPERACIONAIS_ORDENS: Array<{
+  id: BaseOperacionalOrdensId
+  titulo: string
+  descricao: string
+  botao: string
+  accept: string
+}> = [
+  {
+    id: "programacao_ops",
+    titulo: "Programação mensal",
+    descricao: "Atualiza as OPs exibidas e o mês de referência da análise.",
+    botao: "Subir programação",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+  {
+    id: "bom_estrutura",
+    titulo: "Estrutura/BOM",
+    descricao: "Substitui a estrutura usada para calcular os componentes necessários.",
+    botao: "Subir estrutura",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+  {
+    id: "lotes_teoricos",
+    titulo: "Lotes teóricos",
+    descricao: "Atualiza a quantidade teórica usada para abertura de PI no Protheus.",
+    botao: "Subir lotes",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1993,10 +2027,78 @@ export function OrdensPage() {
   const [salvandoNegociacaoOpId, setSalvandoNegociacaoOpId] = useState<string | null>(null)
   const [salvandoLeadtime, setSalvandoLeadtime] = useState(false)
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  const [arquivosBases, setArquivosBases] = useState<Partial<Record<BaseOperacionalOrdensId, File | null>>>({})
+  const [uploadingBase, setUploadingBase] = useState<BaseOperacionalOrdensId | null>(null)
+  const [atualizacoesBases, setAtualizacoesBases] = useState<Partial<Record<BaseOperacionalOrdensId, string | null>>>({})
 
   function mostrarToast(type: "success" | "error", message: string) {
     setToast({ type, message })
     window.setTimeout(() => setToast(null), 2600)
+  }
+
+  async function carregarAtualizacoesBases() {
+    const pares = await Promise.all(
+      BASES_OPERACIONAIS_ORDENS.map(async (base) => {
+        try {
+          const resp = await buscarUltimaAtualizacao(base.id)
+          return [base.id, resp.ultima_atualizacao || null] as const
+        } catch (e) {
+          console.warn(`Não foi possível buscar atualização de ${base.id}`, e)
+          return [base.id, null] as const
+        }
+      })
+    )
+
+    setAtualizacoesBases(Object.fromEntries(pares) as Partial<Record<BaseOperacionalOrdensId, string | null>>)
+  }
+
+  async function handleUploadBaseOperacional(baseId: BaseOperacionalOrdensId) {
+    const arquivoBase = arquivosBases[baseId]
+
+    if (!arquivoBase) {
+      mostrarToast("error", "Selecione um arquivo antes de enviar.")
+      return
+    }
+
+    setUploadingBase(baseId)
+    setErro("")
+
+    try {
+      const resp = await uploadBase(baseId, arquivoBase)
+      const erros = Array.isArray(resp.erros) ? resp.erros.filter(Boolean) : []
+
+      if (erros.length > 0) {
+        mostrarToast("error", erros.slice(0, 2).join(" | "))
+        return
+      }
+
+      setArquivosBases(prev => ({ ...prev, [baseId]: null }))
+
+      const resMeses = await getOpsMeses().catch(() => null)
+      let mesParaBuscar = mesSel
+
+      if (resMeses?.meses?.length) {
+        setMeses(resMeses.meses)
+
+        if (baseId === "programacao_ops") {
+          mesParaBuscar = resMeses.meses[0]
+          setMesSel(mesParaBuscar)
+        }
+      }
+
+      await carregarAtualizacoesBases()
+
+      if (mesParaBuscar) {
+        await buscar(mesParaBuscar)
+      }
+
+      const base = BASES_OPERACIONAIS_ORDENS.find(b => b.id === baseId)
+      mostrarToast("success", `${base?.titulo || "Base"} atualizada com sucesso (${resp.total_inserido ?? 0} registros).`)
+    } catch (e: unknown) {
+      mostrarToast("error", e instanceof Error ? e.message : "Erro ao subir arquivo.")
+    } finally {
+      setUploadingBase(null)
+    }
   }
 
   useEffect(() => {
@@ -2018,6 +2120,7 @@ export function OrdensPage() {
 
         setMeses(resMeses.meses)
         if (resMeses.meses.length > 0) setMesSel(resMeses.meses[0])
+        await carregarAtualizacoesBases()
       } catch (e) {
         console.warn("Não foi possível inicializar OPs", e)
       }
@@ -2028,11 +2131,12 @@ export function OrdensPage() {
 
   useEffect(() => { if (mesSel) buscar() }, [mesSel])
 
-  const buscar = async () => {
-    if (!mesSel) return
+  const buscar = async (mesRefOverride?: string) => {
+    const mesBusca = mesRefOverride || mesSel
+    if (!mesBusca) return
     setLoading(true); setErro(""); setSelecionados(new Set())
     try {
-      const res = await getOpsViabilidadeComLeadtime(mesSel, leadtimeCompraDias)
+      const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias)
       setDados(res)
       const opsTratadas = ordenarESequenciarOps(
         res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
@@ -2299,7 +2403,7 @@ export function OrdensPage() {
           <button onClick={() => setNovaOpModal(true)} className="flex h-10 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-white" style={{ background: "var(--bg-sidebar)" }}>
             <Plus size={14} /> Nova OP
           </button>
-          <button onClick={buscar} disabled={loading || !mesSel} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold" style={{ cursor: loading ? "not-allowed" : "pointer" }}>
+          <button onClick={() => buscar()} disabled={loading || !mesSel} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold" style={{ cursor: loading ? "not-allowed" : "pointer" }}>
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Atualizar
           </button>
         </div>
@@ -2314,6 +2418,79 @@ export function OrdensPage() {
         onMes={setMesSel} onLinhas={setLinhasSel} onStatuses={setStatusesSel}
         onTipos={setTiposSel} onLotes={setLotesSel} onCodigos={setCodigosSel} onProdutos={setProdutosSel}
       />
+
+      <div
+        className="fade-in rounded-2xl border p-4 md:p-5"
+        style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}
+      >
+        <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="card-label mb-1">Bases usadas nesta análise</p>
+            <h2 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>Atualização operacional</h2>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+              Use estes atalhos para atualizar a página de Ordens sem acessar a área completa de Bases de Dados.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          {BASES_OPERACIONAIS_ORDENS.map((base) => {
+            const arquivoSelecionado = arquivosBases[base.id]
+            const enviando = uploadingBase === base.id
+            const atualizadoEm = fmtDataHora(atualizacoesBases[base.id] || null)
+
+            return (
+              <div
+                key={base.id}
+                className="rounded-xl border p-3"
+                style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</p>
+                    <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{base.descricao}</p>
+                    <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                      Atualizada em: <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{atualizadoEm || "sem carga registrada"}</span>
+                    </p>
+                  </div>
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                    style={{ background: "#EFF6FF", color: "#2563EB" }}
+                  >
+                    <Upload size={15} />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <label
+                    className="flex h-9 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors hover:bg-slate-50"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: "var(--bg-secondary)" }}
+                  >
+                    <span className="truncate">{arquivoSelecionado?.name || "Selecionar arquivo"}</span>
+                    <input
+                      type="file"
+                      accept={base.accept}
+                      className="hidden"
+                      onChange={e => setArquivosBases(prev => ({ ...prev, [base.id]: e.target.files?.[0] || null }))}
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => handleUploadBaseOperacional(base.id)}
+                    disabled={!arquivoSelecionado || !!uploadingBase}
+                    className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-50"
+                    style={{ background: "var(--bg-sidebar)", cursor: !arquivoSelecionado || uploadingBase ? "not-allowed" : "pointer" }}
+                  >
+                    {enviando ? <RefreshCw size={13} className="animate-spin" /> : <Upload size={13} />}
+                    {enviando ? "Enviando..." : base.botao}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
 
       {dados && !loading && (
         <>
