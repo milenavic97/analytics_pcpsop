@@ -88,6 +88,24 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string }[] = [
   { key: "faturamento_ytd_qtd", label: "Fat. YTD" },
 ]
 
+interface AgingOpcoes {
+  tipo_negocio?: string[]
+  tipo?: string[]
+  status_portfolio?: string[]
+  transferencia_bravi?: string[]
+  modelo_fornecimento?: string[]
+  grupo_gerencial?: string[]
+}
+
+const EMPTY_OPCOES: AgingOpcoes = {
+  tipo_negocio: [],
+  tipo: [],
+  status_portfolio: [],
+  transferencia_bravi: [],
+  modelo_fornecimento: [],
+  grupo_gerencial: [],
+}
+
 interface AgingResumoResponse {
   data_snapshot_consumo?: string | null
   data_snapshot_mrp?: string | null
@@ -127,14 +145,7 @@ interface AgingResumoResponse {
     faturamento_ytd_valor?: number
     cobertura_futura_media_dias: number
   }[]
-  opcoes?: {
-    tipo_negocio?: string[]
-    tipo?: string[]
-    status_portfolio?: string[]
-    transferencia_bravi?: string[]
-    modelo_fornecimento?: string[]
-    grupo_gerencial?: string[]
-  }
+  opcoes?: AgingOpcoes
 }
 
 interface AgingItensResponse {
@@ -143,6 +154,7 @@ interface AgingItensResponse {
   total: number
   total_pages: number
   itens: AgingEstoqueItem[]
+  opcoes?: AgingOpcoes
 }
 
 interface AgingEstoqueItemDetalhe extends AgingEstoqueItem {
@@ -542,10 +554,10 @@ export default function AgingEstoquePage() {
   const topExcesso = useMemo(() => resumo?.top_excesso || [], [resumo])
   const topCriticos = useMemo(() => resumo?.top_criticos || [], [resumo])
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
-  const opcoes = resumo?.opcoes || itensResp?.opcoes || {}
+  const opcoes: AgingOpcoes = resumo?.opcoes ?? itensResp?.opcoes ?? EMPTY_OPCOES
 
   const tipoOptions = useMemo(() => {
-    const valores = Array.from(new Set([...(opcoes.tipo || []), ...TIPOS_FIXOS.filter((t) => t !== "TODOS")]))
+    const valores = Array.from(new Set([...(opcoes.tipo || []), ...TIPOS_FIXOS.filter((t: string) => t !== "TODOS")]))
     return ["TODOS", ...valores.filter(Boolean).sort()]
   }, [opcoes.tipo])
 
@@ -686,7 +698,7 @@ export default function AgingEstoquePage() {
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Tipo de negócio</p>
             <select value={tipoNegocio} onChange={(e) => setTipoNegocio(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
               <option value="TODOS">Todos os negócios</option>
-              {(opcoes.tipo_negocio || []).map((t) => <option key={t} value={t}>{t}</option>)}
+              {(opcoes.tipo_negocio || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div>
@@ -698,35 +710,35 @@ export default function AgingEstoquePage() {
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Tipo ERP</p>
             <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              {tipoOptions.map((t) => <option key={t} value={t}>{t === "TODOS" ? "Todos os tipos" : t}</option>)}
+              {tipoOptions.map((t: string) => <option key={t} value={t}>{t === "TODOS" ? "Todos os tipos" : t}</option>)}
             </select>
           </div>
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status portfólio</p>
             <select value={statusPortfolio} onChange={(e) => setStatusPortfolio(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
               <option value="TODOS">Todos os status</option>
-              {(opcoes.status_portfolio || []).map((t) => <option key={t} value={t}>{t}</option>)}
+              {(opcoes.status_portfolio || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Transferência Bravi</p>
             <select value={transferenciaBravi} onChange={(e) => setTransferenciaBravi(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
               <option value="TODOS">Todos</option>
-              {(opcoes.transferencia_bravi || []).map((t) => <option key={t} value={t}>{t}</option>)}
+              {(opcoes.transferencia_bravi || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Modelo fornecimento</p>
             <select value={modeloFornecimento} onChange={(e) => setModeloFornecimento(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
               <option value="TODOS">Todos os modelos</option>
-              {(opcoes.modelo_fornecimento || []).map((t) => <option key={t} value={t}>{t}</option>)}
+              {(opcoes.modelo_fornecimento || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Grupo gerencial</p>
             <select value={grupoGerencial} onChange={(e) => setGrupoGerencial(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
               <option value="TODOS">Todos os grupos</option>
-              {(opcoes.grupo_gerencial || []).map((t) => <option key={t} value={t}>{t}</option>)}
+              {(opcoes.grupo_gerencial || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
         </div>
