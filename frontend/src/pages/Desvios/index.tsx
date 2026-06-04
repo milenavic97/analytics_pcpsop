@@ -75,6 +75,23 @@ function formatNumero(valor?: number) {
   }).format(valor)
 }
 
+function garantirArray<T>(valor: unknown): T[] {
+  if (Array.isArray(valor)) return valor as T[]
+
+  const obj = valor as { data?: unknown; items?: unknown; results?: unknown }
+
+  if (Array.isArray(obj?.data)) return obj.data as T[]
+  if (Array.isArray(obj?.items)) return obj.items as T[]
+  if (Array.isArray(obj?.results)) return obj.results as T[]
+
+  return []
+}
+
+function garantirResumo(valor: unknown): Resumo | null {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null
+  return valor as Resumo
+}
+
 function renderDestinoTag(destino?: string) {
   if (!destino || destino === "-") {
     return (
@@ -196,11 +213,11 @@ export default function DesviosPage() {
           getDesviosHistoricoAnual(ano).catch(() => [] as HistoricoDesvio[]),
         ])
 
-      setResumo(resumoResp as Resumo)
-      setEventos((eventosResp as Evento[]) || [])
-      setSnapshots((snapshotsResp as Snapshot[]) || [])
-      setDesvios((desviosResp as Desvio[]) || [])
-      setHistorico((historicoResp as HistoricoDesvio[]) || [])
+      setResumo(garantirResumo(resumoResp))
+      setEventos(garantirArray<Evento>(eventosResp))
+      setSnapshots(garantirArray<Snapshot>(snapshotsResp))
+      setDesvios(garantirArray<Desvio>(desviosResp))
+      setHistorico(garantirArray<HistoricoDesvio>(historicoResp))
     } catch (err) {
       console.error(err)
     } finally {
@@ -268,10 +285,15 @@ export default function DesviosPage() {
     }
   }
 
+  const desviosSafe = garantirArray<Desvio>(desvios)
+  const eventosSafe = garantirArray<Evento>(eventos)
+  const snapshotsSafe = garantirArray<Snapshot>(snapshots)
+  const historicoSafe = garantirArray<HistoricoDesvio>(historico)
+
   const mesesDisponiveis = useMemo(() => {
     const meses = new Set<string>()
 
-    desvios.forEach((d) => {
+    desviosSafe.forEach((d) => {
       if (!d.meses_lib_texto) return
 
       d.meses_lib_texto
@@ -281,10 +303,10 @@ export default function DesviosPage() {
     })
 
     return Array.from(meses).sort()
-  }, [desvios])
+  }, [desviosSafe])
 
   const desviosFiltrados = useMemo(() => {
-    return desvios.filter((d) => {
+    return desviosSafe.filter((d) => {
       const termo = busca.toLowerCase()
 
       const passouBusca =
@@ -302,10 +324,10 @@ export default function DesviosPage() {
 
       return passouBusca && passouMes
     })
-  }, [desvios, busca, filtroMes])
+  }, [desviosSafe, busca, filtroMes])
 
   const historicoFiltrado = useMemo(() => {
-    return historico.filter((d) => {
+    return historicoSafe.filter((d) => {
       const termo = busca.toLowerCase()
 
       const passouBusca =
@@ -324,15 +346,15 @@ export default function DesviosPage() {
 
       return passouBusca && passouSituacao
     })
-  }, [historico, busca, filtroSituacaoHistorico])
+  }, [historicoSafe, busca, filtroSituacaoHistorico])
 
-  const novosLotes = eventos.filter((e) => e.tipo_evento === "NOVO_LOTE")
-  const lotesRemovidos = eventos.filter((e) => e.tipo_evento === "LOTE_REMOVIDO")
-  const novosDesvios = eventos.filter((e) => e.tipo_evento === "NOVO_DESVIO")
-  const desviosFechados = eventos.filter((e) =>
+  const novosLotes = eventosSafe.filter((e) => e.tipo_evento === "NOVO_LOTE")
+  const lotesRemovidos = eventosSafe.filter((e) => e.tipo_evento === "LOTE_REMOVIDO")
+  const novosDesvios = eventosSafe.filter((e) => e.tipo_evento === "NOVO_DESVIO")
+  const desviosFechados = eventosSafe.filter((e) =>
     ["DESVIO_FECHADO", "DESVIO_REMOVIDO"].includes(e.tipo_evento)
   )
-  const alteracoesGerais = eventos.filter(
+  const alteracoesGerais = eventosSafe.filter(
     (e) =>
       ![
         "NOVO_LOTE",
@@ -361,12 +383,12 @@ export default function DesviosPage() {
           <p className="mt-1 text-sm text-slate-500">
             Histórico, rastreabilidade e impacto dos lotes travados.
           </p>
-          {snapshots.length > 0 && (
+          {snapshotsSafe.length > 0 && (
             <div className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 shadow-sm">
               <CalendarDays className="h-4 w-4 text-slate-500" />
               <span className="text-sm font-medium text-slate-700">Dados atualizados em:</span>
               <span className="text-sm text-slate-500">
-                {formatDataHora([...snapshots].sort((a, b) => new Date(b.data_upload).getTime() - new Date(a.data_upload).getTime())[0].data_upload)}
+                {formatDataHora([...snapshotsSafe].sort((a, b) => new Date(b.data_upload).getTime() - new Date(a.data_upload).getTime())[0].data_upload)}
               </span>
             </div>
           )}
