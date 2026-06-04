@@ -118,7 +118,7 @@ const STATUS_CONFIG: Record<StatusOP, {
   sem_bom:    { label: "Sem BOM",    bg: "#F5F3FF", border: "#DDD6FE", text: "#5B21B6", icon: AlertTriangle, dot: "#7C3AED" },
 }
 
-type BaseOperacionalOrdensId = "programacao_ops" | "bom_estrutura" | "lotes_teoricos"
+type BaseOperacionalOrdensId = "programacao_ops" | "bom_estrutura" | "lotes_teoricos" | "estoque_saldo" | "compras_abertas"
 
 const BASES_OPERACIONAIS_ORDENS: Array<{
   id: BaseOperacionalOrdensId
@@ -146,6 +146,20 @@ const BASES_OPERACIONAIS_ORDENS: Array<{
     titulo: "Lotes teóricos",
     descricao: "Atualiza a quantidade teórica usada para abertura de PI no Protheus.",
     botao: "Subir lotes",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+  {
+    id: "estoque_saldo",
+    titulo: "Estoque de insumos",
+    descricao: "Atualiza o saldo SB8 usado na análise de material das OPs e em outras telas.",
+    botao: "Subir estoque",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+  {
+    id: "compras_abertas",
+    titulo: "Compras em aberto",
+    descricao: "Atualiza pedidos/SCs usados como entradas futuras na viabilidade e em outras análises.",
+    botao: "Subir compras",
     accept: ".xlsx,.xls,.xlsm",
   },
 ]
@@ -2551,7 +2565,7 @@ export function OrdensPage() {
           onClick={() => setModalBasesAberto(false)}
         >
           <div
-            className="w-full rounded-t-2xl shadow-2xl md:max-w-4xl md:rounded-2xl"
+            className="w-full rounded-t-2xl shadow-2xl md:max-w-7xl md:rounded-2xl"
             style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", maxHeight: "90vh" }}
             onClick={e => e.stopPropagation()}
           >
@@ -2560,7 +2574,7 @@ export function OrdensPage() {
                 <p className="card-label mb-1">Bases usadas nesta análise</p>
                 <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>Atualização operacional</h2>
                 <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                  Atualize apenas quando houver nova programação, nova estrutura/BOM ou nova tabela de lotes teóricos.
+                  Consulte as datas antes de subir: estoque e compras são bases compartilhadas com outras telas, então se alguém já atualizou em outro lugar, a atualização aparece aqui.
                 </p>
               </div>
               <button
@@ -2574,7 +2588,12 @@ export function OrdensPage() {
             </div>
 
             <div className="overflow-y-auto p-5" style={{ maxHeight: "calc(90vh - 95px)" }}>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="mb-4 rounded-xl border px-4 py-3 text-xs leading-5" style={{ background: "#F8FAFC", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+                <span className="font-semibold" style={{ color: "var(--text-primary)" }}>As datas abaixo valem para toda a ferramenta.</span>{" "}
+                Se estoque ou compras já foram atualizados por outra página/usuário, não precisa subir novamente aqui. Suba apenas quando tiver uma nova versão da base.
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                 {BASES_OPERACIONAIS_ORDENS.map((base) => {
                   const arquivoSelecionado = arquivosBases[base.id]
                   const enviando = uploadingBase === base.id
@@ -2583,10 +2602,10 @@ export function OrdensPage() {
                   return (
                     <div
                       key={base.id}
-                      className="rounded-xl border p-4"
+                      className="flex h-full min-h-[215px] flex-col rounded-xl border p-4"
                       style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
                     >
-                      <div className="mb-4 flex items-start justify-between gap-3">
+                      <div className="mb-4 flex flex-1 items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</p>
                           <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{base.descricao}</p>
@@ -2603,7 +2622,7 @@ export function OrdensPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-2">
+                      <div className="mt-auto flex flex-col gap-2">
                         <label
                           className="flex h-9 min-w-0 cursor-pointer items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors hover:bg-slate-50"
                           style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: "var(--bg-secondary)" }}
@@ -2633,8 +2652,8 @@ export function OrdensPage() {
                 })}
               </div>
 
-              <div className="mt-4 rounded-xl border px-4 py-3 text-xs" style={{ background: "#FFFBEB", borderColor: "#FDE68A", color: "#92400E" }}>
-                Essas atualizações substituem bases usadas no cálculo de viabilidade. Após o upload, a tela recalcula automaticamente as OPs do mês selecionado.
+              <div className="mt-4 rounded-xl border px-4 py-3 text-xs leading-5" style={{ background: "#FFFBEB", borderColor: "#FDE68A", color: "#92400E" }}>
+                Essas atualizações substituem bases usadas no cálculo de viabilidade. Após o upload, a tela recalcula automaticamente as OPs do mês selecionado. Estoque e compras também podem impactar outras páginas da ferramenta.
               </div>
             </div>
           </div>
