@@ -14,31 +14,10 @@ import {
   getDesviosEventos,
   getDesviosSnapshots,
   getDesviosAtuais,
+  getDesviosHistoricoAnual,
   uploadDesvios,
   limparDesvios,
 } from "@/services/api"
-
-const API_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
-  "https://dfl-sop-api.fly.dev"
-
-async function getDesviosHistoricoAnual(ano: number): Promise<HistoricoDesvio[]> {
-  const res = await fetch(`${API_URL}/desvios/historico-anual?ano=${ano}`)
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error((err as { detail?: string }).detail || `Erro ${res.status}`)
-  }
-
-  const data = await res.json()
-
-  if (Array.isArray(data)) return data as HistoricoDesvio[]
-  if (Array.isArray((data as { data?: HistoricoDesvio[] })?.data)) {
-    return (data as { data: HistoricoDesvio[] }).data
-  }
-
-  return []
-}
 
 type Evento = {
   id?: string
