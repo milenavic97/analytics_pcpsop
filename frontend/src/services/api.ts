@@ -2,27 +2,121 @@ const API_URL =
   (import.meta as unknown as { env: Record<string, string> }).env
     .VITE_API_URL || "https://dfl-sop-api.fly.dev"
 
+// ─────────────────────────────────────────────────────────────
+// Cache simples de GETs no frontend
+// ─────────────────────────────────────────────────────────────
+// Objetivo:
+// - Ao sair e voltar para uma página, reaproveitar os dados carregados.
+// - Evitar chamadas duplicadas simultâneas para o mesmo endpoint.
+// - Limpar o cache automaticamente depois de uploads/edições/exclusões.
+
+const API_CACHE_STALE_MS = 5 * 60 * 1000        // dado considerado fresco por 5 min
+const API_CACHE_GC_MS = 30 * 60 * 1000          // remove do cache depois de 30 min
+
+type ApiCacheEntry<T = unknown> = {
+  timestamp: number
+  data?: T
+  promise?: Promise<T>
+}
+
+const apiCache = new Map<string, ApiCacheEntry>()
+
+function getApiCacheKey(path: string) {
+  return `${API_URL}${path}`
+}
+
+function limparCacheExpirado() {
+  const agora = Date.now()
+
+  for (const [key, entry] of apiCache.entries()) {
+    if (!entry.promise && agora - entry.timestamp > API_CACHE_GC_MS) {
+      apiCache.delete(key)
+    }
+  }
+}
+
+export function clearApiCache(prefix?: string) {
+  if (!prefix) {
+    apiCache.clear()
+    return
+  }
+
+  const prefixAbs = `${API_URL}${prefix}`
+
+  for (const key of apiCache.keys()) {
+    if (key.startsWith(prefixAbs) || key.includes(prefix)) {
+      apiCache.delete(key)
+    }
+  }
+}
+
 async function apiFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: { ...(options?.headers || {}) },
-  })
+  const method = String(options?.method || "GET").toUpperCase()
+  const isGet = method === "GET"
+  const cacheKey = getApiCacheKey(path)
 
-  if (!res.ok) {
-    const err = await res
+  if (isGet) {
+    limparCacheExpirado()
+
+    const cached = apiCache.get(cacheKey) as ApiCacheEntry<T> | undefined
+
+    if (cached?.data !== undefined && Date.now() - cached.timestamp < API_CACHE_STALE_MS) {
+      return cached.data
+    }
+
+    if (cached?.promise) {
+      return cached.promise
+    }
+  }
+
+  const requestPromise = (async () => {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: { ...(options?.headers || {}) },
+    })
+
+    const payload = await res
       .json()
       .catch(() => ({ detail: res.statusText }))
 
-    throw new Error(
-      (err as { detail: string }).detail ||
-        `Erro ${res.status}`
-    )
+    if (!res.ok) {
+      throw new Error(
+        (payload as { detail?: string }).detail ||
+          `Erro ${res.status}`
+      )
+    }
+
+    // Qualquer mutação pode alterar números exibidos em várias telas.
+    // Por segurança, limpamos o cache completo após POST/PUT/DELETE.
+    if (!isGet) {
+      clearApiCache()
+    }
+
+    return payload as T
+  })()
+
+  if (isGet) {
+    apiCache.set(cacheKey, {
+      timestamp: Date.now(),
+      promise: requestPromise,
+    })
+
+    requestPromise
+      .then((data) => {
+        apiCache.set(cacheKey, {
+          timestamp: Date.now(),
+          data,
+        })
+      })
+      .catch(() => {
+        apiCache.delete(cacheKey)
+      })
   }
 
-  return res.json() as Promise<T>
+  return requestPromise
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -83,6 +177,8 @@ export async function uploadBase(baseId: string, file: File): Promise<UploadBase
       payload
     )
   }
+
+  clearApiCache()
 
   return payload as UploadBaseResponse
 }
@@ -690,7 +786,9 @@ export async function importarMrpMps(
     )
   }
 
-  return res.json()
+  const payload = await res.json()
+  clearApiCache()
+  return payload
 }
 
 export async function importarMrpProducaoReal(
@@ -721,7 +819,9 @@ export async function importarMrpProducaoReal(
     )
   }
 
-  return res.json()
+  const payload = await res.json()
+  clearApiCache()
+  return payload
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1321,7 +1421,9 @@ export async function uploadDesvios(file: File) {
     )
   }
 
-  return res.json()
+  const payload = await res.json()
+  clearApiCache()
+  return payload
 }
 
 
