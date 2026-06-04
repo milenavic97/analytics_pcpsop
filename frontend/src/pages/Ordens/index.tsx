@@ -1497,6 +1497,8 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
   const [aberto, setAberto] = useState(false)
   const cfg = STATUS_CONFIG[op.status]
   const tipo = tipoProduto(op.linha)
+  const qtdTeorica = getQtdTeoricaOP(op)
+  const usaLoteTeorico = usaLoteTeoricoOP(op)
   const rowId = op.id || `${op.lote}-${op.codigo}`
   const podeExpandir = op.status !== "aberta" || !!op.anotacao || !!op.observacoes
   const detalhesVisiveis = Array.isArray(op.detalhes)
