@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 
 import { AuthProvider } from "./contexts/AuthContext"
@@ -16,8 +17,17 @@ import DesviosPage from "./pages/Desvios"
 import { CalendarioParadasPage } from "./pages/calendario-paradas"
 
 import { Layout } from "./components/layout/Layout"
+import { prefetchAppData } from "./services/api"
 
 export default function App() {
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.pathname === "/login") {
+      return
+    }
+
+    return prefetchAppData({ initialDelayMs: 5000 })
+  }, [])
+
   return (
     <AuthProvider>
       <BrowserRouter>
