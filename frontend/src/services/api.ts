@@ -1436,6 +1436,8 @@ export type AgingStatus =
   | "EXCESSO"
   | "SEM_GIRO"
   | "SEM_CONSUMO"
+  | "DESCONTINUADO_COM_SALDO"
+  | "TRANSFERENCIA_BRAVI"
   | string
 
 export interface AgingPedidoAberto {
@@ -1464,8 +1466,25 @@ export interface AgingEstoqueItem {
   armaz?: string | null
   nome_2?: string | null
   tipo?: string | null
+  tipo_produto_erp?: string | null
   grupo?: string | null
   grupo_descricao?: string | null
+
+  macro_negocio?: string | null
+  tipo_negocio?: string | null
+  familia?: string | null
+  segmento?: string | null
+  mercado?: string | null
+  abc_ytm?: string | null
+  linha?: string | null
+  status_original?: string | null
+  status_portfolio?: string | null
+  transferencia_bravi?: string | null
+  fornecedor_terceiro?: string | null
+  modelo_fornecimento?: string | null
+  grupo_gerencial?: string | null
+  ativo_analise?: boolean
+  observacao?: string | null
 
   saldo: number
   qtd_pedidos_abertos: number
@@ -1485,6 +1504,9 @@ export interface AgingEstoqueItem {
   cobertura_futura_dias: number
   gap_volume: number
 
+  faturamento_ytd_qtd?: number
+  faturamento_ytd_valor?: number
+
   giro_estoque?: number
   maior_media_50?: number
   saldo_menos_maior_media_50?: number
@@ -1493,6 +1515,7 @@ export interface AgingEstoqueItem {
   pedidos?: AgingPedidoAberto[]
 
   status: AgingStatus
+  status_estoque?: AgingStatus
   historico_consumo?: AgingHistoricoConsumo[]
 }
 
@@ -1504,9 +1527,13 @@ export interface AgingResumo {
   saudavel: number
   excesso: number
   sem_giro?: number
+  descontinuado_com_saldo?: number
+  transferencia_bravi?: number
   saldo_total: number
   pedidos_total: number
   gap_total: number
+  faturamento_ytd_qtd?: number
+  faturamento_ytd_valor?: number
   cobertura_media_dias: number
   cobertura_futura_media_dias: number
 }
@@ -1524,14 +1551,42 @@ export interface AgingPorTipo {
   saldo: number
 }
 
+export interface AgingSaudeNegocio {
+  tipo_negocio: string
+  itens: number
+  criticos: number
+  excesso: number
+  sem_giro: number
+  descontinuado_com_saldo: number
+  transferencia_bravi: number
+  saldo_total: number
+  pedidos_total: number
+  faturamento_ytd_qtd?: number
+  faturamento_ytd_valor?: number
+  cobertura_futura_media_dias: number
+}
+
+export interface AgingOpcoesFiltro {
+  tipo_negocio?: string[]
+  tipo?: string[]
+  status_portfolio?: string[]
+  transferencia_bravi?: string[]
+  modelo_fornecimento?: string[]
+  grupo_gerencial?: string[]
+}
+
 export interface AgingResumoResponse {
   data_snapshot_consumo?: string | null
   data_snapshot_mrp?: string | null
   resumo: AgingResumo
   faixas_cobertura?: AgingFaixaCobertura[]
   por_tipo?: AgingPorTipo[]
+  saude_negocios?: AgingSaudeNegocio[]
+  opcoes?: AgingOpcoesFiltro
   top_excesso: AgingEstoqueItem[]
   top_criticos: AgingEstoqueItem[]
+  top_descontinuados?: AgingEstoqueItem[]
+  top_transferencia_bravi?: AgingEstoqueItem[]
 }
 
 export interface AgingItensResponse {
@@ -1540,6 +1595,22 @@ export interface AgingItensResponse {
   total: number
   total_pages: number
   itens: AgingEstoqueItem[]
+  opcoes?: AgingOpcoesFiltro
+}
+
+export interface AgingFiltrosParams {
+  page?: number
+  page_size?: number
+  status?: string
+  tipo?: string
+  busca?: string
+  tipo_negocio?: string
+  status_portfolio?: string
+  transferencia_bravi?: string
+  modelo_fornecimento?: string
+  grupo_gerencial?: string
+  sort_key?: string
+  sort_direction?: "asc" | "desc"
 }
 
 // Mantido por compatibilidade com a versão anterior da tela.
@@ -1549,64 +1620,79 @@ export interface AgingDashboard extends AgingResumoResponse {
   itens: AgingEstoqueItem[]
 }
 
-export async function getAgingResumo(): Promise<AgingResumoResponse> {
-  return apiFetch("/aging-estoque/resumo")
-}
-
-export async function getAgingItens(params?: {
-  page?: number
-  page_size?: number
-  status?: string
-  tipo?: string
-  busca?: string
-  sort_key?: string
-  sort_direction?: "asc" | "desc"
-}): Promise<AgingItensResponse> {
+function buildAgingQuery(params?: AgingFiltrosParams) {
   const query = new URLSearchParams()
 
-  query.set("page", String(params?.page || 1))
-  query.set("page_size", String(params?.page_size || 100))
-
-  if (params?.status && params.status !== "TODOS") {
-    query.set("status", params.status)
+  if (params?.page) {
+    query.set("page", String(params.page))
   }
 
-  if (params?.tipo && params.tipo !== "TODOS") {
-    query.set("tipo", params.tipo)
+  if (params?.page_size) {
+    query.set("page_size", String(params.page_size))
   }
 
-  if (params?.busca) {
-    query.set("busca", params.busca)
-  }
+  const filtros: Array<keyof AgingFiltrosParams> = [
+    "status",
+    "tipo",
+    "busca",
+    "tipo_negocio",
+    "status_portfolio",
+    "transferencia_bravi",
+    "modelo_fornecimento",
+    "grupo_gerencial",
+    "sort_key",
+    "sort_direction",
+  ]
 
-  if (params?.sort_key) {
-    query.set("sort_key", params.sort_key)
-  }
+  filtros.forEach((campo) => {
+    const valor = params?.[campo]
 
-  if (params?.sort_direction) {
-    query.set("sort_direction", params.sort_direction)
-  }
+    if (!valor || valor === "TODOS") {
+      return
+    }
+
+    query.set(campo, String(valor))
+  })
+
+  return query
+}
+
+export async function getAgingResumo(params?: AgingFiltrosParams): Promise<AgingResumoResponse> {
+  const query = buildAgingQuery(params)
+  const qs = query.toString()
+
+  return apiFetch(`/aging-estoque/resumo${qs ? `?${qs}` : ""}`)
+}
+
+export async function getAgingItens(params?: AgingFiltrosParams): Promise<AgingItensResponse> {
+  const query = buildAgingQuery({
+    ...params,
+    page: params?.page || 1,
+    page_size: params?.page_size || 100,
+  })
 
   return apiFetch(`/aging-estoque/itens?${query.toString()}`)
 }
 
 // Compatibilidade: se alguma parte antiga ainda chamar dashboard,
 // montamos o formato anterior usando os endpoints leves.
-export async function getAgingEstoqueDashboard(params?: {
-  status?: string
-  tipo?: string
-  busca?: string
-}): Promise<AgingDashboard> {
+export async function getAgingEstoqueDashboard(params?: AgingFiltrosParams): Promise<AgingDashboard> {
   const [resumo, itens] = await Promise.all([
-    getAgingResumo(),
+    getAgingResumo(params),
     getAgingItens({
       page: 1,
       page_size: 100,
       status: params?.status,
       tipo: params?.tipo,
       busca: params?.busca,
+      tipo_negocio: params?.tipo_negocio,
+      status_portfolio: params?.status_portfolio,
+      transferencia_bravi: params?.transferencia_bravi,
+      modelo_fornecimento: params?.modelo_fornecimento,
+      grupo_gerencial: params?.grupo_gerencial,
     }),
   ])
+
   return {
     ...resumo,
     total_itens: resumo.resumo?.total_itens || itens.total,
@@ -1616,6 +1702,7 @@ export async function getAgingEstoqueDashboard(params?: {
     por_tipo: resumo.por_tipo || [],
   }
 }
+
 export async function getAgingEstoqueItem(
   codigo: string
 ): Promise<AgingEstoqueItem> {
@@ -1623,6 +1710,7 @@ export async function getAgingEstoqueItem(
     `/aging-estoque/item/${codigo}`
   )
 }
+
 // ─────────────────────────────────────────────────────────────
 // Faturamento
 // ─────────────────────────────────────────────────────────────
