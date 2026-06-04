@@ -50,6 +50,28 @@ function getStorageKey(cacheKey: string) {
   return `${API_CACHE_STORAGE_PREFIX}${cacheKey}`
 }
 
+function garantirArray<T>(valor: unknown): T[] {
+  if (Array.isArray(valor)) {
+    return valor as T[]
+  }
+
+  const obj = valor as { data?: unknown; items?: unknown; results?: unknown }
+
+  if (Array.isArray(obj?.data)) {
+    return obj.data as T[]
+  }
+
+  if (Array.isArray(obj?.items)) {
+    return obj.items as T[]
+  }
+
+  if (Array.isArray(obj?.results)) {
+    return obj.results as T[]
+  }
+
+  return []
+}
+
 function readPersistentCache<T>(cacheKey: string): ApiStorageEntry<T> | null {
   const storage = getStorage()
   if (!storage) return null
@@ -1574,19 +1596,23 @@ export async function getDesviosResumo() {
 }
 
 export async function getDesviosEventos() {
-  return apiFetch("/desvios/eventos")
+  const resp = await apiFetch<unknown>("/desvios/eventos")
+  return garantirArray(resp)
 }
 
 export async function getDesviosSnapshots() {
-  return apiFetch("/desvios/snapshots")
+  const resp = await apiFetch<unknown>("/desvios/snapshots")
+  return garantirArray(resp)
 }
 
 export async function getDesviosAtuais() {
-  return apiFetch("/desvios/atual")
+  const resp = await apiFetch<unknown>("/desvios/atual")
+  return garantirArray(resp)
 }
 
 export async function getDesviosHistoricoAnual(ano: number) {
-  return apiFetch(`/desvios/historico-anual?ano=${ano}`)
+  const resp = await apiFetch<unknown>(`/desvios/historico-anual?ano=${ano}`)
+  return garantirArray(resp)
 }
 
 export async function uploadDesvios(file: File) {
@@ -1715,13 +1741,10 @@ export function prefetchAppData(options?: { initialDelayMs?: number }) {
       if (cancelled) return
       await delay(1200)
 
-      // 4) Produção/MPS/Faturamento — pré-carrega só os endpoints de resumo.
+      // 4) MRP/Faturamento — evita endpoints antigos que podem não existir no backend atual.
+      // Prefetch deve chamar apenas rotas confirmadas para não gerar 404 no console.
       await Promise.allSettled([
-        safePrefetch("producao/resumo", () => getProducaoResumoMensal(ano)),
-        safePrefetch("producao/mps-resumo", () => getMpsResumoMensal(ano)),
-        safePrefetch("producao/mps-comparativo", () => getMpsComparativoRealPlanejado(ano)),
         safePrefetch("mrp/rodadas", () => getMrpRodadas()),
-        safePrefetch("analise-mrp/resumo", () => getAnaliseMrpResumo()),
         safePrefetch("faturamento/resumo", () => getResumoFaturamento({ ano })),
       ])
     })()
