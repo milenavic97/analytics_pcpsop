@@ -3,7 +3,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Clock,
   ChevronDown, ChevronUp, RefreshCw,
   CalendarDays, PackageCheck, PackageX, ClipboardList,
-  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart, Upload, Settings,
+  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart, Upload, Settings, Trash2,
 } from "lucide-react"
 import {
   getOpsMeses,
@@ -12,6 +12,7 @@ import {
   salvarAjusteCompraOP,
   uploadBase,
   buscarUltimaAtualizacao,
+  excluirProgramacaoOpsMes,
   type AjusteCompraOP,
   type OPResult,
   type ResumoViabilidade,
@@ -2045,6 +2046,8 @@ export function OrdensPage() {
   const [uploadingBase, setUploadingBase] = useState<BaseOperacionalOrdensId | null>(null)
   const [atualizacoesBases, setAtualizacoesBases] = useState<Partial<Record<BaseOperacionalOrdensId, string | null>>>({})
   const [modalBasesAberto, setModalBasesAberto] = useState(false)
+  const [confirmarExclusaoMes, setConfirmarExclusaoMes] = useState<string | null>(null)
+  const [excluindoMes, setExcluindoMes] = useState(false)
 
   function mostrarToast(type: "success" | "error", message: string) {
     setToast({ type, message })
@@ -2113,6 +2116,44 @@ export function OrdensPage() {
       mostrarToast("error", e instanceof Error ? e.message : "Erro ao subir arquivo.")
     } finally {
       setUploadingBase(null)
+    }
+  }
+
+
+  async function handleExcluirProgramacaoMes() {
+    if (!confirmarExclusaoMes) return
+
+    setExcluindoMes(true)
+    setErro("")
+
+    try {
+      const resp = await excluirProgramacaoOpsMes(confirmarExclusaoMes)
+      setConfirmarExclusaoMes(null)
+      setSelecionados(new Set())
+      setOps([])
+      setDados(null)
+
+      const resMeses = await getOpsMeses().catch(() => null)
+      const mesesDisponiveis = resMeses?.meses || []
+      setMeses(mesesDisponiveis)
+
+      if (mesesDisponiveis.length > 0) {
+        setMesSel(mesesDisponiveis[0])
+      } else {
+        setMesSel("")
+      }
+
+      await carregarAtualizacoesBases()
+      mostrarToast(
+        "success",
+        resp.total_excluido > 0
+          ? `Programação de ${mesLabel(confirmarExclusaoMes)} excluída (${resp.total_excluido} OPs). Agora você pode subir a nova versão.`
+          : `Não havia programação cadastrada para ${mesLabel(confirmarExclusaoMes)}.`
+      )
+    } catch (e: unknown) {
+      mostrarToast("error", e instanceof Error ? e.message : "Erro ao excluir programação do mês.")
+    } finally {
+      setExcluindoMes(false)
     }
   }
 
@@ -2652,9 +2693,82 @@ export function OrdensPage() {
                 })}
               </div>
 
+              <div className="mt-4 rounded-xl border px-4 py-3" style={{ background: "#FEF2F2", borderColor: "#FECACA" }}>
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-bold" style={{ color: "#991B1B" }}>Excluir programação do mês selecionado</p>
+                    <p className="mt-1 text-xs leading-5" style={{ color: "#7F1D1D" }}>
+                      Use quando a programação de <strong>{mesSel ? mesLabel(mesSel) : "um mês"}</strong> foi carregada errada ou mudou totalmente. Isso apaga apenas as OPs do mês selecionado; BOM, estoque, compras e lotes teóricos continuam mantidos.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => mesSel && setConfirmarExclusaoMes(mesSel)}
+                    disabled={!mesSel || excluindoMes}
+                    className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-50"
+                    style={{ background: "#DC2626", cursor: !mesSel || excluindoMes ? "not-allowed" : "pointer" }}
+                  >
+                    <Trash2 size={13} />
+                    Excluir {mesSel ? mesLabel(mesSel) : "mês"}
+                  </button>
+                </div>
+              </div>
+
               <div className="mt-4 rounded-xl border px-4 py-3 text-xs leading-5" style={{ background: "#FFFBEB", borderColor: "#FDE68A", color: "#92400E" }}>
                 Essas atualizações substituem bases usadas no cálculo de viabilidade. Após o upload, a tela recalcula automaticamente as OPs do mês selecionado. Estoque e compras também podem impactar outras páginas da ferramenta.
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {confirmarExclusaoMes && (
+        <div
+          className="fixed inset-0 z-[999] flex items-center justify-center p-4"
+          style={{ background: "rgba(15,23,42,0.55)" }}
+          onClick={() => !excluindoMes && setConfirmarExclusaoMes(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border p-5 shadow-2xl"
+            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: "#FEF2F2", color: "#DC2626" }}>
+                <Trash2 size={18} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>Excluir programação de {mesLabel(confirmarExclusaoMes)}</h3>
+                <p className="mt-2 text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
+                  Isso vai apagar todas as OPs carregadas para este mês. Depois você pode subir a programação correta pelo próprio modal de Bases.
+                </p>
+                <p className="mt-2 text-xs font-semibold" style={{ color: "#991B1B" }}>
+                  Não serão apagados estoque, compras, BOM ou lotes teóricos.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmarExclusaoMes(null)}
+                disabled={excluindoMes}
+                className="rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)" }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleExcluirProgramacaoMes}
+                disabled={excluindoMes}
+                className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+                style={{ background: "#DC2626" }}
+              >
+                {excluindoMes ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {excluindoMes ? "Excluindo..." : "Excluir mês"}
+              </button>
             </div>
           </div>
         </div>
