@@ -33,6 +33,7 @@ import {
   getMrpRodadas,
   getOrcadoFaturamento,
   getOrcadoLiberacao,
+  getSd3RealizadoMensal,
   importarMrpMps,
   importarMrpProducaoReal,
   type MrpAlocacaoDia,
@@ -46,9 +47,6 @@ const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "O
 const RECURSOS = ["L1", "L2", "FABRIMA"]
 const AZUL = "#17375E"
 const PAGE_SIZE = 50
-const API_URL =
-  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
-  "https://dfl-sop-api.fly.dev"
 
 const COR_ORCADO = "#EA580C"
 const COR_PERDA = "#DC2626"
@@ -1894,51 +1892,7 @@ function extrairOrcadoMensalLiberacao(data: unknown) {
   return meses
 }
 
-function extrairSd3Mensal(data: unknown) {
-  const d = data as Record<string, unknown>
-  const candidatos = [d.meses, d.dados, d.data, d.resultados, Array.isArray(data) ? data : null]
-  const arr = candidatos.find((x) => Array.isArray(x)) as Array<Record<string, unknown>> | undefined
-  if (!arr?.length) return Array.from({ length: 12 }, () => null as number | null)
 
-  return Array.from({ length: 12 }, (_, idx) => {
-    const mes = idx + 1
-    const item = arr.find((m) => Number(m.mes ?? m.mes_numero ?? m.month) === mes)
-    if (!item) return null
-    const valor = Number(
-      item.qtd_caixas ??
-      item.caixas ??
-      item.total_caixas ??
-      item.realizado_caixas ??
-      item.quantidade_caixas ??
-      0
-    )
-    return Number.isFinite(valor) && valor > 0 ? valor : null
-  })
-}
-
-async function getSd3RealizadoMensal(ano: number) {
-  const endpoints = [
-    `/sd3/realizado-mensal?ano=${ano}`,
-    `/dados/sd3/realizado-mensal?ano=${ano}`,
-    `/overview/entradas-reais-mensal?ano=${ano}`,
-    `/overview/sd3-realizado-mensal?ano=${ano}`,
-    `/overview/faturamento-real-mensal?ano=${ano}`,
-  ]
-
-  for (const endpoint of endpoints) {
-    try {
-      const res = await fetch(`${API_URL}${endpoint}`)
-      if (!res.ok) continue
-      const json = await res.json()
-      const meses = extrairSd3Mensal(json)
-      if (meses.some((v) => v !== null)) return meses
-    } catch {
-      // tenta próximo endpoint
-    }
-  }
-
-  return Array.from({ length: 12 }, () => null as number | null)
-}
 
 // ─── Aba: Projeção e perdas mensais ──────────────────────────────────────────
 
