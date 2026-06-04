@@ -1603,3 +1603,113 @@ export async function limparDesvios() {
 }
 
 export const clearDesvios = limparDesvios
+
+// ─────────────────────────────────────────────────────────────
+// Prefetch em segundo plano
+// ─────────────────────────────────────────────────────────────
+// Objetivo:
+// - Depois que o app abre, carregar as páginas mais usadas em background.
+// - Como o apiFetch já tem cache de 12h + localStorage, esses dados ficam prontos
+//   quando o usuário navegar para outras páginas.
+// - O prefetch é escalonado para não disputar a primeira carga da Overview.
+
+let appPrefetchStarted = false
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+async function safePrefetch(label: string, task: () => Promise<unknown>) {
+  try {
+    await task()
+  } catch (err) {
+    console.debug(`[prefetch] ${label} ignorado`, err)
+  }
+}
+
+export function prefetchAppData(options?: { initialDelayMs?: number }) {
+  if (appPrefetchStarted) {
+    return () => undefined
+  }
+
+  if (typeof window === "undefined") {
+    return () => undefined
+  }
+
+  appPrefetchStarted = true
+
+  let cancelled = false
+  const initialDelayMs = options?.initialDelayMs ?? 5000
+
+  const timer = window.setTimeout(() => {
+    void (async () => {
+      if (cancelled) return
+
+      const hoje = new Date()
+      const ano = hoje.getFullYear()
+      const mes = hoje.getMonth() + 1
+      const mesRefAtual = `${ano}-${String(mes).padStart(2, "0")}`
+
+      // 1) Overview e indicadores principais.
+      // Se a usuária já abriu a Overview, essas chamadas reaproveitam a mesma promise/cache.
+      await Promise.allSettled([
+        safePrefetch("overview/projecao-faturamento", () => getProjecaoFaturamento()),
+        safePrefetch("overview/projecao-liberacoes", () => getProjecaoLiberacoes()),
+        safePrefetch("overview/orcado-faturamento", () => getOrcadoFaturamento()),
+        safePrefetch("overview/orcado-liberacao", () => getOrcadoLiberacao()),
+        safePrefetch("overview/estoque-mensal", () => getEstoqueMensal()),
+        safePrefetch("overview/disponibilidade-mensal", () => getDisponibilidadeMensal({ mes, ano })),
+        safePrefetch("overview/rastreamento-lotes", () => getRastreamentoLotes({ mes, ano })),
+      ])
+
+      if (cancelled) return
+      await delay(1200)
+
+      // 2) Ordens — busca os meses e pré-carrega o mês atual quando existir.
+      await safePrefetch("ops", async () => {
+        const resp = await getOpsMeses()
+        const meses = Array.isArray(resp?.meses) ? resp.meses : []
+        const mesRef = meses.includes(mesRefAtual) ? mesRefAtual : meses[meses.length - 1]
+
+        if (!mesRef) return
+
+        await Promise.allSettled([
+          getOpsViabilidade(mesRef),
+          getOpsResumo(mesRef),
+        ])
+      })
+
+      if (cancelled) return
+      await delay(1200)
+
+      // 3) Desvios — tela normalmente usada junto com Overview/Ordens.
+      await Promise.allSettled([
+        safePrefetch("desvios/resumo", () => getDesviosResumo()),
+        safePrefetch("desvios/eventos", () => getDesviosEventos()),
+        safePrefetch("desvios/snapshots", () => getDesviosSnapshots()),
+        safePrefetch("desvios/atual", () => getDesviosAtuais()),
+      ])
+
+      if (cancelled) return
+      await delay(1200)
+
+      // 4) Produção/MPS/Faturamento — pré-carrega só os endpoints de resumo.
+      await Promise.allSettled([
+        safePrefetch("producao/resumo", () => getProducaoResumoMensal(ano)),
+        safePrefetch("producao/mps-resumo", () => getMpsResumoMensal(ano)),
+        safePrefetch("producao/mps-comparativo", () => getMpsComparativoRealPlanejado(ano)),
+        safePrefetch("mrp/rodadas", () => getMrpRodadas()),
+        safePrefetch("analise-mrp/resumo", () => getAnaliseMrpResumo()),
+        safePrefetch("faturamento/resumo", () => getResumoFaturamento({ ano })),
+      ])
+    })()
+  }, initialDelayMs)
+
+  return () => {
+    cancelled = true
+    window.clearTimeout(timer)
+  }
+}
+
