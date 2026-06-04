@@ -32,7 +32,7 @@ import {
 } from "@/services/api"
 
 const PAGE_SIZE = 100
-const TIPOS_FIXOS = ["TODOS", "MC", "ME", "MI", "MP", "PA"]
+const TIPOS_FIXOS = ["TODOS", "MC", "ME", "MI", "MP", "PA", "PI", "MR"]
 
 const STATUS_LABEL: Record<string, string> = {
   TODOS: "Todos os status",
@@ -43,6 +43,8 @@ const STATUS_LABEL: Record<string, string> = {
   EXCESSO: "Excesso",
   SEM_GIRO: "Sem giro",
   SEM_CONSUMO: "Sem consumo",
+  DESCONTINUADO_COM_SALDO: "Descontinuado c/ saldo",
+  TRANSFERENCIA_BRAVI: "Transferência Bravi",
 }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; border: string }> = {
@@ -53,6 +55,8 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; border: string }
   EXCESSO: { bg: "rgba(37,99,235,0.09)", color: "#1D4ED8", border: "rgba(37,99,235,0.24)" },
   SEM_GIRO: { bg: "rgba(100,116,139,0.10)", color: "#475569", border: "rgba(100,116,139,0.24)" },
   SEM_CONSUMO: { bg: "rgba(100,116,139,0.10)", color: "#475569", border: "rgba(100,116,139,0.24)" },
+  DESCONTINUADO_COM_SALDO: { bg: "rgba(185,28,28,0.10)", color: "#991B1B", border: "rgba(185,28,28,0.28)" },
+  TRANSFERENCIA_BRAVI: { bg: "rgba(124,58,237,0.10)", color: "#6D28D9", border: "rgba(124,58,237,0.28)" },
 }
 
 type SortDirection = "asc" | "desc"
@@ -67,6 +71,8 @@ type SortKey =
   | "cobertura_dias"
   | "cobertura_futura_dias"
   | "gap_volume"
+  | "faturamento_ytd_qtd"
+  | "faturamento_ytd_valor"
 
 const NUMERIC_COLUMNS: { key: SortKey; label: string }[] = [
   { key: "saldo", label: "Saldo" },
@@ -79,6 +85,7 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string }[] = [
   { key: "cobertura_dias", label: "Cobertura" },
   { key: "cobertura_futura_dias", label: "Cob. futura" },
   { key: "gap_volume", label: "Gap" },
+  { key: "faturamento_ytd_qtd", label: "Fat. YTD" },
 ]
 
 interface AgingResumoResponse {
@@ -92,14 +99,42 @@ interface AgingResumoResponse {
     saudavel?: number
     excesso?: number
     sem_giro?: number
+    descontinuado_com_saldo?: number
+    transferencia_bravi?: number
     saldo_total?: number
     pedidos_total?: number
     gap_total?: number
+    faturamento_ytd_qtd?: number
+    faturamento_ytd_valor?: number
     cobertura_media_dias?: number
     cobertura_futura_media_dias?: number
   }
   top_excesso?: AgingEstoqueItem[]
   top_criticos?: AgingEstoqueItem[]
+  top_descontinuados?: AgingEstoqueItem[]
+  top_transferencia_bravi?: AgingEstoqueItem[]
+  saude_negocios?: {
+    tipo_negocio: string
+    itens: number
+    criticos: number
+    excesso: number
+    sem_giro: number
+    descontinuado_com_saldo: number
+    transferencia_bravi: number
+    saldo_total: number
+    pedidos_total: number
+    faturamento_ytd_qtd?: number
+    faturamento_ytd_valor?: number
+    cobertura_futura_media_dias: number
+  }[]
+  opcoes?: {
+    tipo_negocio?: string[]
+    tipo?: string[]
+    status_portfolio?: string[]
+    transferencia_bravi?: string[]
+    modelo_fornecimento?: string[]
+    grupo_gerencial?: string[]
+  }
 }
 
 interface AgingItensResponse {
@@ -224,7 +259,10 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                 <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Detalhe do item</p>
                 <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo} · {item.produto || "Sem descrição"}</h2>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <StatusBadge status={item.status} />
+                  <StatusBadge status={item.status_estoque || item.status} />
+                  {item.tipo_negocio && <span className="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>{item.tipo_negocio}</span>}
+                  {item.status_portfolio && <span className="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>{item.status_portfolio}</span>}
+                  {item.transferencia_bravi === "Sim" && <span className="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>Bravi</span>}
                   <span className="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>{forecastMetodo}</span>
                 </div>
               </div>
@@ -240,6 +278,10 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
               <KpiSmall label="Lead time" value={`${fmtNumber(item.lead_time_dias, 0)} d`} />
               <KpiSmall label="Qtd. mínima" value={fmtCompact(item.qtd_minima)} />
               <KpiSmall label="Estoque ideal" value={fmtCompact(item.estoque_ideal)} />
+              <KpiSmall label="Tipo negócio" value={item.tipo_negocio || "—"} />
+              <KpiSmall label="Grupo gerencial" value={item.grupo_gerencial || "—"} />
+              <KpiSmall label="Modelo" value={item.modelo_fornecimento || "—"} />
+              <KpiSmall label="Fat. YTD" value={fmtCompact(item.faturamento_ytd_qtd)} />
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-5">
@@ -386,6 +428,11 @@ export default function AgingEstoquePage() {
   const [error, setError] = useState("")
   const [status, setStatus] = useState("TODOS")
   const [tipo, setTipo] = useState("TODOS")
+  const [tipoNegocio, setTipoNegocio] = useState("TODOS")
+  const [statusPortfolio, setStatusPortfolio] = useState("TODOS")
+  const [transferenciaBravi, setTransferenciaBravi] = useState("TODOS")
+  const [modeloFornecimento, setModeloFornecimento] = useState("TODOS")
+  const [grupoGerencial, setGrupoGerencial] = useState("TODOS")
   const [busca, setBusca] = useState("")
   const [buscaAplicada, setBuscaAplicada] = useState("")
   const [page, setPage] = useState(1)
@@ -397,7 +444,16 @@ export default function AgingEstoquePage() {
     let mounted = true
     setLoadingResumo(true)
     setError("")
-    getAgingResumo()
+    getAgingResumo({
+        status,
+        tipo,
+        tipo_negocio: tipoNegocio,
+        status_portfolio: statusPortfolio,
+        transferencia_bravi: transferenciaBravi,
+        modelo_fornecimento: modeloFornecimento,
+        grupo_gerencial: grupoGerencial,
+        busca: buscaAplicada,
+      })
       .then((res) => {
         if (!mounted) return
         setResumo(res as AgingResumoResponse)
@@ -410,7 +466,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingResumo(false)
       })
     return () => { mounted = false }
-  }, [])
+  }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -420,7 +476,7 @@ export default function AgingEstoquePage() {
     return () => window.clearTimeout(timer)
   }, [busca])
 
-  useEffect(() => { setPage(1) }, [status, tipo])
+  useEffect(() => { setPage(1) }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial])
 
   useEffect(() => {
     let mounted = true
@@ -432,6 +488,11 @@ export default function AgingEstoquePage() {
         status,
         tipo,
         busca: buscaAplicada,
+        tipo_negocio: tipoNegocio,
+        status_portfolio: statusPortfolio,
+        transferencia_bravi: transferenciaBravi,
+        modelo_fornecimento: modeloFornecimento,
+        grupo_gerencial: grupoGerencial,
         sort_key: sortKey || undefined,
         sort_direction: sortDirection,
       })
@@ -447,7 +508,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingItens(false)
       })
     return () => { mounted = false }
-  }, [page, status, tipo, buscaAplicada, sortKey, sortDirection])
+  }, [page, status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, sortKey, sortDirection])
 
   const itens = itensResp?.itens || []
   const totalPages = Math.max(1, itensResp?.total_pages || 1)
@@ -480,9 +541,29 @@ export default function AgingEstoquePage() {
 
   const topExcesso = useMemo(() => resumo?.top_excesso || [], [resumo])
   const topCriticos = useMemo(() => resumo?.top_criticos || [], [resumo])
+  const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
+  const opcoes = resumo?.opcoes || itensResp?.opcoes || {}
+
+  const tipoOptions = useMemo(() => {
+    const valores = Array.from(new Set([...(opcoes.tipo || []), ...TIPOS_FIXOS.filter((t) => t !== "TODOS")]))
+    return ["TODOS", ...valores.filter(Boolean).sort()]
+  }, [opcoes.tipo])
+
+  const resetFiltros = () => {
+    setStatus("TODOS")
+    setTipo("TODOS")
+    setTipoNegocio("TODOS")
+    setStatusPortfolio("TODOS")
+    setTransferenciaBravi("TODOS")
+    setModeloFornecimento("TODOS")
+    setGrupoGerencial("TODOS")
+    setBusca("")
+    setBuscaAplicada("")
+    setPage(1)
+  }
 
   const exportCsv = () => {
-    const header = ["codigo", "produto", "tipo", "saldo", "qtd_pedidos_abertos", "estoque_mais_pedidos", "maior_media", "lead_time_dias", "qtd_minima", "estoque_ideal", "cobertura_dias", "cobertura_futura_dias", "gap_volume", "status"]
+    const header = ["codigo", "produto", "tipo_negocio", "status_portfolio", "transferencia_bravi", "grupo_gerencial", "modelo_fornecimento", "tipo", "saldo", "qtd_pedidos_abertos", "estoque_mais_pedidos", "maior_media", "lead_time_dias", "qtd_minima", "estoque_ideal", "cobertura_dias", "cobertura_futura_dias", "gap_volume", "faturamento_ytd_qtd", "status_estoque", "status"]
     const csv = [header.join(";"), ...itens.map((r) => header.map((h) => String((r as any)[h] ?? "").replace(/;/g, ",")).join(";"))].join("\n")
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
@@ -513,8 +594,40 @@ export default function AgingEstoquePage() {
         <KpiCard label="Ruptura" value={fmtNumber(resumo?.resumo?.ruptura || 0)} helper="Saldo zerado com consumo" icon={<AlertTriangle size={20} />} tone="danger" />
         <KpiCard label="Críticos" value={fmtNumber(resumo?.resumo?.critico || 0)} helper="Abaixo do ideal/LT" icon={<ArrowDownRight size={20} />} tone="warning" />
         <KpiCard label="Excesso" value={fmtNumber(resumo?.resumo?.excesso || 0)} helper="Acima da política" icon={<ArrowUpRight size={20} />} tone="blue" />
-        <KpiCard label="Saldo total" value={fmtCompact(resumo?.resumo?.saldo_total || 0)} helper="posição de estoque" icon={<PackageSearch size={20} />} />
-        <KpiCard label="Pedidos" value={fmtCompact(resumo?.resumo?.pedidos_total || 0)} helper="compras em aberto" icon={<ShoppingCart size={20} />} tone="success" />
+        <KpiCard label="Descont. c/ saldo" value={fmtNumber(resumo?.resumo?.descontinuado_com_saldo || 0)} helper="portfólio descontinuado" icon={<PackageSearch size={20} />} tone="danger" />
+        <KpiCard label="Bravi" value={fmtNumber(resumo?.resumo?.transferencia_bravi || 0)} helper="itens em transferência" icon={<ShoppingCart size={20} />} tone="blue" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        {saudeNegocios.map((negocio) => (
+          <button
+            key={negocio.tipo_negocio}
+            type="button"
+            onClick={() => setTipoNegocio(negocio.tipo_negocio)}
+            className="card p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md"
+            style={{ borderColor: tipoNegocio === negocio.tipo_negocio ? "#2563EB" : "var(--border)" }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Saúde da linha</p>
+                <h3 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
+              </div>
+              <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>{fmtNumber(negocio.itens)} itens</span>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <KpiSmall label="Críticos" value={fmtNumber(negocio.criticos)} />
+              <KpiSmall label="Excesso" value={fmtNumber(negocio.excesso)} />
+              <KpiSmall label="Saldo" value={fmtCompact(negocio.saldo_total)} />
+              <KpiSmall label="Cob. futura" value={`${fmtNumber(negocio.cobertura_futura_media_dias, 0)} d`} />
+            </div>
+            {(negocio.descontinuado_com_saldo > 0 || negocio.transferencia_bravi > 0) && (
+              <p className="mt-3 text-xs" style={{ color: "var(--text-secondary)" }}>
+                {negocio.descontinuado_com_saldo > 0 ? `${fmtNumber(negocio.descontinuado_com_saldo)} descontinuado(s) com saldo. ` : ""}
+                {negocio.transferencia_bravi > 0 ? `${fmtNumber(negocio.transferencia_bravi)} item(ns) Bravi.` : ""}
+              </p>
+            )}
+          </button>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
@@ -527,7 +640,7 @@ export default function AgingEstoquePage() {
                   <p className="truncate text-sm font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo} · {item.produto}</p>
                   <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Gap {fmtCompact(item.gap_volume)} · Saldo {fmtCompact(item.saldo)}</p>
                 </div>
-                <StatusBadge status={item.status} />
+                <StatusBadge status={item.status_estoque || item.status} />
               </button>
             ))}
             {loadingResumo && <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Carregando...</p>}
@@ -543,7 +656,7 @@ export default function AgingEstoquePage() {
                   <p className="truncate text-sm font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo} · {item.produto}</p>
                   <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Cobertura futura {fmtNumber(item.cobertura_futura_dias, 0)} d</p>
                 </div>
-                <StatusBadge status={item.status} />
+                <StatusBadge status={item.status_estoque || item.status} />
               </button>
             ))}
             {loadingResumo && <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Carregando...</p>}
@@ -552,31 +665,73 @@ export default function AgingEstoquePage() {
       </div>
 
       <div className="card p-5">
-        <div className="mb-5 flex items-center gap-2"><Filter size={16} style={{ color: "var(--text-secondary)" }} /><h2 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>Filtros</h2></div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
+          <div className="flex items-center gap-2">
+            <Filter size={16} style={{ color: "var(--text-secondary)" }} />
+            <h2 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>Filtros</h2>
+          </div>
+          <button type="button" onClick={resetFiltros} className="rounded-xl border px-3 py-2 text-xs font-bold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+            Limpar filtros
+          </button>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Busca</p>
             <div className="relative">
               <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Código ou produto" className="h-10 w-full rounded-xl border bg-white pl-9 pr-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} />
+              <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Código, produto, grupo ou status" className="h-10 w-full rounded-xl border bg-white pl-9 pr-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} />
             </div>
           </div>
           <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status</p>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Tipo de negócio</p>
+            <select value={tipoNegocio} onChange={(e) => setTipoNegocio(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+              <option value="TODOS">Todos os negócios</option>
+              {(opcoes.tipo_negocio || []).map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status de estoque</p>
             <select value={status} onChange={(e) => setStatus(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
               {Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
           </div>
           <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Tipo</p>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Tipo ERP</p>
             <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              {TIPOS_FIXOS.map((t) => <option key={t} value={t}>{t === "TODOS" ? "Todos os tipos" : t}</option>)}
+              {tipoOptions.map((t) => <option key={t} value={t}>{t === "TODOS" ? "Todos os tipos" : t}</option>)}
             </select>
           </div>
           <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Resultado</p>
-            <div className="flex h-10 items-center rounded-xl border px-3 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>{fmtNumber(itensResp?.total || 0)} itens encontrados</div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status portfólio</p>
+            <select value={statusPortfolio} onChange={(e) => setStatusPortfolio(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+              <option value="TODOS">Todos os status</option>
+              {(opcoes.status_portfolio || []).map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
           </div>
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Transferência Bravi</p>
+            <select value={transferenciaBravi} onChange={(e) => setTransferenciaBravi(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+              <option value="TODOS">Todos</option>
+              {(opcoes.transferencia_bravi || []).map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Modelo fornecimento</p>
+            <select value={modeloFornecimento} onChange={(e) => setModeloFornecimento(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+              <option value="TODOS">Todos os modelos</option>
+              {(opcoes.modelo_fornecimento || []).map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Grupo gerencial</p>
+            <select value={grupoGerencial} onChange={(e) => setGrupoGerencial(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+              <option value="TODOS">Todos os grupos</option>
+              {(opcoes.grupo_gerencial || []).map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="mt-4 flex h-10 items-center rounded-xl border px-3 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+          {fmtNumber(itensResp?.total || 0)} itens encontrados · Cobertura futura média {fmtNumber(resumo?.resumo?.cobertura_futura_media_dias || 0, 0)} dias
         </div>
       </div>
 
@@ -590,23 +745,35 @@ export default function AgingEstoquePage() {
         </div>
 
         <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 360px)" }}>
-          <table className="w-full min-w-[1420px] text-sm">
+          <table className="w-full min-w-[1760px] text-sm">
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Código</th>
                 <th className="px-4 py-3">Produto</th>
-                <th className="px-4 py-3">Tipo</th>
+                <th className="px-4 py-3">Negócio</th>
+                <th className="px-4 py-3">Portfólio</th>
+                <th className="px-4 py-3">Tipo ERP</th>
+                <th className="px-4 py-3">Modelo</th>
                 {NUMERIC_COLUMNS.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
               </tr>
             </thead>
             <tbody>
               {itensOrdenados.map((item) => (
-                <tr key={`${item.codigo}-${item.tipo}`} className="cursor-pointer border-t transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }} onClick={() => abrirDetalhe(item)}>
-                  <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
+                <tr key={`${item.codigo}-${item.tipo}-${item.grupo_gerencial}`} className="cursor-pointer border-t transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }} onClick={() => abrirDetalhe(item)}>
+                  <td className="px-4 py-3"><StatusBadge status={item.status_estoque || item.status} /></td>
                   <td className="px-4 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo}</td>
-                  <td className="px-4 py-3"><div className="max-w-[340px] truncate font-medium" style={{ color: "var(--text-primary)" }}>{item.produto || "—"}</div><div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{item.grupo_descricao || "—"}</div></td>
-                  <td className="px-4 py-3">{item.tipo || "—"}</td>
+                  <td className="px-4 py-3">
+                    <div className="max-w-[320px] truncate font-medium" style={{ color: "var(--text-primary)" }}>{item.produto || "—"}</div>
+                    <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{item.grupo_gerencial || item.grupo_descricao || "—"}</div>
+                  </td>
+                  <td className="px-4 py-3">{item.tipo_negocio || "—"}</td>
+                  <td className="px-4 py-3">
+                    <div>{item.status_portfolio || "—"}</div>
+                    {item.transferencia_bravi === "Sim" && <div className="mt-1 text-[11px] font-bold" style={{ color: "#6D28D9" }}>Bravi</div>}
+                  </td>
+                  <td className="px-4 py-3">{item.tipo || item.tipo_produto_erp || "—"}</td>
+                  <td className="px-4 py-3">{item.modelo_fornecimento || "—"}</td>
                   <td className="px-4 py-3 text-right font-semibold">{fmtNumber(item.saldo, 0)}</td>
                   <td className="px-4 py-3 text-right">{fmtNumber(item.qtd_pedidos_abertos, 0)}</td>
                   <td className="px-4 py-3 text-right font-semibold">{fmtNumber(item.estoque_mais_pedidos, 0)}</td>
@@ -617,6 +784,7 @@ export default function AgingEstoquePage() {
                   <td className="px-4 py-3 text-right">{fmtNumber(item.cobertura_dias, 0)} d</td>
                   <td className="px-4 py-3 text-right">{fmtNumber(item.cobertura_futura_dias, 0)} d</td>
                   <td className="px-4 py-3 text-right font-bold" style={{ color: item.gap_volume < 0 ? "#DC2626" : "#1D4ED8" }}>{fmtNumber(item.gap_volume, 0)}</td>
+                  <td className="px-4 py-3 text-right">{fmtNumber(item.faturamento_ytd_qtd || 0, 0)}</td>
                 </tr>
               ))}
             </tbody>
