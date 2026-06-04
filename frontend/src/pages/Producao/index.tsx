@@ -22,9 +22,10 @@ import {
   Target,
 } from "lucide-react"
 
-const API_URL =
-  import.meta.env.VITE_API_URL ||
-  "https://dfl-sop-api.fly.dev"
+import {
+  clearApiCache,
+  getOverviewProducaoResumo,
+} from "@/services/api"
 
 const COLORS = {
   navy: "#17375E",
@@ -390,21 +391,21 @@ export function ProducaoPage() {
     atingimento: true,
   })
 
-  async function loadData() {
+  async function loadData(forceRefresh = false) {
     try {
       setLoading(true)
       setErro("")
 
-      const response = await fetch(
-        `${API_URL}/overview-producao/resumo?ano=2026&mes=${mes}&linha=${linha}`
-      )
-
-      if (!response.ok) {
-        const text = await response.text()
-        throw new Error(text || "Erro ao carregar produção")
+      if (forceRefresh) {
+        clearApiCache("/overview-producao/resumo")
       }
 
-      const json = await response.json()
+      const json = (await getOverviewProducaoResumo({
+        ano: 2026,
+        mes,
+        linha,
+      })) as ResponseData
+
       setData(json)
     } catch (err) {
       console.error(err)
@@ -419,7 +420,7 @@ export function ProducaoPage() {
   }
 
   useEffect(() => {
-    loadData()
+    void loadData(false)
   }, [mes, linha])
 
   const resumo = data?.resumo
@@ -515,7 +516,7 @@ export function ProducaoPage() {
           </select>
 
           <button
-            onClick={loadData}
+            onClick={() => loadData(true)}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" />
@@ -524,19 +525,26 @@ export function ProducaoPage() {
         </div>
       </div>
 
-      {loading && (
+      {loading && data && (
+        <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-500 shadow-sm">
+          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+          Atualizando produção em segundo plano...
+        </div>
+      )}
+
+      {loading && !data && (
         <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
           Carregando produção...
         </div>
       )}
 
-      {!loading && erro && (
+      {erro && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-600 shadow-sm">
           {erro}
         </div>
       )}
 
-      {!loading && !erro && data && (
+      {data && (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Card
