@@ -18,6 +18,28 @@ import {
   limparDesvios,
 } from "@/services/api"
 
+const API_URL =
+  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_URL ||
+  "https://dfl-sop-api.fly.dev"
+
+async function getDesviosHistoricoAnual(ano: number): Promise<HistoricoDesvio[]> {
+  const res = await fetch(`${API_URL}/desvios/historico-anual?ano=${ano}`)
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error((err as { detail?: string }).detail || `Erro ${res.status}`)
+  }
+
+  const data = await res.json()
+
+  if (Array.isArray(data)) return data as HistoricoDesvio[]
+  if (Array.isArray((data as { data?: HistoricoDesvio[] })?.data)) {
+    return (data as { data: HistoricoDesvio[] }).data
+  }
+
+  return []
+}
+
 type Evento = {
   id?: string
   data_evento?: string
@@ -50,11 +72,20 @@ type Desvio = {
   qtd_prevista_total?: number
 }
 
+type HistoricoDesvio = Desvio & {
+  situacao_historico?: "Aberto" | "Fechado" | string
+  primeiro_upload?: string | null
+  ultimo_upload?: string | null
+  fechado_detectado_em?: string | null
+}
+
 type Resumo = {
   total_lotes: number
   total_desvios: number
   novos_lotes: number
   lotes_removidos: number
+  desvios_fechados?: number
+  novos_desvios?: number
   alteracoes: number
 }
 
@@ -118,6 +149,40 @@ function renderEstadoTag(estado?: string) {
   )
 }
 
+function renderSituacaoHistoricoTag(situacao?: string) {
+  const fechado = String(situacao || "").toLowerCase().includes("fechado")
+
+  return (
+    <span
+      className={`rounded-full px-2 py-1 text-xs font-semibold ${
+        fechado
+          ? "bg-slate-100 text-slate-700"
+          : "bg-emerald-100 text-emerald-700"
+      }`}
+    >
+      {fechado ? "Fechado" : "Aberto"}
+    </span>
+  )
+}
+
+function formatDataHora(valor?: string | null) {
+  if (!valor) return "-"
+
+  const dt = new Date(valor)
+
+  if (Number.isNaN(dt.getTime())) return String(valor)
+
+  return dt
+    .toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+    .replace(",", " às")
+}
+
 export default function DesviosPage() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -130,26 +195,33 @@ export default function DesviosPage() {
   const [eventos, setEventos] = useState<Evento[]>([])
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [desvios, setDesvios] = useState<Desvio[]>([])
+  const [historico, setHistorico] = useState<HistoricoDesvio[]>([])
 
   const [busca, setBusca] = useState("")
   const [filtroMes, setFiltroMes] = useState("TODOS")
+  const [anoHistorico, setAnoHistorico] = useState("2026")
+  const [filtroSituacaoHistorico, setFiltroSituacaoHistorico] = useState("TODOS")
 
   async function carregar() {
     try {
       setLoading(true)
 
-      const [resumoResp, eventosResp, snapshotsResp, desviosResp] =
+      const ano = Number(anoHistorico) || new Date().getFullYear()
+
+      const [resumoResp, eventosResp, snapshotsResp, desviosResp, historicoResp] =
         await Promise.all([
           getDesviosResumo(),
           getDesviosEventos(),
           getDesviosSnapshots(),
           getDesviosAtuais(),
+          getDesviosHistoricoAnual(ano).catch(() => [] as HistoricoDesvio[]),
         ])
 
       setResumo(resumoResp as Resumo)
       setEventos((eventosResp as Evento[]) || [])
       setSnapshots((snapshotsResp as Snapshot[]) || [])
       setDesvios((desviosResp as Desvio[]) || [])
+      setHistorico((historicoResp as HistoricoDesvio[]) || [])
     } catch (err) {
       console.error(err)
     } finally {
@@ -159,7 +231,7 @@ export default function DesviosPage() {
 
   useEffect(() => {
     carregar()
-  }, [])
+  }, [anoHistorico])
 
   async function handleUpload() {
     if (!arquivo) return
@@ -201,6 +273,7 @@ export default function DesviosPage() {
       setEventos([])
       setSnapshots([])
       setDesvios([])
+      setHistorico([])
       setConfirmarLimpeza(false)
 
       await carregar()
@@ -252,16 +325,41 @@ export default function DesviosPage() {
     })
   }, [desvios, busca, filtroMes])
 
+  const historicoFiltrado = useMemo(() => {
+    return historico.filter((d) => {
+      const termo = busca.toLowerCase()
+
+      const passouBusca =
+        !termo ||
+        String(d.serial || "").toLowerCase().includes(termo) ||
+        String(d.destino || "").toLowerCase().includes(termo) ||
+        String(d.estado || "").toLowerCase().includes(termo) ||
+        String(d.setor || "").toLowerCase().includes(termo) ||
+        String(d.titulo || "").toLowerCase().includes(termo) ||
+        String(d.lotes_texto || "").toLowerCase().includes(termo)
+
+      const passouSituacao =
+        filtroSituacaoHistorico === "TODOS" ||
+        String(d.situacao_historico || "").toLowerCase() ===
+          filtroSituacaoHistorico.toLowerCase()
+
+      return passouBusca && passouSituacao
+    })
+  }, [historico, busca, filtroSituacaoHistorico])
+
   const novosLotes = eventos.filter((e) => e.tipo_evento === "NOVO_LOTE")
   const lotesRemovidos = eventos.filter((e) => e.tipo_evento === "LOTE_REMOVIDO")
   const novosDesvios = eventos.filter((e) => e.tipo_evento === "NOVO_DESVIO")
-  const desviosRemovidos = eventos.filter((e) => e.tipo_evento === "DESVIO_REMOVIDO")
+  const desviosFechados = eventos.filter((e) =>
+    ["DESVIO_FECHADO", "DESVIO_REMOVIDO"].includes(e.tipo_evento)
+  )
   const alteracoesGerais = eventos.filter(
     (e) =>
       ![
         "NOVO_LOTE",
         "LOTE_REMOVIDO",
         "NOVO_DESVIO",
+        "DESVIO_FECHADO",
         "DESVIO_REMOVIDO",
       ].includes(e.tipo_evento)
   )
@@ -270,7 +368,7 @@ export default function DesviosPage() {
     novosLotes.length ||
     lotesRemovidos.length ||
     novosDesvios.length ||
-    desviosRemovidos.length ||
+    desviosFechados.length ||
     alteracoesGerais.length
 
   return (
@@ -289,10 +387,7 @@ export default function DesviosPage() {
               <CalendarDays className="h-4 w-4 text-slate-500" />
               <span className="text-sm font-medium text-slate-700">Dados atualizados em:</span>
               <span className="text-sm text-slate-500">
-                {new Date([...snapshots].sort((a, b) => new Date(b.data_upload).getTime() - new Date(a.data_upload).getTime())[0].data_upload).toLocaleString("pt-BR", {
-                  day: "2-digit", month: "2-digit", year: "numeric",
-                  hour: "2-digit", minute: "2-digit",
-                }).replace(",", " às")}
+                {formatDataHora([...snapshots].sort((a, b) => new Date(b.data_upload).getTime() - new Date(a.data_upload).getTime())[0].data_upload)}
               </span>
             </div>
           )}
@@ -349,7 +444,7 @@ export default function DesviosPage() {
         <Card title="Desvios atuais" value={resumo?.total_desvios || 0} icon={<FileWarning size={18} />} color="blue" />
         <Card title="Lotes monitorados" value={resumo?.total_lotes || 0} icon={<AlertTriangle size={18} />} color="amber" />
         <Card title="Novos lotes" value={resumo?.novos_lotes || 0} icon={<History size={18} />} color="green" />
-        <Card title="Lotes removidos" value={resumo?.lotes_removidos || 0} icon={<AlertTriangle size={18} />} color="red" />
+        <Card title="Desvios fechados" value={resumo?.desvios_fechados ?? desviosFechados.length} icon={<AlertTriangle size={18} />} color="red" />
         <Card title="Alterações" value={resumo?.alteracoes || 0} icon={<Clock3 size={18} />} color="purple" />
       </div>
 
@@ -459,7 +554,7 @@ export default function DesviosPage() {
               <AvisoAlteracao
                 title="Lotes adicionados"
                 color="green"
-                text={novosLotes.map((e) => `${e.lote} no ${e.serial}`).join("; ")}
+                text={novosLotes.map((e) => e.descricao || `${e.lote} no ${e.serial}`).join("; ")}
               />
             )}
 
@@ -467,7 +562,7 @@ export default function DesviosPage() {
               <AvisoAlteracao
                 title="Lotes removidos"
                 color="red"
-                text={lotesRemovidos.map((e) => `${e.lote} do ${e.serial}`).join("; ")}
+                text={lotesRemovidos.map((e) => e.descricao || `${e.lote} removido do ${e.serial}`).join("; ")}
               />
             )}
 
@@ -475,15 +570,15 @@ export default function DesviosPage() {
               <AvisoAlteracao
                 title="Novos desvios"
                 color="blue"
-                text={novosDesvios.map((e) => e.serial).filter(Boolean).join("; ")}
+                text={novosDesvios.map((e) => e.descricao || `Novo desvio: ${e.serial}`).filter(Boolean).join("; ")}
               />
             )}
 
-            {!!desviosRemovidos.length && (
+            {!!desviosFechados.length && (
               <AvisoAlteracao
-                title="Desvios removidos"
+                title="Desvios fechados"
                 color="slate"
-                text={desviosRemovidos.map((e) => e.serial).filter(Boolean).join("; ")}
+                text={desviosFechados.map((e) => e.descricao || `Desvio fechado: ${e.serial}`).filter(Boolean).join("; ")}
               />
             )}
 
@@ -500,6 +595,97 @@ export default function DesviosPage() {
             Nenhuma alteração detectada no último upload.
           </div>
         )}
+      </div>
+
+
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Histórico de desvios do ano
+            </h2>
+
+            <p className="text-sm text-slate-500">
+              Todos os desvios que já apareceram no ano selecionado, inclusive os fechados que não constam mais no Interact.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <select
+              value={anoHistorico}
+              onChange={(e) => setAnoHistorico(e.target.value)}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E]"
+            >
+              <option value="2026">2026</option>
+              <option value="2025">2025</option>
+              <option value="2024">2024</option>
+            </select>
+
+            <select
+              value={filtroSituacaoHistorico}
+              onChange={(e) => setFiltroSituacaoHistorico(e.target.value)}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E]"
+            >
+              <option value="TODOS">Todos os status</option>
+              <option value="Aberto">Abertos</option>
+              <option value="Fechado">Fechados</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-[#17375E] text-white">
+                <th className="px-4 py-3 text-left font-medium">Situação</th>
+                <th className="px-4 py-3 text-left font-medium">Desvio</th>
+                <th className="px-4 py-3 text-left font-medium">Estado</th>
+                <th className="px-4 py-3 text-left font-medium">Destino</th>
+                <th className="px-4 py-3 text-left font-medium">Descrição</th>
+                <th className="px-4 py-3 text-left font-medium">Qtd. lotes</th>
+                <th className="px-4 py-3 text-left font-medium">Lotes</th>
+                <th className="px-4 py-3 text-left font-medium">Mês impactado</th>
+                <th className="px-4 py-3 text-left font-medium">Linha</th>
+                <th className="px-4 py-3 text-left font-medium">Grupo</th>
+                <th className="px-4 py-3 text-right font-medium">Qtd prevista</th>
+                <th className="px-4 py-3 text-left font-medium">Última aparição</th>
+                <th className="px-4 py-3 text-left font-medium">Setor</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {historicoFiltrado.map((item) => (
+                <tr key={`${item.serial}-${item.ultimo_upload || ""}`} className="border-b border-slate-100 align-top">
+                  <td className="px-4 py-4">{renderSituacaoHistoricoTag(item.situacao_historico)}</td>
+                  <td className="px-4 py-4 font-semibold text-slate-900">{item.serial}</td>
+                  <td className="px-4 py-4">{renderEstadoTag(item.estado)}</td>
+                  <td className="px-4 py-4">{renderDestinoTag(item.destino)}</td>
+                  <td className="max-w-[320px] px-4 py-4 text-slate-700">
+                    <div className="line-clamp-3">{item.titulo || "-"}</div>
+                  </td>
+                  <td className="px-4 py-4 text-slate-700">{item.qtd_lotes}</td>
+                  <td className="max-w-[360px] px-4 py-4 text-slate-700">
+                    <div className="line-clamp-3">{item.lotes_texto || "-"}</div>
+                  </td>
+                  <td className="px-4 py-4 text-slate-700">{item.meses_lib_texto || "-"}</td>
+                  <td className="px-4 py-4 text-slate-700">{item.linhas_texto || "-"}</td>
+                  <td className="px-4 py-4 text-slate-700">{item.grupos_produto_texto || "-"}</td>
+                  <td className="px-4 py-4 text-right text-slate-700">{formatNumero(item.qtd_prevista_total)}</td>
+                  <td className="px-4 py-4 text-slate-700">{formatDataHora(item.ultimo_upload)}</td>
+                  <td className="max-w-[260px] px-4 py-4 text-slate-700">{item.setor || "-"}</td>
+                </tr>
+              ))}
+
+              {!historicoFiltrado.length && !loading && (
+                <tr>
+                  <td colSpan={13} className="px-4 py-8 text-center text-sm text-slate-500">
+                    Nenhum histórico encontrado para o ano selecionado.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {confirmarLimpeza && (
