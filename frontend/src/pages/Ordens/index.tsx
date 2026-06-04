@@ -3,7 +3,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Clock,
   ChevronDown, ChevronUp, RefreshCw,
   CalendarDays, PackageCheck, PackageX, ClipboardList,
-  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart, Upload,
+  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart, Upload, Settings,
 } from "lucide-react"
 import {
   getOpsMeses,
@@ -2030,6 +2030,7 @@ export function OrdensPage() {
   const [arquivosBases, setArquivosBases] = useState<Partial<Record<BaseOperacionalOrdensId, File | null>>>({})
   const [uploadingBase, setUploadingBase] = useState<BaseOperacionalOrdensId | null>(null)
   const [atualizacoesBases, setAtualizacoesBases] = useState<Partial<Record<BaseOperacionalOrdensId, string | null>>>({})
+  const [modalBasesAberto, setModalBasesAberto] = useState(false)
 
   function mostrarToast(type: "success" | "error", message: string) {
     setToast({ type, message })
@@ -2406,6 +2407,16 @@ export function OrdensPage() {
           <button onClick={() => buscar()} disabled={loading || !mesSel} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold" style={{ cursor: loading ? "not-allowed" : "pointer" }}>
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Atualizar
           </button>
+          <button
+            type="button"
+            onClick={() => setModalBasesAberto(true)}
+            className="flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold"
+            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)", cursor: "pointer" }}
+            title="Atualizar bases usadas nesta análise"
+          >
+            <Settings size={15} />
+            Bases
+          </button>
         </div>
       </div>
 
@@ -2418,79 +2429,6 @@ export function OrdensPage() {
         onMes={setMesSel} onLinhas={setLinhasSel} onStatuses={setStatusesSel}
         onTipos={setTiposSel} onLotes={setLotesSel} onCodigos={setCodigosSel} onProdutos={setProdutosSel}
       />
-
-      <div
-        className="fade-in rounded-2xl border p-4 md:p-5"
-        style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}
-      >
-        <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="card-label mb-1">Bases usadas nesta análise</p>
-            <h2 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>Atualização operacional</h2>
-            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              Use estes atalhos para atualizar a página de Ordens sem acessar a área completa de Bases de Dados.
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          {BASES_OPERACIONAIS_ORDENS.map((base) => {
-            const arquivoSelecionado = arquivosBases[base.id]
-            const enviando = uploadingBase === base.id
-            const atualizadoEm = fmtDataHora(atualizacoesBases[base.id] || null)
-
-            return (
-              <div
-                key={base.id}
-                className="rounded-xl border p-3"
-                style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
-              >
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</p>
-                    <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{base.descricao}</p>
-                    <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                      Atualizada em: <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{atualizadoEm || "sem carga registrada"}</span>
-                    </p>
-                  </div>
-                  <div
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                    style={{ background: "#EFF6FF", color: "#2563EB" }}
-                  >
-                    <Upload size={15} />
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <label
-                    className="flex h-9 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors hover:bg-slate-50"
-                    style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: "var(--bg-secondary)" }}
-                  >
-                    <span className="truncate">{arquivoSelecionado?.name || "Selecionar arquivo"}</span>
-                    <input
-                      type="file"
-                      accept={base.accept}
-                      className="hidden"
-                      onChange={e => setArquivosBases(prev => ({ ...prev, [base.id]: e.target.files?.[0] || null }))}
-                    />
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => handleUploadBaseOperacional(base.id)}
-                    disabled={!arquivoSelecionado || !!uploadingBase}
-                    className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-50"
-                    style={{ background: "var(--bg-sidebar)", cursor: !arquivoSelecionado || uploadingBase ? "not-allowed" : "pointer" }}
-                  >
-                    {enviando ? <RefreshCw size={13} className="animate-spin" /> : <Upload size={13} />}
-                    {enviando ? "Enviando..." : base.botao}
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
 
       {dados && !loading && (
         <>
@@ -2604,6 +2542,103 @@ export function OrdensPage() {
 
       {!loading && !erro && !dados && !mesSel && (
         <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>Nenhuma programação carregada. Faça o upload da planilha de OPs na aba Dados.</div>
+      )}
+
+      {modalBasesAberto && (
+        <div
+          className="fixed inset-0 z-[997] flex items-end justify-center p-0 md:items-center md:p-4"
+          style={{ background: "rgba(15,23,42,0.45)" }}
+          onClick={() => setModalBasesAberto(false)}
+        >
+          <div
+            className="w-full rounded-t-2xl shadow-2xl md:max-w-4xl md:rounded-2xl"
+            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", maxHeight: "90vh" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div>
+                <p className="card-label mb-1">Bases usadas nesta análise</p>
+                <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>Atualização operacional</h2>
+                <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                  Atualize apenas quando houver nova programação, nova estrutura/BOM ou nova tabela de lotes teóricos.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalBasesAberto(false)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-primary)" }}
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-5" style={{ maxHeight: "calc(90vh - 95px)" }}>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {BASES_OPERACIONAIS_ORDENS.map((base) => {
+                  const arquivoSelecionado = arquivosBases[base.id]
+                  const enviando = uploadingBase === base.id
+                  const atualizadoEm = fmtDataHora(atualizacoesBases[base.id] || null)
+
+                  return (
+                    <div
+                      key={base.id}
+                      className="rounded-xl border p-4"
+                      style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
+                    >
+                      <div className="mb-4 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</p>
+                          <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{base.descricao}</p>
+                          <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                            Atualizada em:<br />
+                            <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{atualizadoEm || "sem carga registrada"}</span>
+                          </p>
+                        </div>
+                        <div
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                          style={{ background: "#EFF6FF", color: "#2563EB" }}
+                        >
+                          <Upload size={15} />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <label
+                          className="flex h-9 min-w-0 cursor-pointer items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors hover:bg-slate-50"
+                          style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: "var(--bg-secondary)" }}
+                        >
+                          <span className="truncate">{arquivoSelecionado?.name || "Selecionar arquivo"}</span>
+                          <input
+                            type="file"
+                            accept={base.accept}
+                            className="hidden"
+                            onChange={e => setArquivosBases(prev => ({ ...prev, [base.id]: e.target.files?.[0] || null }))}
+                          />
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => handleUploadBaseOperacional(base.id)}
+                          disabled={!arquivoSelecionado || !!uploadingBase}
+                          className="flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-50"
+                          style={{ background: "var(--bg-sidebar)", cursor: !arquivoSelecionado || uploadingBase ? "not-allowed" : "pointer" }}
+                        >
+                          {enviando ? <RefreshCw size={13} className="animate-spin" /> : <Upload size={13} />}
+                          {enviando ? "Enviando..." : base.botao}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="mt-4 rounded-xl border px-4 py-3 text-xs" style={{ background: "#FFFBEB", borderColor: "#FDE68A", color: "#92400E" }}>
+                Essas atualizações substituem bases usadas no cálculo de viabilidade. Após o upload, a tela recalcula automaticamente as OPs do mês selecionado.
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <CardModal tipo={modalCard} ops={opsComAjustes} onClose={() => setModalCard(null)} />
