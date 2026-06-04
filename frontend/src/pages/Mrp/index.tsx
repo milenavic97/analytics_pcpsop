@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { memo, useDeferredValue, useEffect, useMemo, useState } from "react"
 import {
   AlertCircle,
   ArrowDown,
@@ -47,6 +47,8 @@ const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "O
 const RECURSOS = ["L1", "L2", "FABRIMA"]
 const AZUL = "#17375E"
 const PAGE_SIZE = 50
+
+type AbaMps = "detalhado" | "consolidado" | "perdas"
 
 const COR_ORCADO = "#EA580C"
 const COR_PERDA = "#DC2626"
@@ -2909,6 +2911,9 @@ function ComparativoLiberacao({ rodadas, etapasPorRodada, recursoFiltro }: {
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
+const VisaoConsolidadaMemo = memo(VisaoConsolidada)
+const ProjecaoPerdasMensaisMemo = memo(ProjecaoPerdasMensais)
+
 export default function Mrp() {
   const hoje = new Date()
 
@@ -2940,8 +2945,15 @@ export default function Mrp() {
     busca: "", lote: "", codigo: "", produto: "",
     mesProducao: "", anoProducao: "", mesLiberacao: "", anoLiberacao: "", recurso: "L1",
   })
-  const [abaMps, setAbaMps] = useState<"detalhado" | "consolidado" | "perdas">("detalhado")
+  const [abaMps, setAbaMps] = useState<AbaMps>("detalhado")
+  const abaMpsRenderizada = useDeferredValue(abaMps)
+  const trocandoAbaMps = abaMps !== abaMpsRenderizada
   const [etapasPorRodada, setEtapasPorRodada] = useState<Record<string, MrpEtapa[]>>({})
+
+  function trocarAbaMps(aba: AbaMps) {
+    if (aba === abaMps) return
+    setAbaMps(aba)
+  }
 
   function showToast(data: Toast, duration = 4000) {
     setToast(data)
@@ -3506,7 +3518,7 @@ export default function Mrp() {
       {/* Abas */}
       <div className="flex flex-wrap gap-2">
         {(["detalhado", "consolidado", "perdas"] as const).map((aba) => (
-          <button key={aba} type="button" onClick={() => setAbaMps(aba)}
+          <button key={aba} type="button" onClick={() => trocarAbaMps(aba)}
             className="rounded-xl border px-4 py-2 text-sm font-semibold transition"
             style={{
               background: abaMps === aba ? AZUL : "var(--bg-secondary)",
@@ -3518,9 +3530,15 @@ export default function Mrp() {
         ))}
       </div>
 
+      {trocandoAbaMps && (
+        <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+          Atualizando visão...
+        </div>
+      )}
+
       {/* Aba consolidada */}
-      {abaMps === "consolidado" && (
-        <VisaoConsolidada
+      {abaMpsRenderizada === "consolidado" && (
+        <VisaoConsolidadaMemo
           rodadas={rodadasComparativo}
           etapasPorRodada={etapasPorRodada}
           rodadaAtual={rodadaSelecionada}
@@ -3529,8 +3547,8 @@ export default function Mrp() {
       )}
 
       {/* Aba perdas mensais */}
-      {abaMps === "perdas" && (
-        <ProjecaoPerdasMensais
+      {abaMpsRenderizada === "perdas" && (
+        <ProjecaoPerdasMensaisMemo
           rodadas={rodadasComparativo}
           etapasPorRodada={etapasPorRodada}
           rodadaAtual={rodadaSelecionada}
@@ -3538,7 +3556,7 @@ export default function Mrp() {
       )}
 
       {/* Aba detalhada */}
-      {abaMps === "detalhado" && (
+      {abaMpsRenderizada === "detalhado" && (
         <>
           {/* Tabela Gantt */}
           <div className="card overflow-hidden">
