@@ -797,6 +797,23 @@ export interface ResumoPorLinha {
   >
 }
 
+
+export interface ExcluirProgramacaoOpsMesResponse {
+  ok: boolean
+  mes_ref: string
+  total_excluido: number
+  ajustes_removidos?: number
+  message?: string
+}
+
+export async function excluirProgramacaoOpsMes(
+  mesRef: string
+): Promise<ExcluirProgramacaoOpsMesResponse> {
+  return apiFetch(`/ops/programacao/${encodeURIComponent(mesRef)}`, {
+    method: "DELETE",
+  })
+}
+
 export async function getOpsViabilidade(
   mesRef: string,
   linha?: string
