@@ -1486,6 +1486,19 @@ export interface AgingHistoricoConsumo {
   consumo: number
 }
 
+export interface AgingLinhaTempoEstoque {
+  ano: number
+  mes: number
+  periodo: string
+  consumo: number
+  demanda: number
+  forecast?: number
+  entradas_previstas: number
+  estoque_atual: number
+  estoque_mais_pedidos: number
+  saldo_projetado?: number | null
+}
+
 export interface AgingEstoqueItem {
   codigo: string
   produto?: string | null
@@ -1546,6 +1559,19 @@ export interface AgingEstoqueItem {
   origem_classificacao?: "DIMENSAO" | "BOM" | "NAO_CLASSIFICADO" | string | null
   item_mapeado?: boolean
   historico_consumo?: AgingHistoricoConsumo[]
+  linha_tempo_estoque?: AgingLinhaTempoEstoque[]
+
+  custo_unitario?: number
+  estoque_atual_valor?: number
+  pedidos_abertos_valor?: number
+  estoque_mais_pedidos_valor?: number
+  maior_media_valor?: number
+  estoque_ideal_valor?: number
+  gap_valor?: number
+  demanda_mes_atual?: number
+  consumo_mes_atual?: number
+  previsto_vs_consumido_pct?: number
+  previsao_consumo_alerta?: number
 }
 
 export interface AgingResumo {
@@ -1740,10 +1766,14 @@ export async function getAgingEstoqueDashboard(params?: AgingFiltrosParams): Pro
 }
 
 export async function getAgingEstoqueItem(
-  codigo: string
+  codigo: string,
+  mesesFuturos = 6
 ): Promise<AgingEstoqueItem> {
+  const query = new URLSearchParams()
+  query.set("meses_futuros", String(mesesFuturos))
+
   return apiFetchNoCache(
-    `/aging-estoque/item/${codigo}`
+    `/aging-estoque/item/${codigo}?${query.toString()}`
   )
 }
 
