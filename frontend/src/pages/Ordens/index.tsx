@@ -3,7 +3,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Clock,
   ChevronDown, ChevronUp, RefreshCw,
   CalendarDays, PackageCheck, PackageX, ClipboardList,
-  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart, Upload, Settings, Trash2,
+  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart, Upload, Trash2, Database, UploadCloud,
 } from "lucide-react"
 import {
   getOpsMeses,
@@ -2056,8 +2056,8 @@ export function OrdensPage() {
     setAtualizacoesBases(Object.fromEntries(pares) as Partial<Record<BaseOperacionalOrdensId, string | null>>)
   }
 
-  async function handleUploadBaseOperacional(baseId: BaseOperacionalOrdensId) {
-    const arquivoBase = arquivosBases[baseId]
+  async function handleUploadBaseOperacional(baseId: BaseOperacionalOrdensId, arquivoSelecionado?: File) {
+    const arquivoBase = arquivoSelecionado || arquivosBases[baseId]
 
     if (!arquivoBase) {
       mostrarToast("error", "Selecione um arquivo antes de enviar.")
@@ -2455,7 +2455,7 @@ export function OrdensPage() {
             style={{ background: "var(--bg-sidebar)", cursor: "pointer" }}
             title="Atualizar bases usadas nesta análise"
           >
-            <Settings size={15} />
+            <Database size={15} />
             Bases
           </button>
         </div>
@@ -2598,80 +2598,126 @@ export function OrdensPage() {
             <div className="flex items-start justify-between gap-4 border-b px-6 py-5" style={{ borderColor: "var(--border)" }}>
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Bases da análise</p>
-                <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>Atualização operacional</h2>
-                <p className="mt-1 max-w-4xl text-sm" style={{ color: "var(--text-secondary)" }}>
-                  Consulte as datas antes de subir: estoque e compras são bases compartilhadas com outras telas, então se alguém já atualizou em outro lugar, a atualização aparece aqui.
+                <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>Ordens de Produção</h2>
+                <p className="mt-1 max-w-3xl text-sm" style={{ color: "var(--text-secondary)" }}>
+                  Use este painel para atualizar somente as bases necessárias para a análise de viabilidade. Bases compartilhadas atualizam automaticamente as outras páginas que usam a mesma tabela.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setModalBasesAberto(false)}
                 className="rounded-xl p-2 hover:bg-slate-100"
-                aria-label="Fechar"
               >
                 <X size={18} />
               </button>
             </div>
 
             <div className="overflow-y-auto px-6 py-5">
-              <div className="mb-4 rounded-2xl border px-4 py-3 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: "rgba(37,99,235,0.06)" }}>
-                <span className="font-semibold">As datas abaixo valem para toda a ferramenta.</span>{" "}
-                Se estoque ou compras já foram atualizados por outra página/usuário, não precisa subir novamente aqui. Suba apenas quando tiver uma nova versão da base.
+              <div className="mb-4 flex flex-col justify-between gap-3 rounded-2xl border p-4 md:flex-row md:items-center" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+                <div>
+                  <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Racional das bases</p>
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Programação mensal é a base principal. Estrutura/BOM, lotes teóricos, estoque de insumos e compras em aberto completam o cálculo de viabilidade das OPs.
+                  </p>
+                  <p className="mt-1 text-[11px] font-semibold" style={{ color: "#1D4ED8" }}>
+                    Estoque e compras são compartilhados com outras páginas da ferramenta.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={carregarAtualizacoesBases}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition hover:bg-white"
+                  style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                >
+                  <RefreshCw size={14} />
+                  Atualizar status
+                </button>
               </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {BASES_OPERACIONAIS_ORDENS.map((base) => {
-                  const arquivoSelecionado = arquivosBases[base.id]
                   const enviando = uploadingBase === base.id
                   const atualizadoEm = fmtDataHora(atualizacoesBases[base.id] || null)
+                  const inputId = `upload-ordens-${base.id}`
+
+                  const usoNaTela: Record<BaseOperacionalOrdensId, { texto: string; compartilhada?: string }> = {
+                    programacao_ops: {
+                      texto: "Define as OPs exibidas, o mês de referência e as datas de fabricação usadas na análise.",
+                    },
+                    bom_estrutura: {
+                      texto: "Explode cada produto pai nos componentes necessários para calcular a necessidade de material.",
+                      compartilhada: "Também atualiza a Gestão de Estoque.",
+                    },
+                    lotes_teoricos: {
+                      texto: "Substitui a quantidade da programação pela quantidade teórica exigida na abertura da OP, quando aplicável.",
+                    },
+                    estoque_saldo: {
+                      texto: "Alimenta o saldo disponível de insumos usado para validar falta de material e quarentena.",
+                      compartilhada: "Também pode alimentar outras análises.",
+                    },
+                    compras_abertas: {
+                      texto: "Soma entradas futuras dentro do prazo considerado para avaliar se a OP poderá ser aberta.",
+                      compartilhada: "Também atualiza a Gestão de Estoque.",
+                    },
+                  }
+
+                  const uso = usoNaTela[base.id]
 
                   return (
                     <div
                       key={base.id}
-                      className="flex min-h-[300px] flex-col rounded-2xl border p-4"
+                      className="flex min-h-[330px] flex-col rounded-2xl border p-4"
                       style={{ borderColor: "var(--border)", background: "#FFFFFF" }}
                     >
-                      <div className="flex min-h-[92px] items-start justify-between gap-3">
+                      <div className="flex min-h-[82px] items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</h3>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</h3>
+                            <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: "rgba(220,38,38,0.08)", color: "#B91C1C" }}>Obrigatória</span>
+                          </div>
                           <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{base.descricao}</p>
                         </div>
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
-                          <Upload size={16} />
+                          <Database size={17} />
                         </div>
                       </div>
 
-                      <div className="mt-4 flex min-h-[42px] items-center text-xs" style={{ color: "var(--text-secondary)" }}>
-                        <div>
-                          <span>Atualizada em:</span><br />
-                          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{atualizadoEm || "sem carga registrada"}</span>
-                        </div>
+                      <div className="mt-3 min-h-[116px] rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+                        <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Uso na tela</p>
+                        <p className="mt-1 text-xs" style={{ color: "var(--text-primary)" }}>{uso.texto}</p>
+                        {uso.compartilhada && <p className="mt-2 text-[11px] font-semibold" style={{ color: "#1D4ED8" }}>{uso.compartilhada}</p>}
                       </div>
 
                       <div className="mt-auto pt-4">
-                        <label
-                          className="flex h-11 min-w-0 cursor-pointer items-center justify-center rounded-xl border px-3 text-sm font-semibold transition-colors hover:bg-slate-50"
-                          style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: "var(--bg-secondary)" }}
-                        >
-                          <span className="truncate">{arquivoSelecionado?.name || "Selecionar arquivo"}</span>
-                          <input
-                            type="file"
-                            accept={base.accept}
-                            className="hidden"
-                            onChange={e => setArquivosBases(prev => ({ ...prev, [base.id]: e.target.files?.[0] || null }))}
-                          />
-                        </label>
+                        <div className="mb-4 flex min-h-[34px] items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                          <CheckCircle2 size={14} className={atualizadoEm ? "text-emerald-600" : "text-slate-400"} />
+                          <span>
+                            {atualizadoEm
+                              ? `Atualizado em ${atualizadoEm}`
+                              : "Ainda sem carga registrada"}
+                          </span>
+                        </div>
 
-                        <button
-                          type="button"
-                          onClick={() => handleUploadBaseOperacional(base.id)}
-                          disabled={!arquivoSelecionado || !!uploadingBase}
-                          className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-white disabled:opacity-50"
-                          style={{ background: "#163B63", cursor: !arquivoSelecionado || uploadingBase ? "not-allowed" : "pointer" }}
+                        <input
+                          id={inputId}
+                          type="file"
+                          className="hidden"
+                          accept={base.accept}
+                          disabled={uploadingBase !== null}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            e.target.value = ""
+                            if (file) handleUploadBaseOperacional(base.id, file)
+                          }}
+                        />
+                        <label
+                          htmlFor={inputId}
+                          className={`inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white transition ${uploadingBase !== null ? "pointer-events-none opacity-60" : "hover:brightness-95"}`}
+                          style={{ background: "#163B63" }}
                         >
-                          {enviando ? <RefreshCw size={16} className="animate-spin" /> : <Upload size={16} />}
-                          {enviando ? "Enviando..." : base.botao}
-                        </button>
+                          {enviando ? <RefreshCw size={16} className="animate-spin" /> : <UploadCloud size={16} />}
+                          {enviando ? "Carregando..." : "Subir arquivo"}
+                        </label>
                       </div>
                     </div>
                   )
