@@ -2634,7 +2634,7 @@ export function OrdensPage() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
                 {BASES_OPERACIONAIS_ORDENS.map((base) => {
                   const enviando = uploadingBase === base.id
                   const atualizadoEm = fmtDataHora(atualizacoesBases[base.id] || null)
