@@ -232,7 +232,7 @@ interface AgingItensResponse {
   itens: AgingEstoqueItem[]
 }
 
-interface AgingEstoqueItemDetalhe extends AgingEstoqueItem {
+type AgingEstoqueItemDetalhe = Omit<AgingEstoqueItem, "linha_tempo_estoque" | "pedidos"> & {
   historico_sb8_diario?: { data: string; saldo: number }[]
   comparativo_mensal?: { ano: number; mes: number; periodo: string; estoque_medio: number; consumo: number; forecast: number }[]
   linha_tempo_estoque?: {
