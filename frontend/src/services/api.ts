@@ -284,6 +284,33 @@ async function apiFetch<T>(
   return requestPromise
 }
 
+async function apiFetchNoCache<T>(
+  path: string,
+  options?: RequestInit
+): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...options,
+    cache: "no-store",
+    headers: {
+      ...(options?.headers || {}),
+      "Cache-Control": "no-cache",
+    },
+  })
+
+  const payload = await res
+    .json()
+    .catch(() => ({ detail: res.statusText }))
+
+  if (!res.ok) {
+    throw new Error(
+      (payload as { detail?: string }).detail ||
+        `Erro ${res.status}`
+    )
+  }
+
+  return payload as T
+}
+
 // ─────────────────────────────────────────────────────────────
 // Upload
 // ─────────────────────────────────────────────────────────────
@@ -1666,7 +1693,9 @@ export async function getAgingResumo(params?: AgingFiltrosParams): Promise<Aging
   const query = buildAgingQuery(params)
   const qs = query.toString()
 
-  return apiFetch(`/aging-estoque/resumo${qs ? `?${qs}` : ""}`)
+  // Esta tela tem muitos filtros operacionais. Não usamos o cache persistente aqui,
+  // porque cada alteração de filtro precisa refletir imediatamente no resultado.
+  return apiFetchNoCache(`/aging-estoque/resumo${qs ? `?${qs}` : ""}`)
 }
 
 export async function getAgingItens(params?: AgingFiltrosParams): Promise<AgingItensResponse> {
@@ -1676,7 +1705,8 @@ export async function getAgingItens(params?: AgingFiltrosParams): Promise<AgingI
     page_size: params?.page_size || 100,
   })
 
-  return apiFetch(`/aging-estoque/itens?${query.toString()}`)
+  // Sem cache persistente para evitar retornar a tabela antiga quando o usuário muda filtros.
+  return apiFetchNoCache(`/aging-estoque/itens?${query.toString()}`)
 }
 
 // Compatibilidade: se alguma parte antiga ainda chamar dashboard,
@@ -1712,7 +1742,7 @@ export async function getAgingEstoqueDashboard(params?: AgingFiltrosParams): Pro
 export async function getAgingEstoqueItem(
   codigo: string
 ): Promise<AgingEstoqueItem> {
-  return apiFetch(
+  return apiFetchNoCache(
     `/aging-estoque/item/${codigo}`
   )
 }
