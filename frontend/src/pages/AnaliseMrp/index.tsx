@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react"
+import type { ReactNode } from "react"
 import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
   Boxes,
+  CheckCircle2,
+  Database,
   Download,
   Filter,
   PackageSearch,
+  RefreshCw,
   Search,
   ShoppingCart,
+  UploadCloud,
   X,
 } from "lucide-react"
 import {
@@ -26,13 +31,87 @@ import {
 } from "recharts"
 import {
   AgingEstoqueItem,
+  buscarUltimaAtualizacao,
   getAgingEstoqueItem,
   getAgingItens,
   getAgingResumo,
+  uploadBase,
 } from "@/services/api"
 
 const PAGE_SIZE = 100
 const TIPOS_FIXOS = ["TODOS", "MC", "ME", "MI", "MP", "PA", "PI", "MR"]
+
+type BaseGestaoEstoque = {
+  id: string
+  titulo: string
+  descricao: string
+  uso: string
+  compartilhada?: string
+  obrigatoria?: boolean
+}
+
+const BASES_GESTAO_ESTOQUE: BaseGestaoEstoque[] = [
+  {
+    id: "consumo_materiais",
+    titulo: "Posição de Estoque / Consumo",
+    descricao: "Base principal do aging: saldo atual, consumo mensal, médias, giro e cobertura.",
+    uso: "Alimenta estoque atual, maior média, cobertura e gap de estoque.",
+    obrigatoria: true,
+  },
+  {
+    id: "compras_abertas",
+    titulo: "Compras em Aberto",
+    descricao: "Pedidos e solicitações pendentes do Protheus.",
+    uso: "Soma entradas futuras, estoque + pedidos e menor data prevista de entrega.",
+    compartilhada: "Também atualiza a página de Ordens.",
+    obrigatoria: true,
+  },
+  {
+    id: "forecast_sop",
+    titulo: "Forecast S&OP",
+    descricao: "Demanda futura por produto acabado ou material de revenda.",
+    uso: "Para PA/MR usa o forecast direto; para insumos, a demanda é explodida pela BOM.",
+    compartilhada: "Também alimenta Overview e Faturamento.",
+    obrigatoria: true,
+  },
+  {
+    id: "bom_estrutura",
+    titulo: "Estrutura / BOM",
+    descricao: "Relação produto pai x componente x quantidade necessária.",
+    uso: "Explode forecast de PA em necessidade de insumos e classifica insumos pelo produto pai.",
+    compartilhada: "Também atualiza a página de Ordens.",
+    obrigatoria: true,
+  },
+  {
+    id: "d_produtos",
+    titulo: "Dimensão Produtos",
+    descricao: "Cadastro gerencial de produtos: negócio, portfólio, Bravi e grupo gerencial.",
+    uso: "Classifica Anestésicos Injetáveis, Benzotop, PPS, descontinuados e transferência Bravi.",
+    compartilhada: "Base corporativa usada por várias páginas.",
+    obrigatoria: true,
+  },
+  {
+    id: "lead_time_estoque",
+    titulo: "Lead Time",
+    descricao: "Lead time em dias por código de material/produto.",
+    uso: "Calcula consumo durante lead time e risco de cobertura insuficiente.",
+    obrigatoria: true,
+  },
+  {
+    id: "qtd_minima_estoque",
+    titulo: "Quantidade Mínima",
+    descricao: "Pedido mínimo/MOQ por código.",
+    uso: "Compõe a política de estoque ideal: maior entre consumo no LT e quantidade mínima.",
+    obrigatoria: true,
+  },
+  {
+    id: "custo_unitario",
+    titulo: "Custo Unitário",
+    descricao: "Custo unitário em reais por código.",
+    uso: "Permite replicar as colunas financeiras do aging em R$.",
+    obrigatoria: false,
+  },
+]
 
 const STATUS_LABEL: Record<string, string> = {
   TODOS: "Todos os status",
@@ -219,7 +298,7 @@ function SortableTh({ label, column, sortKey, sortDirection, onSort }: { label: 
   )
 }
 
-function KpiCard({ label, value, helper, icon, tone = "default" }: { label: string; value: string; helper?: string; icon: React.ReactNode; tone?: "default" | "danger" | "warning" | "success" | "blue" }) {
+function KpiCard({ label, value, helper, icon, tone = "default" }: { label: string; value: string; helper?: string; icon: ReactNode; tone?: "default" | "danger" | "warning" | "success" | "blue" }) {
   const tones = {
     default: { bg: "rgba(15,23,42,0.04)", color: "var(--text-primary)" },
     danger: { bg: "rgba(220,38,38,0.08)", color: "#B91C1C" },
@@ -250,7 +329,7 @@ function KpiSmall({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ChartBox({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function ChartBox({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
     <div className="card p-4">
       <div className="mb-3">
@@ -258,6 +337,147 @@ function ChartBox({ title, subtitle, children }: { title: string; subtitle?: str
         {subtitle && <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{subtitle}</p>}
       </div>
       {children}
+    </div>
+  )
+}
+
+
+function BasesModal({
+  open,
+  onClose,
+  ultimasAtualizacoes,
+  loadingAtualizacoes,
+  uploadingBaseId,
+  uploadMessage,
+  onUpload,
+  onRefresh,
+}: {
+  open: boolean
+  onClose: () => void
+  ultimasAtualizacoes: Record<string, string | null | undefined>
+  loadingAtualizacoes: boolean
+  uploadingBaseId: string | null
+  uploadMessage: string
+  onUpload: (baseId: string, file: File) => void
+  onRefresh: () => void
+}) {
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 px-4 py-6 backdrop-blur-[2px]" onClick={onClose}>
+      <div
+        className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border bg-white shadow-2xl"
+        style={{ borderColor: "var(--border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b px-6 py-5" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Bases da análise</p>
+            <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>Gestão de Estoque</h2>
+            <p className="mt-1 max-w-3xl text-sm" style={{ color: "var(--text-secondary)" }}>
+              Use este painel para atualizar somente as bases necessárias para o aging. Bases compartilhadas atualizam automaticamente as outras páginas que usam a mesma tabela.
+            </p>
+          </div>
+          <button className="rounded-xl p-2 hover:bg-slate-100" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-5">
+          {uploadMessage && (
+            <div className="mb-4 rounded-2xl border px-4 py-3 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: "rgba(37,99,235,0.06)" }}>
+              {uploadMessage}
+            </div>
+          )}
+
+          <div className="mb-4 flex flex-col justify-between gap-3 rounded-2xl border p-4 md:flex-row md:items-center" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+            <div>
+              <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Racional das bases</p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                Posição de estoque é a base principal. Forecast S&OP + BOM geram demanda de insumos. Lead time, quantidade mínima e custo unitário completam o aging do Excel.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loadingAtualizacoes}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition hover:bg-white disabled:opacity-50"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              <RefreshCw size={14} className={loadingAtualizacoes ? "animate-spin" : ""} />
+              Atualizar status
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {BASES_GESTAO_ESTOQUE.map((base) => {
+              const ultima = ultimasAtualizacoes[base.id]
+              const carregando = loadingAtualizacoes && ultima === undefined
+              const uploading = uploadingBaseId === base.id
+              const inputId = `upload-${base.id}`
+
+              return (
+                <div key={base.id} className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</h3>
+                        {base.obrigatoria && (
+                          <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: "rgba(220,38,38,0.08)", color: "#B91C1C" }}>Obrigatória</span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{base.descricao}</p>
+                    </div>
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
+                      <Database size={17} />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+                    <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Uso na tela</p>
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-primary)" }}>{base.uso}</p>
+                    {base.compartilhada && <p className="mt-2 text-[11px] font-semibold" style={{ color: "#1D4ED8" }}>{base.compartilhada}</p>}
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    <CheckCircle2 size={14} className={ultima ? "text-emerald-600" : "text-slate-400"} />
+                    <span>
+                      {carregando
+                        ? "Consultando última atualização..."
+                        : ultima
+                          ? `Atualizado em ${fmtDate(ultima)}`
+                          : "Ainda sem carga registrada"}
+                    </span>
+                  </div>
+
+                  <div className="mt-4">
+                    <input
+                      id={inputId}
+                      type="file"
+                      className="hidden"
+                      accept=".xlsx,.xls,.xlsm"
+                      disabled={uploadingBaseId !== null}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        e.target.value = ""
+                        if (file) onUpload(base.id, file)
+                      }}
+                    />
+                    <label
+                      htmlFor={inputId}
+                      className={`inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white transition ${uploadingBaseId !== null ? "pointer-events-none opacity-60" : "hover:brightness-95"}`}
+                      style={{ background: "#163B63" }}
+                    >
+                      {uploading ? <RefreshCw size={16} className="animate-spin" /> : <UploadCloud size={16} />}
+                      {uploading ? "Carregando..." : "Subir arquivo"}
+                    </label>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -468,6 +688,65 @@ export default function AgingEstoquePage() {
   const [selected, setSelected] = useState<AgingEstoqueItemDetalhe | null>(null)
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
+  const [basesModalOpen, setBasesModalOpen] = useState(false)
+  const [ultimasAtualizacoesBases, setUltimasAtualizacoesBases] = useState<Record<string, string | null | undefined>>({})
+  const [loadingAtualizacoesBases, setLoadingAtualizacoesBases] = useState(false)
+  const [uploadingBaseId, setUploadingBaseId] = useState<string | null>(null)
+  const [uploadMessage, setUploadMessage] = useState("")
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  const carregarAtualizacoesBases = async () => {
+    setLoadingAtualizacoesBases(true)
+    try {
+      const resultados = await Promise.all(
+        BASES_GESTAO_ESTOQUE.map(async (base) => {
+          try {
+            const res = await buscarUltimaAtualizacao(base.id)
+            return [base.id, res.ultima_atualizacao ?? null] as const
+          } catch {
+            return [base.id, null] as const
+          }
+        })
+      )
+
+      setUltimasAtualizacoesBases(Object.fromEntries(resultados))
+    } finally {
+      setLoadingAtualizacoesBases(false)
+    }
+  }
+
+  const handleUploadBase = async (baseId: string, file: File) => {
+    setUploadingBaseId(baseId)
+    setUploadMessage("")
+
+    const base = BASES_GESTAO_ESTOQUE.find((b) => b.id === baseId)
+    const nomeBase = base?.titulo || baseId
+
+    try {
+      const res = await uploadBase(baseId, file)
+      const total = res.total_inserido ?? 0
+      const erros = res.erros || []
+
+      setUploadMessage(
+        erros.length
+          ? `${nomeBase}: carga concluída com ${fmtNumber(total)} registros e ${fmtNumber(erros.length)} aviso(s). ${erros.slice(0, 2).join(" | ")}`
+          : `${nomeBase}: carga concluída com ${fmtNumber(total)} registros.`
+      )
+
+      await carregarAtualizacoesBases()
+      setRefreshTick((current) => current + 1)
+    } catch (err) {
+      setUploadMessage(err instanceof Error ? err.message : `Erro ao carregar ${nomeBase}.`)
+    } finally {
+      setUploadingBaseId(null)
+    }
+  }
+
+  useEffect(() => {
+    if (basesModalOpen) {
+      void carregarAtualizacoesBases()
+    }
+  }, [basesModalOpen])
 
   useEffect(() => {
     let mounted = true
@@ -496,7 +775,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingResumo(false)
       })
     return () => { mounted = false }
-  }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, classificacaoCadastro])
+  }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, classificacaoCadastro, refreshTick])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -539,7 +818,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingItens(false)
       })
     return () => { mounted = false }
-  }, [page, status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, sortKey, sortDirection, classificacaoCadastro])
+  }, [page, status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, sortKey, sortDirection, classificacaoCadastro, refreshTick])
 
   const itens = itensResp?.itens || []
   const totalPages = Math.max(1, itensResp?.total_pages || 1)
@@ -614,9 +893,27 @@ export default function AgingEstoquePage() {
           <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Gestão de Estoque</h1>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Saldo atual, pedidos em aberto, cobertura e estoque ideal por material.</p>
         </div>
-        <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} disabled={!itens.length}>
-          <Download size={16} /> Exportar CSV
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setBasesModalOpen(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white transition hover:brightness-95"
+            style={{ background: "#163B63" }}
+          >
+            <Database size={16} /> Bases
+          </button>
+          <button
+            type="button"
+            onClick={() => setRefreshTick((current) => current + 1)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            <RefreshCw size={16} /> Atualizar
+          </button>
+          <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} disabled={!itens.length}>
+            <Download size={16} /> Exportar CSV
+          </button>
+        </div>
       </div>
 
       {error && <div className="card p-5 text-sm text-red-600">{error}</div>}
@@ -847,6 +1144,16 @@ export default function AgingEstoquePage() {
         </div>
       </div>
 
+      <BasesModal
+        open={basesModalOpen}
+        onClose={() => setBasesModalOpen(false)}
+        ultimasAtualizacoes={ultimasAtualizacoesBases}
+        loadingAtualizacoes={loadingAtualizacoesBases}
+        uploadingBaseId={uploadingBaseId}
+        uploadMessage={uploadMessage}
+        onUpload={handleUploadBase}
+        onRefresh={carregarAtualizacoesBases}
+      />
       <ItemDrawer item={selected} loading={loadingDetalhe} onClose={() => setSelected(null)} />
     </div>
   )
