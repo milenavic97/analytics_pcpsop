@@ -249,7 +249,15 @@ interface AgingEstoqueItemDetalhe extends AgingEstoqueItem {
   }[]
   historico_consumo?: { ano: number; mes: number; periodo: string; consumo: number }[]
   forecast?: { ano: number; mes: number; periodo: string; forecast: number }[]
-  pedidos?: { quantidade_pendente?: number; data_prevista_entrega?: string | null }[]
+  pedidos?: {
+    pedido_numero?: string | null
+    sc_numero?: string | null
+    quantidade_pendente?: number
+    data_prevista_entrega?: string | null
+    fornecedor?: string | null
+    comprador?: string | null
+    status_entrega?: string | null
+  }[]
   forecast_metodo?: "direto" | "bom_explodida" | string
 }
 
