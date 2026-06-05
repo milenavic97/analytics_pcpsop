@@ -130,31 +130,50 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; border: string }
 
 type SortDirection = "asc" | "desc"
 type SortKey =
-  | "saldo"
-  | "qtd_pedidos_abertos"
-  | "estoque_mais_pedidos"
-  | "maior_media"
+  | "custo_unitario"
   | "lead_time_dias"
   | "qtd_minima"
+  | "saldo"
+  | "estoque_atual_valor"
+  | "qtd_pedidos_abertos"
+  | "pedidos_abertos_valor"
+  | "estoque_mais_pedidos"
+  | "estoque_mais_pedidos_valor"
+  | "maior_media"
+  | "maior_media_valor"
   | "estoque_ideal"
-  | "cobertura_dias"
-  | "cobertura_futura_dias"
-  | "gap_volume"
-  | "faturamento_ytd_qtd"
-  | "faturamento_ytd_valor"
+  | "estoque_ideal_valor"
+  | "dias_em_estoque"
+  | "cobertura_meses_atual"
+  | "cobertura_meses_futura"
+  | "cobertura_consumo_lt"
+  | "demanda_mes_atual"
+  | "consumo_mes_atual"
+  | "previsto_vs_consumido_pct"
 
-const NUMERIC_COLUMNS: { key: SortKey; label: string }[] = [
-  { key: "saldo", label: "Saldo" },
-  { key: "qtd_pedidos_abertos", label: "Pedidos" },
-  { key: "estoque_mais_pedidos", label: "Estoque + pedidos" },
-  { key: "maior_media", label: "Maior média" },
-  { key: "lead_time_dias", label: "LT" },
-  { key: "qtd_minima", label: "Qtd. mínima" },
-  { key: "estoque_ideal", label: "Estoque ideal" },
-  { key: "cobertura_dias", label: "Cobertura" },
-  { key: "cobertura_futura_dias", label: "Cob. futura" },
-  { key: "gap_volume", label: "Gap" },
-  { key: "faturamento_ytd_qtd", label: "Fat. YTD" },
+type NumericColumnKind = "number" | "currency" | "days" | "months" | "percent"
+
+const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; digits?: number }[] = [
+  { key: "custo_unitario", label: "Custo unitário", kind: "currency", digits: 4 },
+  { key: "lead_time_dias", label: "Lead time", kind: "days" },
+  { key: "qtd_minima", label: "Qtd. mínima por pedido" },
+  { key: "saldo", label: "Estoque atual (volume)" },
+  { key: "estoque_atual_valor", label: "Estoque atual (R$)", kind: "currency" },
+  { key: "qtd_pedidos_abertos", label: "Pedido de compras (volume)" },
+  { key: "pedidos_abertos_valor", label: "Pedido de compras (R$)", kind: "currency" },
+  { key: "estoque_mais_pedidos", label: "Estoque + entradas (volume)" },
+  { key: "estoque_mais_pedidos_valor", label: "Estoque + entradas (R$)", kind: "currency" },
+  { key: "maior_media", label: "Média 3/6/9 (volume)" },
+  { key: "maior_media_valor", label: "Média 3/6/9 (R$)", kind: "currency" },
+  { key: "estoque_ideal", label: "Estoque ideal (volume)" },
+  { key: "estoque_ideal_valor", label: "Estoque ideal (R$)", kind: "currency" },
+  { key: "dias_em_estoque", label: "Dias em estoque", kind: "days" },
+  { key: "cobertura_meses_atual", label: "Cobertura meses estoque atual", kind: "months", digits: 1 },
+  { key: "cobertura_meses_futura", label: "Cobertura meses estoque + trânsito", kind: "months", digits: 1 },
+  { key: "cobertura_consumo_lt", label: "Cobertura estoque atual / consumo + LT", kind: "months", digits: 1 },
+  { key: "demanda_mes_atual", label: "Previsão demanda mês atual" },
+  { key: "consumo_mes_atual", label: "Consumido mês atual" },
+  { key: "previsto_vs_consumido_pct", label: "Previsão vs consumo mês atual", kind: "percent", digits: 0 },
 ]
 
 
@@ -221,6 +240,28 @@ interface AgingEstoqueItemDetalhe extends AgingEstoqueItem {
 
 function fmtNumber(value: number | null | undefined, digits = 0) {
   return new Intl.NumberFormat("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(value || 0))
+}
+
+function fmtCurrency(value: number | null | undefined, digits = 2) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(Number(value || 0))
+}
+
+function getNum(item: AgingEstoqueItem, key: string) {
+  return Number((item as AgingEstoqueItem & Record<string, unknown>)[key] || 0)
+}
+
+function fmtTableValue(item: AgingEstoqueItem, col: { key: SortKey; kind?: NumericColumnKind; digits?: number }) {
+  const value = getNum(item, col.key)
+  if (col.kind === "currency") return fmtCurrency(value, col.digits ?? 2)
+  if (col.kind === "days") return `${fmtNumber(value, col.digits ?? 0)} d`
+  if (col.kind === "months") return fmtNumber(value, col.digits ?? 1)
+  if (col.kind === "percent") return `${fmtNumber(value, col.digits ?? 0)}%`
+  return fmtNumber(value, col.digits ?? 0)
 }
 
 function fmtCompact(value: number | null | undefined) {
@@ -509,7 +550,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
               <KpiSmall label="Tipo negócio" value={item.tipo_negocio || "—"} />
               <KpiSmall label="Grupo gerencial" value={item.grupo_gerencial || "—"} />
               <KpiSmall label="Modelo" value={item.modelo_fornecimento || "—"} />
-              <KpiSmall label="Fat. YTD" value={fmtCompact(item.faturamento_ytd_qtd)} />
+              <KpiSmall label="Demanda mês" value={fmtCompact((item as AgingEstoqueItem & Record<string, unknown>).demanda_mes_atual as number)} />
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-5">
@@ -795,7 +836,14 @@ export default function AgingEstoquePage() {
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
 
   const exportCsv = () => {
-    const header = ["codigo", "produto", "tipo_negocio", "status_portfolio", "transferencia_bravi", "grupo_gerencial", "modelo_fornecimento", "origem_classificacao", "item_mapeado", "tipo", "saldo", "qtd_pedidos_abertos", "estoque_mais_pedidos", "maior_media", "lead_time_dias", "qtd_minima", "estoque_ideal", "cobertura_dias", "cobertura_futura_dias", "gap_volume", "faturamento_ytd_qtd", "status_estoque", "status"]
+    const header = [
+      "codigo", "produto", "curva_a", "tipo", "unid", "segmento", "mercado",
+      "custo_unitario", "lead_time_dias", "qtd_minima", "saldo", "estoque_atual_valor",
+      "qtd_pedidos_abertos", "pedidos_abertos_valor", "estoque_mais_pedidos", "estoque_mais_pedidos_valor",
+      "maior_media", "maior_media_valor", "estoque_ideal", "estoque_ideal_valor", "dias_em_estoque",
+      "cobertura_meses_atual", "cobertura_meses_futura", "cobertura_consumo_lt",
+      "demanda_mes_atual", "consumo_mes_atual", "previsto_vs_consumido_pct",
+    ]
     const csv = [header.join(";"), ...itens.map((r) => header.map((h) => String((r as any)[h] ?? "").replace(/;/g, ",")).join(";"))].join("\n")
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
@@ -889,54 +937,50 @@ export default function AgingEstoquePage() {
         </div>
 
         <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
-          <table className="w-full min-w-[1880px] text-sm">
+          <table className="w-full min-w-[3100px] text-sm">
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
-                <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Código</th>
-                <th className="px-4 py-3">Produto</th>
-                <th className="px-4 py-3">Negócio</th>
-                <th className="px-4 py-3">Portfólio</th>
-                <th className="px-4 py-3">Tipo ERP</th>
-                <th className="px-4 py-3">Modelo</th>
-                <th className="px-4 py-3">Origem</th>
+                <th className="px-4 py-3">Descrição</th>
+                <th className="px-4 py-3">Curva A</th>
+                <th className="px-4 py-3">Tipo</th>
+                <th className="px-4 py-3">UM</th>
+                <th className="px-4 py-3">Segmento</th>
+                <th className="px-4 py-3">Mercado</th>
                 {NUMERIC_COLUMNS.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
               </tr>
             </thead>
             <tbody>
-              {itensOrdenados.map((item) => (
-                <tr key={`${item.codigo}-${item.tipo}-${item.grupo_gerencial}`} className="cursor-pointer border-t transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }} onClick={() => abrirDetalhe(item)}>
-                  <td className="px-4 py-3"><StatusBadge status={item.status_estoque || item.status} /></td>
-                  <td className="px-4 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo}</td>
-                  <td className="px-4 py-3">
-                    <div className="max-w-[320px] truncate font-medium" style={{ color: "var(--text-primary)" }}>{item.produto || "—"}</div>
-                    <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{item.grupo_gerencial || item.grupo_descricao || "—"}</div>
-                  </td>
-                  <td className="px-4 py-3">{item.tipo_negocio || "—"}</td>
-                  <td className="px-4 py-3">
-                    <div>{item.status_portfolio || "—"}</div>
-                    {item.transferencia_bravi === "Sim" && <div className="mt-1 text-[11px] font-bold" style={{ color: "#6D28D9" }}>Bravi</div>}
-                  </td>
-                  <td className="px-4 py-3">{item.tipo || item.tipo_produto_erp || "—"}</td>
-                  <td className="px-4 py-3">{item.modelo_fornecimento || "—"}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex rounded-full border px-2 py-1 text-[10px] font-bold" style={{ borderColor: item.origem_classificacao === "NAO_CLASSIFICADO" ? "rgba(100,116,139,0.28)" : "rgba(37,99,235,0.22)", color: item.origem_classificacao === "NAO_CLASSIFICADO" ? "#64748B" : "#1D4ED8", background: item.origem_classificacao === "NAO_CLASSIFICADO" ? "rgba(100,116,139,0.08)" : "rgba(37,99,235,0.08)" }}>
-                      {ORIGEM_LABEL[String(item.origem_classificacao || "")] || "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold">{fmtNumber(item.saldo, 0)}</td>
-                  <td className="px-4 py-3 text-right">{fmtNumber(item.qtd_pedidos_abertos, 0)}</td>
-                  <td className="px-4 py-3 text-right font-semibold">{fmtNumber(item.estoque_mais_pedidos, 0)}</td>
-                  <td className="px-4 py-3 text-right">{fmtNumber(item.maior_media, 0)}</td>
-                  <td className="px-4 py-3 text-right">{fmtNumber(item.lead_time_dias, 0)} d</td>
-                  <td className="px-4 py-3 text-right">{fmtNumber(item.qtd_minima, 0)}</td>
-                  <td className="px-4 py-3 text-right font-semibold">{fmtNumber(item.estoque_ideal, 0)}</td>
-                  <td className="px-4 py-3 text-right">{fmtNumber(item.cobertura_dias, 0)} d</td>
-                  <td className="px-4 py-3 text-right">{fmtNumber(item.cobertura_futura_dias, 0)} d</td>
-                  <td className="px-4 py-3 text-right font-bold" style={{ color: item.gap_volume < 0 ? "#DC2626" : "#1D4ED8" }}>{fmtNumber(item.gap_volume, 0)}</td>
-                  <td className="px-4 py-3 text-right">{fmtNumber(item.faturamento_ytd_qtd || 0, 0)}</td>
-                </tr>
-              ))}
+              {itensOrdenados.map((item) => {
+                const itemEx = item as AgingEstoqueItem & Record<string, unknown>
+                const alertaPrevisao = getNum(item, "previsao_consumo_alerta") > 0
+
+                return (
+                  <tr key={`${item.codigo}-${item.tipo}-${item.grupo_gerencial}`} className="cursor-pointer border-t transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }} onClick={() => abrirDetalhe(item)}>
+                    <td className="px-4 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo}</td>
+                    <td className="px-4 py-3">
+                      <div className="max-w-[320px] truncate font-medium" style={{ color: "var(--text-primary)" }}>{item.produto || "—"}</div>
+                    </td>
+                    <td className="px-4 py-3">{String(itemEx.curva_a || item.abc_ytm || "—")}</td>
+                    <td className="px-4 py-3">{item.tipo || item.tipo_produto_erp || "—"}</td>
+                    <td className="px-4 py-3">{item.unid || "—"}</td>
+                    <td className="px-4 py-3">{item.segmento || "—"}</td>
+                    <td className="px-4 py-3">{item.mercado || "—"}</td>
+                    {NUMERIC_COLUMNS.map((col) => {
+                      const isGap = col.key === "estoque_ideal" || col.key === "estoque_ideal_valor" || col.key === "cobertura_consumo_lt" || col.key === "previsto_vs_consumido_pct"
+                      const color = col.key === "previsto_vs_consumido_pct" && alertaPrevisao
+                        ? "#DC2626"
+                        : "var(--text-primary)"
+
+                      return (
+                        <td key={col.key} className={`px-4 py-3 text-right ${isGap ? "font-semibold" : ""}`} style={{ color }}>
+                          {fmtTableValue(item, col)}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
           {!loadingItens && !itens.length && <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item encontrado na base atual.</div>}
