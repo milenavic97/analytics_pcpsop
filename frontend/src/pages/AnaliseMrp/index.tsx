@@ -706,6 +706,60 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
   )
 }
 
+function monthLabel(year: number, monthIndexZeroBased: number) {
+  const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+  return `${nomes[monthIndexZeroBased]}/${String(year).slice(-2)}`
+}
+
+function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe, horizonteFuturo: number) {
+  const hoje = new Date()
+  const inicio = new Date(2025, 0, 1)
+  const fim = new Date(hoje.getFullYear(), hoje.getMonth() + Math.max(1, Number(horizonteFuturo || 6)), 1)
+
+  const saldoAtual = Number(item.saldo || 0)
+  const estoqueMaisPedidos = Number(item.estoque_mais_pedidos || 0)
+  const demandaMes = Number((item as AgingEstoqueItemDetalhe & Record<string, unknown>).demanda_mes_atual || 0)
+  const consumoMes = Number((item as AgingEstoqueItemDetalhe & Record<string, unknown>).consumo_mes_atual || 0)
+
+  const serie = []
+  let cursor = new Date(inicio)
+  let saldoProjetado = saldoAtual
+
+  while (cursor <= fim) {
+    const ano = cursor.getFullYear()
+    const mes = cursor.getMonth() + 1
+    const isMesAtualOuFuturo =
+      ano > hoje.getFullYear() ||
+      (ano === hoje.getFullYear() && cursor.getMonth() >= hoje.getMonth())
+
+    if (isMesAtualOuFuturo) {
+      saldoProjetado = saldoProjetado - demandaMes
+    }
+
+    serie.push({
+      ano,
+      mes,
+      periodo: monthLabel(ano, cursor.getMonth()),
+      consumo: isMesAtualOuFuturo ? 0 : 0,
+      demanda: isMesAtualOuFuturo ? demandaMes : 0,
+      forecast: isMesAtualOuFuturo ? demandaMes : 0,
+      entradas_previstas: 0,
+      estoque_atual: saldoAtual,
+      estoque_mais_pedidos: estoqueMaisPedidos,
+      saldo_projetado: isMesAtualOuFuturo ? saldoProjetado : null,
+    })
+
+    cursor = new Date(ano, cursor.getMonth() + 1, 1)
+  }
+
+  if (consumoMes > 0) {
+    const atual = serie.find((p) => p.ano === hoje.getFullYear() && p.mes === hoje.getMonth() + 1)
+    if (atual) atual.consumo = consumoMes
+  }
+
+  return serie
+}
+
 function TimelinePrincipal({
   item,
   loading,
@@ -717,7 +771,12 @@ function TimelinePrincipal({
   horizonteFuturo: number
   onHorizonteChange: (value: number) => void
 }) {
-  const linhaTempo = item?.linha_tempo_estoque || []
+  const linhaTempoApi = item?.linha_tempo_estoque || []
+  const linhaTempo = useMemo(() => {
+    if (!item) return []
+    if (linhaTempoApi.length) return linhaTempoApi
+    return buildLinhaTempoFallback(item, horizonteFuturo)
+  }, [item, linhaTempoApi, horizonteFuturo])
   const pedidos = item?.pedidos || []
 
   return (
