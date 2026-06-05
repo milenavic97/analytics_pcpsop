@@ -366,7 +366,7 @@ function BasesModal({
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 px-4 py-6 backdrop-blur-[2px]" onClick={onClose}>
       <div
-        className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border bg-white shadow-2xl"
+        className="flex max-h-[92vh] w-[min(96vw,1440px)] flex-col overflow-hidden rounded-3xl border bg-white shadow-2xl"
         style={{ borderColor: "var(--border)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -409,7 +409,7 @@ function BasesModal({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {BASES_GESTAO_ESTOQUE.map((base) => {
               const ultima = ultimasAtualizacoes[base.id]
               const carregando = loadingAtualizacoes && ultima === undefined
@@ -417,7 +417,7 @@ function BasesModal({
               const inputId = `upload-${base.id}`
 
               return (
-                <div key={base.id} className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
+                <div key={base.id} className="flex min-h-[260px] flex-col rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -433,13 +433,13 @@ function BasesModal({
                     </div>
                   </div>
 
-                  <div className="mt-3 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+                  <div className="mt-3 min-h-[104px] rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
                     <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Uso na tela</p>
                     <p className="mt-1 text-xs" style={{ color: "var(--text-primary)" }}>{base.uso}</p>
                     {base.compartilhada && <p className="mt-2 text-[11px] font-semibold" style={{ color: "#1D4ED8" }}>{base.compartilhada}</p>}
                   </div>
 
-                  <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                  <div className="mt-3 flex min-h-[34px] items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
                     <CheckCircle2 size={14} className={ultima ? "text-emerald-600" : "text-slate-400"} />
                     <span>
                       {carregando
@@ -450,7 +450,7 @@ function BasesModal({
                     </span>
                   </div>
 
-                  <div className="mt-4">
+                  <div className="mt-auto pt-4">
                     <input
                       id={inputId}
                       type="file"
