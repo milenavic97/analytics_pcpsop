@@ -1516,6 +1516,8 @@ export interface AgingEstoqueItem {
 
   status: AgingStatus
   status_estoque?: AgingStatus
+  origem_classificacao?: "DIMENSAO" | "BOM" | "NAO_CLASSIFICADO" | string | null
+  item_mapeado?: boolean
   historico_consumo?: AgingHistoricoConsumo[]
 }
 
@@ -1573,6 +1575,7 @@ export interface AgingOpcoesFiltro {
   transferencia_bravi?: string[]
   modelo_fornecimento?: string[]
   grupo_gerencial?: string[]
+  classificacao_cadastro?: string[]
 }
 
 export interface AgingResumoResponse {
@@ -1609,6 +1612,7 @@ export interface AgingFiltrosParams {
   transferencia_bravi?: string
   modelo_fornecimento?: string
   grupo_gerencial?: string
+  classificacao_cadastro?: string
   sort_key?: string
   sort_direction?: "asc" | "desc"
 }
@@ -1640,6 +1644,7 @@ function buildAgingQuery(params?: AgingFiltrosParams) {
     "transferencia_bravi",
     "modelo_fornecimento",
     "grupo_gerencial",
+    "classificacao_cadastro",
     "sort_key",
     "sort_direction",
   ]
@@ -1690,6 +1695,7 @@ export async function getAgingEstoqueDashboard(params?: AgingFiltrosParams): Pro
       transferencia_bravi: params?.transferencia_bravi,
       modelo_fornecimento: params?.modelo_fornecimento,
       grupo_gerencial: params?.grupo_gerencial,
+      classificacao_cadastro: params?.classificacao_cadastro,
     }),
   ])
 
