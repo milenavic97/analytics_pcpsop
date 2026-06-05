@@ -295,7 +295,7 @@ function KpiCard({ label, value, helper, icon, tone = "default" }: { label: stri
   }
   return (
     <div className="card p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex min-h-[82px] items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{label}</p>
           <p className="mt-2 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{value}</p>
@@ -404,8 +404,8 @@ function BasesModal({
               const inputId = `upload-${base.id}`
 
               return (
-                <div key={base.id} className="flex min-h-[260px] flex-col rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
-                  <div className="flex items-start justify-between gap-3">
+                <div key={base.id} className="flex min-h-[330px] flex-col rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
+                  <div className="flex min-h-[82px] items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</h3>
@@ -420,24 +420,24 @@ function BasesModal({
                     </div>
                   </div>
 
-                  <div className="mt-3 min-h-[104px] rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+                  <div className="mt-3 min-h-[116px] rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
                     <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Uso na tela</p>
                     <p className="mt-1 text-xs" style={{ color: "var(--text-primary)" }}>{base.uso}</p>
                     {base.compartilhada && <p className="mt-2 text-[11px] font-semibold" style={{ color: "#1D4ED8" }}>{base.compartilhada}</p>}
                   </div>
 
-                  <div className="mt-3 flex min-h-[34px] items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    <CheckCircle2 size={14} className={ultima ? "text-emerald-600" : "text-slate-400"} />
-                    <span>
-                      {carregando
-                        ? "Consultando última atualização..."
-                        : ultima
-                          ? `Atualizado em ${fmtDateTime(ultima)}`
-                          : "Ainda sem carga registrada"}
-                    </span>
-                  </div>
-
                   <div className="mt-auto pt-4">
+                    <div className="mb-4 flex min-h-[34px] items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                      <CheckCircle2 size={14} className={ultima ? "text-emerald-600" : "text-slate-400"} />
+                      <span>
+                        {carregando
+                          ? "Consultando última atualização..."
+                          : ultima
+                            ? `Atualizado em ${fmtDateTime(ultima)}`
+                            : "Ainda sem carga registrada"}
+                      </span>
+                    </div>
+
                     <input
                       id={inputId}
                       type="file"
@@ -862,7 +862,7 @@ export default function AgingEstoquePage() {
             className="card p-4 text-left"
             style={{ borderColor: "var(--border)" }}
           >
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex min-h-[82px] items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Saúde da linha</p>
                 <h3 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
@@ -885,19 +885,6 @@ export default function AgingEstoquePage() {
         ))}
       </div>
 
-      <div className="card px-5 py-3">
-        <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-              Tabela operacional do aging, sem filtros temporariamente, para validar os cálculos contra o Excel.
-            </p>
-          </div>
-          <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-            {fmtNumber(itensResp?.total || 0)} itens encontrados · Cobertura futura média {fmtNumber(resumo?.resumo?.cobertura_futura_media_dias || 0, 0)} dias
-          </p>
-        </div>
-      </div>
 
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
