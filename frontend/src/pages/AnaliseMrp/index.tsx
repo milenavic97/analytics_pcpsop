@@ -89,9 +89,9 @@ const BASES_GESTAO_ESTOQUE: BaseGestaoEstoque[] = [
   },
   {
     id: "parametros_estoque",
-    titulo: "Parâmetros de Estoque",
-    descricao: "Lead time e pedido mínimo/MOQ por código no mesmo arquivo.",
-    uso: "Calcula consumo durante lead time e compõe a política de estoque ideal: maior entre consumo no LT e quantidade mínima.",
+    titulo: "Lead Time e MOQ",
+    descricao: "Prazo de reposição e quantidade mínima de compra por código.",
+    uso: "Calcula consumo durante o lead time e compõe o estoque ideal: maior entre consumo no LT e pedido mínimo/MOQ.",
     obrigatoria: true,
   },
   {
@@ -374,7 +374,7 @@ function BasesModal({
             <div>
               <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Racional das bases</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Posição de estoque é a base principal. Forecast S&OP + BOM geram demanda de insumos. Parâmetros de estoque reúnem lead time e MOQ; custo unitário completa o aging do Excel.
+                Posição de estoque é a base principal. Forecast S&OP + BOM geram demanda de insumos. Lead Time e MOQ completam a política de estoque; custo unitário completa o aging do Excel.
               </p>
             </div>
             <button
@@ -603,7 +603,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
 
             <div className="mt-6 card p-4">
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Racional do estoque ideal</p>
-              <p className="mt-2 text-sm" style={{ color: "var(--text-primary)" }}>Estoque ideal = maior entre consumo durante o lead time e quantidade mínima.</p>
+              <p className="mt-2 text-sm" style={{ color: "var(--text-primary)" }}>Estoque ideal = maior entre consumo durante o lead time e pedido mínimo/MOQ.</p>
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                 <KpiSmall label="Consumo durante LT" value={fmtCompact(item.consumo_durante_lt)} />
                 <KpiSmall label="Qtd. mínima" value={fmtCompact(item.qtd_minima)} />
