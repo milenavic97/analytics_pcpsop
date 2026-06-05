@@ -849,8 +849,6 @@ export default function AgingEstoquePage() {
   // A ordenação é feita no backend para ordenar a base inteira, não apenas a página atual.
   const itensOrdenados = itens
 
-  const topExcesso = useMemo(() => resumo?.top_excesso || [], [resumo])
-  const topCriticos = useMemo(() => resumo?.top_criticos || [], [resumo])
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
   const opcoes: AgingOpcoes = resumo?.opcoes ?? itensResp?.opcoes ?? EMPTY_OPCOES
 
@@ -957,40 +955,6 @@ export default function AgingEstoquePage() {
             )}
           </button>
         ))}
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <div className="card p-5">
-          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Maiores excessos</p>
-          <div className="mt-4 space-y-2">
-            {topExcesso.slice(0, 6).map((item) => (
-              <button key={item.codigo} className="flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left hover:bg-slate-50" style={{ borderColor: "var(--border)" }} onClick={() => abrirDetalhe(item)}>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo} · {item.produto}</p>
-                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Gap {fmtCompact(item.gap_volume)} · Saldo {fmtCompact(item.saldo)}</p>
-                </div>
-                <StatusBadge status={item.status_estoque || item.status} />
-              </button>
-            ))}
-            {loadingResumo && <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Carregando...</p>}
-          </div>
-        </div>
-
-        <div className="card p-5">
-          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Itens críticos</p>
-          <div className="mt-4 space-y-2">
-            {topCriticos.slice(0, 6).map((item) => (
-              <button key={item.codigo} className="flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left hover:bg-slate-50" style={{ borderColor: "var(--border)" }} onClick={() => abrirDetalhe(item)}>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo} · {item.produto}</p>
-                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Cobertura futura {fmtNumber(item.cobertura_futura_dias, 0)} d</p>
-                </div>
-                <StatusBadge status={item.status_estoque || item.status} />
-              </button>
-            ))}
-            {loadingResumo && <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Carregando...</p>}
-          </div>
-        </div>
       </div>
 
       <div className="card p-5">
