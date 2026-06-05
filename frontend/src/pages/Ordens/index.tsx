@@ -2451,8 +2451,8 @@ export function OrdensPage() {
           <button
             type="button"
             onClick={() => setModalBasesAberto(true)}
-            className="flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold"
-            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)", cursor: "pointer" }}
+            className="flex h-10 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-white"
+            style={{ background: "var(--bg-sidebar)", cursor: "pointer" }}
             title="Atualizar bases usadas nesta análise"
           >
             <Settings size={15} />
@@ -2587,40 +2587,39 @@ export function OrdensPage() {
 
       {modalBasesAberto && (
         <div
-          className="fixed inset-0 z-[997] flex items-end justify-center p-0 md:items-center md:p-4"
-          style={{ background: "rgba(15,23,42,0.45)" }}
+          className="fixed inset-0 z-[997] flex items-center justify-center bg-black/35 px-4 py-6 backdrop-blur-[2px]"
           onClick={() => setModalBasesAberto(false)}
         >
           <div
-            className="w-full rounded-t-2xl shadow-2xl md:max-w-7xl md:rounded-2xl"
-            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", maxHeight: "90vh" }}
+            className="flex max-h-[92vh] w-[min(96vw,1440px)] flex-col overflow-hidden rounded-3xl border bg-white shadow-2xl"
+            style={{ borderColor: "var(--border)" }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="flex items-start justify-between gap-4 border-b px-6 py-5" style={{ borderColor: "var(--border)" }}>
               <div>
-                <p className="card-label mb-1">Bases usadas nesta análise</p>
-                <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>Atualização operacional</h2>
-                <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Bases da análise</p>
+                <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>Atualização operacional</h2>
+                <p className="mt-1 max-w-4xl text-sm" style={{ color: "var(--text-secondary)" }}>
                   Consulte as datas antes de subir: estoque e compras são bases compartilhadas com outras telas, então se alguém já atualizou em outro lugar, a atualização aparece aqui.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setModalBasesAberto(false)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border"
-                style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-primary)" }}
+                className="rounded-xl p-2 hover:bg-slate-100"
+                aria-label="Fechar"
               >
-                <X size={17} />
+                <X size={18} />
               </button>
             </div>
 
-            <div className="overflow-y-auto p-5" style={{ maxHeight: "calc(90vh - 95px)" }}>
-              <div className="mb-4 rounded-xl border px-4 py-3 text-xs leading-5" style={{ background: "#F8FAFC", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-                <span className="font-semibold" style={{ color: "var(--text-primary)" }}>As datas abaixo valem para toda a ferramenta.</span>{" "}
+            <div className="overflow-y-auto px-6 py-5">
+              <div className="mb-4 rounded-2xl border px-4 py-3 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: "rgba(37,99,235,0.06)" }}>
+                <span className="font-semibold">As datas abaixo valem para toda a ferramenta.</span>{" "}
                 Se estoque ou compras já foram atualizados por outra página/usuário, não precisa subir novamente aqui. Suba apenas quando tiver uma nova versão da base.
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {BASES_OPERACIONAIS_ORDENS.map((base) => {
                   const arquivoSelecionado = arquivosBases[base.id]
                   const enviando = uploadingBase === base.id
@@ -2629,29 +2628,29 @@ export function OrdensPage() {
                   return (
                     <div
                       key={base.id}
-                      className="flex h-full min-h-[215px] flex-col rounded-xl border p-4"
-                      style={{ background: "var(--bg-primary)", borderColor: "var(--border)" }}
+                      className="flex min-h-[300px] flex-col rounded-2xl border p-4"
+                      style={{ borderColor: "var(--border)", background: "#FFFFFF" }}
                     >
-                      <div className="mb-4 flex flex-1 items-start justify-between gap-3">
+                      <div className="flex min-h-[92px] items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</p>
-                          <p className="mt-1 text-[11px] leading-4" style={{ color: "var(--text-secondary)" }}>{base.descricao}</p>
-                          <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                            Atualizada em:<br />
-                            <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{atualizadoEm || "sem carga registrada"}</span>
-                          </p>
+                          <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</h3>
+                          <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{base.descricao}</p>
                         </div>
-                        <div
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                          style={{ background: "#EFF6FF", color: "#2563EB" }}
-                        >
-                          <Upload size={15} />
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
+                          <Upload size={16} />
                         </div>
                       </div>
 
-                      <div className="mt-auto flex flex-col gap-2">
+                      <div className="mt-4 flex min-h-[42px] items-center text-xs" style={{ color: "var(--text-secondary)" }}>
+                        <div>
+                          <span>Atualizada em:</span><br />
+                          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{atualizadoEm || "sem carga registrada"}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-auto pt-4">
                         <label
-                          className="flex h-9 min-w-0 cursor-pointer items-center justify-center rounded-lg border px-3 text-xs font-semibold transition-colors hover:bg-slate-50"
+                          className="flex h-11 min-w-0 cursor-pointer items-center justify-center rounded-xl border px-3 text-sm font-semibold transition-colors hover:bg-slate-50"
                           style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: "var(--bg-secondary)" }}
                         >
                           <span className="truncate">{arquivoSelecionado?.name || "Selecionar arquivo"}</span>
@@ -2667,10 +2666,10 @@ export function OrdensPage() {
                           type="button"
                           onClick={() => handleUploadBaseOperacional(base.id)}
                           disabled={!arquivoSelecionado || !!uploadingBase}
-                          className="flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-50"
-                          style={{ background: "var(--bg-sidebar)", cursor: !arquivoSelecionado || uploadingBase ? "not-allowed" : "pointer" }}
+                          className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-white disabled:opacity-50"
+                          style={{ background: "#163B63", cursor: !arquivoSelecionado || uploadingBase ? "not-allowed" : "pointer" }}
                         >
-                          {enviando ? <RefreshCw size={13} className="animate-spin" /> : <Upload size={13} />}
+                          {enviando ? <RefreshCw size={16} className="animate-spin" /> : <Upload size={16} />}
                           {enviando ? "Enviando..." : base.botao}
                         </button>
                       </div>
@@ -2679,7 +2678,7 @@ export function OrdensPage() {
                 })}
               </div>
 
-              <div className="mt-4 rounded-xl border px-4 py-3" style={{ background: "#FEF2F2", borderColor: "#FECACA" }}>
+              <div className="mt-4 rounded-2xl border px-4 py-4" style={{ background: "#FEF2F2", borderColor: "#FECACA" }}>
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="text-sm font-bold" style={{ color: "#991B1B" }}>Excluir programação do mês selecionado</p>
@@ -2691,16 +2690,16 @@ export function OrdensPage() {
                     type="button"
                     onClick={() => mesSel && setConfirmarExclusaoMes(mesSel)}
                     disabled={!mesSel || excluindoMes}
-                    className="flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-50"
+                    className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-white disabled:opacity-50"
                     style={{ background: "#DC2626", cursor: !mesSel || excluindoMes ? "not-allowed" : "pointer" }}
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={16} />
                     Excluir {mesSel ? mesLabel(mesSel) : "mês"}
                   </button>
                 </div>
               </div>
 
-              <div className="mt-4 rounded-xl border px-4 py-3 text-xs leading-5" style={{ background: "#FFFBEB", borderColor: "#FDE68A", color: "#92400E" }}>
+              <div className="mt-4 rounded-2xl border px-4 py-3 text-xs leading-5" style={{ background: "#FFFBEB", borderColor: "#FDE68A", color: "#92400E" }}>
                 Essas atualizações substituem bases usadas no cálculo de viabilidade. Após o upload, a tela recalcula automaticamente as OPs do mês selecionado. Estoque e compras também podem impactar outras páginas da ferramenta.
               </div>
             </div>
