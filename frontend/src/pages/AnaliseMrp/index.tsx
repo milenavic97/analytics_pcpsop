@@ -95,6 +95,7 @@ interface AgingOpcoes {
   transferencia_bravi?: string[]
   modelo_fornecimento?: string[]
   grupo_gerencial?: string[]
+  classificacao_cadastro?: string[]
 }
 
 const EMPTY_OPCOES: AgingOpcoes = {
@@ -104,6 +105,21 @@ const EMPTY_OPCOES: AgingOpcoes = {
   transferencia_bravi: [],
   modelo_fornecimento: [],
   grupo_gerencial: [],
+  classificacao_cadastro: ["MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS", "TODOS"],
+}
+
+const CLASSIFICACAO_LABEL: Record<string, string> = {
+  MAPEADOS: "Itens mapeados",
+  DIMENSAO: "Cadastro direto",
+  BOM: "Herdados pela BOM",
+  NAO_CLASSIFICADOS: "Não classificados",
+  TODOS: "Todos os itens",
+}
+
+const ORIGEM_LABEL: Record<string, string> = {
+  DIMENSAO: "Cadastro",
+  BOM: "BOM",
+  NAO_CLASSIFICADO: "Não classificado",
 }
 
 interface AgingResumoResponse {
@@ -445,6 +461,7 @@ export default function AgingEstoquePage() {
   const [transferenciaBravi, setTransferenciaBravi] = useState("TODOS")
   const [modeloFornecimento, setModeloFornecimento] = useState("TODOS")
   const [grupoGerencial, setGrupoGerencial] = useState("TODOS")
+  const [classificacaoCadastro, setClassificacaoCadastro] = useState("MAPEADOS")
   const [busca, setBusca] = useState("")
   const [buscaAplicada, setBuscaAplicada] = useState("")
   const [page, setPage] = useState(1)
@@ -464,6 +481,7 @@ export default function AgingEstoquePage() {
         transferencia_bravi: transferenciaBravi,
         modelo_fornecimento: modeloFornecimento,
         grupo_gerencial: grupoGerencial,
+        classificacao_cadastro: classificacaoCadastro,
         busca: buscaAplicada,
       })
       .then((res) => {
@@ -478,7 +496,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingResumo(false)
       })
     return () => { mounted = false }
-  }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada])
+  }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, classificacaoCadastro])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -488,7 +506,7 @@ export default function AgingEstoquePage() {
     return () => window.clearTimeout(timer)
   }, [busca])
 
-  useEffect(() => { setPage(1) }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial])
+  useEffect(() => { setPage(1) }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, classificacaoCadastro])
 
   useEffect(() => {
     let mounted = true
@@ -505,6 +523,7 @@ export default function AgingEstoquePage() {
         transferencia_bravi: transferenciaBravi,
         modelo_fornecimento: modeloFornecimento,
         grupo_gerencial: grupoGerencial,
+        classificacao_cadastro: classificacaoCadastro,
         sort_key: sortKey || undefined,
         sort_direction: sortDirection,
       })
@@ -520,7 +539,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingItens(false)
       })
     return () => { mounted = false }
-  }, [page, status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, sortKey, sortDirection])
+  }, [page, status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, sortKey, sortDirection, classificacaoCadastro])
 
   const itens = itensResp?.itens || []
   const totalPages = Math.max(1, itensResp?.total_pages || 1)
@@ -569,13 +588,14 @@ export default function AgingEstoquePage() {
     setTransferenciaBravi("TODOS")
     setModeloFornecimento("TODOS")
     setGrupoGerencial("TODOS")
+    setClassificacaoCadastro("MAPEADOS")
     setBusca("")
     setBuscaAplicada("")
     setPage(1)
   }
 
   const exportCsv = () => {
-    const header = ["codigo", "produto", "tipo_negocio", "status_portfolio", "transferencia_bravi", "grupo_gerencial", "modelo_fornecimento", "tipo", "saldo", "qtd_pedidos_abertos", "estoque_mais_pedidos", "maior_media", "lead_time_dias", "qtd_minima", "estoque_ideal", "cobertura_dias", "cobertura_futura_dias", "gap_volume", "faturamento_ytd_qtd", "status_estoque", "status"]
+    const header = ["codigo", "produto", "tipo_negocio", "status_portfolio", "transferencia_bravi", "grupo_gerencial", "modelo_fornecimento", "origem_classificacao", "item_mapeado", "tipo", "saldo", "qtd_pedidos_abertos", "estoque_mais_pedidos", "maior_media", "lead_time_dias", "qtd_minima", "estoque_ideal", "cobertura_dias", "cobertura_futura_dias", "gap_volume", "faturamento_ytd_qtd", "status_estoque", "status"]
     const csv = [header.join(";"), ...itens.map((r) => header.map((h) => String((r as any)[h] ?? "").replace(/;/g, ",")).join(";"))].join("\n")
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
@@ -695,6 +715,12 @@ export default function AgingEstoquePage() {
             </div>
           </div>
           <div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Visão do cadastro</p>
+            <select value={classificacaoCadastro} onChange={(e) => setClassificacaoCadastro(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+              {["MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS", "TODOS"].map((t: string) => <option key={t} value={t}>{CLASSIFICACAO_LABEL[t] || t}</option>)}
+            </select>
+          </div>
+          <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Tipo de negócio</p>
             <select value={tipoNegocio} onChange={(e) => setTipoNegocio(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
               <option value="TODOS">Todos os negócios</option>
@@ -724,7 +750,8 @@ export default function AgingEstoquePage() {
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Transferência Bravi</p>
             <select value={transferenciaBravi} onChange={(e) => setTransferenciaBravi(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
               <option value="TODOS">Todos</option>
-              {(opcoes.transferencia_bravi || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
+              <option value="Sim">Sim</option>
+              <option value="Não">Não</option>
             </select>
           </div>
           <div>
@@ -743,7 +770,7 @@ export default function AgingEstoquePage() {
           </div>
         </div>
         <div className="mt-4 flex h-10 items-center rounded-xl border px-3 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-          {fmtNumber(itensResp?.total || 0)} itens encontrados · Cobertura futura média {fmtNumber(resumo?.resumo?.cobertura_futura_media_dias || 0, 0)} dias
+          {fmtNumber(itensResp?.total || 0)} itens encontrados · {CLASSIFICACAO_LABEL[classificacaoCadastro] || classificacaoCadastro} · Cobertura futura média {fmtNumber(resumo?.resumo?.cobertura_futura_media_dias || 0, 0)} dias
         </div>
       </div>
 
@@ -757,7 +784,7 @@ export default function AgingEstoquePage() {
         </div>
 
         <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 360px)" }}>
-          <table className="w-full min-w-[1760px] text-sm">
+          <table className="w-full min-w-[1880px] text-sm">
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
                 <th className="px-4 py-3">Status</th>
@@ -767,6 +794,7 @@ export default function AgingEstoquePage() {
                 <th className="px-4 py-3">Portfólio</th>
                 <th className="px-4 py-3">Tipo ERP</th>
                 <th className="px-4 py-3">Modelo</th>
+                <th className="px-4 py-3">Origem</th>
                 {NUMERIC_COLUMNS.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
               </tr>
             </thead>
@@ -786,6 +814,11 @@ export default function AgingEstoquePage() {
                   </td>
                   <td className="px-4 py-3">{item.tipo || item.tipo_produto_erp || "—"}</td>
                   <td className="px-4 py-3">{item.modelo_fornecimento || "—"}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex rounded-full border px-2 py-1 text-[10px] font-bold" style={{ borderColor: item.origem_classificacao === "NAO_CLASSIFICADO" ? "rgba(100,116,139,0.28)" : "rgba(37,99,235,0.22)", color: item.origem_classificacao === "NAO_CLASSIFICADO" ? "#64748B" : "#1D4ED8", background: item.origem_classificacao === "NAO_CLASSIFICADO" ? "rgba(100,116,139,0.08)" : "rgba(37,99,235,0.08)" }}>
+                      {ORIGEM_LABEL[String(item.origem_classificacao || "")] || "—"}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-right font-semibold">{fmtNumber(item.saldo, 0)}</td>
                   <td className="px-4 py-3 text-right">{fmtNumber(item.qtd_pedidos_abertos, 0)}</td>
                   <td className="px-4 py-3 text-right font-semibold">{fmtNumber(item.estoque_mais_pedidos, 0)}</td>
