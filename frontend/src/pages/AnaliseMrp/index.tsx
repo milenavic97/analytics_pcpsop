@@ -235,6 +235,18 @@ interface AgingItensResponse {
 interface AgingEstoqueItemDetalhe extends AgingEstoqueItem {
   historico_sb8_diario?: { data: string; saldo: number }[]
   comparativo_mensal?: { ano: number; mes: number; periodo: string; estoque_medio: number; consumo: number; forecast: number }[]
+  linha_tempo_estoque?: {
+    ano: number
+    mes: number
+    periodo: string
+    consumo: number
+    demanda: number
+    forecast?: number
+    entradas_previstas: number
+    estoque_atual: number
+    estoque_mais_pedidos: number
+    saldo_projetado?: number | null
+  }[]
   forecast_metodo?: "direto" | "bom_explodida" | string
 }
 
@@ -507,7 +519,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
   if (!item && !loading) return null
 
   const sb8Diario = item?.historico_sb8_diario || []
-  const comparativoMensal = item?.comparativo_mensal || []
+  const linhaTempoEstoque = item?.linha_tempo_estoque || []
   const pedidos = item?.pedidos || []
   const forecastMetodo =
     item?.forecast_metodo === "direto"
@@ -620,19 +632,25 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                 </div>
               </ChartBox>
 
-              <ChartBox title="Comparativo mensal" subtitle="Estoque médio mensal SB8, consumo histórico e forecast/demanda futura.">
-                <div className="h-[300px]">
-                  {comparativoMensal.length ? (
+              <ChartBox title="Linha do tempo do item" subtitle="Consumo histórico, demanda via forecast/BOM, estoque atual, estoque com pedidos e saldo projetado simplificado.">
+                <div className="h-[340px]">
+                  {linhaTempoEstoque.length ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={comparativoMensal} margin={{ top: 8, right: 22, left: 0, bottom: 36 }}>
+                      <ComposedChart data={linhaTempoEstoque} margin={{ top: 8, right: 22, left: 0, bottom: 42 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                        <XAxis dataKey="periodo" angle={-35} textAnchor="end" height={54} interval={0} tick={{ fontSize: 10, fill: "#64748B" }} />
-                        <YAxis tick={{ fontSize: 11, fill: "#64748B" }} width={64} />
-                        <Tooltip formatter={(value: any, name: any) => [fmtNumber(Number(value), 0), name]} />
+                        <XAxis dataKey="periodo" angle={-35} textAnchor="end" height={58} interval={0} tick={{ fontSize: 10, fill: "#64748B" }} />
+                        <YAxis tick={{ fontSize: 11, fill: "#64748B" }} width={70} />
+                        <Tooltip
+                          formatter={(value: any, name: any) => [fmtNumber(Number(value), 0), name]}
+                          labelFormatter={(value) => `Período: ${value}`}
+                        />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <Bar dataKey="estoque_medio" name="Estoque médio" fill="#163B63" radius={[7, 7, 0, 0]} />
-                        <Line type="monotone" dataKey="consumo" name="Consumo" stroke="#DC2626" strokeWidth={2.5} dot={{ r: 2 }} />
-                        <Line type="monotone" dataKey="forecast" name="Forecast" stroke="#16A34A" strokeWidth={2.5} strokeDasharray="6 4" dot={{ r: 2 }} />
+                        <Line type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={2.5} dot={{ r: 2 }} connectNulls />
+                        <Line type="monotone" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={2.5} strokeDasharray="6 4" dot={{ r: 2 }} connectNulls />
+                        <Line type="monotone" dataKey="entradas_previstas" name="Entradas previstas" stroke="#F59E0B" strokeWidth={2} strokeDasharray="3 4" dot={{ r: 2 }} connectNulls />
+                        <Line type="monotone" dataKey="estoque_atual" name="Estoque atual" stroke="#163B63" strokeWidth={2.5} dot={false} connectNulls />
+                        <Line type="monotone" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls />
+                        <Line type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.5} dot={{ r: 2 }} connectNulls />
                       </ComposedChart>
                     </ResponsiveContainer>
                   ) : (
