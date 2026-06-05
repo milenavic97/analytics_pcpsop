@@ -247,6 +247,9 @@ interface AgingEstoqueItemDetalhe extends AgingEstoqueItem {
     estoque_mais_pedidos: number
     saldo_projetado?: number | null
   }[]
+  historico_consumo?: { ano: number; mes: number; periodo: string; consumo: number }[]
+  forecast?: { ano: number; mes: number; periodo: string; forecast: number }[]
+  pedidos?: { quantidade_pendente?: number; data_prevista_entrega?: string | null }[]
   forecast_metodo?: "direto" | "bom_explodida" | string
 }
 
@@ -307,6 +310,97 @@ function fmtDateTime(value?: string | null) {
   const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
 
   return `${data} às ${hora}`
+}
+
+
+function addMonths(year: number, month: number, delta: number) {
+  const d = new Date(year, month - 1 + delta, 1)
+  return { ano: d.getFullYear(), mes: d.getMonth() + 1 }
+}
+
+function monthKey(ano: number, mes: number) {
+  return `${ano}-${String(mes).padStart(2, "0")}`
+}
+
+function monthLabel(ano: number, mes: number) {
+  const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+  return `${nomes[mes - 1] || String(mes).padStart(2, "0")}/${String(ano).slice(-2)}`
+}
+
+function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonteFuturo: number) {
+  if (!item) return []
+
+  const hoje = new Date()
+  const inicio = new Date(2025, 0, 1)
+  const fimInfo = addMonths(hoje.getFullYear(), hoje.getMonth() + 1, Math.max(1, horizonteFuturo || 6))
+  const fim = new Date(fimInfo.ano, fimInfo.mes - 1, 1)
+  const chaveAtual = monthKey(hoje.getFullYear(), hoje.getMonth() + 1)
+
+  const mapa = new Map<string, any>()
+
+  const ensure = (ano: number, mes: number) => {
+    const key = monthKey(ano, mes)
+    if (!mapa.has(key)) {
+      mapa.set(key, {
+        ano,
+        mes,
+        periodo: monthLabel(ano, mes),
+        consumo: 0,
+        demanda: 0,
+        forecast: 0,
+        entradas_previstas: 0,
+        estoque_atual: Number(item.saldo || 0),
+        estoque_mais_pedidos: Number(item.estoque_mais_pedidos || 0),
+        saldo_projetado: null,
+      })
+    }
+    return mapa.get(key)
+  }
+
+  for (let d = new Date(inicio); d <= fim; d.setMonth(d.getMonth() + 1)) {
+    ensure(d.getFullYear(), d.getMonth() + 1)
+  }
+
+  for (const p of item.historico_consumo || []) {
+    const ano = Number(p.ano || 0)
+    const mes = Number(p.mes || 0)
+    if (!ano || !mes) continue
+    const keyDate = new Date(ano, mes - 1, 1)
+    if (keyDate < inicio || keyDate > fim) continue
+    ensure(ano, mes).consumo += Number(p.consumo || 0)
+  }
+
+  for (const p of item.forecast || []) {
+    const ano = Number(p.ano || 0)
+    const mes = Number(p.mes || 0)
+    if (!ano || !mes) continue
+    const keyDate = new Date(ano, mes - 1, 1)
+    if (keyDate < inicio || keyDate > fim) continue
+    const ponto = ensure(ano, mes)
+    const demanda = Number(p.forecast || 0)
+    ponto.demanda += demanda
+    ponto.forecast += demanda
+  }
+
+  for (const pedido of item.pedidos || []) {
+    const raw = pedido.data_prevista_entrega
+    if (!raw) continue
+    const d = new Date(String(raw).slice(0, 10) + "T00:00:00")
+    if (Number.isNaN(d.getTime()) || d < inicio || d > fim) continue
+    ensure(d.getFullYear(), d.getMonth() + 1).entradas_previstas += Number(pedido.quantidade_pendente || 0)
+  }
+
+  let saldoProjetado = Number(item.saldo || 0)
+
+  return Array.from(mapa.values())
+    .sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes))
+    .map((p) => {
+      if (monthKey(p.ano, p.mes) >= chaveAtual) {
+        saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - Number(p.demanda || 0)
+        p.saldo_projetado = saldoProjetado
+      }
+      return p
+    })
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -706,60 +800,6 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
   )
 }
 
-function monthLabel(year: number, monthIndexZeroBased: number) {
-  const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
-  return `${nomes[monthIndexZeroBased]}/${String(year).slice(-2)}`
-}
-
-function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe, horizonteFuturo: number) {
-  const hoje = new Date()
-  const inicio = new Date(2025, 0, 1)
-  const fim = new Date(hoje.getFullYear(), hoje.getMonth() + Math.max(1, Number(horizonteFuturo || 6)), 1)
-
-  const saldoAtual = Number(item.saldo || 0)
-  const estoqueMaisPedidos = Number(item.estoque_mais_pedidos || 0)
-  const demandaMes = Number((item as AgingEstoqueItemDetalhe & Record<string, unknown>).demanda_mes_atual || 0)
-  const consumoMes = Number((item as AgingEstoqueItemDetalhe & Record<string, unknown>).consumo_mes_atual || 0)
-
-  const serie = []
-  let cursor = new Date(inicio)
-  let saldoProjetado = saldoAtual
-
-  while (cursor <= fim) {
-    const ano = cursor.getFullYear()
-    const mes = cursor.getMonth() + 1
-    const isMesAtualOuFuturo =
-      ano > hoje.getFullYear() ||
-      (ano === hoje.getFullYear() && cursor.getMonth() >= hoje.getMonth())
-
-    if (isMesAtualOuFuturo) {
-      saldoProjetado = saldoProjetado - demandaMes
-    }
-
-    serie.push({
-      ano,
-      mes,
-      periodo: monthLabel(ano, cursor.getMonth()),
-      consumo: isMesAtualOuFuturo ? 0 : 0,
-      demanda: isMesAtualOuFuturo ? demandaMes : 0,
-      forecast: isMesAtualOuFuturo ? demandaMes : 0,
-      entradas_previstas: 0,
-      estoque_atual: saldoAtual,
-      estoque_mais_pedidos: estoqueMaisPedidos,
-      saldo_projetado: isMesAtualOuFuturo ? saldoProjetado : null,
-    })
-
-    cursor = new Date(ano, cursor.getMonth() + 1, 1)
-  }
-
-  if (consumoMes > 0) {
-    const atual = serie.find((p) => p.ano === hoje.getFullYear() && p.mes === hoje.getMonth() + 1)
-    if (atual) atual.consumo = consumoMes
-  }
-
-  return serie
-}
-
 function TimelinePrincipal({
   item,
   loading,
@@ -771,13 +811,16 @@ function TimelinePrincipal({
   horizonteFuturo: number
   onHorizonteChange: (value: number) => void
 }) {
-  const linhaTempoApi = item?.linha_tempo_estoque || []
-  const linhaTempo = useMemo(() => {
-    if (!item) return []
-    if (linhaTempoApi.length) return linhaTempoApi
-    return buildLinhaTempoFallback(item, horizonteFuturo)
-  }, [item, linhaTempoApi, horizonteFuturo])
+  // Monta a série visual diretamente a partir do detalhe do item.
+  // Motivo: alguns backends antigos devolvem linha_tempo_estoque sem consumo,
+  // enquanto historico_consumo vem correto. Para o gráfico operacional,
+  // a fonte mais confiável do consumo mensal é sempre historico_consumo.
+  const linhaTempo = buildLinhaTempoFallback(item, horizonteFuturo)
   const pedidos = item?.pedidos || []
+  const anoAtual = new Date().getFullYear()
+  const consumoAnoAtual = linhaTempo
+    .filter((p) => Number(p.ano) === anoAtual)
+    .reduce((acc, p) => acc + Number(p.consumo || 0), 0)
 
   return (
     <div className="card overflow-hidden">
@@ -821,7 +864,7 @@ function TimelinePrincipal({
             <KpiSmall label="Pedidos" value={fmtCompact(item.qtd_pedidos_abertos)} />
             <KpiSmall label="Estoque + pedidos" value={fmtCompact(item.estoque_mais_pedidos)} />
             <KpiSmall label="Maior média" value={fmtCompact(item.maior_media)} />
-            <KpiSmall label="Demanda mês" value={fmtCompact((item as AgingEstoqueItem & Record<string, unknown>).demanda_mes_atual as number)} />
+            <KpiSmall label={`Consumo ${anoAtual}`} value={fmtCompact(consumoAnoAtual)} />
             <KpiSmall label="Gap" value={fmtCompact(item.gap_volume)} />
           </div>
 
@@ -830,7 +873,7 @@ function TimelinePrincipal({
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Evolução mensal</p>
                 <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                  Histórico desde 2025 e projeção de {horizonteFuturo} meses à frente. Para PA/MR a demanda vem do forecast direto; para insumos, do forecast explodido pela BOM.
+                  Histórico desde 2025 e projeção de {horizonteFuturo} meses à frente. Consumo/demanda usam o eixo direito para não ficarem achatados pela escala do estoque.
                 </p>
               </div>
               {loading && (
@@ -846,18 +889,31 @@ function TimelinePrincipal({
                   <ComposedChart data={linhaTempo} margin={{ top: 8, right: 22, left: 0, bottom: 50 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                     <XAxis dataKey="periodo" angle={-35} textAnchor="end" height={68} interval={0} tick={{ fontSize: 10, fill: "#64748B" }} />
-                    <YAxis tick={{ fontSize: 11, fill: "#64748B" }} width={78} />
+                    <YAxis
+                      yAxisId="estoque"
+                      orientation="left"
+                      tick={{ fontSize: 11, fill: "#64748B" }}
+                      width={78}
+                      label={{ value: "Estoque / saldo", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
+                    />
+                    <YAxis
+                      yAxisId="fluxo"
+                      orientation="right"
+                      tick={{ fontSize: 11, fill: "#64748B" }}
+                      width={78}
+                      label={{ value: "Consumo / demanda", angle: 90, position: "insideRight", style: { fill: "#64748B", fontSize: 11 } }}
+                    />
                     <Tooltip
                       formatter={(value: any, name: any) => [fmtNumber(Number(value), 0), name]}
                       labelFormatter={(value) => `Período: ${value}`}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={2.5} dot={{ r: 2 }} connectNulls />
-                    <Line type="monotone" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={2.5} strokeDasharray="6 4" dot={{ r: 2 }} connectNulls />
-                    <Line type="monotone" dataKey="entradas_previstas" name="Entradas previstas" stroke="#F59E0B" strokeWidth={2.2} strokeDasharray="3 4" dot={{ r: 2 }} connectNulls />
-                    <Line type="monotone" dataKey="estoque_atual" name="Estoque atual" stroke="#163B63" strokeWidth={2.5} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.8} dot={{ r: 2 }} connectNulls />
+                    <Line yAxisId="fluxo" type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls />
+                    <Line yAxisId="fluxo" type="monotone" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls />
+                    <Line yAxisId="fluxo" type="monotone" dataKey="entradas_previstas" name="Entradas previstas" stroke="#F59E0B" strokeWidth={2.5} strokeDasharray="3 4" dot={{ r: 3 }} connectNulls />
+                    <Line yAxisId="estoque" type="monotone" dataKey="estoque_atual" name="Estoque atual" stroke="#163B63" strokeWidth={2.5} dot={false} connectNulls />
+                    <Line yAxisId="estoque" type="monotone" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls />
+                    <Line yAxisId="estoque" type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.8} dot={{ r: 2 }} connectNulls />
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
