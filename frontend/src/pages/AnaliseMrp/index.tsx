@@ -8,10 +8,8 @@ import {
   CheckCircle2,
   Database,
   Download,
-  Filter,
   PackageSearch,
   RefreshCw,
-  Search,
   ShoppingCart,
   UploadCloud,
   X,
@@ -39,7 +37,6 @@ import {
 } from "@/services/api"
 
 const PAGE_SIZE = 100
-const TIPOS_FIXOS = ["TODOS", "MC", "ME", "MI", "MP", "PA", "PI", "MR"]
 
 type BaseGestaoEstoque = {
   id: string
@@ -167,33 +164,6 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string }[] = [
   { key: "faturamento_ytd_qtd", label: "Fat. YTD" },
 ]
 
-interface AgingOpcoes {
-  tipo_negocio?: string[]
-  tipo?: string[]
-  status_portfolio?: string[]
-  transferencia_bravi?: string[]
-  modelo_fornecimento?: string[]
-  grupo_gerencial?: string[]
-  classificacao_cadastro?: string[]
-}
-
-const EMPTY_OPCOES: AgingOpcoes = {
-  tipo_negocio: [],
-  tipo: [],
-  status_portfolio: [],
-  transferencia_bravi: [],
-  modelo_fornecimento: [],
-  grupo_gerencial: [],
-  classificacao_cadastro: ["MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS", "TODOS"],
-}
-
-const CLASSIFICACAO_LABEL: Record<string, string> = {
-  MAPEADOS: "Itens mapeados",
-  DIMENSAO: "Cadastro direto",
-  BOM: "Herdados pela BOM",
-  NAO_CLASSIFICADOS: "Não classificados",
-  TODOS: "Todos os itens",
-}
 
 const ORIGEM_LABEL: Record<string, string> = {
   DIMENSAO: "Cadastro",
@@ -240,7 +210,6 @@ interface AgingResumoResponse {
     faturamento_ytd_valor?: number
     cobertura_futura_media_dias: number
   }[]
-  opcoes?: AgingOpcoes
 }
 
 interface AgingItensResponse {
@@ -249,7 +218,6 @@ interface AgingItensResponse {
   total: number
   total_pages: number
   itens: AgingEstoqueItem[]
-  opcoes?: AgingOpcoes
 }
 
 interface AgingEstoqueItemDetalhe extends AgingEstoqueItem {
@@ -274,6 +242,25 @@ function fmtDate(value?: string | null) {
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return String(value).slice(0, 10).split("-").reverse().join("/")
   return d.toLocaleDateString("pt-BR")
+}
+
+function fmtDateTime(value?: string | null) {
+  if (!value) return "—"
+
+  const d = new Date(value)
+
+  if (Number.isNaN(d.getTime())) {
+    const texto = String(value)
+    const data = texto.slice(0, 10).split("-").reverse().join("/")
+    const horaMatch = texto.match(/T(\d{2}:\d{2})|\s(\d{2}:\d{2})/)
+    const hora = horaMatch?.[1] || horaMatch?.[2]
+    return hora ? `${data} às ${hora}` : data
+  }
+
+  const data = d.toLocaleDateString("pt-BR")
+  const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+
+  return `${data} às ${hora}`
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -445,7 +432,7 @@ function BasesModal({
                       {carregando
                         ? "Consultando última atualização..."
                         : ultima
-                          ? `Atualizado em ${fmtDate(ultima)}`
+                          ? `Atualizado em ${fmtDateTime(ultima)}`
                           : "Ainda sem carga registrada"}
                     </span>
                   </div>
@@ -670,20 +657,10 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
 export default function AgingEstoquePage() {
   const [resumo, setResumo] = useState<AgingResumoResponse | null>(null)
   const [itensResp, setItensResp] = useState<AgingItensResponse | null>(null)
-  const [loadingResumo, setLoadingResumo] = useState(true)
+  const [, setLoadingResumo] = useState(true)
   const [loadingItens, setLoadingItens] = useState(true)
   const [loadingDetalhe, setLoadingDetalhe] = useState(false)
   const [error, setError] = useState("")
-  const [status, setStatus] = useState("TODOS")
-  const [tipo, setTipo] = useState("TODOS")
-  const [tipoNegocio, setTipoNegocio] = useState("TODOS")
-  const [statusPortfolio, setStatusPortfolio] = useState("TODOS")
-  const [transferenciaBravi, setTransferenciaBravi] = useState("TODOS")
-  const [modeloFornecimento, setModeloFornecimento] = useState("TODOS")
-  const [grupoGerencial, setGrupoGerencial] = useState("TODOS")
-  const [classificacaoCadastro, setClassificacaoCadastro] = useState("MAPEADOS")
-  const [busca, setBusca] = useState("")
-  const [buscaAplicada, setBuscaAplicada] = useState("")
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<AgingEstoqueItemDetalhe | null>(null)
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
@@ -752,17 +729,7 @@ export default function AgingEstoquePage() {
     let mounted = true
     setLoadingResumo(true)
     setError("")
-    getAgingResumo({
-        status,
-        tipo,
-        tipo_negocio: tipoNegocio,
-        status_portfolio: statusPortfolio,
-        transferencia_bravi: transferenciaBravi,
-        modelo_fornecimento: modeloFornecimento,
-        grupo_gerencial: grupoGerencial,
-        classificacao_cadastro: classificacaoCadastro,
-        busca: buscaAplicada,
-      })
+    getAgingResumo({ classificacao_cadastro: "TODOS" })
       .then((res) => {
         if (!mounted) return
         setResumo(res as AgingResumoResponse)
@@ -775,17 +742,8 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingResumo(false)
       })
     return () => { mounted = false }
-  }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, classificacaoCadastro, refreshTick])
+  }, [refreshTick])
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setPage(1)
-      setBuscaAplicada(busca.trim())
-    }, 400)
-    return () => window.clearTimeout(timer)
-  }, [busca])
-
-  useEffect(() => { setPage(1) }, [status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, classificacaoCadastro])
 
   useEffect(() => {
     let mounted = true
@@ -794,17 +752,9 @@ export default function AgingEstoquePage() {
     getAgingItens({
         page,
         page_size: PAGE_SIZE,
-        status,
-        tipo,
-        busca: buscaAplicada,
-        tipo_negocio: tipoNegocio,
-        status_portfolio: statusPortfolio,
-        transferencia_bravi: transferenciaBravi,
-        modelo_fornecimento: modeloFornecimento,
-        grupo_gerencial: grupoGerencial,
-        classificacao_cadastro: classificacaoCadastro,
         sort_key: sortKey || undefined,
         sort_direction: sortDirection,
+        classificacao_cadastro: "TODOS",
       })
       .then((res) => {
         if (!mounted) return
@@ -818,7 +768,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingItens(false)
       })
     return () => { mounted = false }
-  }, [page, status, tipo, tipoNegocio, statusPortfolio, transferenciaBravi, modeloFornecimento, grupoGerencial, buscaAplicada, sortKey, sortDirection, classificacaoCadastro, refreshTick])
+  }, [page, sortKey, sortDirection, refreshTick])
 
   const itens = itensResp?.itens || []
   const totalPages = Math.max(1, itensResp?.total_pages || 1)
@@ -850,26 +800,6 @@ export default function AgingEstoquePage() {
   const itensOrdenados = itens
 
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
-  const opcoes: AgingOpcoes = resumo?.opcoes ?? itensResp?.opcoes ?? EMPTY_OPCOES
-
-  const tipoOptions = useMemo(() => {
-    const valores = Array.from(new Set([...(opcoes.tipo || []), ...TIPOS_FIXOS.filter((t: string) => t !== "TODOS")]))
-    return ["TODOS", ...valores.filter(Boolean).sort()]
-  }, [opcoes.tipo])
-
-  const resetFiltros = () => {
-    setStatus("TODOS")
-    setTipo("TODOS")
-    setTipoNegocio("TODOS")
-    setStatusPortfolio("TODOS")
-    setTransferenciaBravi("TODOS")
-    setModeloFornecimento("TODOS")
-    setGrupoGerencial("TODOS")
-    setClassificacaoCadastro("MAPEADOS")
-    setBusca("")
-    setBuscaAplicada("")
-    setPage(1)
-  }
 
   const exportCsv = () => {
     const header = ["codigo", "produto", "tipo_negocio", "status_portfolio", "transferencia_bravi", "grupo_gerencial", "modelo_fornecimento", "origem_classificacao", "item_mapeado", "tipo", "saldo", "qtd_pedidos_abertos", "estoque_mais_pedidos", "maior_media", "lead_time_dias", "qtd_minima", "estoque_ideal", "cobertura_dias", "cobertura_futura_dias", "gap_volume", "faturamento_ytd_qtd", "status_estoque", "status"]
@@ -927,12 +857,10 @@ export default function AgingEstoquePage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         {saudeNegocios.map((negocio) => (
-          <button
+          <div
             key={negocio.tipo_negocio}
-            type="button"
-            onClick={() => setTipoNegocio(negocio.tipo_negocio)}
-            className="card p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md"
-            style={{ borderColor: tipoNegocio === negocio.tipo_negocio ? "#2563EB" : "var(--border)" }}
+            className="card p-4 text-left"
+            style={{ borderColor: "var(--border)" }}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -953,85 +881,21 @@ export default function AgingEstoquePage() {
                 {negocio.transferencia_bravi > 0 ? `${fmtNumber(negocio.transferencia_bravi)} item(ns) Bravi.` : ""}
               </p>
             )}
-          </button>
+          </div>
         ))}
       </div>
 
-      <div className="card p-5">
-        <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
-          <div className="flex items-center gap-2">
-            <Filter size={16} style={{ color: "var(--text-secondary)" }} />
-            <h2 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>Filtros</h2>
-          </div>
-          <button type="button" onClick={resetFiltros} className="rounded-xl border px-3 py-2 text-xs font-bold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-            Limpar filtros
-          </button>
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="card px-5 py-3">
+        <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Busca</p>
-            <div className="relative">
-              <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Código, produto, grupo ou status" className="h-10 w-full rounded-xl border bg-white pl-9 pr-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} />
-            </div>
+            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+              Tabela operacional do aging, sem filtros temporariamente, para validar os cálculos contra o Excel.
+            </p>
           </div>
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Visão do cadastro</p>
-            <select value={classificacaoCadastro} onChange={(e) => setClassificacaoCadastro(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              {["MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS", "TODOS"].map((t: string) => <option key={t} value={t}>{CLASSIFICACAO_LABEL[t] || t}</option>)}
-            </select>
-          </div>
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Tipo de negócio</p>
-            <select value={tipoNegocio} onChange={(e) => setTipoNegocio(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              <option value="TODOS">Todos os negócios</option>
-              {(opcoes.tipo_negocio || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status de estoque</p>
-            <select value={status} onChange={(e) => setStatus(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              {Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-            </select>
-          </div>
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Tipo ERP</p>
-            <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              {tipoOptions.map((t: string) => <option key={t} value={t}>{t === "TODOS" ? "Todos os tipos" : t}</option>)}
-            </select>
-          </div>
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status portfólio</p>
-            <select value={statusPortfolio} onChange={(e) => setStatusPortfolio(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              <option value="TODOS">Todos os status</option>
-              {(opcoes.status_portfolio || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Transferência Bravi</p>
-            <select value={transferenciaBravi} onChange={(e) => setTransferenciaBravi(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              <option value="TODOS">Todos</option>
-              <option value="Sim">Sim</option>
-              <option value="Não">Não</option>
-            </select>
-          </div>
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Modelo fornecimento</p>
-            <select value={modeloFornecimento} onChange={(e) => setModeloFornecimento(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              <option value="TODOS">Todos os modelos</option>
-              {(opcoes.modelo_fornecimento || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Grupo gerencial</p>
-            <select value={grupoGerencial} onChange={(e) => setGrupoGerencial(e.target.value)} className="h-10 w-full rounded-xl border bg-white px-3 text-sm outline-none" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              <option value="TODOS">Todos os grupos</option>
-              {(opcoes.grupo_gerencial || []).map((t: string) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="mt-4 flex h-10 items-center rounded-xl border px-3 text-sm" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-          {fmtNumber(itensResp?.total || 0)} itens encontrados · {CLASSIFICACAO_LABEL[classificacaoCadastro] || classificacaoCadastro} · Cobertura futura média {fmtNumber(resumo?.resumo?.cobertura_futura_media_dias || 0, 0)} dias
+          <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+            {fmtNumber(itensResp?.total || 0)} itens encontrados · Cobertura futura média {fmtNumber(resumo?.resumo?.cobertura_futura_media_dias || 0, 0)} dias
+          </p>
         </div>
       </div>
 
@@ -1044,7 +908,7 @@ export default function AgingEstoquePage() {
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages}</p>
         </div>
 
-        <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 360px)" }}>
+        <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
           <table className="w-full min-w-[1880px] text-sm">
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
@@ -1095,7 +959,7 @@ export default function AgingEstoquePage() {
               ))}
             </tbody>
           </table>
-          {!loadingItens && !itens.length && <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item encontrado para os filtros selecionados.</div>}
+          {!loadingItens && !itens.length && <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item encontrado na base atual.</div>}
           {loadingItens && <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Carregando itens...</div>}
         </div>
 
