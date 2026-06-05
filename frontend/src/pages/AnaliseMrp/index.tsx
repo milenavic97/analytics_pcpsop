@@ -88,17 +88,10 @@ const BASES_GESTAO_ESTOQUE: BaseGestaoEstoque[] = [
     obrigatoria: true,
   },
   {
-    id: "lead_time_estoque",
-    titulo: "Lead Time",
-    descricao: "Lead time em dias por código de material/produto.",
-    uso: "Calcula consumo durante lead time e risco de cobertura insuficiente.",
-    obrigatoria: true,
-  },
-  {
-    id: "qtd_minima_estoque",
-    titulo: "Quantidade Mínima",
-    descricao: "Pedido mínimo/MOQ por código.",
-    uso: "Compõe a política de estoque ideal: maior entre consumo no LT e quantidade mínima.",
+    id: "parametros_estoque",
+    titulo: "Parâmetros de Estoque",
+    descricao: "Lead time e pedido mínimo/MOQ por código no mesmo arquivo.",
+    uso: "Calcula consumo durante lead time e compõe a política de estoque ideal: maior entre consumo no LT e quantidade mínima.",
     obrigatoria: true,
   },
   {
@@ -381,7 +374,7 @@ function BasesModal({
             <div>
               <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Racional das bases</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Posição de estoque é a base principal. Forecast S&OP + BOM geram demanda de insumos. Lead time, quantidade mínima e custo unitário completam o aging do Excel.
+                Posição de estoque é a base principal. Forecast S&OP + BOM geram demanda de insumos. Parâmetros de estoque reúnem lead time e MOQ; custo unitário completa o aging do Excel.
               </p>
             </div>
             <button
