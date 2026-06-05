@@ -706,6 +706,158 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
   )
 }
 
+function TimelinePrincipal({
+  item,
+  loading,
+  horizonteFuturo,
+  onHorizonteChange,
+}: {
+  item: AgingEstoqueItemDetalhe | null
+  loading: boolean
+  horizonteFuturo: number
+  onHorizonteChange: (value: number) => void
+}) {
+  const linhaTempo = item?.linha_tempo_estoque || []
+  const pedidos = item?.pedidos || []
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex flex-col justify-between gap-3 border-b px-5 py-4 md:flex-row md:items-start" style={{ borderColor: "var(--border)" }}>
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Linha do tempo</p>
+          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>
+            {item ? `${item.codigo} · ${item.produto || "Item selecionado"}` : "Selecione um item na tabela"}
+          </h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            Consumo histórico, demanda via forecast/BOM, compras previstas, estoque atual e saldo projetado.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {item && <StatusBadge status={item.status_estoque || item.status} />}
+          <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+            Horizonte futuro
+            <select
+              value={horizonteFuturo}
+              onChange={(event) => onHorizonteChange(Number(event.target.value))}
+              className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold normal-case tracking-normal"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              <option value={3}>3 meses</option>
+              <option value={6}>6 meses</option>
+              <option value={12}>12 meses</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      {!item ? (
+        <div className="flex min-h-[320px] items-center justify-center px-5 py-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>
+          Clique em uma linha da tabela para visualizar a evolução do item e a projeção dos próximos meses.
+        </div>
+      ) : (
+        <div className="space-y-4 p-5">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+            <KpiSmall label="Saldo atual" value={fmtCompact(item.saldo)} />
+            <KpiSmall label="Pedidos" value={fmtCompact(item.qtd_pedidos_abertos)} />
+            <KpiSmall label="Estoque + pedidos" value={fmtCompact(item.estoque_mais_pedidos)} />
+            <KpiSmall label="Maior média" value={fmtCompact(item.maior_media)} />
+            <KpiSmall label="Demanda mês" value={fmtCompact((item as AgingEstoqueItem & Record<string, unknown>).demanda_mes_atual as number)} />
+            <KpiSmall label="Gap" value={fmtCompact(item.gap_volume)} />
+          </div>
+
+          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Evolução mensal</p>
+                <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                  Histórico desde 2025 e projeção de {horizonteFuturo} meses à frente. Para PA/MR a demanda vem do forecast direto; para insumos, do forecast explodido pela BOM.
+                </p>
+              </div>
+              {loading && (
+                <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
+                  <RefreshCw size={13} className="animate-spin" /> Atualizando
+                </span>
+              )}
+            </div>
+
+            <div className="h-[380px]">
+              {linhaTempo.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={linhaTempo} margin={{ top: 8, right: 22, left: 0, bottom: 50 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                    <XAxis dataKey="periodo" angle={-35} textAnchor="end" height={68} interval={0} tick={{ fontSize: 10, fill: "#64748B" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#64748B" }} width={78} />
+                    <Tooltip
+                      formatter={(value: any, name: any) => [fmtNumber(Number(value), 0), name]}
+                      labelFormatter={(value) => `Período: ${value}`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Line type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={2.5} dot={{ r: 2 }} connectNulls />
+                    <Line type="monotone" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={2.5} strokeDasharray="6 4" dot={{ r: 2 }} connectNulls />
+                    <Line type="monotone" dataKey="entradas_previstas" name="Entradas previstas" stroke="#F59E0B" strokeWidth={2.2} strokeDasharray="3 4" dot={{ r: 2 }} connectNulls />
+                    <Line type="monotone" dataKey="estoque_atual" name="Estoque atual" stroke="#163B63" strokeWidth={2.5} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.8} dot={{ r: 2 }} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
+                  Sem série mensal disponível para este item.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Racional do estoque ideal</p>
+              <p className="mt-2 text-sm" style={{ color: "var(--text-primary)" }}>Estoque ideal = maior entre consumo durante o lead time e pedido mínimo/MOQ.</p>
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                <KpiSmall label="Consumo LT" value={fmtCompact(item.consumo_durante_lt)} />
+                <KpiSmall label="MOQ" value={fmtCompact(item.qtd_minima)} />
+                <KpiSmall label="Ideal" value={fmtCompact(item.estoque_ideal)} />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Pedidos em aberto</p>
+              <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                {pedidos.length
+                  ? `${fmtNumber(pedidos.length)} pedido(s) aberto(s) encontrado(s) para este item.`
+                  : "Nenhum pedido aberto encontrado para este item."}
+              </p>
+              {pedidos.length > 0 && (
+                <div className="mt-3 max-h-[160px] overflow-auto rounded-xl border" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 text-left uppercase tracking-wide text-white" style={{ background: "#163B63" }}>
+                      <tr>
+                        <th className="px-3 py-2">Pedido/SC</th>
+                        <th className="px-3 py-2 text-right">Qtd.</th>
+                        <th className="px-3 py-2">Entrega</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pedidos.slice(0, 8).map((pedido, idx) => (
+                        <tr key={`${pedido.pedido_numero}-${pedido.sc_numero}-${idx}`} className="border-t" style={{ borderColor: "var(--border)" }}>
+                          <td className="px-3 py-2">{pedido.pedido_numero || pedido.sc_numero || "—"}</td>
+                          <td className="px-3 py-2 text-right font-semibold">{fmtNumber(pedido.quantidade_pendente, 0)}</td>
+                          <td className="px-3 py-2">{fmtDate(pedido.data_prevista_entrega)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 export default function AgingEstoquePage() {
   const [resumo, setResumo] = useState<AgingResumoResponse | null>(null)
   const [itensResp, setItensResp] = useState<AgingItensResponse | null>(null)
@@ -715,6 +867,7 @@ export default function AgingEstoquePage() {
   const [error, setError] = useState("")
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<AgingEstoqueItemDetalhe | null>(null)
+  const [horizonteFuturo, setHorizonteFuturo] = useState(6)
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
   const [basesModalOpen, setBasesModalOpen] = useState(false)
@@ -835,21 +988,49 @@ export default function AgingEstoquePage() {
     setSortDirection("desc")
   }
 
-  const abrirDetalhe = async (item: AgingEstoqueItem) => {
+  const abrirDetalhe = (item: AgingEstoqueItem) => {
     setSelected(item as AgingEstoqueItemDetalhe)
-    setLoadingDetalhe(true)
-    try {
-      const detalhe = await getAgingEstoqueItem(item.codigo)
-      setSelected(detalhe as AgingEstoqueItemDetalhe)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoadingDetalhe(false)
-    }
   }
 
-  // A ordenação é feita no backend para ordenar a base inteira, não apenas a página atual.
-  const itensOrdenados = itens
+  useEffect(() => {
+    const codigo = selected?.codigo
+    if (!codigo) return
+
+    let mounted = true
+    setLoadingDetalhe(true)
+
+    getAgingEstoqueItem(codigo, horizonteFuturo)
+      .then((detalhe) => {
+        if (!mounted) return
+        setSelected(detalhe as AgingEstoqueItemDetalhe)
+      })
+      .catch((err: unknown) => {
+        console.error(err)
+      })
+      .finally(() => {
+        if (mounted) setLoadingDetalhe(false)
+      })
+
+    return () => { mounted = false }
+  }, [selected?.codigo, horizonteFuturo, refreshTick])
+
+  // O backend ordena a base inteira; esta ordenação local garante resposta visual imediata na página carregada.
+  const itensOrdenados = useMemo(() => {
+    if (!sortKey) return itens
+
+    const direction = sortDirection === "asc" ? 1 : -1
+
+    return [...itens].sort((a, b) => {
+      const aValue = getNum(a, sortKey)
+      const bValue = getNum(b, sortKey)
+
+      if (aValue === bValue) {
+        return String(a.codigo || "").localeCompare(String(b.codigo || ""))
+      }
+
+      return (aValue - bValue) * direction
+    })
+  }, [itens, sortKey, sortDirection])
 
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
 
@@ -974,7 +1155,15 @@ export default function AgingEstoquePage() {
                 const alertaPrevisao = getNum(item, "previsao_consumo_alerta") > 0
 
                 return (
-                  <tr key={`${item.codigo}-${item.tipo}-${item.grupo_gerencial}`} className="cursor-pointer border-t transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }} onClick={() => abrirDetalhe(item)}>
+                  <tr
+                    key={`${item.codigo}-${item.tipo}-${item.grupo_gerencial}`}
+                    className="cursor-pointer border-t transition hover:bg-slate-50"
+                    style={{
+                      borderColor: "var(--border)",
+                      background: selected?.codigo === item.codigo ? "rgba(37,99,235,0.06)" : undefined,
+                    }}
+                    onClick={() => abrirDetalhe(item)}
+                  >
                     <td className="px-4 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo}</td>
                     <td className="px-4 py-3">
                       <div className="max-w-[320px] truncate font-medium" style={{ color: "var(--text-primary)" }}>{item.produto || "—"}</div>
@@ -1014,6 +1203,13 @@ export default function AgingEstoquePage() {
         </div>
       </div>
 
+      <TimelinePrincipal
+        item={selected}
+        loading={loadingDetalhe}
+        horizonteFuturo={horizonteFuturo}
+        onHorizonteChange={setHorizonteFuturo}
+      />
+
       <BasesModal
         open={basesModalOpen}
         onClose={() => setBasesModalOpen(false)}
@@ -1024,7 +1220,7 @@ export default function AgingEstoquePage() {
         onUpload={handleUploadBase}
         onRefresh={carregarAtualizacoesBases}
       />
-      <ItemDrawer item={selected} loading={loadingDetalhe} onClose={() => setSelected(null)} />
+      {false && <ItemDrawer item={selected} loading={loadingDetalhe} onClose={() => setSelected(null)} />}
     </div>
   )
 }
