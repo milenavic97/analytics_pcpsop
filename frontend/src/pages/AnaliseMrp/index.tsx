@@ -239,12 +239,12 @@ interface AgingEstoqueItemDetalhe extends AgingEstoqueItem {
     ano: number
     mes: number
     periodo: string
-    consumo: number
-    demanda: number
-    forecast?: number
-    entradas_previstas: number
-    estoque_atual: number
-    estoque_mais_pedidos: number
+    consumo: number | null
+    demanda: number | null
+    forecast?: number | null
+    entradas_previstas: number | null
+    estoque_atual: number | null
+    estoque_mais_pedidos: number | null
     saldo_projetado?: number | null
   }[]
   historico_consumo?: { ano: number; mes: number; periodo: string; consumo: number }[]
@@ -353,10 +353,12 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         ano,
         mes,
         periodo: monthLabel(ano, mes),
-        consumo: 0,
-        demanda: 0,
-        forecast: 0,
-        entradas_previstas: 0,
+        // Não usar 0 como padrão: quando a série não existe naquele período,
+        // fica null para o gráfico não desenhar uma linha falsa no zero.
+        consumo: null,
+        demanda: null,
+        forecast: null,
+        entradas_previstas: null,
         estoque_atual: Number(item.saldo || 0),
         estoque_mais_pedidos: Number(item.estoque_mais_pedidos || 0),
         saldo_projetado: null,
@@ -369,33 +371,48 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
     ensure(d.getFullYear(), d.getMonth() + 1)
   }
 
+  // Consumo histórico: só aparece nos meses que existem no histórico.
+  // Não projetamos consumo para frente com zero, porque isso achata/distorce o gráfico.
   for (const p of item.historico_consumo || []) {
     const ano = Number(p.ano || 0)
     const mes = Number(p.mes || 0)
     if (!ano || !mes) continue
     const keyDate = new Date(ano, mes - 1, 1)
     if (keyDate < inicio || keyDate > fim) continue
-    ensure(ano, mes).consumo += Number(p.consumo || 0)
+    const ponto = ensure(ano, mes)
+    ponto.consumo = Number(ponto.consumo || 0) + Number(p.consumo || 0)
   }
 
+  // Demanda/forecast: só faz sentido do mês atual para frente.
+  // Se não houver forecast/BOM para o item, a série fica null e não aparece como zero falso.
   for (const p of item.forecast || []) {
     const ano = Number(p.ano || 0)
     const mes = Number(p.mes || 0)
     if (!ano || !mes) continue
+    const key = monthKey(ano, mes)
     const keyDate = new Date(ano, mes - 1, 1)
-    if (keyDate < inicio || keyDate > fim) continue
-    const ponto = ensure(ano, mes)
+    if (key < chaveAtual || keyDate < inicio || keyDate > fim) continue
     const demanda = Number(p.forecast || 0)
-    ponto.demanda += demanda
-    ponto.forecast += demanda
+    if (demanda <= 0) continue
+    const ponto = ensure(ano, mes)
+    ponto.demanda = Number(ponto.demanda || 0) + demanda
+    ponto.forecast = Number(ponto.forecast || 0) + demanda
   }
 
+  // Entradas previstas: só aparecem do mês atual para frente e apenas quando houver pedido.
   for (const pedido of item.pedidos || []) {
     const raw = pedido.data_prevista_entrega
     if (!raw) continue
     const d = new Date(String(raw).slice(0, 10) + "T00:00:00")
     if (Number.isNaN(d.getTime()) || d < inicio || d > fim) continue
-    ensure(d.getFullYear(), d.getMonth() + 1).entradas_previstas += Number(pedido.quantidade_pendente || 0)
+    const ano = d.getFullYear()
+    const mes = d.getMonth() + 1
+    const key = monthKey(ano, mes)
+    if (key < chaveAtual) continue
+    const qtd = Number(pedido.quantidade_pendente || 0)
+    if (qtd <= 0) continue
+    const ponto = ensure(ano, mes)
+    ponto.entradas_previstas = Number(ponto.entradas_previstas || 0) + qtd
   }
 
   let saldoProjetado = Number(item.saldo || 0)
@@ -403,10 +420,15 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   return Array.from(mapa.values())
     .sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes))
     .map((p) => {
-      if (monthKey(p.ano, p.mes) >= chaveAtual) {
+      const key = monthKey(p.ano, p.mes)
+
+      if (key >= chaveAtual) {
         saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - Number(p.demanda || 0)
         p.saldo_projetado = saldoProjetado
+      } else {
+        p.saldo_projetado = null
       }
+
       return p
     })
 }
@@ -743,7 +765,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                         <XAxis dataKey="periodo" angle={-35} textAnchor="end" height={58} interval={0} tick={{ fontSize: 10, fill: "#64748B" }} />
                         <YAxis tick={{ fontSize: 11, fill: "#64748B" }} width={70} />
                         <Tooltip
-                          formatter={(value: any, name: any) => [fmtNumber(Number(value), 0), name]}
+                          formatter={(value: any, name: any) => [value == null ? "—" : fmtNumber(Number(value), 0), name]}
                           labelFormatter={(value) => `Período: ${value}`}
                         />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -881,7 +903,7 @@ function TimelinePrincipal({
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Evolução mensal</p>
                 <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                  Histórico desde 2025 e projeção de {horizonteFuturo} meses à frente. Consumo/demanda usam o eixo direito para não ficarem achatados pela escala do estoque.
+                  Histórico desde 2025 e projeção de {horizonteFuturo} meses à frente. Consumo aparece só até o último mês realizado; demanda e entradas aparecem só no horizonte futuro.
                 </p>
               </div>
               {loading && (
@@ -912,16 +934,16 @@ function TimelinePrincipal({
                       label={{ value: "Consumo / demanda", angle: 90, position: "insideRight", style: { fill: "#64748B", fontSize: 11 } }}
                     />
                     <Tooltip
-                      formatter={(value: any, name: any) => [fmtNumber(Number(value), 0), name]}
+                      formatter={(value: any, name: any) => [value == null ? "—" : fmtNumber(Number(value), 0), name]}
                       labelFormatter={(value) => `Período: ${value}`}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line yAxisId="fluxo" type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls />
-                    <Line yAxisId="fluxo" type="monotone" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls />
-                    <Line yAxisId="fluxo" type="monotone" dataKey="entradas_previstas" name="Entradas previstas" stroke="#F59E0B" strokeWidth={2.5} strokeDasharray="3 4" dot={{ r: 3 }} connectNulls />
-                    <Line yAxisId="estoque" type="monotone" dataKey="estoque_atual" name="Estoque atual" stroke="#163B63" strokeWidth={2.5} dot={false} connectNulls />
-                    <Line yAxisId="estoque" type="monotone" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls />
-                    <Line yAxisId="estoque" type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.8} dot={{ r: 2 }} connectNulls />
+                    <Line yAxisId="fluxo" type="linear" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls />
+                    <Line yAxisId="fluxo" type="linear" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls />
+                    <Line yAxisId="fluxo" type="linear" dataKey="entradas_previstas" name="Entradas previstas" stroke="#F59E0B" strokeWidth={2.5} strokeDasharray="3 4" dot={{ r: 3 }} connectNulls />
+                    <Line yAxisId="estoque" type="linear" dataKey="estoque_atual" name="Estoque atual" stroke="#163B63" strokeWidth={2.5} dot={false} connectNulls />
+                    <Line yAxisId="estoque" type="linear" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls />
+                    <Line yAxisId="estoque" type="linear" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.8} dot={{ r: 2 }} connectNulls />
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
