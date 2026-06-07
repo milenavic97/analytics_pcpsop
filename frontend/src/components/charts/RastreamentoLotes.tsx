@@ -56,6 +56,10 @@ interface LoteRastreamento {
   desvio_dias?: number | null;
   desvio_setor?: string | null;
   desvio_destino?: string | null;
+  desvio_destino_consolidado?: string | null;
+  destino?: string | null;
+  destino_produto_insumo?: string | null;
+  desvio_destino_produto_insumo?: string | null;
   qtd_desvios?: number | null;
   desvios?: DesvioInfo[] | null;
 }
@@ -210,6 +214,68 @@ function getDestinoDesvioItem(desvio: DesvioInfo) {
   );
 }
 
+function normalizarTextoDesvio(value?: string | null) {
+  return String(value || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function dividirDestinos(value?: string | null) {
+  const texto = String(value || "").trim();
+  if (!texto) return [] as string[];
+
+  return texto
+    .split(/\s+\/\s+/g)
+    .map((parte) => parte.trim())
+    .filter(Boolean);
+}
+
+function isDestinoReprovado(value?: string | null) {
+  const texto = normalizarTextoDesvio(value);
+  return (
+    texto.includes("REPROV") ||
+    texto.includes("DESCARTE") ||
+    texto.includes("DESCART") ||
+    texto.includes("REJEIT")
+  );
+}
+
+function isDestinoPendente(value?: string | null) {
+  const texto = normalizarTextoDesvio(value);
+  return (
+    texto.includes("ANALISE") ||
+    texto.includes("PENDENTE") ||
+    texto.includes("ABERTO") ||
+    texto.includes("AGUARD")
+  );
+}
+
+function isDestinoAprovado(value?: string | null) {
+  const texto = normalizarTextoDesvio(value);
+  return texto.includes("APROV");
+}
+
+function escolherDestinoConsolidado(destinos: Array<string | null | undefined>) {
+  const partes = destinos
+    .flatMap((destino) => dividirDestinos(destino))
+    .filter(Boolean);
+
+  if (partes.length === 0) return null;
+
+  const reprovado = partes.find(isDestinoReprovado);
+  if (reprovado) return reprovado;
+
+  const pendente = partes.find(isDestinoPendente);
+  if (pendente) return pendente;
+
+  const aprovado = partes.find(isDestinoAprovado);
+  if (aprovado) return aprovado;
+
+  return partes[0];
+}
+
 function getDesvioTitulo(lote: LoteRastreamento) {
   const desvios = getListaDesvios(lote);
   const primeiro = desvios[0];
@@ -279,33 +345,41 @@ function getDesvioTooltip(lote: LoteRastreamento) {
 }
 
 function getDesvioDestino(lote: LoteRastreamento) {
-  const desvios = getListaDesvios(lote);
-
-  if (desvios.length > 0) {
-    const destinos = desvios
-      .map((d) => getDestinoDesvioItem(d))
-      .filter(Boolean) as string[];
-
-    const unicos = Array.from(new Set(destinos));
-
-    if (unicos.length > 1) return unicos.join(" / ");
-    if (unicos.length === 1) return unicos[0];
-  }
-
   const item = lote as LoteRastreamento & {
+    desvio_destino_consolidado?: string | null;
     destino?: string | null;
     destino_produto_insumo?: string | null;
     desvio_destino_produto_insumo?: string | null;
   };
 
-  return (
-    item.desvio_destino ||
-    item.desvio_destino_produto_insumo ||
-    item.destino_produto_insumo ||
-    item.destino ||
-    null
-  );
+  // Primeiro usa o campo consolidado do backend, quando existir.
+  // Mesmo assim passa pela função de prioridade para evitar exibir textos mistos
+  // como "Aprovado / Reprovado".
+  const destinoConsolidadoBackend = escolherDestinoConsolidado([
+    item.desvio_destino_consolidado,
+  ]);
+  if (destinoConsolidadoBackend) return destinoConsolidadoBackend;
+
+  // Para o status visual do lote, escolhe o pior destino entre todos os desvios.
+  // O tooltip continua usando a lista completa em lote.desvios.
+  const desvios = getListaDesvios(lote);
+
+  if (desvios.length > 0) {
+    const destinoConsolidadoLista = escolherDestinoConsolidado(
+      desvios.map((d) => getDestinoDesvioItem(d)),
+    );
+
+    if (destinoConsolidadoLista) return destinoConsolidadoLista;
+  }
+
+  return escolherDestinoConsolidado([
+    item.desvio_destino,
+    item.desvio_destino_produto_insumo,
+    item.destino_produto_insumo,
+    item.destino,
+  ]);
 }
+
 
 function DesvioBadge({ lote }: { lote: LoteRastreamento }) {
   if (!lote.em_desvio) return null;
