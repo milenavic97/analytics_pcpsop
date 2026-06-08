@@ -177,6 +177,31 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; 
 ]
 
 
+
+type FiltroTabelaEstoque = {
+  label: string
+  status?: string
+  tipo_negocio?: string
+  transferencia_bravi?: string
+  classificacao_cadastro?: string
+}
+
+const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
+  if (!filtro) return "TODOS"
+  return [
+    filtro.label,
+    filtro.status || "",
+    filtro.tipo_negocio || "",
+    filtro.transferencia_bravi || "",
+    filtro.classificacao_cadastro || "",
+  ].join("|")
+}
+
+const isFiltroAtivo = (filtro: FiltroTabelaEstoque | null, parcial: Partial<FiltroTabelaEstoque>) => {
+  if (!filtro) return false
+  return Object.entries(parcial).every(([key, value]) => (filtro as Record<string, unknown>)[key] === value)
+}
+
 const ORIGEM_LABEL: Record<string, string> = {
   DIMENSAO: "Cadastro",
   BOM: "BOM",
@@ -359,6 +384,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         demanda: null,
         forecast: null,
         entradas_previstas: null,
+        entradas_detalhe: [],
         estoque_atual: Number(item.saldo || 0),
         estoque_mais_pedidos: Number(item.estoque_mais_pedidos || 0),
         saldo_projetado: null,
@@ -413,6 +439,16 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
     if (qtd <= 0) continue
     const ponto = ensure(ano, mes)
     ponto.entradas_previstas = Number(ponto.entradas_previstas || 0) + qtd
+    ponto.entradas_detalhe = Array.isArray(ponto.entradas_detalhe) ? ponto.entradas_detalhe : []
+    ponto.entradas_detalhe.push({
+      quantidade: qtd,
+      data_prevista_entrega: pedido.data_prevista_entrega,
+      pedido_numero: pedido.pedido_numero,
+      sc_numero: pedido.sc_numero,
+      fornecedor: pedido.fornecedor,
+      comprador: pedido.comprador,
+      status_entrega: pedido.status_entrega,
+    })
   }
 
   let saldoProjetado = Number(item.saldo || 0)
@@ -455,7 +491,23 @@ function SortableTh({ label, column, sortKey, sortDirection, onSort }: { label: 
   )
 }
 
-function KpiCard({ label, value, helper, icon, tone = "default" }: { label: string; value: string; helper?: string; icon: ReactNode; tone?: "default" | "danger" | "warning" | "success" | "blue" }) {
+function KpiCard({
+  label,
+  value,
+  helper,
+  icon,
+  tone = "default",
+  onClick,
+  active = false,
+}: {
+  label: string
+  value: string
+  helper?: string
+  icon: ReactNode
+  tone?: "default" | "danger" | "warning" | "success" | "blue"
+  onClick?: () => void
+  active?: boolean
+}) {
   const tones = {
     default: { bg: "rgba(15,23,42,0.04)", color: "var(--text-primary)" },
     danger: { bg: "rgba(220,38,38,0.08)", color: "#B91C1C" },
@@ -463,25 +515,73 @@ function KpiCard({ label, value, helper, icon, tone = "default" }: { label: stri
     success: { bg: "rgba(22,163,74,0.08)", color: "#15803D" },
     blue: { bg: "rgba(37,99,235,0.08)", color: "#1D4ED8" },
   }
-  return (
-    <div className="card p-4">
-      <div className="flex min-h-[82px] items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{label}</p>
-          <p className="mt-2 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{value}</p>
-          {helper && <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{helper}</p>}
-        </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: tones[tone].bg, color: tones[tone].color }}>{icon}</div>
+
+  const content = (
+    <div className="flex min-h-[82px] items-start justify-between gap-3">
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{label}</p>
+        <p className="mt-2 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{value}</p>
+        {helper && <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{helper}</p>}
       </div>
+      <div className="flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: tones[tone].bg, color: tones[tone].color }}>{icon}</div>
     </div>
   )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`card p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${active ? "ring-2" : ""}`}
+        style={{ boxShadow: active ? "0 0 0 2px #163B63" : undefined }}
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return <div className="card p-4">{content}</div>
 }
 
-function KpiSmall({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+function KpiSmall({
+  label,
+  value,
+  onClick,
+  active = false,
+}: {
+  label: string
+  value: string
+  onClick?: () => void
+  active?: boolean
+}) {
+  const content = (
+    <>
       <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{label}</p>
       <p className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{value}</p>
+    </>
+  )
+
+  const style = {
+    borderColor: active ? "#163B63" : "var(--border)",
+    background: active ? "rgba(22,59,99,0.06)" : "var(--bg-primary)",
+  }
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+        style={style}
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border p-3" style={style}>
+      {content}
     </div>
   )
 }
@@ -494,6 +594,64 @@ function ChartBox({ title, subtitle, children }: { title: string; subtitle?: str
         {subtitle && <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{subtitle}</p>}
       </div>
       {children}
+    </div>
+  )
+}
+
+
+function renderChartLabel(props: any) {
+  const { x, y, value } = props
+  const n = Number(value || 0)
+  if (!Number.isFinite(n) || n === 0 || x == null || y == null) return null
+
+  return (
+    <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={700} fill="#334155">
+      {fmtCompact(n)}
+    </text>
+  )
+}
+
+function LinhaTempoTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+
+  const ponto = payload[0]?.payload || {}
+  const entradas = Array.isArray(ponto.entradas_detalhe) ? ponto.entradas_detalhe : []
+
+  const itensValidos = payload.filter((entry: any) => entry?.value !== null && entry?.value !== undefined)
+
+  return (
+    <div className="max-w-[340px] rounded-2xl border bg-white p-3 text-xs shadow-xl" style={{ borderColor: "var(--border)" }}>
+      <p className="mb-2 font-bold" style={{ color: "var(--text-primary)" }}>Período: {label}</p>
+      <div className="space-y-1">
+        {itensValidos.map((entry: any) => (
+          <div key={`${entry.dataKey}-${entry.name}`} className="flex items-center justify-between gap-4">
+            <span className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: entry.color }} />
+              {entry.name}
+            </span>
+            <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(Number(entry.value), 0)}</span>
+          </div>
+        ))}
+      </div>
+
+      {entradas.length > 0 && (
+        <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--border)" }}>
+          <p className="mb-1 font-bold" style={{ color: "var(--text-primary)" }}>Entregas previstas</p>
+          <div className="space-y-2">
+            {entradas.slice(0, 5).map((pedido: any, idx: number) => (
+              <div key={`${pedido.pedido_numero}-${pedido.sc_numero}-${idx}`} className="rounded-xl bg-slate-50 p-2">
+                <div className="flex justify-between gap-3">
+                  <span style={{ color: "var(--text-secondary)" }}>{pedido.pedido_numero || pedido.sc_numero || "Pedido sem número"}</span>
+                  <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(pedido.quantidade, 0)}</span>
+                </div>
+                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Entrega: {fmtDate(pedido.data_prevista_entrega)}</p>
+                {pedido.fornecedor && <p className="mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>Fornecedor: {pedido.fornecedor}</p>}
+              </div>
+            ))}
+            {entradas.length > 5 && <p style={{ color: "var(--text-secondary)" }}>+ {fmtNumber(entradas.length - 5)} entrega(s)</p>}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -847,6 +1005,17 @@ function TimelinePrincipal({
   // a fonte mais confiável do consumo mensal é sempre historico_consumo.
   const linhaTempo = buildLinhaTempoFallback(item, horizonteFuturo)
   const pedidos = item?.pedidos || []
+  const [seriesOcultas, setSeriesOcultas] = useState<Set<string>>(new Set())
+  const toggleSerie = (dataKey?: string) => {
+    if (!dataKey) return
+    setSeriesOcultas((current) => {
+      const next = new Set(current)
+      if (next.has(dataKey)) next.delete(dataKey)
+      else next.add(dataKey)
+      return next
+    })
+  }
+  const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
   const anoAtual = new Date().getFullYear()
   const consumoAnoAtual = linhaTempo
     .filter((p) => Number(p.ano) === anoAtual)
@@ -916,7 +1085,7 @@ function TimelinePrincipal({
             <div className="h-[380px]">
               {linhaTempo.length ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={linhaTempo} margin={{ top: 8, right: 22, left: 0, bottom: 50 }}>
+                  <ComposedChart data={linhaTempo} margin={{ top: 24, right: 22, left: 0, bottom: 50 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                     <XAxis dataKey="periodo" angle={-35} textAnchor="end" height={68} interval={0} tick={{ fontSize: 10, fill: "#64748B" }} />
                     <YAxis
@@ -933,17 +1102,49 @@ function TimelinePrincipal({
                       width={78}
                       label={{ value: "Consumo / demanda", angle: 90, position: "insideRight", style: { fill: "#64748B", fontSize: 11 } }}
                     />
-                    <Tooltip
-                      formatter={(value: any, name: any) => [value == null ? "—" : fmtNumber(Number(value), 0), name]}
-                      labelFormatter={(value) => `Período: ${value}`}
+                    <Tooltip content={<LinhaTempoTooltip />} />
+                    <Legend
+                      wrapperStyle={{ fontSize: 12, cursor: "pointer" }}
+                      onClick={(entry: any) => toggleSerie(String(entry?.dataKey || ""))}
                     />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line yAxisId="fluxo" type="linear" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls />
-                    <Line yAxisId="fluxo" type="linear" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls />
-                    <Line yAxisId="fluxo" type="linear" dataKey="entradas_previstas" name="Entradas previstas" stroke="#F59E0B" strokeWidth={2.5} strokeDasharray="3 4" dot={{ r: 3 }} connectNulls />
-                    <Line yAxisId="estoque" type="linear" dataKey="estoque_atual" name="Estoque atual" stroke="#163B63" strokeWidth={2.5} dot={false} connectNulls />
-                    <Line yAxisId="estoque" type="linear" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls />
-                    <Line yAxisId="estoque" type="linear" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.8} dot={{ r: 2 }} connectNulls />
+
+                    <Bar
+                      yAxisId="estoque"
+                      dataKey="estoque_atual"
+                      name="Estoque atual"
+                      fill="#163B63"
+                      fillOpacity={0.16}
+                      stroke="#163B63"
+                      strokeOpacity={0.35}
+                      radius={[6, 6, 0, 0]}
+                      hide={serieOculta("estoque_atual")}
+                    />
+                    <Bar
+                      yAxisId="fluxo"
+                      dataKey="entradas_previstas"
+                      name="Entradas previstas"
+                      fill="#F59E0B"
+                      fillOpacity={0.22}
+                      stroke="#B45309"
+                      strokeDasharray="4 3"
+                      radius={[6, 6, 0, 0]}
+                      hide={serieOculta("entradas_previstas")}
+                    >
+                      <LabelList dataKey="entradas_previstas" content={renderChartLabel} />
+                    </Bar>
+
+                    <Line yAxisId="fluxo" type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls hide={serieOculta("consumo")}>
+                      <LabelList dataKey="consumo" content={renderChartLabel} />
+                    </Line>
+                    <Line yAxisId="fluxo" type="monotone" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls hide={serieOculta("demanda")}>
+                      <LabelList dataKey="demanda" content={renderChartLabel} />
+                    </Line>
+                    <Line yAxisId="estoque" type="monotone" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls hide={serieOculta("estoque_mais_pedidos")}>
+                      <LabelList dataKey="estoque_mais_pedidos" content={renderChartLabel} />
+                    </Line>
+                    <Line yAxisId="estoque" type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.8} dot={{ r: 2 }} connectNulls hide={serieOculta("saldo_projetado")}>
+                      <LabelList dataKey="saldo_projetado" content={renderChartLabel} />
+                    </Line>
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
@@ -1021,6 +1222,7 @@ export default function AgingEstoquePage() {
   const [uploadingBaseId, setUploadingBaseId] = useState<string | null>(null)
   const [uploadMessage, setUploadMessage] = useState("")
   const [refreshTick, setRefreshTick] = useState(0)
+  const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(null)
 
   const carregarAtualizacoesBases = async () => {
     setLoadingAtualizacoesBases(true)
@@ -1104,8 +1306,11 @@ export default function AgingEstoquePage() {
         page_size: PAGE_SIZE,
         sort_key: sortKey || undefined,
         sort_direction: sortDirection,
-        classificacao_cadastro: "TODOS",
-      })
+        status: activeFilter?.status,
+        tipo_negocio: activeFilter?.tipo_negocio,
+        transferencia_bravi: activeFilter?.transferencia_bravi,
+        classificacao_cadastro: activeFilter?.classificacao_cadastro || "TODOS",
+      } as any)
       .then((res) => {
         if (!mounted) return
         setItensResp(res as AgingItensResponse)
@@ -1118,10 +1323,16 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingItens(false)
       })
     return () => { mounted = false }
-  }, [page, sortKey, sortDirection, refreshTick])
+  }, [page, sortKey, sortDirection, refreshTick, activeFilter])
 
   const itens = itensResp?.itens || []
   const totalPages = Math.max(1, itensResp?.total_pages || 1)
+
+  const aplicarFiltro = (filtro: FiltroTabelaEstoque | null) => {
+    setPage(1)
+    setSelected(null)
+    setActiveFilter((current) => (filtroKey(current) === filtroKey(filtro) ? null : filtro))
+  }
 
   const handleSort = (column: SortKey) => {
     setPage(1)
@@ -1178,6 +1389,14 @@ export default function AgingEstoquePage() {
   }, [itens, sortKey, sortDirection])
 
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
+  const negociosClassificados = useMemo(
+    () => saudeNegocios.filter((negocio) => String(negocio.tipo_negocio || "").trim().toUpperCase() !== "A CLASSIFICAR"),
+    [saudeNegocios]
+  )
+  const negocioAClassificar = useMemo(
+    () => saudeNegocios.find((negocio) => String(negocio.tipo_negocio || "").trim().toUpperCase() === "A CLASSIFICAR"),
+    [saudeNegocios]
+  )
 
   const exportCsv = () => {
     const header = [
@@ -1232,44 +1451,168 @@ export default function AgingEstoquePage() {
       {error && <div className="card p-5 text-sm text-red-600">{error}</div>}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard label="Itens" value={fmtNumber(resumo?.resumo?.total_itens || 0)} helper={`Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`} icon={<Boxes size={20} />} />
-        <KpiCard label="Ruptura" value={fmtNumber(resumo?.resumo?.ruptura || 0)} helper="Saldo zerado com consumo" icon={<AlertTriangle size={20} />} tone="danger" />
-        <KpiCard label="Críticos" value={fmtNumber(resumo?.resumo?.critico || 0)} helper="Abaixo do ideal/LT" icon={<ArrowDownRight size={20} />} tone="warning" />
-        <KpiCard label="Excesso" value={fmtNumber(resumo?.resumo?.excesso || 0)} helper="Acima da política" icon={<ArrowUpRight size={20} />} tone="blue" />
-        <KpiCard label="Descont. c/ saldo" value={fmtNumber(resumo?.resumo?.descontinuado_com_saldo || 0)} helper="portfólio descontinuado" icon={<PackageSearch size={20} />} tone="danger" />
-        <KpiCard label="Bravi" value={fmtNumber(resumo?.resumo?.transferencia_bravi || 0)} helper="itens em transferência" icon={<ShoppingCart size={20} />} tone="blue" />
+        <KpiCard
+          label="Itens"
+          value={fmtNumber(resumo?.resumo?.total_itens || 0)}
+          helper={`Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`}
+          icon={<Boxes size={20} />}
+          onClick={() => aplicarFiltro(null)}
+          active={!activeFilter}
+        />
+        <KpiCard
+          label="Ruptura"
+          value={fmtNumber(resumo?.resumo?.ruptura || 0)}
+          helper="Saldo zerado com consumo"
+          icon={<AlertTriangle size={20} />}
+          tone="danger"
+          onClick={() => aplicarFiltro({ label: "Ruptura", status: "RUPTURA", classificacao_cadastro: "TODOS" })}
+          active={isFiltroAtivo(activeFilter, { status: "RUPTURA" })}
+        />
+        <KpiCard
+          label="Críticos"
+          value={fmtNumber(resumo?.resumo?.critico || 0)}
+          helper="Abaixo do ideal/LT"
+          icon={<ArrowDownRight size={20} />}
+          tone="warning"
+          onClick={() => aplicarFiltro({ label: "Críticos", status: "CRITICO", classificacao_cadastro: "TODOS" })}
+          active={isFiltroAtivo(activeFilter, { status: "CRITICO" }) && !activeFilter?.tipo_negocio}
+        />
+        <KpiCard
+          label="Excesso"
+          value={fmtNumber(resumo?.resumo?.excesso || 0)}
+          helper="Acima da política"
+          icon={<ArrowUpRight size={20} />}
+          tone="blue"
+          onClick={() => aplicarFiltro({ label: "Excesso", status: "EXCESSO", classificacao_cadastro: "TODOS" })}
+          active={isFiltroAtivo(activeFilter, { status: "EXCESSO" }) && !activeFilter?.tipo_negocio}
+        />
+        <KpiCard
+          label="Descont. c/ saldo"
+          value={fmtNumber(resumo?.resumo?.descontinuado_com_saldo || 0)}
+          helper="portfólio descontinuado"
+          icon={<PackageSearch size={20} />}
+          tone="danger"
+          onClick={() => aplicarFiltro({ label: "Descontinuados com saldo", status: "DESCONTINUADO_COM_SALDO", classificacao_cadastro: "TODOS" })}
+          active={isFiltroAtivo(activeFilter, { status: "DESCONTINUADO_COM_SALDO" })}
+        />
+        <KpiCard
+          label="Bravi"
+          value={fmtNumber(resumo?.resumo?.transferencia_bravi || 0)}
+          helper="itens em transferência"
+          icon={<ShoppingCart size={20} />}
+          tone="blue"
+          onClick={() => aplicarFiltro({ label: "Bravi", transferencia_bravi: "Sim", classificacao_cadastro: "TODOS" })}
+          active={isFiltroAtivo(activeFilter, { transferencia_bravi: "Sim" })}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        {saudeNegocios.map((negocio) => (
+        {negociosClassificados.map((negocio) => (
           <div
             key={negocio.tipo_negocio}
             className="card p-4 text-left"
             style={{ borderColor: "var(--border)" }}
           >
             <div className="flex min-h-[82px] items-start justify-between gap-3">
-              <div>
+              <button
+                type="button"
+                className="text-left"
+                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
+              >
                 <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Saúde da linha</p>
-                <h3 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
-              </div>
-              <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>{fmtNumber(negocio.itens)} itens</span>
+                <h3 className="mt-1 text-lg font-bold hover:underline" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
+              </button>
+              <button
+                type="button"
+                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
+                className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
+                style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}
+              >
+                {fmtNumber(negocio.itens)} itens
+              </button>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <KpiSmall label="Críticos" value={fmtNumber(negocio.criticos)} />
-              <KpiSmall label="Excesso" value={fmtNumber(negocio.excesso)} />
-              <KpiSmall label="Saldo" value={fmtCompact(negocio.saldo_total)} />
-              <KpiSmall label="Cob. futura" value={`${fmtNumber(negocio.cobertura_futura_media_dias, 0)} d`} />
+              <KpiSmall
+                label="Críticos"
+                value={fmtNumber(negocio.criticos)}
+                onClick={() => aplicarFiltro({ label: `Críticos · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "CRITICO", classificacao_cadastro: "TODOS" })}
+                active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "CRITICO" })}
+              />
+              <KpiSmall
+                label="Excesso"
+                value={fmtNumber(negocio.excesso)}
+                onClick={() => aplicarFiltro({ label: `Excesso · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "EXCESSO", classificacao_cadastro: "TODOS" })}
+                active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "EXCESSO" })}
+              />
+              <KpiSmall
+                label="Saldo"
+                value={fmtCompact(negocio.saldo_total)}
+                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
+                active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio }) && !activeFilter?.status}
+              />
+              <KpiSmall
+                label="Cob. futura"
+                value={`${fmtNumber(negocio.cobertura_futura_media_dias, 0)} d`}
+                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
+              />
             </div>
             {(negocio.descontinuado_com_saldo > 0 || negocio.transferencia_bravi > 0) && (
-              <p className="mt-3 text-xs" style={{ color: "var(--text-secondary)" }}>
-                {negocio.descontinuado_com_saldo > 0 ? `${fmtNumber(negocio.descontinuado_com_saldo)} descontinuado(s) com saldo. ` : ""}
-                {negocio.transferencia_bravi > 0 ? `${fmtNumber(negocio.transferencia_bravi)} item(ns) Bravi.` : ""}
-              </p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                {negocio.descontinuado_com_saldo > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => aplicarFiltro({ label: `Descontinuados · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "DESCONTINUADO_COM_SALDO", classificacao_cadastro: "TODOS" })}
+                    className="rounded-full border px-2.5 py-1 font-semibold transition hover:bg-slate-50"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    {fmtNumber(negocio.descontinuado_com_saldo)} descontinuado(s) com saldo
+                  </button>
+                )}
+                {negocio.transferencia_bravi > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => aplicarFiltro({ label: `Bravi · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, transferencia_bravi: "Sim", classificacao_cadastro: "TODOS" })}
+                    className="rounded-full border px-2.5 py-1 font-semibold transition hover:bg-slate-50"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    {fmtNumber(negocio.transferencia_bravi)} item(ns) Bravi
+                  </button>
+                )}
+              </div>
             )}
           </div>
         ))}
       </div>
 
+      {negocioAClassificar && negocioAClassificar.itens > 0 && (
+        <button
+          type="button"
+          onClick={() => aplicarFiltro({ label: "Itens a classificar", classificacao_cadastro: "NAO_CLASSIFICADOS" })}
+          className="inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition hover:bg-slate-50"
+          style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: activeFilter?.classificacao_cadastro === "NAO_CLASSIFICADOS" ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
+        >
+          <PackageSearch size={16} />
+          {fmtNumber(negocioAClassificar.itens)} itens a classificar
+        </button>
+      )}
+
+
+      {activeFilter && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Filtro ativo da tabela</p>
+            <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>{activeFilter.label}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => aplicarFiltro(null)}
+            className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition hover:bg-slate-50"
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            <X size={15} /> Limpar filtro
+          </button>
+        </div>
+      )}
 
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
