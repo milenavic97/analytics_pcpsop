@@ -53,6 +53,9 @@ type BraviSeriePonto = {
   mes?: number
   estoque?: number | null
   estoque_medio?: number | null
+  estoque_quarentena?: number | null
+  quarentena?: number | null
+  saldo_quarentena?: number | null
   entradas_previstas?: number | null
   faturamento_qtd?: number | null
   faturamento_valor?: number | null
@@ -197,6 +200,9 @@ type SortKey =
   | "lead_time_dias"
   | "qtd_minima"
   | "saldo"
+  | "saldo_quarentena"
+  | "saldo_sb8_bruto"
+  | "empenho_lote"
   | "estoque_atual_valor"
   | "qtd_pedidos_abertos"
   | "pedidos_abertos_valor"
@@ -221,6 +227,9 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; 
   { key: "lead_time_dias", label: "Lead time", kind: "days" },
   { key: "qtd_minima", label: "Qtd. mínima por pedido" },
   { key: "saldo", label: "Estoque atual (volume)" },
+  { key: "saldo_quarentena", label: "Quarentena 98 (volume)" },
+  { key: "saldo_sb8_bruto", label: "Saldo bruto SB8" },
+  { key: "empenho_lote", label: "Empenho lote" },
   { key: "estoque_atual_valor", label: "Estoque atual (R$)", kind: "currency" },
   { key: "qtd_pedidos_abertos", label: "Pedido de compras (volume)" },
   { key: "pedidos_abertos_valor", label: "Pedido de compras (R$)", kind: "currency" },
@@ -343,7 +352,20 @@ interface AgingItensResponse {
 }
 
 type AgingEstoqueItemDetalhe = Omit<AgingEstoqueItem, "linha_tempo_estoque" | "pedidos"> & {
-  historico_sb8_diario?: { data: string; saldo: number }[]
+  historico_sb8_diario?: {
+    data: string
+    saldo: number
+    saldo_normal?: number | null
+    saldo_bruto?: number | null
+    empenho_lote?: number | null
+    saldo_quarentena?: number | null
+    quarentena?: number | null
+    saldo_quarentena_bruto?: number | null
+    empenho_quarentena?: number | null
+    saldo_total_com_quarentena?: number | null
+    armazens_normais?: string[]
+    armazem_quarentena?: string | null
+  }[]
   comparativo_mensal?: { ano: number; mes: number; periodo: string; estoque_medio: number; consumo: number; forecast: number }[]
   linha_tempo_estoque?: {
     ano: number
@@ -355,6 +377,8 @@ type AgingEstoqueItemDetalhe = Omit<AgingEstoqueItem, "linha_tempo_estoque" | "p
     entradas_previstas: number | null
     estoque_atual: number | null
     estoque_mais_pedidos: number | null
+    estoque_quarentena?: number | null
+    quarentena?: number | null
     saldo_projetado?: number | null
   }[]
   historico_consumo?: { ano: number; mes: number; periodo: string; consumo: number }[]
@@ -369,6 +393,18 @@ type AgingEstoqueItemDetalhe = Omit<AgingEstoqueItem, "linha_tempo_estoque" | "p
     status_entrega?: string | null
   }[]
   forecast_metodo?: "direto" | "bom_explodida" | string
+  saldo_quarentena?: number | null
+  quarentena?: number | null
+  saldo_sb8_bruto?: number | null
+  empenho_lote?: number | null
+  saldo_origem?: string | null
+  data_saldo_origem?: string | null
+  saldo_quarentena_bruto?: number | null
+  empenho_quarentena?: number | null
+  armazens_saldo_origem?: string[]
+  armazem_quarentena?: string | null
+  tem_posicao_aging?: boolean | null
+  origem_linha_estoque?: string | null
 }
 
 function fmtNumber(value: number | null | undefined, digits = 0) {
@@ -430,6 +466,41 @@ function fmtDateTime(value?: string | null) {
   return `${data} às ${hora}`
 }
 
+function getAnyNumber(item: Record<string, unknown> | null | undefined, key: string) {
+  return Number(item?.[key] || 0)
+}
+
+function getSaldoOrigemLabel(item: Record<string, unknown> | null | undefined) {
+  const origem = String(item?.["saldo_origem"] || item?.["origem_linha_estoque"] || "").toLowerCase()
+
+  if (origem.includes("sb8") && origem.includes("04") && origem.includes("07")) {
+    return "SB8 04/07 - empenho"
+  }
+
+  if (origem.includes("sb8")) {
+    return "SB8"
+  }
+
+  if (origem.includes("d_produtos")) {
+    return "Cadastro d_produtos"
+  }
+
+  if (item && item["tem_posicao_aging"] === false) {
+    return "Sem posição Aging"
+  }
+
+  return "Posição estoque"
+}
+
+function getSaldoOrigemTitle(item: Record<string, unknown> | null | undefined) {
+  const armazens = Array.isArray(item?.["armazens_saldo_origem"]) ? (item?.["armazens_saldo_origem"] as unknown[]).join(", ") : "04, 07"
+  const quarentena = String(item?.["armazem_quarentena"] || "98")
+  const data = item?.["data_saldo_origem"] ? fmtDate(String(item["data_saldo_origem"])) : "—"
+  const origem = getSaldoOrigemLabel(item)
+
+  return `${origem} | Data: ${data} | Armazéns saldo: ${armazens} | Quarentena: ${quarentena}`
+}
+
 
 function addMonths(year: number, month: number, delta: number) {
   const d = new Date(year, month - 1 + delta, 1)
@@ -472,6 +543,8 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         entradas_detalhe: [],
         estoque_atual: null,
         estoque_mais_pedidos: null,
+        estoque_quarentena: null,
+        quarentena: null,
         saldo_projetado: null,
       })
     }
@@ -487,6 +560,8 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   const pontoAtual = ensure(hoje.getFullYear(), hoje.getMonth() + 1)
   pontoAtual.estoque_atual = Number(item.saldo || 0)
   pontoAtual.estoque_mais_pedidos = Number(item.estoque_mais_pedidos || 0)
+  pontoAtual.estoque_quarentena = getAnyNumber(item as Record<string, unknown>, "saldo_quarentena") || getAnyNumber(item as Record<string, unknown>, "quarentena")
+  pontoAtual.quarentena = pontoAtual.estoque_quarentena
 
   // Consumo histórico: só aparece nos meses que existem no histórico.
   // Não projetamos consumo para frente com zero, porque isso achata/distorce o gráfico.
@@ -1014,6 +1089,19 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
                   </Line>
 
                   <Line
+                    yAxisId="estoque"
+                    type="monotone"
+                    dataKey="estoque_quarentena"
+                    name="Quarentena 98"
+                    stroke="#F59E0B"
+                    strokeWidth={2.5}
+                    strokeDasharray="4 3"
+                    dot={{ r: 2 }}
+                    connectNulls={false}
+                    hide={serieOculta("estoque_quarentena")}
+                  />
+
+                  <Line
                     yAxisId="valor"
                     type="monotone"
                     dataKey="faturamento_valor"
@@ -1318,9 +1406,9 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
   const linhaTempoEstoque = item?.linha_tempo_estoque || []
   const pedidos = item?.pedidos || []
   const forecastMetodo =
-    item?.forecast_metodo === "direto"
+    String(item?.forecast_metodo || "").includes("direto")
       ? "Forecast direto do código"
-      : item?.forecast_metodo === "bom_explodida"
+      : String(item?.forecast_metodo || "").includes("bom")
         ? "Forecast explodido via BOM"
         : "Forecast não identificado"
 
@@ -1341,13 +1429,18 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                   {item.status_portfolio && <span className="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>{item.status_portfolio}</span>}
                   {item.transferencia_bravi === "Sim" && <span className="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>Bravi</span>}
                   <span className="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>{forecastMetodo}</span>
+                  <span className="inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }} title={getSaldoOrigemTitle(item as unknown as Record<string, unknown>)}>{getSaldoOrigemLabel(item as unknown as Record<string, unknown>)}</span>
                 </div>
               </div>
               <button className="rounded-xl p-2 hover:bg-slate-100" onClick={onClose}><X size={18} /></button>
             </div>
 
             <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-              <KpiSmall label="Saldo" value={fmtCompact(item.saldo)} />
+              <KpiSmall label="Saldo disponível" value={fmtCompact(item.saldo)} />
+              <KpiSmall label="Quarentena 98" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_quarentena") || getAnyNumber(item as unknown as Record<string, unknown>, "quarentena"))} />
+              <KpiSmall label="Saldo bruto SB8" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_sb8_bruto"))} />
+              <KpiSmall label="Empenho lote" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "empenho_lote"))} />
+              <KpiSmall label="Origem saldo" value={getSaldoOrigemLabel(item as unknown as Record<string, unknown>)} />
               <KpiSmall label="Pedidos" value={fmtCompact(item.qtd_pedidos_abertos)} />
               <KpiSmall label="Estoque + pedidos" value={fmtCompact(item.estoque_mais_pedidos)} />
               <KpiSmall label="Cobertura futura" value={`${fmtNumber(item.cobertura_futura_dias, 0)} d`} />
@@ -1362,7 +1455,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-5">
-              <ChartBox title="SB8 diário do mês atual" subtitle="Evolução diária do saldo disponível pelo histórico de uploads da SB8.">
+              <ChartBox title="SB8 diário do mês atual" subtitle="Saldo disponível considera somente armazéns 04/07 descontando empenho. Quarentena do armazém 98 aparece separada.">
                 <div className="h-[260px]">
                   {sb8Diario.length ? (
                     <ResponsiveContainer width="100%" height="100%">
@@ -1383,16 +1476,20 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                           formatter={(value: any, name: any) => [
                             fmtNumber(Number(value), 0),
                             name === "saldo_normal"
-                              ? "Saldo armazém do tipo"
+                              ? "Saldo disponível 04/07"
                               : name === "saldo_quarentena"
-                                ? "Saldo quarentena 98"
-                                : String(name),
+                                ? "Quarentena 98"
+                                : name === "saldo_bruto"
+                                  ? "Saldo bruto SB8"
+                                  : name === "empenho_lote"
+                                    ? "Empenho lote"
+                                    : String(name),
                           ]}
                         />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
                         <Bar
                           dataKey="saldo_normal"
-                          name="Saldo armazém do tipo"
+                          name="Saldo disponível 04/07"
                           stackId="sb8"
                           fill="#163B63"
                           barSize={46}
@@ -1407,7 +1504,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                         </Bar>
                         <Bar
                           dataKey="saldo_quarentena"
-                          name="Saldo quarentena 98"
+                          name="Quarentena 98"
                           stackId="sb8"
                           fill="#F59E0B"
                           barSize={46}
@@ -1572,8 +1669,10 @@ function TimelinePrincipal({
         </div>
       ) : (
         <div className="space-y-4 p-5">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-8">
             <KpiSmall label="Saldo atual" value={fmtCompact(item.saldo)} />
+            <KpiSmall label="Quarentena 98" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_quarentena") || getAnyNumber(item as unknown as Record<string, unknown>, "quarentena"))} />
+            <KpiSmall label="Empenho lote" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "empenho_lote"))} />
             <KpiSmall label="Pedidos" value={fmtCompact(item.qtd_pedidos_abertos)} />
             <KpiSmall label="Estoque + pedidos" value={fmtCompact(item.estoque_mais_pedidos)} />
             <KpiSmall label="Maior média" value={fmtCompact(item.maior_media)} />
@@ -1632,6 +1731,16 @@ function TimelinePrincipal({
                       strokeOpacity={0.35}
                       radius={[6, 6, 0, 0]}
                       hide={serieOculta("estoque_atual")}
+                    />
+                    <Bar
+                      yAxisId="estoque"
+                      dataKey="estoque_quarentena"
+                      name="Quarentena 98"
+                      fill="#F59E0B"
+                      fillOpacity={0.18}
+                      stroke="#B45309"
+                      radius={[6, 6, 0, 0]}
+                      hide={serieOculta("estoque_quarentena")}
                     />
                     <Bar
                       yAxisId="fluxo"
@@ -1971,7 +2080,7 @@ export default function AgingEstoquePage() {
   const exportCsv = () => {
     const header = [
       "codigo", "produto", "curva_a", "tipo", "unid", "segmento", "mercado",
-      "custo_unitario", "lead_time_dias", "qtd_minima", "saldo", "estoque_atual_valor",
+      "custo_unitario", "lead_time_dias", "qtd_minima", "saldo", "saldo_quarentena", "saldo_sb8_bruto", "empenho_lote", "saldo_origem", "data_saldo_origem", "estoque_atual_valor",
       "qtd_pedidos_abertos", "pedidos_abertos_valor", "estoque_mais_pedidos", "estoque_mais_pedidos_valor",
       "maior_media", "maior_media_valor", "estoque_ideal", "estoque_ideal_valor", "dias_em_estoque",
       "cobertura_meses_atual", "cobertura_meses_futura", "cobertura_consumo_lt",
@@ -2215,7 +2324,7 @@ export default function AgingEstoquePage() {
         </div>
 
         <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
-          <table className="w-full min-w-[3100px] text-sm">
+          <table className="w-full min-w-[3650px] text-sm">
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
                 <th className="px-4 py-3">Código</th>
@@ -2225,6 +2334,8 @@ export default function AgingEstoquePage() {
                 <th className="px-4 py-3">UM</th>
                 <th className="px-4 py-3">Segmento</th>
                 <th className="px-4 py-3">Mercado</th>
+                <th className="px-4 py-3">Origem saldo</th>
+                <th className="px-4 py-3">Data saldo</th>
                 {NUMERIC_COLUMNS.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
               </tr>
             </thead>
@@ -2252,6 +2363,12 @@ export default function AgingEstoquePage() {
                     <td className="px-4 py-3">{item.unid || "—"}</td>
                     <td className="px-4 py-3">{item.segmento || "—"}</td>
                     <td className="px-4 py-3">{item.mercado || "—"}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex rounded-full border px-2 py-1 text-[11px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "rgba(15,23,42,0.03)" }} title={getSaldoOrigemTitle(itemEx)}>
+                        {getSaldoOrigemLabel(itemEx)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">{itemEx.data_saldo_origem ? fmtDate(String(itemEx.data_saldo_origem)) : "—"}</td>
                     {NUMERIC_COLUMNS.map((col) => {
                       const isGap = col.key === "estoque_ideal" || col.key === "estoque_ideal_valor" || col.key === "cobertura_consumo_lt" || col.key === "previsto_vs_consumido_pct"
                       const color = col.key === "previsto_vs_consumido_pct" && alertaPrevisao
