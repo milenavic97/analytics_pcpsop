@@ -820,9 +820,42 @@ function calcularPontoPedidoMensal(item: AgingEstoqueItemDetalhe | null, _ano: n
   return consumoLt > 0 ? consumoLt : null
 }
 
-function normalizarSaldoDiario(ponto: Record<string, unknown>) {
-  const saldoNormal = Number(ponto.saldo_normal ?? ponto.saldo ?? 0)
-  const quarentena = Number(ponto.saldo_quarentena ?? ponto.quarentena ?? 0)
+function normalizarSaldoDiario(
+  ponto: Record<string, unknown>,
+  item?: AgingEstoqueItemDetalhe | null,
+  usarSaldoOficial = false
+) {
+  // O saldo oficial da tela é o mesmo da tabela/card.
+  // Para histórico diário, usamos o saldo diário quando existir; no último ponto, forçamos o saldo oficial para não divergir do card.
+  const saldoHistorico = Number(
+    ponto.saldo_normal ??
+    ponto.saldo_disponivel ??
+    ponto.saldo_atual ??
+    ponto.saldo ??
+    0
+  )
+
+  const saldoOficial = Number(item?.saldo || 0)
+  const saldoNormal = usarSaldoOficial && saldoOficial > 0 ? saldoOficial : saldoHistorico
+
+  // Não usar o campo genérico "quarentena", porque em algumas bases ele não representa apenas o armazém 98.
+  // Só consideramos quarentena diária quando vier explicitamente como 98.
+  const quarentenaHistorica98 = Number(
+    ponto.saldo_quarentena_98 ??
+    ponto.quarentena_98 ??
+    ponto.saldo_98 ??
+    ponto.armazem_98 ??
+    0
+  )
+
+  const quarentenaOficial = Number(
+    (item as unknown as Record<string, unknown>)?.saldo_quarentena ??
+    (item as unknown as Record<string, unknown>)?.quarentena_98 ??
+    0
+  )
+
+  const quarentena = usarSaldoOficial ? quarentenaOficial : quarentenaHistorica98
+
   return { saldoNormal, quarentena }
 }
 
@@ -839,27 +872,34 @@ function buildLinhaTempoDiaria(item: AgingEstoqueItemDetalhe | null) {
   const base = item?.historico_sb8_diario || []
   if (!item || !base.length) return []
   const pontoPedido = Number(item.consumo_durante_lt || 0) || null
+  const baseOrdenada = [...base].sort((a, b) => String(a.data).localeCompare(String(b.data)))
+  const ultimaData = String(baseOrdenada[baseOrdenada.length - 1]?.data || "").slice(0, 10)
 
-  return [...base]
-    .sort((a, b) => String(a.data).localeCompare(String(b.data)))
-    .map((p) => {
-      const { saldoNormal, quarentena } = normalizarSaldoDiario(p as unknown as Record<string, unknown>)
-      return {
-        ano: Number(String(p.data).slice(0, 4)),
-        mes: Number(String(p.data).slice(5, 7)),
-        periodo: String(p.data).slice(8, 10) + "/" + String(p.data).slice(5, 7),
-        periodo_completo: fmtDate(p.data),
-        saldo_grafico: saldoNormal,
-        estoque_atual: saldoNormal,
-        estoque_quarentena: quarentena,
-        quarentena,
-        entradas_previstas: null,
-        consumo: null,
-        demanda: null,
-        ponto_pedido: pontoPedido,
-        saldo_projetado: null,
-      }
-    })
+  return baseOrdenada.map((p) => {
+    const dataPonto = String(p.data || "").slice(0, 10)
+    const usarSaldoOficial = dataPonto === ultimaData
+    const { saldoNormal, quarentena } = normalizarSaldoDiario(
+      p as unknown as Record<string, unknown>,
+      item,
+      usarSaldoOficial
+    )
+
+    return {
+      ano: Number(String(p.data).slice(0, 4)),
+      mes: Number(String(p.data).slice(5, 7)),
+      periodo: String(p.data).slice(8, 10) + "/" + String(p.data).slice(5, 7),
+      periodo_completo: usarSaldoOficial ? `${fmtDate(p.data)} · saldo oficial da tela` : fmtDate(p.data),
+      saldo_grafico: saldoNormal,
+      estoque_atual: saldoNormal,
+      estoque_quarentena: quarentena,
+      quarentena,
+      entradas_previstas: null,
+      consumo: null,
+      demanda: null,
+      ponto_pedido: pontoPedido,
+      saldo_projetado: null,
+    }
+  })
 }
 
 function buildLinhaTempoSemanal(item: AgingEstoqueItemDetalhe | null) {
@@ -867,18 +907,27 @@ function buildLinhaTempoSemanal(item: AgingEstoqueItemDetalhe | null) {
   if (!item || !base.length) return []
   const grupos = new Map<string, any>()
   const pontoPedido = Number(item.consumo_durante_lt || 0) || null
+  const baseOrdenada = [...base].sort((a, b) => String(a.data).localeCompare(String(b.data)))
+  const ultimaData = String(baseOrdenada[baseOrdenada.length - 1]?.data || "").slice(0, 10)
 
-  for (const p of base) {
-    const d = new Date(`${String(p.data).slice(0, 10)}T00:00:00`)
+  for (const p of baseOrdenada) {
+    const dataPonto = String(p.data || "").slice(0, 10)
+    const d = new Date(`${dataPonto}T00:00:00`)
     if (Number.isNaN(d.getTime())) continue
     const inicio = weekStart(d)
     const key = inicio.toISOString().slice(0, 10)
-    const { saldoNormal, quarentena } = normalizarSaldoDiario(p as unknown as Record<string, unknown>)
+    const usarSaldoOficial = dataPonto === ultimaData
+    const { saldoNormal, quarentena } = normalizarSaldoDiario(
+      p as unknown as Record<string, unknown>,
+      item,
+      usarSaldoOficial
+    )
+
     grupos.set(key, {
       ano: inicio.getFullYear(),
       mes: inicio.getMonth() + 1,
       periodo: `Sem. ${String(inicio.getDate()).padStart(2, "0")}/${String(inicio.getMonth() + 1).padStart(2, "0")}`,
-      periodo_completo: `Semana de ${fmtDate(key)}`,
+      periodo_completo: usarSaldoOficial ? `Semana de ${fmtDate(key)} · saldo oficial da tela` : `Semana de ${fmtDate(key)}`,
       saldo_grafico: saldoNormal,
       estoque_atual: saldoNormal,
       estoque_quarentena: quarentena,
@@ -2069,8 +2118,9 @@ function TimelinePrincipal({
                       name="Quarentena 98"
                       stackId="estoque"
                       fill="#F59E0B"
-                      fillOpacity={0.28}
+                      fillOpacity={0.12}
                       stroke="#B45309"
+                      strokeDasharray="4 3"
                       radius={[6, 6, 0, 0]}
                       hide={serieOculta("estoque_quarentena")}
                     />
