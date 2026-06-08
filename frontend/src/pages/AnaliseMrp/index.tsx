@@ -2248,38 +2248,33 @@ export default function AgingEstoquePage() {
       </div>
 
       <div className="card p-4">
-        <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Visão da gestão de estoque</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{escopoTitulo}</h2>
             <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              Alterne o escopo para separar a lógica de disponibilidade comercial da lógica de risco produtivo.
+              {ESCOPO_ESTOQUE_OPTIONS.find((option) => option.key === escopoEstoque)?.helper || "Alterne o escopo para separar a lógica comercial da lógica produtiva."}
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:min-w-[620px]">
-            {ESCOPO_ESTOQUE_OPTIONS.map((option) => {
-              const active = escopoEstoque === option.key
-              return (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => alterarEscopoEstoque(option.key)}
-                  className="rounded-2xl border px-4 py-3 text-left transition hover:bg-slate-50"
-                  style={{
-                    borderColor: active ? "#163B63" : "var(--border)",
-                    background: active ? "rgba(22,59,99,0.07)" : "#FFFFFF",
-                    color: active ? "#163B63" : "var(--text-primary)",
-                    boxShadow: active ? "0 8px 18px rgba(22,59,99,0.08)" : "none",
-                  }}
-                >
-                  <span className="block text-sm font-bold">{option.label}</span>
-                  <span className="mt-1 block text-[11px] leading-snug" style={{ color: active ? "#163B63" : "var(--text-secondary)" }}>
-                    {option.helper}
-                  </span>
-                </button>
-              )
-            })}
+          <div className="w-full max-w-[260px]">
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+              Escopo da análise
+            </label>
+            <select
+              value={escopoEstoque}
+              onChange={(event) => alterarEscopoEstoque(event.target.value as EscopoEstoque)}
+              className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-semibold outline-none transition focus:ring-2"
+              style={{
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+                boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+              }}
+            >
+              {ESCOPO_ESTOQUE_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>{option.label}</option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
