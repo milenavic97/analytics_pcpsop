@@ -1253,11 +1253,12 @@ function FiltrosEstoquePanel({
   const braviOptions = ["TODOS", "Sim", "Não"]
   const classificacaoOptions = ["TODOS", "MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS"]
 
-  const selectClass = "h-10 rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+  const selectClass = "h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+  const labelClass = "mb-1 block text-[10px] font-bold uppercase tracking-wide"
 
   return (
     <div className="card p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Filter size={18} style={{ color: "var(--text-secondary)" }} />
           <h2 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>
@@ -1268,97 +1269,95 @@ function FiltrosEstoquePanel({
         <button
           type="button"
           onClick={onClear}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition hover:bg-slate-50"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition hover:bg-slate-50"
           style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
         >
           <X size={15} /> Limpar filtros
         </button>
       </div>
 
-      <div className="border-t pt-4" style={{ borderColor: "var(--border)" }}>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <label className="xl:col-span-2">
-            <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Código ou produto</span>
-            <input
-              value={filtro?.busca || ""}
-              onChange={(e) => onChange("busca", e.target.value)}
-              placeholder="Buscar código, nome, família, segmento..."
-              className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            />
-          </label>
+      <div
+        className="grid grid-cols-1 items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(320px,2.2fr)_minmax(130px,0.9fr)_minmax(170px,1fr)_minmax(170px,1fr)_minmax(110px,0.75fr)_minmax(150px,0.9fr)]"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Código ou produto</span>
+          <input
+            value={filtro?.busca || ""}
+            onChange={(e) => onChange("busca", e.target.value)}
+            placeholder="Buscar código, nome, família, segmento..."
+            className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          />
+        </label>
 
-          <label>
-            <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Linha</span>
-            <select
-              value={filtro?.tipo_negocio || "TODOS"}
-              onChange={(e) => onChange("tipo_negocio", e.target.value === "TODOS" ? undefined : e.target.value)}
-              className={selectClass}
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            >
-              {tipoNegocioOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todas" : opcao}</option>)}
-            </select>
-          </label>
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Linha</span>
+          <select
+            value={filtro?.tipo_negocio || "TODOS"}
+            onChange={(e) => onChange("tipo_negocio", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {tipoNegocioOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todas" : opcao}</option>)}
+          </select>
+        </label>
 
-          <label>
-            <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status estoque</span>
-            <select
-              value={filtro?.status || "TODOS"}
-              onChange={(e) => onChange("status", e.target.value === "TODOS" ? undefined : e.target.value)}
-              className={selectClass}
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            >
-              {statusOptions.map((opcao) => <option key={opcao} value={opcao}>{STATUS_LABEL[opcao] || opcao}</option>)}
-            </select>
-          </label>
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Status estoque</span>
+          <select
+            value={filtro?.status || "TODOS"}
+            onChange={(e) => onChange("status", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {statusOptions.map((opcao) => <option key={opcao} value={opcao}>{STATUS_LABEL[opcao] || opcao}</option>)}
+          </select>
+        </label>
 
-          <label>
-            <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status portfólio</span>
-            <select
-              value={filtro?.status_portfolio || "TODOS"}
-              onChange={(e) => onChange("status_portfolio", e.target.value === "TODOS" ? undefined : e.target.value)}
-              className={selectClass}
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            >
-              {statusPortfolioOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : opcao}</option>)}
-            </select>
-          </label>
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Status portfólio</span>
+          <select
+            value={filtro?.status_portfolio || "TODOS"}
+            onChange={(e) => onChange("status_portfolio", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {statusPortfolioOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : opcao}</option>)}
+          </select>
+        </label>
 
-          <label>
-            <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Bravi</span>
-            <select
-              value={filtro?.transferencia_bravi || "TODOS"}
-              onChange={(e) => onChange("transferencia_bravi", e.target.value === "TODOS" ? undefined : e.target.value)}
-              className={selectClass}
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            >
-              {braviOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : opcao}</option>)}
-            </select>
-          </label>
-        </div>
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Bravi</span>
+          <select
+            value={filtro?.transferencia_bravi || "TODOS"}
+            onChange={(e) => onChange("transferencia_bravi", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {braviOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : opcao}</option>)}
+          </select>
+        </label>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <label>
-            <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Classificação</span>
-            <select
-              value={filtro?.classificacao_cadastro || "TODOS"}
-              onChange={(e) => onChange("classificacao_cadastro", e.target.value === "TODOS" ? undefined : e.target.value)}
-              className={selectClass}
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            >
-              {classificacaoOptions.map((opcao) => (
-                <option key={opcao} value={opcao}>
-                  {opcao === "TODOS" ? "Todos" : opcao === "MAPEADOS" ? "Mapeados" : opcao === "NAO_CLASSIFICADOS" ? "Não classificados" : opcao}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Classificação</span>
+          <select
+            value={filtro?.classificacao_cadastro || "TODOS"}
+            onChange={(e) => onChange("classificacao_cadastro", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {classificacaoOptions.map((opcao) => (
+              <option key={opcao} value={opcao}>
+                {opcao === "TODOS" ? "Todos" : opcao === "MAPEADOS" ? "Mapeados" : opcao === "NAO_CLASSIFICADOS" ? "Não classificados" : opcao}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     </div>
   )
 }
-
 
 function BasesModal({
   open,
