@@ -243,8 +243,10 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; 
 
 type FiltroTabelaEstoque = {
   label: string
+  busca?: string
   status?: string
   tipo_negocio?: string
+  status_portfolio?: string
   transferencia_bravi?: string
   classificacao_cadastro?: string
 }
@@ -253,8 +255,10 @@ const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
   if (!filtro) return "TODOS"
   return [
     filtro.label,
+    filtro.busca || "",
     filtro.status || "",
     filtro.tipo_negocio || "",
+    filtro.status_portfolio || "",
     filtro.transferencia_bravi || "",
     filtro.classificacao_cadastro || "",
   ].join("|")
@@ -292,6 +296,15 @@ interface AgingResumoResponse {
     cobertura_media_dias?: number
     cobertura_futura_media_dias?: number
   }
+  opcoes?: {
+    tipo_negocio?: string[]
+    tipo?: string[]
+    status_portfolio?: string[]
+    transferencia_bravi?: string[]
+    modelo_fornecimento?: string[]
+    grupo_gerencial?: string[]
+    classificacao_cadastro?: string[]
+  }
   top_excesso?: AgingEstoqueItem[]
   top_criticos?: AgingEstoqueItem[]
   top_descontinuados?: AgingEstoqueItem[]
@@ -318,6 +331,15 @@ interface AgingItensResponse {
   total: number
   total_pages: number
   itens: AgingEstoqueItem[]
+  opcoes?: {
+    tipo_negocio?: string[]
+    tipo?: string[]
+    status_portfolio?: string[]
+    transferencia_bravi?: string[]
+    modelo_fornecimento?: string[]
+    grupo_gerencial?: string[]
+    classificacao_cadastro?: string[]
+  }
 }
 
 type AgingEstoqueItemDetalhe = Omit<AgingEstoqueItem, "linha_tempo_estoque" | "pedidos"> & {
@@ -564,6 +586,7 @@ function KpiCard({
   label,
   value,
   helper,
+  details,
   icon,
   tone = "default",
   onClick,
@@ -572,6 +595,7 @@ function KpiCard({
   label: string
   value: string
   helper?: string
+  details?: { label: string; value: string; tone?: "default" | "danger" | "warning" | "success" | "blue" }[]
   icon: ReactNode
   tone?: "default" | "danger" | "warning" | "success" | "blue"
   onClick?: () => void
@@ -587,12 +611,28 @@ function KpiCard({
 
   const content = (
     <div className="flex min-h-[82px] items-start justify-between gap-3">
-      <div>
+      <div className="min-w-0 flex-1">
         <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{label}</p>
         <p className="mt-2 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{value}</p>
         {helper && <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{helper}</p>}
+        {details?.length ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {details.map((detail) => {
+              const detailTone = detail.tone || "default"
+              return (
+                <span
+                  key={`${detail.label}-${detail.value}`}
+                  className="rounded-full px-2 py-1 text-[11px] font-bold"
+                  style={{ background: tones[detailTone].bg, color: tones[detailTone].color }}
+                >
+                  {detail.label}: {detail.value}
+                </span>
+              )
+            })}
+          </div>
+        ) : null}
       </div>
-      <div className="flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: tones[tone].bg, color: tones[tone].color }}>{icon}</div>
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl" style={{ background: tones[tone].bg, color: tones[tone].color }}>{icon}</div>
     </div>
   )
 
@@ -994,6 +1034,137 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
             )}
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+
+function FiltrosEstoquePanel({
+  filtro,
+  opcoes,
+  onChange,
+  onClear,
+}: {
+  filtro: FiltroTabelaEstoque | null
+  opcoes?: AgingResumoResponse["opcoes"]
+  onChange: (campo: keyof FiltroTabelaEstoque, value?: string) => void
+  onClear: () => void
+}) {
+  const statusOptions = [
+    "TODOS",
+    "RUPTURA",
+    "CRITICO",
+    "ATENCAO",
+    "SAUDAVEL",
+    "EXCESSO",
+    "SEM_GIRO",
+    "SEM_CONSUMO",
+    "DESCONTINUADO_COM_SALDO",
+  ]
+
+  const tipoNegocioOptions = ["TODOS", ...(opcoes?.tipo_negocio || [])]
+  const statusPortfolioOptions = ["TODOS", ...(opcoes?.status_portfolio || [])]
+  const braviOptions = ["TODOS", "Sim", "Não"]
+  const classificacaoOptions = ["TODOS", "MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS"]
+
+  const selectClass = "h-10 rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+
+  return (
+    <div className="card p-4">
+      <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Filtros da base analítica</p>
+          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Investigue por código, produto e classificação</h2>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+            Use os filtros abaixo ou clique nos cards acima. A busca consulta código, produto e classificações disponíveis no backend.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClear}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition hover:bg-slate-50"
+          style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+        >
+          <X size={15} /> Limpar filtros
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <label className="xl:col-span-2">
+          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Código ou produto</span>
+          <input
+            value={filtro?.busca || ""}
+            onChange={(e) => onChange("busca", e.target.value)}
+            placeholder="Buscar código, nome, família, segmento..."
+            className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          />
+        </label>
+
+        <label>
+          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Linha</span>
+          <select
+            value={filtro?.tipo_negocio || "TODOS"}
+            onChange={(e) => onChange("tipo_negocio", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {tipoNegocioOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todas" : opcao}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status estoque</span>
+          <select
+            value={filtro?.status || "TODOS"}
+            onChange={(e) => onChange("status", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {statusOptions.map((opcao) => <option key={opcao} value={opcao}>{STATUS_LABEL[opcao] || opcao}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status portfólio</span>
+          <select
+            value={filtro?.status_portfolio || "TODOS"}
+            onChange={(e) => onChange("status_portfolio", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {statusPortfolioOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : opcao}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Bravi</span>
+          <select
+            value={filtro?.transferencia_bravi || "TODOS"}
+            onChange={(e) => onChange("transferencia_bravi", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {braviOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : opcao}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Classificação</span>
+          <select
+            value={filtro?.classificacao_cadastro || "TODOS"}
+            onChange={(e) => onChange("classificacao_cadastro", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {classificacaoOptions.map((opcao) => (
+              <option key={opcao} value={opcao}>
+                {opcao === "TODOS" ? "Todos" : opcao === "MAPEADOS" ? "Mapeados" : opcao === "NAO_CLASSIFICADOS" ? "Não classificados" : opcao}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     </div>
   )
@@ -1547,6 +1718,35 @@ function TimelinePrincipal({
 }
 
 
+
+function limparValorFiltro(value?: string) {
+  const texto = String(value || "").trim()
+  if (!texto || texto === "TODOS") return undefined
+  return texto
+}
+
+function filtroVazio(filtro: FiltroTabelaEstoque | null) {
+  if (!filtro) return true
+  return !filtro.busca && !filtro.status && !filtro.tipo_negocio && !filtro.status_portfolio && !filtro.transferencia_bravi && !filtro.classificacao_cadastro
+}
+
+function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
+  if (!filtro || filtroVazio(filtro)) return "Todos os itens"
+
+  const partes: string[] = []
+  if (filtro.label && filtro.label !== "Filtro personalizado") partes.push(filtro.label)
+  if (filtro.busca) partes.push(`Busca: ${filtro.busca}`)
+  if (filtro.tipo_negocio) partes.push(`Linha: ${filtro.tipo_negocio}`)
+  if (filtro.status) partes.push(STATUS_LABEL[filtro.status] || filtro.status)
+  if (filtro.status_portfolio) partes.push(`Portfólio: ${filtro.status_portfolio}`)
+  if (filtro.transferencia_bravi) partes.push(`Bravi: ${filtro.transferencia_bravi}`)
+  if (filtro.classificacao_cadastro === "NAO_CLASSIFICADOS") partes.push("Não classificados")
+  else if (filtro.classificacao_cadastro === "MAPEADOS") partes.push("Mapeados")
+  else if (filtro.classificacao_cadastro) partes.push(`Classificação: ${filtro.classificacao_cadastro}`)
+
+  return partes.length ? partes.join(" · ") : "Filtro personalizado"
+}
+
 export default function AgingEstoquePage() {
   const [resumo, setResumo] = useState<AgingResumoResponse | null>(null)
   const [itensResp, setItensResp] = useState<AgingItensResponse | null>(null)
@@ -1649,8 +1849,10 @@ export default function AgingEstoquePage() {
         page_size: PAGE_SIZE,
         sort_key: sortKey || undefined,
         sort_direction: sortDirection,
+        busca: activeFilter?.busca,
         status: activeFilter?.status,
         tipo_negocio: activeFilter?.tipo_negocio,
+        status_portfolio: activeFilter?.status_portfolio,
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || "TODOS",
       } as any)
@@ -1675,6 +1877,24 @@ export default function AgingEstoquePage() {
     setPage(1)
     setSelected(null)
     setActiveFilter((current) => (filtroKey(current) === filtroKey(filtro) ? null : filtro))
+  }
+
+  const atualizarFiltroCampo = (campo: keyof FiltroTabelaEstoque, value?: string) => {
+    setPage(1)
+    setSelected(null)
+    setActiveFilter((current) => {
+      const next: FiltroTabelaEstoque = { ...(current || { label: "Filtro personalizado" }) }
+      const valorLimpo = campo === "busca" ? String(value || "").trim() : limparValorFiltro(value)
+
+      if (valorLimpo) {
+        ;(next as Record<string, string>)[campo] = valorLimpo
+      } else {
+        delete (next as Record<string, string | undefined>)[campo]
+      }
+
+      next.label = "Filtro personalizado"
+      return filtroVazio(next) ? null : next
+    })
   }
 
   const handleSort = (column: SortKey) => {
@@ -1741,6 +1961,13 @@ export default function AgingEstoquePage() {
     [saudeNegocios]
   )
 
+  const opcoesFiltros = useMemo(() => resumo?.opcoes || itensResp?.opcoes || {}, [resumo, itensResp])
+  const qtdAClassificar = Number(negocioAClassificar?.itens || 0)
+  const totalItensResumo = Number(resumo?.resumo?.total_itens || 0)
+  const totalDescontinuadoSaldo = Number(resumo?.resumo?.descontinuado_com_saldo || 0)
+  const totalBravi = Number(resumo?.resumo?.transferencia_bravi || 0)
+  const totalAtivosOutros = Math.max(0, totalItensResumo - totalDescontinuadoSaldo - totalBravi - qtdAClassificar)
+
   const exportCsv = () => {
     const header = [
       "codigo", "produto", "curva_a", "tipo", "unid", "segmento", "mercado",
@@ -1798,6 +2025,12 @@ export default function AgingEstoquePage() {
           label="Itens"
           value={fmtNumber(resumo?.resumo?.total_itens || 0)}
           helper={`Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`}
+          details={[
+            { label: "Ativos/outros", value: fmtNumber(totalAtivosOutros), tone: "success" },
+            { label: "Desc. c/ saldo", value: fmtNumber(totalDescontinuadoSaldo), tone: "danger" },
+            { label: "Bravi", value: fmtNumber(totalBravi), tone: "blue" },
+            ...(qtdAClassificar ? [{ label: "A classificar", value: fmtNumber(qtdAClassificar), tone: "warning" as const }] : []),
+          ]}
           icon={<Boxes size={20} />}
           onClick={() => aplicarFiltro(null)}
           active={!activeFilter}
@@ -1856,7 +2089,7 @@ export default function AgingEstoquePage() {
             className="card p-4 text-left"
             style={{ borderColor: "var(--border)" }}
           >
-            <div className="flex min-h-[82px] items-start justify-between gap-3">
+            <div className="min-h-[104px]">
               <button
                 type="button"
                 className="text-left"
@@ -1865,14 +2098,43 @@ export default function AgingEstoquePage() {
                 <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Saúde da linha</p>
                 <h3 className="mt-1 text-lg font-bold hover:underline" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
               </button>
-              <button
-                type="button"
-                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
-                className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
-                style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}
-              >
-                {fmtNumber(negocio.itens)} itens
-              </button>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
+                  className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
+                  style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}
+                >
+                  {fmtNumber(negocio.itens)} SKUs
+                </button>
+                <span
+                  className="rounded-full px-2.5 py-1 text-xs font-bold"
+                  style={{ background: "rgba(22,163,74,0.08)", color: "#15803D" }}
+                >
+                  Ativos/outros: {fmtNumber(Math.max(0, negocio.itens - negocio.descontinuado_com_saldo - negocio.transferencia_bravi))}
+                </span>
+                {negocio.descontinuado_com_saldo > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => aplicarFiltro({ label: `Descontinuados · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "DESCONTINUADO_COM_SALDO", classificacao_cadastro: "TODOS" })}
+                    className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
+                    style={{ background: "rgba(185,28,28,0.10)", color: "#991B1B" }}
+                  >
+                    Desc. c/ saldo: {fmtNumber(negocio.descontinuado_com_saldo)}
+                  </button>
+                )}
+                {negocio.transferencia_bravi > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => aplicarFiltro({ label: `Bravi · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, transferencia_bravi: "Sim", classificacao_cadastro: "TODOS" })}
+                    className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
+                    style={{ background: "rgba(124,58,237,0.10)", color: "#6D28D9" }}
+                  >
+                    Bravi: {fmtNumber(negocio.transferencia_bravi)}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <KpiSmall
@@ -1899,30 +2161,6 @@ export default function AgingEstoquePage() {
                 onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
               />
             </div>
-            {(negocio.descontinuado_com_saldo > 0 || negocio.transferencia_bravi > 0) && (
-              <div className="mt-3 flex flex-wrap gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-                {negocio.descontinuado_com_saldo > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => aplicarFiltro({ label: `Descontinuados · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "DESCONTINUADO_COM_SALDO", classificacao_cadastro: "TODOS" })}
-                    className="rounded-full border px-2.5 py-1 font-semibold transition hover:bg-slate-50"
-                    style={{ borderColor: "var(--border)" }}
-                  >
-                    {fmtNumber(negocio.descontinuado_com_saldo)} descontinuado(s) com saldo
-                  </button>
-                )}
-                {negocio.transferencia_bravi > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => aplicarFiltro({ label: `Bravi · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, transferencia_bravi: "Sim", classificacao_cadastro: "TODOS" })}
-                    className="rounded-full border px-2.5 py-1 font-semibold transition hover:bg-slate-50"
-                    style={{ borderColor: "var(--border)" }}
-                  >
-                    {fmtNumber(negocio.transferencia_bravi)} item(ns) Bravi
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         ))}
       </div>
@@ -1940,11 +2178,19 @@ export default function AgingEstoquePage() {
       )}
 
 
+      <FiltrosEstoquePanel
+        filtro={activeFilter}
+        opcoes={opcoesFiltros}
+        onChange={atualizarFiltroCampo}
+        onClear={() => aplicarFiltro(null)}
+      />
+
+
       {activeFilter && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Filtro ativo da tabela</p>
-            <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>{activeFilter.label}</p>
+            <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>{labelFiltroTabela(activeFilter)}</p>
           </div>
           <button
             type="button"
