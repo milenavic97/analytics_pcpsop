@@ -752,7 +752,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         p.saldo_projetado = saldoProjetado
         p.saldo_grafico = p.saldo_grafico ?? saldoProjetado
       } else {
-        p.ponto_pedido = p.ponto_pedido ?? Number(item.consumo_durante_lt || 0) || null
+        p.ponto_pedido = (p.ponto_pedido ?? Number(item.consumo_durante_lt || 0)) || null
         p.saldo_projetado = null
       }
 
