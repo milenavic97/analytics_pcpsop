@@ -162,7 +162,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
 function getAgingResumoDireto(params: { escopo: EscopoEstoque; classificacao_cadastro?: string }): Promise<AgingResumoResponse> {
   return fetchJson<AgingResumoResponse>("/aging-estoque/resumo", {
     escopo: params.escopo,
-    classificacao_cadastro: params.classificacao_cadastro || "TODOS",
+    classificacao_cadastro: params.classificacao_cadastro,
   })
 }
 
@@ -190,7 +190,7 @@ function getAgingItensDireto(params: {
     tipo_negocio: params.tipo_negocio,
     status_portfolio: params.status_portfolio,
     transferencia_bravi: params.transferencia_bravi,
-    classificacao_cadastro: params.classificacao_cadastro || "TODOS",
+    classificacao_cadastro: params.classificacao_cadastro,
   })
 }
 
@@ -2046,7 +2046,7 @@ export default function AgingEstoquePage() {
     let mounted = true
     setLoadingResumo(true)
     setError("")
-    getAgingResumoDireto({ escopo: escopoEstoque, classificacao_cadastro: "TODOS" })
+    getAgingResumoDireto({ escopo: escopoEstoque })
       .then((res) => {
         if (!mounted) return
         if (res?.escopo && res.escopo !== escopoEstoque) return
@@ -2078,7 +2078,7 @@ export default function AgingEstoquePage() {
         tipo_negocio: activeFilter?.tipo_negocio,
         status_portfolio: activeFilter?.status_portfolio,
         transferencia_bravi: activeFilter?.transferencia_bravi,
-        classificacao_cadastro: activeFilter?.classificacao_cadastro || "TODOS",
+        classificacao_cadastro: activeFilter?.classificacao_cadastro,
       })
       .then((res) => {
         if (!mounted) return
@@ -2307,7 +2307,7 @@ export default function AgingEstoquePage() {
           helper={escopoEstoque === "produtos" ? "Sem estoque disponível" : "Saldo zerado com consumo"}
           icon={<AlertTriangle size={20} />}
           tone="danger"
-          onClick={() => aplicarFiltro({ label: "Ruptura", status: "RUPTURA", classificacao_cadastro: "TODOS" })}
+          onClick={() => aplicarFiltro({ label: "Ruptura", status: "RUPTURA" })}
           active={isFiltroAtivo(activeFilter, { status: "RUPTURA" })}
         />
         <KpiCard
@@ -2316,7 +2316,7 @@ export default function AgingEstoquePage() {
           helper={escopoEstoque === "produtos" ? "Disponibilidade abaixo do necessário" : "Abaixo do ideal/LT"}
           icon={<ArrowDownRight size={20} />}
           tone="warning"
-          onClick={() => aplicarFiltro({ label: "Críticos", status: "CRITICO", classificacao_cadastro: "TODOS" })}
+          onClick={() => aplicarFiltro({ label: "Críticos", status: "CRITICO" })}
           active={isFiltroAtivo(activeFilter, { status: "CRITICO" }) && !activeFilter?.tipo_negocio}
         />
         <KpiCard
@@ -2325,7 +2325,7 @@ export default function AgingEstoquePage() {
           helper="Acima da política"
           icon={<ArrowUpRight size={20} />}
           tone="blue"
-          onClick={() => aplicarFiltro({ label: "Excesso", status: "EXCESSO", classificacao_cadastro: "TODOS" })}
+          onClick={() => aplicarFiltro({ label: "Excesso", status: "EXCESSO" })}
           active={isFiltroAtivo(activeFilter, { status: "EXCESSO" }) && !activeFilter?.tipo_negocio}
         />
         {mostrarCardsPortfolio ? (
@@ -2336,7 +2336,7 @@ export default function AgingEstoquePage() {
               helper="portfólio descontinuado"
               icon={<PackageSearch size={20} />}
               tone="danger"
-              onClick={() => aplicarFiltro({ label: "Descontinuados com saldo", status: "DESCONTINUADO_COM_SALDO", classificacao_cadastro: "TODOS" })}
+              onClick={() => aplicarFiltro({ label: "Descontinuados com saldo", status: "DESCONTINUADO_COM_SALDO" })}
               active={isFiltroAtivo(activeFilter, { status: "DESCONTINUADO_COM_SALDO" })}
             />
             <KpiCard
@@ -2345,7 +2345,7 @@ export default function AgingEstoquePage() {
               helper="itens em transferência"
               icon={<ShoppingCart size={20} />}
               tone="blue"
-              onClick={() => aplicarFiltro({ label: "Bravi", transferencia_bravi: "Sim", classificacao_cadastro: "TODOS" })}
+              onClick={() => aplicarFiltro({ label: "Bravi", transferencia_bravi: "Sim" })}
               active={isFiltroAtivo(activeFilter, { transferencia_bravi: "Sim" })}
             />
           </>
@@ -2357,7 +2357,7 @@ export default function AgingEstoquePage() {
               helper="sem consumo histórico relevante"
               icon={<PackageSearch size={20} />}
               tone="default"
-              onClick={() => aplicarFiltro({ label: "Sem giro", status: "SEM_GIRO", classificacao_cadastro: "TODOS" })}
+              onClick={() => aplicarFiltro({ label: "Sem giro", status: "SEM_GIRO" })}
               active={isFiltroAtivo(activeFilter, { status: "SEM_GIRO" })}
             />
             <KpiCard
@@ -2382,7 +2382,7 @@ export default function AgingEstoquePage() {
               <button
                 type="button"
                 className="text-left"
-                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
+                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
               >
                 <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{escopoEstoque === "insumos" ? "Saúde dos insumos" : "Saúde da linha"}</p>
                 <h3 className="mt-1 text-lg font-bold hover:underline" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
@@ -2391,7 +2391,7 @@ export default function AgingEstoquePage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
+                  onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
                   className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
                   style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}
                 >
@@ -2406,7 +2406,7 @@ export default function AgingEstoquePage() {
                 {negocio.descontinuado_com_saldo > 0 && (
                   <button
                     type="button"
-                    onClick={() => aplicarFiltro({ label: `Descontinuados · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "DESCONTINUADO_COM_SALDO", classificacao_cadastro: "TODOS" })}
+                    onClick={() => aplicarFiltro({ label: `Descontinuados · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "DESCONTINUADO_COM_SALDO" })}
                     className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
                     style={{ background: "rgba(185,28,28,0.10)", color: "#991B1B" }}
                   >
@@ -2416,7 +2416,7 @@ export default function AgingEstoquePage() {
                 {negocio.transferencia_bravi > 0 && (
                   <button
                     type="button"
-                    onClick={() => aplicarFiltro({ label: `Bravi · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, transferencia_bravi: "Sim", classificacao_cadastro: "TODOS" })}
+                    onClick={() => aplicarFiltro({ label: `Bravi · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, transferencia_bravi: "Sim" })}
                     className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
                     style={{ background: "rgba(124,58,237,0.10)", color: "#6D28D9" }}
                   >
@@ -2429,25 +2429,25 @@ export default function AgingEstoquePage() {
               <KpiSmall
                 label="Críticos"
                 value={fmtNumber(negocio.criticos)}
-                onClick={() => aplicarFiltro({ label: `Críticos · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "CRITICO", classificacao_cadastro: "TODOS" })}
+                onClick={() => aplicarFiltro({ label: `Críticos · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "CRITICO" })}
                 active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "CRITICO" })}
               />
               <KpiSmall
                 label="Excesso"
                 value={fmtNumber(negocio.excesso)}
-                onClick={() => aplicarFiltro({ label: `Excesso · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "EXCESSO", classificacao_cadastro: "TODOS" })}
+                onClick={() => aplicarFiltro({ label: `Excesso · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "EXCESSO" })}
                 active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "EXCESSO" })}
               />
               <KpiSmall
                 label="Saldo"
                 value={fmtCompact(negocio.saldo_total)}
-                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
+                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
                 active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio }) && !activeFilter?.status}
               />
               <KpiSmall
                 label="Cob. futura"
                 value={`${fmtNumber(negocio.cobertura_futura_media_dias, 0)} d`}
-                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
+                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
               />
             </div>
           </div>
