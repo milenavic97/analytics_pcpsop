@@ -41,6 +41,38 @@ const PAGE_SIZE = 100
 const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
 
 type GranularidadeSerie = "mensal" | "semanal" | "diaria"
+type EscopoEstoque = "produtos" | "insumos" | "todos"
+
+const ESCOPO_ESTOQUE_OPTIONS: { key: EscopoEstoque; label: string; helper: string }[] = [
+  {
+    key: "produtos",
+    label: "PA / MR",
+    helper: "Produto acabado, revenda, PPS, Bravi e faturamento.",
+  },
+  {
+    key: "insumos",
+    label: "Insumos",
+    helper: "MP, ME, MI e materiais com demanda explodida pela BOM.",
+  },
+  {
+    key: "todos",
+    label: "Todos",
+    helper: "Visão consolidada para conferência geral.",
+  },
+]
+
+const ESCOPO_TITULO: Record<EscopoEstoque, string> = {
+  produtos: "Produtos acabados / Revenda",
+  insumos: "Insumos de produção",
+  todos: "Todos os materiais",
+}
+
+const ESCOPO_DESCRICAO: Record<EscopoEstoque, string> = {
+  produtos: "Visão de estoque para venda, faturamento, transferência Bravi e itens de portfólio.",
+  insumos: "Visão de estoque para produção, consumo histórico, cobertura, lead time, MOQ e demanda via BOM.",
+  todos: "Visão consolidada com produtos e insumos para conferência da base.",
+}
+
 
 type BraviSeriePonto = {
   key: string
@@ -285,6 +317,8 @@ const ORIGEM_LABEL: Record<string, string> = {
 }
 
 interface AgingResumoResponse {
+  escopo?: EscopoEstoque
+  escopos_disponiveis?: EscopoEstoque[]
   data_snapshot_consumo?: string | null
   data_snapshot_mrp?: string | null
   resumo?: {
@@ -335,6 +369,8 @@ interface AgingResumoResponse {
 }
 
 interface AgingItensResponse {
+  escopo?: EscopoEstoque
+  escopos_disponiveis?: EscopoEstoque[]
   page: number
   page_size: number
   total: number
@@ -1131,11 +1167,13 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
 function FiltrosEstoquePanel({
   filtro,
   opcoes,
+  escopo,
   onChange,
   onClear,
 }: {
   filtro: FiltroTabelaEstoque | null
   opcoes?: AgingResumoResponse["opcoes"]
+  escopo: EscopoEstoque
   onChange: (campo: keyof FiltroTabelaEstoque, value?: string) => void
   onClear: () => void
 }) {
@@ -1163,9 +1201,15 @@ function FiltrosEstoquePanel({
       <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Filtros da base analítica</p>
-          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Investigue por código, produto e classificação</h2>
+          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>
+            {escopo === "insumos" ? "Investigue insumos por código, material e classificação" : escopo === "produtos" ? "Investigue produtos por código, SKU e portfólio" : "Investigue por código, produto e classificação"}
+          </h2>
           <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-            Use os filtros abaixo ou clique nos cards acima. A busca consulta código, produto e classificações disponíveis no backend.
+            {escopo === "insumos"
+              ? "Nesta visão entram MP, ME, MI e materiais classificados pela BOM. Use os cards ou filtros para investigar risco produtivo."
+              : escopo === "produtos"
+                ? "Nesta visão entram PA, MR, PPS, Bravi e SKUs de portfólio. Use os cards ou filtros para investigar disponibilidade comercial."
+                : "Use os filtros abaixo ou clique nos cards acima. A busca consulta código, produto e classificações disponíveis no backend."}
           </p>
         </div>
         <button
@@ -1875,6 +1919,7 @@ export default function AgingEstoquePage() {
   const [uploadMessage, setUploadMessage] = useState("")
   const [refreshTick, setRefreshTick] = useState(0)
   const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(null)
+  const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>("produtos")
 
   const carregarAtualizacoesBases = async () => {
     setLoadingAtualizacoesBases(true)
@@ -1929,11 +1974,18 @@ export default function AgingEstoquePage() {
     }
   }, [basesModalOpen])
 
+  const alterarEscopoEstoque = (novoEscopo: EscopoEstoque) => {
+    setEscopoEstoque(novoEscopo)
+    setPage(1)
+    setSelected(null)
+    setActiveFilter(null)
+  }
+
   useEffect(() => {
     let mounted = true
     setLoadingResumo(true)
     setError("")
-    getAgingResumo({ classificacao_cadastro: "TODOS" })
+    getAgingResumo({ escopo: escopoEstoque, classificacao_cadastro: "TODOS" } as any)
       .then((res) => {
         if (!mounted) return
         setResumo(res as AgingResumoResponse)
@@ -1946,7 +1998,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingResumo(false)
       })
     return () => { mounted = false }
-  }, [refreshTick])
+  }, [refreshTick, escopoEstoque])
 
 
   useEffect(() => {
@@ -1954,6 +2006,7 @@ export default function AgingEstoquePage() {
     setLoadingItens(true)
     setError("")
     getAgingItens({
+        escopo: escopoEstoque,
         page,
         page_size: PAGE_SIZE,
         sort_key: sortKey || undefined,
@@ -1977,7 +2030,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingItens(false)
       })
     return () => { mounted = false }
-  }, [page, sortKey, sortDirection, refreshTick, activeFilter])
+  }, [page, sortKey, sortDirection, refreshTick, activeFilter, escopoEstoque])
 
   const itens = itensResp?.itens || []
   const totalPages = Math.max(1, itensResp?.total_pages || 1)
@@ -2076,6 +2129,10 @@ export default function AgingEstoquePage() {
   const totalDescontinuadoSaldo = Number(resumo?.resumo?.descontinuado_com_saldo || 0)
   const totalBravi = Number(resumo?.resumo?.transferencia_bravi || 0)
   const totalAtivosOutros = Math.max(0, totalItensResumo - totalDescontinuadoSaldo - totalBravi - qtdAClassificar)
+  const escopoTitulo = ESCOPO_TITULO[escopoEstoque]
+  const escopoDescricao = ESCOPO_DESCRICAO[escopoEstoque]
+  const mostrarCardsPortfolio = escopoEstoque !== "insumos"
+
 
   const exportCsv = () => {
     const header = [
@@ -2091,7 +2148,7 @@ export default function AgingEstoquePage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = "gestao_estoque_pagina.csv"
+    a.download = `gestao_estoque_${escopoEstoque}_pagina.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -2102,7 +2159,7 @@ export default function AgingEstoquePage() {
         <div>
           <p className="text-[10px] font-medium uppercase tracking-widest mb-1" style={{ color: "var(--text-secondary)" }}>Suprimentos · Estoque</p>
           <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Gestão de Estoque</h1>
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Saldo atual, pedidos em aberto, cobertura e estoque ideal por material.</p>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{escopoDescricao}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -2127,13 +2184,50 @@ export default function AgingEstoquePage() {
         </div>
       </div>
 
+      <div className="card p-4">
+        <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Visão da gestão de estoque</p>
+            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{escopoTitulo}</h2>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+              Alterne o escopo para separar a lógica de disponibilidade comercial da lógica de risco produtivo.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:min-w-[620px]">
+            {ESCOPO_ESTOQUE_OPTIONS.map((option) => {
+              const active = escopoEstoque === option.key
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => alterarEscopoEstoque(option.key)}
+                  className="rounded-2xl border px-4 py-3 text-left transition hover:bg-slate-50"
+                  style={{
+                    borderColor: active ? "#163B63" : "var(--border)",
+                    background: active ? "rgba(22,59,99,0.07)" : "#FFFFFF",
+                    color: active ? "#163B63" : "var(--text-primary)",
+                    boxShadow: active ? "0 8px 18px rgba(22,59,99,0.08)" : "none",
+                  }}
+                >
+                  <span className="block text-sm font-bold">{option.label}</span>
+                  <span className="mt-1 block text-[11px] leading-snug" style={{ color: active ? "#163B63" : "var(--text-secondary)" }}>
+                    {option.helper}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
       {error && <div className="card p-5 text-sm text-red-600">{error}</div>}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
         <KpiCard
           label="Itens"
           value={fmtNumber(resumo?.resumo?.total_itens || 0)}
-          helper={`Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`}
+          helper={`${escopoTitulo} · Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`}
           details={[
             { label: "Ativos/outros", value: fmtNumber(totalAtivosOutros), tone: "success" },
             { label: "Desc. c/ saldo", value: fmtNumber(totalDescontinuadoSaldo), tone: "danger" },
@@ -2147,7 +2241,7 @@ export default function AgingEstoquePage() {
         <KpiCard
           label="Ruptura"
           value={fmtNumber(resumo?.resumo?.ruptura || 0)}
-          helper="Saldo zerado com consumo"
+          helper={escopoEstoque === "produtos" ? "Sem estoque disponível" : "Saldo zerado com consumo"}
           icon={<AlertTriangle size={20} />}
           tone="danger"
           onClick={() => aplicarFiltro({ label: "Ruptura", status: "RUPTURA", classificacao_cadastro: "TODOS" })}
@@ -2156,7 +2250,7 @@ export default function AgingEstoquePage() {
         <KpiCard
           label="Críticos"
           value={fmtNumber(resumo?.resumo?.critico || 0)}
-          helper="Abaixo do ideal/LT"
+          helper={escopoEstoque === "produtos" ? "Disponibilidade abaixo do necessário" : "Abaixo do ideal/LT"}
           icon={<ArrowDownRight size={20} />}
           tone="warning"
           onClick={() => aplicarFiltro({ label: "Críticos", status: "CRITICO", classificacao_cadastro: "TODOS" })}
@@ -2171,24 +2265,47 @@ export default function AgingEstoquePage() {
           onClick={() => aplicarFiltro({ label: "Excesso", status: "EXCESSO", classificacao_cadastro: "TODOS" })}
           active={isFiltroAtivo(activeFilter, { status: "EXCESSO" }) && !activeFilter?.tipo_negocio}
         />
-        <KpiCard
-          label="Descont. c/ saldo"
-          value={fmtNumber(resumo?.resumo?.descontinuado_com_saldo || 0)}
-          helper="portfólio descontinuado"
-          icon={<PackageSearch size={20} />}
-          tone="danger"
-          onClick={() => aplicarFiltro({ label: "Descontinuados com saldo", status: "DESCONTINUADO_COM_SALDO", classificacao_cadastro: "TODOS" })}
-          active={isFiltroAtivo(activeFilter, { status: "DESCONTINUADO_COM_SALDO" })}
-        />
-        <KpiCard
-          label="Bravi"
-          value={fmtNumber(resumo?.resumo?.transferencia_bravi || 0)}
-          helper="itens em transferência"
-          icon={<ShoppingCart size={20} />}
-          tone="blue"
-          onClick={() => aplicarFiltro({ label: "Bravi", transferencia_bravi: "Sim", classificacao_cadastro: "TODOS" })}
-          active={isFiltroAtivo(activeFilter, { transferencia_bravi: "Sim" })}
-        />
+        {mostrarCardsPortfolio ? (
+          <>
+            <KpiCard
+              label="Descont. c/ saldo"
+              value={fmtNumber(resumo?.resumo?.descontinuado_com_saldo || 0)}
+              helper="portfólio descontinuado"
+              icon={<PackageSearch size={20} />}
+              tone="danger"
+              onClick={() => aplicarFiltro({ label: "Descontinuados com saldo", status: "DESCONTINUADO_COM_SALDO", classificacao_cadastro: "TODOS" })}
+              active={isFiltroAtivo(activeFilter, { status: "DESCONTINUADO_COM_SALDO" })}
+            />
+            <KpiCard
+              label="Bravi"
+              value={fmtNumber(resumo?.resumo?.transferencia_bravi || 0)}
+              helper="itens em transferência"
+              icon={<ShoppingCart size={20} />}
+              tone="blue"
+              onClick={() => aplicarFiltro({ label: "Bravi", transferencia_bravi: "Sim", classificacao_cadastro: "TODOS" })}
+              active={isFiltroAtivo(activeFilter, { transferencia_bravi: "Sim" })}
+            />
+          </>
+        ) : (
+          <>
+            <KpiCard
+              label="Sem giro"
+              value={fmtNumber(resumo?.resumo?.sem_giro || 0)}
+              helper="sem consumo histórico relevante"
+              icon={<PackageSearch size={20} />}
+              tone="default"
+              onClick={() => aplicarFiltro({ label: "Sem giro", status: "SEM_GIRO", classificacao_cadastro: "TODOS" })}
+              active={isFiltroAtivo(activeFilter, { status: "SEM_GIRO" })}
+            />
+            <KpiCard
+              label="Pedidos abertos"
+              value={fmtCompact(resumo?.resumo?.pedidos_total || 0)}
+              helper="volume em compras abertas"
+              icon={<ShoppingCart size={20} />}
+              tone="blue"
+            />
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -2204,7 +2321,7 @@ export default function AgingEstoquePage() {
                 className="text-left"
                 onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio, classificacao_cadastro: "TODOS" })}
               >
-                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Saúde da linha</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{escopoEstoque === "insumos" ? "Saúde dos insumos" : "Saúde da linha"}</p>
                 <h3 className="mt-1 text-lg font-bold hover:underline" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
               </button>
 
@@ -2290,6 +2407,7 @@ export default function AgingEstoquePage() {
       <FiltrosEstoquePanel
         filtro={activeFilter}
         opcoes={opcoesFiltros}
+        escopo={escopoEstoque}
         onChange={atualizarFiltroCampo}
         onClear={() => aplicarFiltro(null)}
       />
@@ -2299,7 +2417,7 @@ export default function AgingEstoquePage() {
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Filtro ativo da tabela</p>
-            <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>{labelFiltroTabela(activeFilter)}</p>
+            <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>{escopoTitulo} · {labelFiltroTabela(activeFilter)}</p>
           </div>
           <button
             type="button"
@@ -2312,15 +2430,15 @@ export default function AgingEstoquePage() {
         </div>
       )}
 
-      <BraviSeriePanel active={activeFilter?.transferencia_bravi === "Sim"} refreshTick={refreshTick} />
+      <BraviSeriePanel active={mostrarCardsPortfolio && activeFilter?.transferencia_bravi === "Sim"} refreshTick={refreshTick} />
 
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
-            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Materiais por cobertura e estoque ideal</h2>
+            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{escopoTitulo} por cobertura e estoque ideal</h2>
           </div>
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages}</p>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
         </div>
 
         <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
