@@ -31,8 +31,6 @@ import {
   AgingEstoqueItem,
   buscarUltimaAtualizacao,
   getAgingEstoqueItem,
-  getAgingItens,
-  getAgingResumo,
   uploadBase,
 } from "@/services/api"
 
@@ -134,6 +132,66 @@ async function getBraviSerie(granularidade: GranularidadeSerie): Promise<BraviSe
     throw new Error(`Erro ao buscar série Bravi: ${response.status}`)
   }
   return response.json()
+}
+
+async function fetchJson<T>(path: string, params: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {
+  const searchParams = new URLSearchParams()
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return
+    searchParams.set(key, String(value))
+  })
+
+  // Evita que o navegador reutilize um resumo antigo quando muda o escopo ou sobe base nova.
+  searchParams.set("_t", String(Date.now()))
+
+  const query = searchParams.toString()
+  const response = await fetch(`${API_BASE}${path}${query ? `?${query}` : ""}`, {
+    method: "GET",
+    cache: "no-store",
+  })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "")
+    throw new Error(detail || `Erro ${response.status} ao buscar ${path}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
+function getAgingResumoDireto(params: { escopo: EscopoEstoque; classificacao_cadastro?: string }): Promise<AgingResumoResponse> {
+  return fetchJson<AgingResumoResponse>("/aging-estoque/resumo", {
+    escopo: params.escopo,
+    classificacao_cadastro: params.classificacao_cadastro || "TODOS",
+  })
+}
+
+function getAgingItensDireto(params: {
+  escopo: EscopoEstoque
+  page: number
+  page_size: number
+  sort_key?: string
+  sort_direction?: string
+  busca?: string
+  status?: string
+  tipo_negocio?: string
+  status_portfolio?: string
+  transferencia_bravi?: string
+  classificacao_cadastro?: string
+}): Promise<AgingItensResponse> {
+  return fetchJson<AgingItensResponse>("/aging-estoque/itens", {
+    escopo: params.escopo,
+    page: params.page,
+    page_size: params.page_size,
+    sort_key: params.sort_key,
+    sort_direction: params.sort_direction || "desc",
+    busca: params.busca,
+    status: params.status,
+    tipo_negocio: params.tipo_negocio,
+    status_portfolio: params.status_portfolio,
+    transferencia_bravi: params.transferencia_bravi,
+    classificacao_cadastro: params.classificacao_cadastro || "TODOS",
+  })
 }
 
 type BaseGestaoEstoque = {
@@ -1975,20 +2033,24 @@ export default function AgingEstoquePage() {
   }, [basesModalOpen])
 
   const alterarEscopoEstoque = (novoEscopo: EscopoEstoque) => {
+    if (novoEscopo === escopoEstoque) return
     setEscopoEstoque(novoEscopo)
     setPage(1)
     setSelected(null)
     setActiveFilter(null)
+    setResumo(null)
+    setItensResp(null)
   }
 
   useEffect(() => {
     let mounted = true
     setLoadingResumo(true)
     setError("")
-    getAgingResumo({ escopo: escopoEstoque, classificacao_cadastro: "TODOS" } as any)
+    getAgingResumoDireto({ escopo: escopoEstoque, classificacao_cadastro: "TODOS" })
       .then((res) => {
         if (!mounted) return
-        setResumo(res as AgingResumoResponse)
+        if (res?.escopo && res.escopo !== escopoEstoque) return
+        setResumo(res)
       })
       .catch((err: unknown) => {
         if (!mounted) return
@@ -2005,7 +2067,7 @@ export default function AgingEstoquePage() {
     let mounted = true
     setLoadingItens(true)
     setError("")
-    getAgingItens({
+    getAgingItensDireto({
         escopo: escopoEstoque,
         page,
         page_size: PAGE_SIZE,
@@ -2017,10 +2079,11 @@ export default function AgingEstoquePage() {
         status_portfolio: activeFilter?.status_portfolio,
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || "TODOS",
-      } as any)
+      })
       .then((res) => {
         if (!mounted) return
-        setItensResp(res as AgingItensResponse)
+        if (res?.escopo && res.escopo !== escopoEstoque) return
+        setItensResp(res)
       })
       .catch((err: unknown) => {
         if (!mounted) return
@@ -2229,9 +2292,9 @@ export default function AgingEstoquePage() {
           value={fmtNumber(resumo?.resumo?.total_itens || 0)}
           helper={`${escopoTitulo} · Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`}
           details={[
-            { label: "Ativos/outros", value: fmtNumber(totalAtivosOutros), tone: "success" },
-            { label: "Desc. c/ saldo", value: fmtNumber(totalDescontinuadoSaldo), tone: "danger" },
-            { label: "Bravi", value: fmtNumber(totalBravi), tone: "blue" },
+            { label: escopoEstoque === "insumos" ? "Componentes BOM" : "Ativos/outros", value: fmtNumber(escopoEstoque === "insumos" ? totalItensResumo : totalAtivosOutros), tone: "success" },
+            ...(escopoEstoque !== "insumos" && totalDescontinuadoSaldo > 0 ? [{ label: "Desc. c/ saldo", value: fmtNumber(totalDescontinuadoSaldo), tone: "danger" as const }] : []),
+            ...(escopoEstoque !== "insumos" && totalBravi > 0 ? [{ label: "Bravi", value: fmtNumber(totalBravi), tone: "blue" as const }] : []),
             ...(qtdAClassificar ? [{ label: "A classificar", value: fmtNumber(qtdAClassificar), tone: "warning" as const }] : []),
           ]}
           icon={<Boxes size={20} />}
