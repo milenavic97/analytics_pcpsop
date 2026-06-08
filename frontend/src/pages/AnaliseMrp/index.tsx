@@ -38,6 +38,69 @@ import {
 
 const PAGE_SIZE = 100
 
+const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
+
+type GranularidadeSerie = "mensal" | "semanal" | "diaria"
+
+type BraviSeriePonto = {
+  key: string
+  ordem?: string
+  periodo: string
+  periodo_completo?: string
+  data_inicio?: string
+  data_fim?: string
+  ano?: number
+  mes?: number
+  estoque?: number | null
+  estoque_medio?: number | null
+  entradas_previstas?: number | null
+  faturamento_qtd?: number | null
+  faturamento_valor?: number | null
+  consumo?: number | null
+  demanda?: number | null
+  pedidos_detalhe?: {
+    pedido_numero?: string | null
+    sc_numero?: string | null
+    quantidade?: number | null
+    quantidade_pendente?: number | null
+    data_prevista_entrega?: string | null
+    fornecedor?: string | null
+  }[]
+  faturamento_detalhe?: {
+    data?: string | null
+    codigo?: string | null
+    quantidade?: number | null
+    valor?: number | null
+  }[]
+}
+
+type BraviSerieResponse = {
+  granularidade: GranularidadeSerie
+  data_snapshot_consumo?: string | null
+  total_itens_bravi: number
+  codigos_bravi: string[]
+  resumo?: {
+    estoque_atual?: number | null
+    pedidos_abertos?: number | null
+    faturamento_ytd_qtd?: number | null
+    faturamento_ytd_valor?: number | null
+    criticos?: number | null
+    excesso?: number | null
+  }
+  serie: BraviSeriePonto[]
+  debug?: Record<string, unknown>
+  backend_versao?: string
+}
+
+async function getBraviSerie(granularidade: GranularidadeSerie): Promise<BraviSerieResponse> {
+  const url = `${API_BASE}/aging-estoque/bravi/serie?granularidade=${granularidade}`
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Erro ao buscar série Bravi: ${response.status}`)
+  }
+  return response.json()
+}
+
 type BaseGestaoEstoque = {
   id: string
   titulo: string
@@ -385,8 +448,8 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         forecast: null,
         entradas_previstas: null,
         entradas_detalhe: [],
-        estoque_atual: Number(item.saldo || 0),
-        estoque_mais_pedidos: Number(item.estoque_mais_pedidos || 0),
+        estoque_atual: null,
+        estoque_mais_pedidos: null,
         saldo_projetado: null,
       })
     }
@@ -396,6 +459,12 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   for (let d = new Date(inicio); d <= fim; d.setMonth(d.getMonth() + 1)) {
     ensure(d.getFullYear(), d.getMonth() + 1)
   }
+
+  // Estoque atual é uma foto do momento atual.
+  // Por isso ele aparece apenas no mês corrente, e não repetido em todos os meses históricos/futuros.
+  const pontoAtual = ensure(hoje.getFullYear(), hoje.getMonth() + 1)
+  pontoAtual.estoque_atual = Number(item.saldo || 0)
+  pontoAtual.estoque_mais_pedidos = Number(item.estoque_mais_pedidos || 0)
 
   // Consumo histórico: só aparece nos meses que existem no histórico.
   // Não projetamos consumo para frente com zero, porque isso achata/distorce o gráfico.
@@ -652,6 +721,280 @@ function LinhaTempoTooltip({ active, payload, label }: any) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function BraviSerieTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+
+  const ponto = payload[0]?.payload || {}
+  const faturamento = Array.isArray(ponto.faturamento_detalhe) ? ponto.faturamento_detalhe : []
+  const pedidos = Array.isArray(ponto.pedidos_detalhe) ? ponto.pedidos_detalhe : []
+  const itensValidos = payload.filter((entry: any) => entry?.value !== null && entry?.value !== undefined)
+
+  return (
+    <div className="max-w-[380px] rounded-2xl border bg-white p-3 text-xs shadow-xl" style={{ borderColor: "var(--border)" }}>
+      <p className="mb-2 font-bold" style={{ color: "var(--text-primary)" }}>Período: {ponto.periodo_completo || label}</p>
+      <div className="space-y-1">
+        {itensValidos.map((entry: any) => {
+          const isValor = entry.dataKey === "faturamento_valor"
+          return (
+            <div key={`${entry.dataKey}-${entry.name}`} className="flex items-center justify-between gap-4">
+              <span className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: entry.color }} />
+                {entry.name}
+              </span>
+              <span className="font-bold" style={{ color: "var(--text-primary)" }}>{isValor ? fmtCurrency(Number(entry.value), 0) : fmtNumber(Number(entry.value), 0)}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      {faturamento.length > 0 && (
+        <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--border)" }}>
+          <p className="mb-1 font-bold" style={{ color: "var(--text-primary)" }}>Faturamento SD2</p>
+          <div className="max-h-[180px] space-y-1 overflow-auto pr-1">
+            {faturamento.slice(0, 8).map((linha: any, idx: number) => (
+              <div key={`${linha.codigo}-${linha.data}-${idx}`} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-2 py-1.5">
+                <span style={{ color: "var(--text-secondary)" }}>{linha.codigo || "—"}</span>
+                <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmtNumber(Number(linha.quantidade || 0), 0)}</span>
+                <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmtCurrency(Number(linha.valor || 0), 0)}</span>
+              </div>
+            ))}
+            {faturamento.length > 8 && <p style={{ color: "var(--text-secondary)" }}>+ {fmtNumber(faturamento.length - 8)} linha(s) de faturamento</p>}
+          </div>
+        </div>
+      )}
+
+      {pedidos.length > 0 && (
+        <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--border)" }}>
+          <p className="mb-1 font-bold" style={{ color: "var(--text-primary)" }}>Entradas previstas</p>
+          <div className="space-y-2">
+            {pedidos.slice(0, 5).map((pedido: any, idx: number) => (
+              <div key={`${pedido.pedido_numero}-${pedido.sc_numero}-${idx}`} className="rounded-xl bg-slate-50 p-2">
+                <div className="flex justify-between gap-3">
+                  <span style={{ color: "var(--text-secondary)" }}>{pedido.pedido_numero || pedido.sc_numero || "Pedido sem número"}</span>
+                  <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(Number(pedido.quantidade || pedido.quantidade_pendente || 0), 0)}</span>
+                </div>
+                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Entrega: {fmtDate(pedido.data_prevista_entrega)}</p>
+                {pedido.fornecedor && <p className="mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>Fornecedor: {pedido.fornecedor}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick: number }) {
+  const [granularidade, setGranularidade] = useState<GranularidadeSerie>("mensal")
+  const [data, setData] = useState<BraviSerieResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [seriesOcultas, setSeriesOcultas] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!active) return
+
+    let mounted = true
+    setLoading(true)
+    setError("")
+
+    getBraviSerie(granularidade)
+      .then((res) => {
+        if (!mounted) return
+        setData(res)
+      })
+      .catch((err: unknown) => {
+        if (!mounted) return
+        setError(err instanceof Error ? err.message : "Erro ao carregar série Bravi")
+      })
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
+
+    return () => { mounted = false }
+  }, [active, granularidade, refreshTick])
+
+  if (!active) return null
+
+  const toggleSerie = (dataKey?: string) => {
+    if (!dataKey) return
+    setSeriesOcultas((current) => {
+      const next = new Set(current)
+      if (next.has(dataKey)) next.delete(dataKey)
+      else next.add(dataKey)
+      return next
+    })
+  }
+
+  const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
+  const serie = data?.serie || []
+  const resumo = data?.resumo || {}
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex flex-col justify-between gap-3 border-b px-5 py-4 lg:flex-row lg:items-start" style={{ borderColor: "var(--border)" }}>
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Acompanhamento Bravi</p>
+          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Estoque e faturamento dos itens em transferência</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            Visão consolidada apenas dos SKUs marcados como Transferência Bravi. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {([
+            ["mensal", "Mensal"],
+            ["semanal", "Semanal"],
+            ["diaria", "Diária"],
+          ] as [GranularidadeSerie, string][]).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setGranularidade(key)}
+              className="rounded-xl border px-3 py-2 text-sm font-bold transition hover:bg-slate-50"
+              style={{
+                borderColor: granularidade === key ? "#163B63" : "var(--border)",
+                background: granularidade === key ? "rgba(22,59,99,0.08)" : "#FFFFFF",
+                color: granularidade === key ? "#163B63" : "var(--text-primary)",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+          {loading && (
+            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
+              <RefreshCw size={13} className="animate-spin" /> Atualizando
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4 p-5">
+        {error && <div className="rounded-2xl border px-4 py-3 text-sm text-red-600" style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)" }}>{error}</div>}
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          <KpiSmall label="Itens Bravi" value={fmtNumber(data?.total_itens_bravi || 0)} />
+          <KpiSmall label="Estoque atual" value={fmtCompact(resumo.estoque_atual)} />
+          <KpiSmall label="Pedidos" value={fmtCompact(resumo.pedidos_abertos)} />
+          <KpiSmall label="Fat. 2026 qtd" value={fmtCompact(resumo.faturamento_ytd_qtd)} />
+          <KpiSmall label="Fat. 2026 R$" value={fmtCurrency(Number(resumo.faturamento_ytd_valor || 0), 0)} />
+          <KpiSmall label="Críticos" value={fmtNumber(resumo.criticos || 0)} />
+        </div>
+
+        <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série Bravi</p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                Faturamento vem da SD2. Estoque vem dos snapshots diários disponíveis. Use a legenda para ligar/desligar séries.
+              </p>
+            </div>
+            <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
+              Transferência Bravi
+            </span>
+          </div>
+
+          <div className="h-[380px]">
+            {serie.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={serie} margin={{ top: 24, right: 26, left: 0, bottom: 54 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                  <XAxis
+                    dataKey="periodo"
+                    angle={-35}
+                    textAnchor="end"
+                    height={72}
+                    interval={granularidade === "diaria" ? "preserveStartEnd" : 0}
+                    tick={{ fontSize: 10, fill: "#64748B" }}
+                  />
+                  <YAxis
+                    yAxisId="estoque"
+                    orientation="left"
+                    tick={{ fontSize: 11, fill: "#64748B" }}
+                    width={80}
+                    label={{ value: "Estoque", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
+                  />
+                  <YAxis
+                    yAxisId="fluxo"
+                    orientation="right"
+                    tick={{ fontSize: 11, fill: "#64748B" }}
+                    width={80}
+                    label={{ value: "Faturamento qtd / entradas", angle: 90, position: "insideRight", style: { fill: "#64748B", fontSize: 11 } }}
+                  />
+                  <YAxis yAxisId="valor" hide />
+                  <Tooltip content={<BraviSerieTooltip />} />
+                  <Legend
+                    wrapperStyle={{ fontSize: 12, cursor: "pointer" }}
+                    onClick={(entry: any) => toggleSerie(String(entry?.dataKey || ""))}
+                  />
+
+                  <Bar
+                    yAxisId="fluxo"
+                    dataKey="faturamento_qtd"
+                    name="Faturamento SD2 (qtd)"
+                    fill="#0F766E"
+                    fillOpacity={0.28}
+                    stroke="#0F766E"
+                    radius={[6, 6, 0, 0]}
+                    hide={serieOculta("faturamento_qtd")}
+                  >
+                    <LabelList dataKey="faturamento_qtd" content={renderChartLabel} />
+                  </Bar>
+
+                  <Bar
+                    yAxisId="fluxo"
+                    dataKey="entradas_previstas"
+                    name="Entradas previstas"
+                    fill="#F59E0B"
+                    fillOpacity={0.22}
+                    stroke="#B45309"
+                    strokeDasharray="4 3"
+                    radius={[6, 6, 0, 0]}
+                    hide={serieOculta("entradas_previstas")}
+                  >
+                    <LabelList dataKey="entradas_previstas" content={renderChartLabel} />
+                  </Bar>
+
+                  <Line
+                    yAxisId="estoque"
+                    type="monotone"
+                    dataKey="estoque"
+                    name="Estoque disponível"
+                    stroke="#163B63"
+                    strokeWidth={3}
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                    hide={serieOculta("estoque")}
+                  >
+                    <LabelList dataKey="estoque" content={renderChartLabel} />
+                  </Line>
+
+                  <Line
+                    yAxisId="valor"
+                    type="monotone"
+                    dataKey="faturamento_valor"
+                    name="Faturamento SD2 (R$)"
+                    stroke="#9333EA"
+                    strokeWidth={2.5}
+                    strokeDasharray="6 4"
+                    dot={false}
+                    connectNulls={false}
+                    hide={serieOculta("faturamento_valor")}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
+                {loading ? "Carregando série Bravi..." : "Sem série disponível para os itens Bravi."}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1613,6 +1956,8 @@ export default function AgingEstoquePage() {
           </button>
         </div>
       )}
+
+      <BraviSeriePanel active={activeFilter?.transferencia_bravi === "Sim"} refreshTick={refreshTick} />
 
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
