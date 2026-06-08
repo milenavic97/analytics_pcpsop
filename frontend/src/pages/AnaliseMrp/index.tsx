@@ -41,6 +41,7 @@ const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly
 
 type GranularidadeSerie = "mensal" | "semanal" | "diaria"
 type EscopoEstoque = "produtos" | "insumos" | "todos"
+type SemaforoEstoque = "VERMELHO" | "AMARELO" | "VERDE" | "CINZA"
 
 const ESCOPO_ESTOQUE_OPTIONS: { key: EscopoEstoque; label: string; helper: string }[] = [
   {
@@ -179,6 +180,7 @@ function getAgingItensDireto(params: {
   status_portfolio?: string
   transferencia_bravi?: string
   classificacao_cadastro?: string
+  semaforo?: SemaforoEstoque
 }): Promise<AgingItensResponse> {
   return fetchJson<AgingItensResponse>("/aging-estoque/itens", {
     escopo: params.escopo,
@@ -310,33 +312,37 @@ type SortKey =
   | "demanda_mes_atual"
   | "consumo_mes_atual"
   | "previsto_vs_consumido_pct"
+  | "gap_volume"
+  | "consumo_durante_lt"
 
 type NumericColumnKind = "number" | "currency" | "days" | "months" | "percent"
 
-const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; digits?: number }[] = [
-  { key: "custo_unitario", label: "Custo unitário", kind: "currency", digits: 4 },
-  { key: "lead_time_dias", label: "Lead time", kind: "days" },
-  { key: "qtd_minima", label: "Qtd. mínima por pedido" },
-  { key: "saldo", label: "Estoque atual (volume)" },
-  { key: "saldo_quarentena", label: "Quarentena 98 (volume)" },
-  { key: "saldo_sb8_bruto", label: "Saldo bruto SB8" },
-  { key: "empenho_lote", label: "Empenho lote" },
-  { key: "estoque_atual_valor", label: "Estoque atual (R$)", kind: "currency" },
-  { key: "qtd_pedidos_abertos", label: "Pedido de compras (volume)" },
-  { key: "pedidos_abertos_valor", label: "Pedido de compras (R$)", kind: "currency" },
-  { key: "estoque_mais_pedidos", label: "Estoque + entradas (volume)" },
-  { key: "estoque_mais_pedidos_valor", label: "Estoque + entradas (R$)", kind: "currency" },
-  { key: "maior_media", label: "Média 3/6/9 (volume)" },
-  { key: "maior_media_valor", label: "Média 3/6/9 (R$)", kind: "currency" },
-  { key: "estoque_ideal", label: "Estoque ideal (volume)" },
-  { key: "estoque_ideal_valor", label: "Estoque ideal (R$)", kind: "currency" },
-  { key: "dias_em_estoque", label: "Dias em estoque", kind: "days" },
-  { key: "cobertura_meses_atual", label: "Cobertura meses estoque atual", kind: "months", digits: 1 },
-  { key: "cobertura_meses_futura", label: "Cobertura meses estoque + trânsito", kind: "months", digits: 1 },
-  { key: "cobertura_consumo_lt", label: "Cobertura estoque atual / consumo + LT", kind: "months", digits: 1 },
-  { key: "demanda_mes_atual", label: "Previsão demanda mês atual" },
-  { key: "consumo_mes_atual", label: "Consumido mês atual" },
-  { key: "previsto_vs_consumido_pct", label: "Previsão vs consumo mês atual", kind: "percent", digits: 0 },
+const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; digits?: number; group?: "estoque" | "politica" | "risco" | "financeiro" }[] = [
+  { key: "saldo", label: "Estoque atual", group: "estoque" },
+  { key: "saldo_quarentena", label: "Quarentena 98", group: "estoque" },
+  { key: "saldo_sb8_bruto", label: "Saldo bruto SB8", group: "estoque" },
+  { key: "empenho_lote", label: "Empenho lote", group: "estoque" },
+  { key: "qtd_pedidos_abertos", label: "Pedido compra", group: "estoque" },
+  { key: "estoque_mais_pedidos", label: "Estoque + entradas", group: "estoque" },
+  { key: "maior_media", label: "Maior média 3/6/9", group: "politica" },
+  { key: "lead_time_dias", label: "Lead time", kind: "days", group: "politica" },
+  { key: "qtd_minima", label: "MOQ / qtd. mínima", group: "politica" },
+  { key: "consumo_durante_lt", label: "Ponto pedido / Consumo LT", group: "politica" },
+  { key: "estoque_ideal", label: "Estoque ideal", group: "politica" },
+  { key: "gap_volume", label: "Gap", group: "risco" },
+  { key: "dias_em_estoque", label: "Dias estoque", kind: "days", group: "risco" },
+  { key: "cobertura_meses_atual", label: "Cob. atual", kind: "months", digits: 1, group: "risco" },
+  { key: "cobertura_meses_futura", label: "Cob. futura", kind: "months", digits: 1, group: "risco" },
+  { key: "cobertura_consumo_lt", label: "Cob. LT", kind: "months", digits: 1, group: "risco" },
+  { key: "demanda_mes_atual", label: "Demanda mês", group: "risco" },
+  { key: "consumo_mes_atual", label: "Consumido mês", group: "risco" },
+  { key: "previsto_vs_consumido_pct", label: "Consumo vs previsão", kind: "percent", digits: 0, group: "risco" },
+  { key: "custo_unitario", label: "Custo unitário", kind: "currency", digits: 4, group: "financeiro" },
+  { key: "estoque_atual_valor", label: "Estoque R$", kind: "currency", group: "financeiro" },
+  { key: "pedidos_abertos_valor", label: "Pedidos R$", kind: "currency", group: "financeiro" },
+  { key: "estoque_mais_pedidos_valor", label: "Estoque + entradas R$", kind: "currency", group: "financeiro" },
+  { key: "maior_media_valor", label: "Média R$", kind: "currency", group: "financeiro" },
+  { key: "estoque_ideal_valor", label: "Ideal R$", kind: "currency", group: "financeiro" },
 ]
 
 
@@ -349,6 +355,7 @@ type FiltroTabelaEstoque = {
   status_portfolio?: string
   transferencia_bravi?: string
   classificacao_cadastro?: string
+  semaforo?: SemaforoEstoque
 }
 
 const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
@@ -361,6 +368,7 @@ const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
     filtro.status_portfolio || "",
     filtro.transferencia_bravi || "",
     filtro.classificacao_cadastro || "",
+    filtro.semaforo || "",
   ].join("|")
 }
 
@@ -640,6 +648,8 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         estoque_mais_pedidos: null,
         estoque_quarentena: null,
         quarentena: null,
+        saldo_grafico: null,
+        ponto_pedido: null,
         saldo_projetado: null,
       })
     }
@@ -657,6 +667,22 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   pontoAtual.estoque_mais_pedidos = Number(item.estoque_mais_pedidos || 0)
   pontoAtual.estoque_quarentena = getAnyNumber(item as Record<string, unknown>, "saldo_quarentena") || getAnyNumber(item as Record<string, unknown>, "quarentena")
   pontoAtual.quarentena = pontoAtual.estoque_quarentena
+  pontoAtual.saldo_grafico = Number(item.saldo || 0)
+  pontoAtual.ponto_pedido = Number(item.consumo_durante_lt || 0) || null
+
+  // Estoque médio mensal: quando existir, ajuda a replicar o aging histórico sem repetir o saldo atual em todos os meses.
+  for (const p of item.comparativo_mensal || []) {
+    const ano = Number(p.ano || 0)
+    const mes = Number(p.mes || 0)
+    if (!ano || !mes) continue
+    const keyDate = new Date(ano, mes - 1, 1)
+    if (keyDate < inicio || keyDate > fim) continue
+    const estoqueMedio = Number(p.estoque_medio || 0)
+    if (estoqueMedio <= 0) continue
+    const ponto = ensure(ano, mes)
+    ponto.saldo_grafico = estoqueMedio
+    ponto.estoque_atual = estoqueMedio
+  }
 
   // Consumo histórico: só aparece nos meses que existem no histórico.
   // Não projetamos consumo para frente com zero, porque isso achata/distorce o gráfico.
@@ -720,14 +746,166 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
       const key = monthKey(p.ano, p.mes)
 
       if (key >= chaveAtual) {
-        saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - Number(p.demanda || 0)
+        const demanda = Number(p.demanda || 0)
+        p.ponto_pedido = calcularPontoPedidoMensal(item, p.ano, p.mes, demanda)
+        saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - demanda
         p.saldo_projetado = saldoProjetado
+        p.saldo_grafico = p.saldo_grafico ?? saldoProjetado
       } else {
+        p.ponto_pedido = p.ponto_pedido ?? Number(item.consumo_durante_lt || 0) || null
         p.saldo_projetado = null
       }
 
       return p
     })
+}
+
+
+const SEMAFORO_LABEL: Record<SemaforoEstoque, string> = {
+  VERMELHO: "Crítico",
+  AMARELO: "Atenção",
+  VERDE: "Ok",
+  CINZA: "Sem referência",
+}
+
+const SEMAFORO_STYLE: Record<SemaforoEstoque, { bg: string; color: string; border: string; dot: string }> = {
+  VERMELHO: { bg: "rgba(220,38,38,0.08)", color: "#B91C1C", border: "rgba(220,38,38,0.24)", dot: "#DC2626" },
+  AMARELO: { bg: "rgba(245,158,11,0.12)", color: "#B45309", border: "rgba(245,158,11,0.28)", dot: "#F59E0B" },
+  VERDE: { bg: "rgba(22,163,74,0.08)", color: "#15803D", border: "rgba(22,163,74,0.24)", dot: "#16A34A" },
+  CINZA: { bg: "rgba(100,116,139,0.10)", color: "#475569", border: "rgba(100,116,139,0.24)", dot: "#94A3B8" },
+}
+
+function calcularSemaforoEstoque(item: AgingEstoqueItem | null | undefined): SemaforoEstoque {
+  if (!item) return "CINZA"
+
+  const status = String((item as AgingEstoqueItem & Record<string, unknown>).status_estoque || item.status || "").toUpperCase()
+  const saldo = getNum(item, "saldo")
+  const estoqueComEntradas = getNum(item, "estoque_mais_pedidos") || saldo
+  const pontoPedido = getNum(item, "consumo_durante_lt")
+  const estoqueIdeal = getNum(item, "estoque_ideal")
+  const demanda = getNum(item, "demanda_mes_atual")
+  const maiorMedia = getNum(item, "maior_media")
+  const coberturaLt = getNum(item, "cobertura_consumo_lt")
+
+  if (status === "RUPTURA" || saldo <= 0) return "VERMELHO"
+  if (status === "CRITICO") return "VERMELHO"
+  if (pontoPedido > 0 && estoqueComEntradas < pontoPedido) return "VERMELHO"
+  if (demanda <= 0 && maiorMedia <= 0 && pontoPedido <= 0) return "CINZA"
+  if (status === "EXCESSO" || status === "SAUDAVEL") return "VERDE"
+  if (estoqueIdeal > 0 && estoqueComEntradas < estoqueIdeal) return "AMARELO"
+  if (coberturaLt > 0 && coberturaLt < 1.2) return "AMARELO"
+
+  return "VERDE"
+}
+
+function SemaforoBadge({ item }: { item: AgingEstoqueItem }) {
+  const semaforo = calcularSemaforoEstoque(item)
+  const style = SEMAFORO_STYLE[semaforo]
+  const pontoPedido = getNum(item, "consumo_durante_lt")
+  const estoqueComEntradas = getNum(item, "estoque_mais_pedidos") || getNum(item, "saldo")
+  const title = `Semáforo: ${SEMAFORO_LABEL[semaforo]} | Estoque + entradas: ${fmtNumber(estoqueComEntradas, 0)} | Ponto de pedido: ${fmtNumber(pontoPedido, 0)}`
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold"
+      style={{ background: style.bg, color: style.color, borderColor: style.border }}
+      title={title}
+    >
+      <span className="h-2 w-2 rounded-full" style={{ background: style.dot }} />
+      {SEMAFORO_LABEL[semaforo]}
+    </span>
+  )
+}
+
+function daysInMonth(ano: number, mes: number) {
+  if (!ano || !mes) return 30
+  return new Date(ano, mes, 0).getDate()
+}
+
+function calcularPontoPedidoMensal(item: AgingEstoqueItemDetalhe | null, ano: number, mes: number, demanda: number | null | undefined) {
+  const consumoLt = Number(item?.consumo_durante_lt || 0)
+  const leadTime = Number(item?.lead_time_dias || 0)
+  const demandaMes = Number(demanda || 0)
+
+  if (demandaMes > 0 && leadTime > 0) {
+    return (demandaMes / daysInMonth(ano, mes)) * leadTime
+  }
+
+  return consumoLt > 0 ? consumoLt : null
+}
+
+function normalizarSaldoDiario(ponto: Record<string, unknown>) {
+  const saldoNormal = Number(ponto.saldo_normal ?? ponto.saldo ?? 0)
+  const quarentena = Number(ponto.saldo_quarentena ?? ponto.quarentena ?? 0)
+  return { saldoNormal, quarentena }
+}
+
+function weekStart(date: Date) {
+  const d = new Date(date)
+  const day = d.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  d.setDate(d.getDate() + diff)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function buildLinhaTempoDiaria(item: AgingEstoqueItemDetalhe | null) {
+  const base = item?.historico_sb8_diario || []
+  if (!item || !base.length) return []
+  const pontoPedido = Number(item.consumo_durante_lt || 0) || null
+
+  return [...base]
+    .sort((a, b) => String(a.data).localeCompare(String(b.data)))
+    .map((p) => {
+      const { saldoNormal, quarentena } = normalizarSaldoDiario(p as unknown as Record<string, unknown>)
+      return {
+        ano: Number(String(p.data).slice(0, 4)),
+        mes: Number(String(p.data).slice(5, 7)),
+        periodo: String(p.data).slice(8, 10) + "/" + String(p.data).slice(5, 7),
+        periodo_completo: fmtDate(p.data),
+        saldo_grafico: saldoNormal,
+        estoque_atual: saldoNormal,
+        estoque_quarentena: quarentena,
+        quarentena,
+        entradas_previstas: null,
+        consumo: null,
+        demanda: null,
+        ponto_pedido: pontoPedido,
+        saldo_projetado: null,
+      }
+    })
+}
+
+function buildLinhaTempoSemanal(item: AgingEstoqueItemDetalhe | null) {
+  const base = item?.historico_sb8_diario || []
+  if (!item || !base.length) return []
+  const grupos = new Map<string, any>()
+  const pontoPedido = Number(item.consumo_durante_lt || 0) || null
+
+  for (const p of base) {
+    const d = new Date(`${String(p.data).slice(0, 10)}T00:00:00`)
+    if (Number.isNaN(d.getTime())) continue
+    const inicio = weekStart(d)
+    const key = inicio.toISOString().slice(0, 10)
+    const { saldoNormal, quarentena } = normalizarSaldoDiario(p as unknown as Record<string, unknown>)
+    grupos.set(key, {
+      ano: inicio.getFullYear(),
+      mes: inicio.getMonth() + 1,
+      periodo: `Sem. ${String(inicio.getDate()).padStart(2, "0")}/${String(inicio.getMonth() + 1).padStart(2, "0")}`,
+      periodo_completo: `Semana de ${fmtDate(key)}`,
+      saldo_grafico: saldoNormal,
+      estoque_atual: saldoNormal,
+      estoque_quarentena: quarentena,
+      quarentena,
+      entradas_previstas: null,
+      consumo: null,
+      demanda: null,
+      ponto_pedido: pontoPedido,
+      saldo_projetado: null,
+    })
+  }
+
+  return Array.from(grupos.values()).sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes) || String(a.periodo).localeCompare(String(b.periodo)))
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -1252,6 +1430,7 @@ function FiltrosEstoquePanel({
   const statusPortfolioOptions = ["TODOS", ...(opcoes?.status_portfolio || [])]
   const braviOptions = ["TODOS", "Sim", "Não"]
   const classificacaoOptions = ["TODOS", "MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS"]
+  const semaforoOptions: ("TODOS" | SemaforoEstoque)[] = ["TODOS", "VERMELHO", "AMARELO", "VERDE", "CINZA"]
 
   const selectClass = "h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
   const labelClass = "mb-1 block text-[10px] font-bold uppercase tracking-wide"
@@ -1277,7 +1456,7 @@ function FiltrosEstoquePanel({
       </div>
 
       <div
-        className="grid grid-cols-1 items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(320px,2.2fr)_minmax(130px,0.9fr)_minmax(170px,1fr)_minmax(170px,1fr)_minmax(110px,0.75fr)_minmax(150px,0.9fr)]"
+        className="grid grid-cols-1 items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(300px,2.1fr)_minmax(120px,0.8fr)_minmax(150px,0.9fr)_minmax(150px,0.9fr)_minmax(150px,0.9fr)_minmax(100px,0.7fr)_minmax(140px,0.85fr)]"
         style={{ borderColor: "var(--border)" }}
       >
         <label>
@@ -1312,6 +1491,18 @@ function FiltrosEstoquePanel({
             style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
           >
             {statusOptions.map((opcao) => <option key={opcao} value={opcao}>{STATUS_LABEL[opcao] || opcao}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Semáforo</span>
+          <select
+            value={filtro?.semaforo || "TODOS"}
+            onChange={(e) => onChange("semaforo", e.target.value === "TODOS" ? undefined : e.target.value as SemaforoEstoque)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            {semaforoOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : SEMAFORO_LABEL[opcao]}</option>)}
           </select>
         </label>
 
@@ -1714,7 +1905,13 @@ function TimelinePrincipal({
   // Motivo: alguns backends antigos devolvem linha_tempo_estoque sem consumo,
   // enquanto historico_consumo vem correto. Para o gráfico operacional,
   // a fonte mais confiável do consumo mensal é sempre historico_consumo.
-  const linhaTempo = buildLinhaTempoFallback(item, horizonteFuturo)
+  const linhaTempoMensal = buildLinhaTempoFallback(item, horizonteFuturo)
+  const [granularidadeTimeline, setGranularidadeTimeline] = useState<GranularidadeSerie>("mensal")
+  const linhaTempo = granularidadeTimeline === "diaria"
+    ? buildLinhaTempoDiaria(item)
+    : granularidadeTimeline === "semanal"
+      ? buildLinhaTempoSemanal(item)
+      : linhaTempoMensal
   const pedidos = item?.pedidos || []
   const [seriesOcultas, setSeriesOcultas] = useState<Set<string>>(new Set())
   const toggleSerie = (dataKey?: string) => {
@@ -1728,9 +1925,10 @@ function TimelinePrincipal({
   }
   const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
   const anoAtual = new Date().getFullYear()
-  const consumoAnoAtual = linhaTempo
+  const consumoAnoAtual = linhaTempoMensal
     .filter((p) => Number(p.ano) === anoAtual)
     .reduce((acc, p) => acc + Number(p.consumo || 0), 0)
+  const pontoPedidoAtual = Number(item?.consumo_durante_lt || 0) || 0
 
   return (
     <div className="card overflow-hidden">
@@ -1741,12 +1939,25 @@ function TimelinePrincipal({
             {item ? `${item.codigo} · ${item.produto || "Item selecionado"}` : "Selecione um item na tabela"}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            Consumo histórico, demanda via forecast/BOM, compras previstas, estoque atual e saldo projetado.
+            Consumo histórico, demanda MPS/BOM, compras previstas, estoque disponível, quarentena e ponto de pedido.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {item && <StatusBadge status={item.status_estoque || item.status} />}
+          <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+            Visão
+            <select
+              value={granularidadeTimeline}
+              onChange={(event) => setGranularidadeTimeline(event.target.value as GranularidadeSerie)}
+              className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold normal-case tracking-normal"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              <option value="mensal">Mensal</option>
+              <option value="semanal">Semanal</option>
+              <option value="diaria">Diária</option>
+            </select>
+          </label>
           <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
             Horizonte futuro
             <select
@@ -1776,6 +1987,7 @@ function TimelinePrincipal({
             <KpiSmall label="Pedidos" value={fmtCompact(item.qtd_pedidos_abertos)} />
             <KpiSmall label="Estoque + pedidos" value={fmtCompact(item.estoque_mais_pedidos)} />
             <KpiSmall label="Maior média" value={fmtCompact(item.maior_media)} />
+            <KpiSmall label="Ponto pedido" value={fmtCompact(pontoPedidoAtual)} />
             <KpiSmall label={`Consumo ${anoAtual}`} value={fmtCompact(consumoAnoAtual)} />
             <KpiSmall label="Gap" value={fmtCompact(item.gap_volume)} />
           </div>
@@ -1783,9 +1995,9 @@ function TimelinePrincipal({
           <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Evolução mensal</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{granularidadeTimeline === "mensal" ? "Evolução mensal" : granularidadeTimeline === "semanal" ? "Evolução semanal" : "Evolução diária"}</p>
                 <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                  Histórico desde 2025 e projeção de {horizonteFuturo} meses à frente. Consumo aparece só até o último mês realizado; demanda e entradas aparecem só no horizonte futuro.
+                  Na visão mensal, a demanda vem do MPS V1 / L1 + L2 explodido via BOM. Na visão semanal/diária, o foco é acompanhar o saldo disponível do insumo.
                 </p>
               </div>
               {loading && (
@@ -1823,32 +2035,37 @@ function TimelinePrincipal({
 
                     <Bar
                       yAxisId="estoque"
-                      dataKey="estoque_atual"
-                      name="Estoque atual"
+                      dataKey="saldo_grafico"
+                      name="Saldo disponível/projetado"
+                      stackId="estoque"
                       fill="#163B63"
-                      fillOpacity={0.16}
+                      fillOpacity={0.22}
                       stroke="#163B63"
-                      strokeOpacity={0.35}
+                      strokeOpacity={0.45}
                       radius={[6, 6, 0, 0]}
-                      hide={serieOculta("estoque_atual")}
-                    />
+                      hide={serieOculta("saldo_grafico")}
+                    >
+                      <LabelList dataKey="saldo_grafico" content={renderChartLabel} />
+                    </Bar>
                     <Bar
                       yAxisId="estoque"
                       dataKey="estoque_quarentena"
                       name="Quarentena 98"
+                      stackId="estoque"
                       fill="#F59E0B"
-                      fillOpacity={0.18}
+                      fillOpacity={0.28}
                       stroke="#B45309"
                       radius={[6, 6, 0, 0]}
                       hide={serieOculta("estoque_quarentena")}
                     />
                     <Bar
-                      yAxisId="fluxo"
+                      yAxisId="estoque"
                       dataKey="entradas_previstas"
                       name="Entradas previstas"
-                      fill="#F59E0B"
-                      fillOpacity={0.22}
-                      stroke="#B45309"
+                      stackId="estoque"
+                      fill="#F97316"
+                      fillOpacity={0.24}
+                      stroke="#C2410C"
                       strokeDasharray="4 3"
                       radius={[6, 6, 0, 0]}
                       hide={serieOculta("entradas_previstas")}
@@ -1859,13 +2076,13 @@ function TimelinePrincipal({
                     <Line yAxisId="fluxo" type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls hide={serieOculta("consumo")}>
                       <LabelList dataKey="consumo" content={renderChartLabel} />
                     </Line>
-                    <Line yAxisId="fluxo" type="monotone" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls hide={serieOculta("demanda")}>
+                    <Line yAxisId="fluxo" type="monotone" dataKey="demanda" name="Demanda MPS/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls hide={serieOculta("demanda")}>
                       <LabelList dataKey="demanda" content={renderChartLabel} />
                     </Line>
-                    <Line yAxisId="estoque" type="monotone" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls hide={serieOculta("estoque_mais_pedidos")}>
-                      <LabelList dataKey="estoque_mais_pedidos" content={renderChartLabel} />
+                    <Line yAxisId="estoque" type="monotone" dataKey="ponto_pedido" name="Ponto de pedido" stroke="#D97706" strokeWidth={2.4} strokeDasharray="3 5" dot={false} connectNulls hide={serieOculta("ponto_pedido")}>
+                      <LabelList dataKey="ponto_pedido" content={renderChartLabel} />
                     </Line>
-                    <Line yAxisId="estoque" type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.8} dot={{ r: 2 }} connectNulls hide={serieOculta("saldo_projetado")}>
+                    <Line yAxisId="estoque" type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.6} dot={{ r: 2 }} connectNulls hide={serieOculta("saldo_projetado")}>
                       <LabelList dataKey="saldo_projetado" content={renderChartLabel} />
                     </Line>
                   </ComposedChart>
@@ -1936,7 +2153,7 @@ function limparValorFiltro(value?: string) {
 
 function filtroVazio(filtro: FiltroTabelaEstoque | null) {
   if (!filtro) return true
-  return !filtro.busca && !filtro.status && !filtro.tipo_negocio && !filtro.status_portfolio && !filtro.transferencia_bravi && !filtro.classificacao_cadastro
+  return !filtro.busca && !filtro.status && !filtro.tipo_negocio && !filtro.status_portfolio && !filtro.transferencia_bravi && !filtro.classificacao_cadastro && !filtro.semaforo
 }
 
 function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
@@ -1952,6 +2169,7 @@ function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
   if (filtro.classificacao_cadastro === "NAO_CLASSIFICADOS") partes.push("Não classificados")
   else if (filtro.classificacao_cadastro === "MAPEADOS") partes.push("Mapeados")
   else if (filtro.classificacao_cadastro) partes.push(`Classificação: ${filtro.classificacao_cadastro}`)
+  if (filtro.semaforo) partes.push(`Semáforo: ${SEMAFORO_LABEL[filtro.semaforo] || filtro.semaforo}`)
 
   return partes.length ? partes.join(" · ") : "Filtro personalizado"
 }
@@ -2158,11 +2376,15 @@ export default function AgingEstoquePage() {
 
   // O backend ordena a base inteira; esta ordenação local garante resposta visual imediata na página carregada.
   const itensOrdenados = useMemo(() => {
-    if (!sortKey) return itens
+    const base = activeFilter?.semaforo
+      ? itens.filter((item) => calcularSemaforoEstoque(item) === activeFilter.semaforo)
+      : itens
+
+    if (!sortKey) return base
 
     const direction = sortDirection === "asc" ? 1 : -1
 
-    return [...itens].sort((a, b) => {
+    return [...base].sort((a, b) => {
       const aValue = getNum(a, sortKey)
       const bValue = getNum(b, sortKey)
 
@@ -2172,7 +2394,7 @@ export default function AgingEstoquePage() {
 
       return (aValue - bValue) * direction
     })
-  }, [itens, sortKey, sortDirection])
+  }, [itens, sortKey, sortDirection, activeFilter?.semaforo])
 
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
   const negociosClassificados = useMemo(
@@ -2197,14 +2419,21 @@ export default function AgingEstoquePage() {
 
   const exportCsv = () => {
     const header = [
-      "codigo", "produto", "curva_a", "tipo", "unid", "segmento", "mercado",
+      "codigo", "produto", "semaforo", "curva_a", "tipo", "unid", "segmento", "mercado",
       "custo_unitario", "lead_time_dias", "qtd_minima", "saldo", "saldo_quarentena", "saldo_sb8_bruto", "empenho_lote", "saldo_origem", "data_saldo_origem", "estoque_atual_valor",
       "qtd_pedidos_abertos", "pedidos_abertos_valor", "estoque_mais_pedidos", "estoque_mais_pedidos_valor",
       "maior_media", "maior_media_valor", "estoque_ideal", "estoque_ideal_valor", "dias_em_estoque",
       "cobertura_meses_atual", "cobertura_meses_futura", "cobertura_consumo_lt",
       "demanda_mes_atual", "consumo_mes_atual", "previsto_vs_consumido_pct",
     ]
-    const csv = [header.join(";"), ...itens.map((r) => header.map((h) => String((r as any)[h] ?? "").replace(/;/g, ",")).join(";"))].join("\n")
+    const csv = [
+      header.join(";"),
+      ...itensOrdenados.map((r) =>
+        header
+          .map((h) => String(h === "semaforo" ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)] : ((r as any)[h] ?? "")).replace(/;/g, ","))
+          .join(";")
+      ),
+    ].join("\n")
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -2239,7 +2468,7 @@ export default function AgingEstoquePage() {
           >
             <RefreshCw size={16} /> Atualizar
           </button>
-          <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} disabled={!itens.length}>
+          <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} disabled={!itensOrdenados.length}>
             <Download size={16} /> Exportar CSV
           </button>
         </div>
@@ -2497,12 +2726,13 @@ export default function AgingEstoquePage() {
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
         </div>
 
-        <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
-          <table className="w-full min-w-[3650px] text-sm">
+        <div className="overflow-auto scrollbar-thin scrollbar-thumb-slate-400 scrollbar-track-slate-100" style={{ maxHeight: "calc(100vh - 300px)", scrollbarGutter: "stable" }}>
+          <table className="w-full min-w-[3300px] border-separate border-spacing-0 text-sm">
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
-                <th className="px-4 py-3">Código</th>
-                <th className="px-4 py-3">Descrição</th>
+                <th className="sticky left-0 z-30 min-w-[90px] px-4 py-3" style={{ background: "#163B63" }}>Código</th>
+                <th className="sticky left-[90px] z-30 min-w-[260px] px-4 py-3" style={{ background: "#163B63" }}>Descrição</th>
+                <th className="px-4 py-3">Semáforo</th>
                 <th className="px-4 py-3">Curva A</th>
                 <th className="px-4 py-3">Tipo</th>
                 <th className="px-4 py-3">UM</th>
@@ -2528,10 +2758,19 @@ export default function AgingEstoquePage() {
                     }}
                     onClick={() => abrirDetalhe(item)}
                   >
-                    <td className="px-4 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo}</td>
-                    <td className="px-4 py-3">
-                      <div className="max-w-[320px] truncate font-medium" style={{ color: "var(--text-primary)" }}>{item.produto || "—"}</div>
+                    <td
+                      className="sticky left-0 z-10 min-w-[90px] border-r px-4 py-3 font-bold"
+                      style={{ color: "var(--text-primary)", borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "#EFF6FF" : "#FFFFFF" }}
+                    >
+                      {item.codigo}
                     </td>
+                    <td
+                      className="sticky left-[90px] z-10 min-w-[260px] border-r px-4 py-3"
+                      style={{ borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "#EFF6FF" : "#FFFFFF" }}
+                    >
+                      <div className="max-w-[240px] truncate font-medium" style={{ color: "var(--text-primary)" }} title={item.produto || ""}>{item.produto || "—"}</div>
+                    </td>
+                    <td className="px-4 py-3"><SemaforoBadge item={item} /></td>
                     <td className="px-4 py-3">{String(itemEx.curva_a || item.abc_ytm || "—")}</td>
                     <td className="px-4 py-3">{item.tipo || item.tipo_produto_erp || "—"}</td>
                     <td className="px-4 py-3">{item.unid || "—"}</td>
@@ -2560,12 +2799,12 @@ export default function AgingEstoquePage() {
               })}
             </tbody>
           </table>
-          {!loadingItens && !itens.length && <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item encontrado na base atual.</div>}
+          {!loadingItens && !itensOrdenados.length && <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item encontrado na base atual.</div>}
           {loadingItens && <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Carregando itens...</div>}
         </div>
 
         <div className="flex items-center justify-between border-t px-5 py-4" style={{ borderColor: "var(--border)" }}>
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Exibindo {fmtNumber(itens.length)} de {fmtNumber(itensResp?.total || 0)} itens</p>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Exibindo {fmtNumber(itensOrdenados.length)} de {fmtNumber(itensResp?.total || 0)} itens</p>
           <div className="flex gap-2">
             <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loadingItens} className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Anterior</button>
             <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages || loadingItens} className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Próxima</button>
