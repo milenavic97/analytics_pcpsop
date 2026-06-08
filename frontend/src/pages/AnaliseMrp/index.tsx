@@ -671,19 +671,8 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   pontoAtual.saldo_grafico = Number(item.saldo || 0)
   pontoAtual.ponto_pedido = Number(item.consumo_durante_lt || 0) || null
 
-  // Estoque médio mensal: quando existir, ajuda a replicar o aging histórico sem repetir o saldo atual em todos os meses.
-  for (const p of item.comparativo_mensal || []) {
-    const ano = Number(p.ano || 0)
-    const mes = Number(p.mes || 0)
-    if (!ano || !mes) continue
-    const keyDate = new Date(ano, mes - 1, 1)
-    if (keyDate < inicio || keyDate > fim) continue
-    const estoqueMedio = Number(p.estoque_medio || 0)
-    if (estoqueMedio <= 0) continue
-    const ponto = ensure(ano, mes)
-    ponto.saldo_grafico = estoqueMedio
-    ponto.estoque_atual = estoqueMedio
-  }
+  // Saldo é uma foto atual. No gráfico mensal, ele só deve aparecer do mês atual para frente.
+  // Não usamos estoque médio/fechamento histórico aqui para não dar a impressão de que o saldo atual existia nos meses fechados.
 
   // Consumo histórico: só aparece nos meses que existem no histórico.
   // Não projetamos consumo para frente com zero, porque isso achata/distorce o gráfico.
@@ -823,15 +812,11 @@ function daysInMonth(ano: number, mes: number) {
   return new Date(ano, mes, 0).getDate()
 }
 
-function calcularPontoPedidoMensal(item: AgingEstoqueItemDetalhe | null, ano: number, mes: number, demanda: number | null | undefined) {
+function calcularPontoPedidoMensal(item: AgingEstoqueItemDetalhe | null, _ano: number, _mes: number, _demanda: number | null | undefined) {
+  // Ponto de pedido operacional fixo:
+  // quando o saldo disponível/projetado cair abaixo do consumo durante o lead time,
+  // a compra deve ser acionada.
   const consumoLt = Number(item?.consumo_durante_lt || 0)
-  const leadTime = Number(item?.lead_time_dias || 0)
-  const demandaMes = Number(demanda || 0)
-
-  if (demandaMes > 0 && leadTime > 0) {
-    return (demandaMes / daysInMonth(ano, mes)) * leadTime
-  }
-
   return consumoLt > 0 ? consumoLt : null
 }
 
