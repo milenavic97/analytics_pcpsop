@@ -18,6 +18,7 @@ import {
 import {
   Bar,
   BarChart,
+  Cell,
   CartesianGrid,
   ComposedChart,
   LabelList,
@@ -752,7 +753,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         p.saldo_projetado = saldoProjetado
         p.saldo_grafico = p.saldo_grafico ?? saldoProjetado
       } else {
-        p.ponto_pedido = (p.ponto_pedido ?? Number(item.consumo_durante_lt || 0)) || null
+        p.ponto_pedido = p.ponto_pedido ?? Number(item.consumo_durante_lt || 0) || null
         p.saldo_projetado = null
       }
 
@@ -1057,9 +1058,31 @@ function ChartBox({ title, subtitle, children }: { title: string; subtitle?: str
 
 
 function renderChartLabel(props: any) {
-  const { x, y, value } = props
+  const { x, y, width, height, value } = props
   const n = Number(value || 0)
   if (!Number.isFinite(n) || n === 0 || x == null || y == null) return null
+
+  const hasBarBox = typeof width === "number" && typeof height === "number"
+
+  if (hasBarBox) {
+    const cx = Number(x) + Number(width) / 2
+    const cy = Number(y) + Number(height) / 2
+    const isNegative = n < 0
+
+    return (
+      <text
+        x={cx}
+        y={cy}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize={10}
+        fontWeight={700}
+        fill={isNegative ? "#991B1B" : "#334155"}
+      >
+        {fmtCompact(n)}
+      </text>
+    )
+  }
 
   return (
     <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={700} fill="#334155">
@@ -2038,13 +2061,21 @@ function TimelinePrincipal({
                       dataKey="saldo_grafico"
                       name="Saldo disponível/projetado"
                       stackId="estoque"
-                      fill="#163B63"
-                      fillOpacity={0.22}
-                      stroke="#163B63"
-                      strokeOpacity={0.45}
                       radius={[6, 6, 0, 0]}
                       hide={serieOculta("saldo_grafico")}
                     >
+                      {linhaTempo.map((entry, idx) => {
+                        const saldo = Number(entry?.saldo_grafico || 0)
+                        const negativo = saldo < 0
+                        return (
+                          <Cell
+                            key={`saldo-${idx}`}
+                            fill={negativo ? "rgba(248, 113, 113, 0.28)" : "rgba(22, 59, 99, 0.22)"}
+                            stroke={negativo ? "#FCA5A5" : "#163B63"}
+                            strokeOpacity={negativo ? 1 : 0.45}
+                          />
+                        )
+                      })}
                       <LabelList dataKey="saldo_grafico" content={renderChartLabel} />
                     </Bar>
                     <Bar
@@ -2081,9 +2112,6 @@ function TimelinePrincipal({
                     </Line>
                     <Line yAxisId="estoque" type="monotone" dataKey="ponto_pedido" name="Ponto de pedido" stroke="#D97706" strokeWidth={2.4} strokeDasharray="3 5" dot={false} connectNulls hide={serieOculta("ponto_pedido")}>
                       <LabelList dataKey="ponto_pedido" content={renderChartLabel} />
-                    </Line>
-                    <Line yAxisId="estoque" type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.6} dot={{ r: 2 }} connectNulls hide={serieOculta("saldo_projetado")}>
-                      <LabelList dataKey="saldo_projetado" content={renderChartLabel} />
                     </Line>
                   </ComposedChart>
                 </ResponsiveContainer>
