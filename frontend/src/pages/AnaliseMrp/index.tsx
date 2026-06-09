@@ -38,7 +38,6 @@ import {
 } from "@/services/api"
 
 const PAGE_SIZE = 10
-const TABLE_FETCH_SIZE = 1000
 
 const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
 
@@ -964,44 +963,36 @@ function calcularSemaforoEstoque(item: AgingEstoqueItem | null | undefined): Sem
   if (!item) return "CINZA"
 
   const raw = item as AgingEstoqueItem & Record<string, unknown>
+  const statusVisualBackend = String(raw.status_visual || "").toUpperCase()
+  if (["VERMELHO", "AMARELO", "VERDE", "CINZA"].includes(statusVisualBackend)) {
+    return statusVisualBackend as SemaforoEstoque
+  }
+
   const status = String(raw.status_estoque || item.status || "").toUpperCase()
+  const tipo = String(item.tipo || raw.tipo_produto_erp || "").toUpperCase()
 
   const saldoReal = getEstoqueAtualReal(item)
-  const pedidosAbertos = getPedidosAbertos(item)
-  const estoqueComEntradas = saldoReal + pedidosAbertos
-
-  const pontoPedido = getNum(item, "consumo_durante_lt")
-  const estoqueIdeal = getNum(item, "estoque_ideal")
+  const estoqueComEntradas = saldoReal + getPedidosAbertos(item)
   const demanda = getNum(item, "demanda_mes_atual")
-  const maiorMedia = getNum(item, "maior_media")
   const consumoMes = getNum(item, "consumo_mes_atual")
-  const faturamentoYtd = getNum(item, "faturamento_ytd_qtd")
   const coberturaLt = getNum(item, "cobertura_consumo_lt")
 
-  // Regra principal:
+  // Regra revisada:
   // estoque zero sozinho não é crítico.
-  // Só vira crítico quando existe alguma referência de necessidade:
-  // demanda/forecast, venda/consumo, média histórica, ponto de pedido ou política.
-  const temNecessidade =
-    demanda > 0 ||
-    consumoMes > 0 ||
-    maiorMedia > 0 ||
-    faturamentoYtd > 0 ||
-    pontoPedido > 0 ||
-    estoqueIdeal > 0
+  // PA/MR precisa ter forecast/demanda.
+  // Insumo precisa ter demanda BOM/MPS ou consumo no mês.
+  const temNecessidade = tipo === "PA" || tipo === "MR"
+    ? demanda > 0
+    : demanda > 0 || consumoMes > 0
 
-  if (!temNecessidade) {
-    if (status === "EXCESSO" && saldoReal > 0) return "VERDE"
-    return "CINZA"
-  }
+  if (!temNecessidade) return "CINZA"
 
   if (status === "RUPTURA" || status === "CRITICO") return "VERMELHO"
   if (saldoReal <= 0) return "VERMELHO"
-  if (pontoPedido > 0 && estoqueComEntradas < pontoPedido) return "VERMELHO"
   if (demanda > 0 && estoqueComEntradas < demanda) return "VERMELHO"
+  if (consumoMes > 0 && estoqueComEntradas < consumoMes) return "VERMELHO"
 
   if (status === "EXCESSO" || status === "SAUDAVEL") return "VERDE"
-  if (estoqueIdeal > 0 && estoqueComEntradas < estoqueIdeal) return "AMARELO"
   if (coberturaLt > 0 && coberturaLt < 1.2) return "AMARELO"
 
   return "VERDE"
@@ -1010,18 +1001,13 @@ function calcularSemaforoEstoque(item: AgingEstoqueItem | null | undefined): Sem
 function SemaforoBadge({ item }: { item: AgingEstoqueItem }) {
   const semaforo = calcularSemaforoEstoque(item)
   const style = SEMAFORO_STYLE[semaforo]
-  const pontoPedido = getNum(item, "consumo_durante_lt")
   const saldoReal = getEstoqueAtualReal(item)
   const estoqueComEntradas = saldoReal + getPedidosAbertos(item)
   const demandaReferencia = Math.max(
     getNum(item, "demanda_mes_atual"),
-    getNum(item, "consumo_mes_atual"),
-    getNum(item, "maior_media"),
-    getNum(item, "faturamento_ytd_qtd"),
-    pontoPedido,
-    getNum(item, "estoque_ideal")
+    getNum(item, "consumo_mes_atual")
   )
-  const title = `Status: ${SEMAFORO_LABEL[semaforo]} | Estoque real: ${fmtNumber(saldoReal, 0)} | Estoque + entradas: ${fmtNumber(estoqueComEntradas, 0)} | Necessidade ref.: ${fmtNumber(demandaReferencia, 0)}`
+  const title = `Status: ${SEMAFORO_LABEL[semaforo]} | Estoque real: ${fmtNumber(saldoReal, 0)} | Estoque + entradas: ${fmtNumber(estoqueComEntradas, 0)} | Demanda/consumo ref.: ${fmtNumber(demandaReferencia, 0)}`
 
   return (
     <span
@@ -2753,8 +2739,8 @@ export default function AgingEstoquePage() {
     setError("")
     getAgingItensDireto({
         escopo: escopoEstoque,
-        page: activeFilter?.semaforo ? 1 : page,
-        page_size: activeFilter?.semaforo ? TABLE_FETCH_SIZE : PAGE_SIZE,
+        page,
+        page_size: PAGE_SIZE,
         sort_key: sortKey || undefined,
         sort_direction: sortDirection,
         busca: activeFilter?.busca,
@@ -2763,6 +2749,7 @@ export default function AgingEstoquePage() {
         status_portfolio: activeFilter?.status_portfolio,
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+        semaforo: activeFilter?.semaforo,
       })
       .then((res) => {
         if (!mounted) return
@@ -2780,6 +2767,7 @@ export default function AgingEstoquePage() {
   }, [page, sortKey, sortDirection, refreshTick, activeFilter, escopoEstoque])
 
   const itens = itensResp?.itens || []
+  const totalPages = Math.max(1, itensResp?.total_pages || 1)
 
   const aplicarFiltro = (filtro: FiltroTabelaEstoque | null) => {
     setPage(1)
@@ -2864,23 +2852,7 @@ export default function AgingEstoquePage() {
     })
   }, [itens, sortKey, sortDirection, activeFilter?.semaforo])
 
-  const usaFiltroVisualLocal = Boolean(activeFilter?.semaforo)
-
-  const totalItensTabela = usaFiltroVisualLocal ? itensOrdenados.length : Number(itensResp?.total || itensOrdenados.length)
-  const totalPages = usaFiltroVisualLocal
-    ? Math.max(1, Math.ceil(totalItensTabela / PAGE_SIZE))
-    : Math.max(1, itensResp?.total_pages || 1)
-  const itensTabela = useMemo(
-    () => usaFiltroVisualLocal ? itensOrdenados.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : itensOrdenados,
-    [itensOrdenados, page, usaFiltroVisualLocal]
-  )
-
-  const totalCriticosVisuais = usaFiltroVisualLocal
-    ? itensOrdenados.length
-    : Number(resumo?.resumo?.critico || 0)
-
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
-
   const negociosClassificados = useMemo(
     () => saudeNegocios.filter((negocio) => String(negocio.tipo_negocio || "").trim().toUpperCase() !== "A CLASSIFICAR"),
     [saudeNegocios]
@@ -3202,7 +3174,7 @@ export default function AgingEstoquePage() {
         />
         <KpiCard
           label="Críticos"
-          value={fmtNumber(totalCriticosVisuais)}
+          value={fmtNumber(resumo?.resumo?.critico || 0)}
           helper={escopoEstoque === "produtos" ? "Disponibilidade abaixo do necessário" : "Abaixo do ideal/LT"}
           icon={<ArrowDownRight size={20} />}
           tone="warning"
@@ -3465,7 +3437,7 @@ export default function AgingEstoquePage() {
               )}
             </div>
 
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(totalItensTabela)} itens no escopo</p>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
           </div>
         </div>
 
@@ -3495,7 +3467,7 @@ export default function AgingEstoquePage() {
               </tr>
             </thead>
             <tbody>
-              {itensTabela.map((item) => {
+              {itensOrdenados.map((item) => {
                 const itemEx = item as AgingEstoqueItem & Record<string, unknown>
                 const alertaPrevisao = getNum(item, "previsao_consumo_alerta") > 0
 
@@ -3558,7 +3530,7 @@ export default function AgingEstoquePage() {
 
         <div className="flex items-center justify-between border-t px-5 py-4" style={{ borderColor: "var(--border)" }}>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            {loadingItens ? "Atualizando resultados..." : `Exibindo ${fmtNumber(itensTabela.length)} de ${fmtNumber(totalItensTabela)} itens`}
+            {loadingItens ? "Atualizando resultados..." : `Exibindo ${fmtNumber(itensOrdenados.length)} de ${fmtNumber(itensResp?.total || 0)} itens`}
           </p>
           <div className="flex gap-2">
             <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loadingItens} className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Anterior</button>
