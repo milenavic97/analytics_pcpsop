@@ -797,6 +797,43 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
 }
 
 
+function buildSerieOperacionalItemSelecionado(item: AgingEstoqueItemDetalhe | null): BraviSeriePonto[] {
+  if (!item) return []
+
+  return buildLinhaTempoFallback(item, 12)
+    .map((p: any) => ({
+      key: monthKey(Number(p.ano || 0), Number(p.mes || 0)),
+      ordem: monthKey(Number(p.ano || 0), Number(p.mes || 0)),
+      periodo: p.periodo,
+      periodo_completo: p.periodo,
+      ano: p.ano,
+      mes: p.mes,
+      estoque: p.estoque_atual ?? p.saldo_grafico ?? null,
+      estoque_medio: p.estoque_atual ?? p.saldo_grafico ?? null,
+      estoque_quarentena: p.estoque_quarentena ?? p.quarentena ?? null,
+      quarentena: p.quarentena ?? p.estoque_quarentena ?? null,
+      saldo_quarentena: p.quarentena ?? p.estoque_quarentena ?? null,
+      entradas_previstas: p.entradas_previstas ?? null,
+      faturamento_qtd: p.faturamento_qtd ?? null,
+      faturamento_valor: p.faturamento_valor ?? null,
+      consumo: p.consumo ?? null,
+      demanda: p.demanda ?? p.forecast ?? null,
+      pedidos_detalhe: p.entradas_detalhe || [],
+      faturamento_detalhe: p.faturamento_detalhe || [],
+    }))
+    .filter((p) =>
+      p.estoque !== null ||
+      p.estoque_quarentena !== null ||
+      p.entradas_previstas !== null ||
+      p.faturamento_qtd !== null ||
+      p.faturamento_valor !== null ||
+      p.consumo !== null ||
+      p.demanda !== null
+    )
+}
+
+
+
 const SEMAFORO_LABEL: Record<SemaforoEstoque, string> = {
   VERMELHO: "Crítico",
   AMARELO: "Atenção",
@@ -1299,7 +1336,17 @@ function BraviSerieTooltip({ active, payload, label }: any) {
   )
 }
 
-function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick: number }) {
+function BraviSeriePanel({
+  active,
+  refreshTick,
+  selectedItem,
+  onClearSelected,
+}: {
+  active: boolean
+  refreshTick: number
+  selectedItem?: AgingEstoqueItemDetalhe | null
+  onClearSelected?: () => void
+}) {
   const [granularidade, setGranularidade] = useState<GranularidadeSerie>("mensal")
   const [data, setData] = useState<BraviSerieResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -1329,6 +1376,12 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
     return () => { mounted = false }
   }, [active, granularidade, refreshTick])
 
+  const itemSelecionado = selectedItem?.codigo ? selectedItem : null
+  const serieItemSelecionado = useMemo(
+    () => buildSerieOperacionalItemSelecionado(itemSelecionado),
+    [itemSelecionado]
+  )
+
   if (!active) return null
 
   const toggleSerie = (dataKey?: string) => {
@@ -1342,21 +1395,45 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
   }
 
   const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
-  const serie = data?.serie || []
-  const resumo = data?.resumo || {}
+  const serie = itemSelecionado ? serieItemSelecionado : data?.serie || []
+  const resumo = itemSelecionado
+    ? {
+        estoque_atual: Number(itemSelecionado.saldo || 0),
+        pedidos_abertos: Number(itemSelecionado.qtd_pedidos_abertos || itemSelecionado.entradas_previstas || 0),
+        faturamento_ytd_qtd: Number(itemSelecionado.faturamento_ytd_qtd || 0),
+        faturamento_ytd_valor: Number(itemSelecionado.faturamento_ytd_valor || 0),
+        criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
+      }
+    : data?.resumo || {}
+  const tituloSerie = itemSelecionado
+    ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}`
+    : "Estoque e faturamento dos PA / MR"
+  const descricaoSerie = itemSelecionado
+    ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
+    : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
 
   return (
     <div className="card overflow-hidden">
       <div className="flex flex-col justify-between gap-3 border-b px-5 py-4 lg:flex-row lg:items-start" style={{ borderColor: "var(--border)" }}>
         <div>
           <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Acompanhamento PA / MR</p>
-          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Estoque e faturamento dos PA / MR</h2>
+          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{tituloSerie}</h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses.
+            {descricaoSerie}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {itemSelecionado && (
+            <button
+              type="button"
+              onClick={onClearSelected}
+              className="rounded-xl border px-3 py-2 text-sm font-bold transition hover:bg-slate-50"
+              style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)", color: "#B91C1C" }}
+            >
+              Limpar seleção
+            </button>
+          )}
           {([
             ["mensal", "Mensal"],
             ["semanal", "Semanal"],
@@ -1388,7 +1465,7 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
         {error && <div className="rounded-2xl border px-4 py-3 text-sm text-red-600" style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)" }}>{error}</div>}
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-          <KpiSmall label="Itens PA/MR" value={fmtNumber(data?.total_itens_produtos || data?.total_itens_bravi || 0)} />
+          <KpiSmall label={itemSelecionado ? "Item selecionado" : "Itens PA/MR"} value={itemSelecionado ? "1" : fmtNumber(data?.total_itens_produtos || data?.total_itens_bravi || 0)} />
           <KpiSmall label="Estoque atual" value={fmtCompact(resumo.estoque_atual)} />
           <KpiSmall label="Pedidos" value={fmtCompact(resumo.pedidos_abertos)} />
           <KpiSmall label="Fat. 2026 qtd" value={fmtCompact(resumo.faturamento_ytd_qtd)} />
@@ -1405,7 +1482,7 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              PA / MR
+              {itemSelecionado ? "Item selecionado" : "PA / MR"}
             </span>
           </div>
 
@@ -2846,7 +2923,12 @@ export default function AgingEstoquePage() {
         </div>
       )}
 
-      <BraviSeriePanel active={mostrarCardsPortfolio} refreshTick={refreshTick} />
+      <BraviSeriePanel
+        active={mostrarCardsPortfolio}
+        refreshTick={refreshTick}
+        selectedItem={selected}
+        onClearSelected={() => setSelected(null)}
+      />
 
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
@@ -2872,6 +2954,94 @@ export default function AgingEstoquePage() {
                 <th className="px-4 py-3">Origem saldo</th>
                 <th className="px-4 py-3">Data saldo</th>
                 {NUMERIC_COLUMNS.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
+              </tr>
+              <tr className="normal-case tracking-normal text-slate-700" style={{ background: "#F8FAFC" }}>
+                <th className="sticky left-0 z-30 min-w-[90px] px-2 py-2" style={{ background: "#F8FAFC" }}>
+                  <input
+                    value={activeFilter?.busca || ""}
+                    onChange={(e) => atualizarFiltroCampo("busca", e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="Buscar..."
+                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  />
+                </th>
+                <th className="sticky left-[90px] z-30 min-w-[260px] px-2 py-2" style={{ background: "#F8FAFC" }}>
+                  <input
+                    value={activeFilter?.busca || ""}
+                    onChange={(e) => atualizarFiltroCampo("busca", e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="Buscar produto, ex.: SUGCLEAN"
+                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  />
+                </th>
+                <th className="px-2 py-2">
+                  <select
+                    value={activeFilter?.semaforo || "TODOS"}
+                    onChange={(e) => atualizarFiltroCampo("semaforo", e.target.value === "TODOS" ? undefined : e.target.value as SemaforoEstoque)}
+                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  >
+                    <option value="TODOS">Todos</option>
+                    <option value="VERMELHO">Crítico</option>
+                    <option value="AMARELO">Atenção</option>
+                    <option value="VERDE">Ok</option>
+                    <option value="CINZA">Sem ref.</option>
+                  </select>
+                </th>
+                <th className="px-2 py-2" />
+                <th className="px-2 py-2">
+                  <select
+                    value={activeFilter?.tipo_negocio || "TODOS"}
+                    onChange={(e) => atualizarFiltroCampo("tipo_negocio", e.target.value === "TODOS" ? undefined : e.target.value)}
+                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  >
+                    <option value="TODOS">Todos</option>
+                    {(opcoesFiltros.tipo_negocio || []).map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
+                  </select>
+                </th>
+                <th className="px-2 py-2" />
+                <th className="px-2 py-2">
+                  <select
+                    value={activeFilter?.status_portfolio || "TODOS"}
+                    onChange={(e) => atualizarFiltroCampo("status_portfolio", e.target.value === "TODOS" ? undefined : e.target.value)}
+                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  >
+                    <option value="TODOS">Todos</option>
+                    {(opcoesFiltros.status_portfolio || []).map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
+                  </select>
+                </th>
+                <th className="px-2 py-2">
+                  <select
+                    value={activeFilter?.transferencia_bravi || "TODOS"}
+                    onChange={(e) => atualizarFiltroCampo("transferencia_bravi", e.target.value === "TODOS" ? undefined : e.target.value)}
+                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  >
+                    <option value="TODOS">Todos</option>
+                    <option value="Sim">Bravi</option>
+                    <option value="Não">Não</option>
+                  </select>
+                </th>
+                <th className="px-2 py-2">
+                  <select
+                    value={activeFilter?.classificacao_cadastro || "TODOS"}
+                    onChange={(e) => atualizarFiltroCampo("classificacao_cadastro", e.target.value === "TODOS" ? undefined : e.target.value)}
+                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  >
+                    <option value="TODOS">Todos</option>
+                    <option value="MAPEADOS">Mapeados</option>
+                    <option value="DIMENSAO">Dimensão</option>
+                    <option value="BOM">BOM</option>
+                    <option value="NAO_CLASSIFICADOS">Não class.</option>
+                  </select>
+                </th>
+                <th className="px-2 py-2" />
+                {NUMERIC_COLUMNS.map((col) => <th key={`filter-${col.key}`} className="px-2 py-2" />)}
               </tr>
             </thead>
             <tbody>
