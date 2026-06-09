@@ -11,6 +11,7 @@ import {
   Filter,
   PackageSearch,
   RefreshCw,
+  Settings2,
   ShoppingCart,
   UploadCloud,
   X,
@@ -354,6 +355,26 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; 
   { key: "estoque_mais_pedidos_valor", label: "Estoque + entradas R$", kind: "currency", group: "financeiro" },
   { key: "maior_media_valor", label: "Média R$", kind: "currency", group: "financeiro" },
   { key: "estoque_ideal_valor", label: "Ideal R$", kind: "currency", group: "financeiro" },
+]
+
+const COLUNAS_PADRAO_PA_MR = [
+  "status",
+  "curva_a",
+  "tipo",
+  "unid",
+  "segmento",
+  "mercado",
+  "saldo",
+  "saldo_quarentena",
+  "qtd_pedidos_abertos",
+  "estoque_mais_pedidos",
+  "demanda_mes_atual",
+  "cobertura_meses_atual",
+  "cobertura_meses_futura",
+  "dias_em_estoque",
+  "estoque_atual_valor",
+  "pedidos_abertos_valor",
+  "estoque_mais_pedidos_valor",
 ]
 
 
@@ -2554,6 +2575,8 @@ export default function AgingEstoquePage() {
   const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>("produtos")
   const [tableFilterOpen, setTableFilterOpen] = useState<keyof FiltroTabelaEstoque | null>(null)
   const [tableSearchDraft, setTableSearchDraft] = useState("")
+  const [columnSelectorOpen, setColumnSelectorOpen] = useState(false)
+  const [colunasVisiveisPorEscopo, setColunasVisiveisPorEscopo] = useState<Partial<Record<EscopoEstoque, string[]>>>({})
   const [mostrarSaudeLinhas, setMostrarSaudeLinhas] = useState(false)
 
   const carregarAtualizacoesBases = async () => {
@@ -2892,22 +2915,88 @@ export default function AgingEstoquePage() {
   const escopoTitulo = ESCOPO_TITULO[escopoEstoque]
   const escopoDescricao = ESCOPO_DESCRICAO[escopoEstoque]
   const mostrarCardsPortfolio = escopoEstoque !== "insumos"
+  const isTabelaProdutos = escopoEstoque !== "insumos"
+
+  const colunasBaseTabela = useMemo(() => {
+    const base = [
+      { key: "status", label: "Status" },
+      { key: "curva_a", label: "Curva A" },
+      { key: "tipo", label: "Tipo" },
+      { key: "unid", label: "UM" },
+      { key: "segmento", label: "Segmento" },
+      { key: "mercado", label: "Mercado" },
+    ]
+
+    if (!isTabelaProdutos) {
+      base.push(
+        { key: "saldo_origem", label: "Origem saldo" },
+        { key: "data_saldo_origem", label: "Data saldo" }
+      )
+    }
+
+    return base
+  }, [isTabelaProdutos])
+
+  const colunasOpcoesTabela = useMemo(
+    () => [
+      ...colunasBaseTabela,
+      ...NUMERIC_COLUMNS.map((col) => ({ key: col.key, label: col.label })),
+    ],
+    [colunasBaseTabela]
+  )
+
+  const colunasPadraoTabela = useMemo(() => {
+    if (isTabelaProdutos) return COLUNAS_PADRAO_PA_MR
+
+    return colunasOpcoesTabela.map((col) => col.key)
+  }, [isTabelaProdutos, colunasOpcoesTabela])
+
+  const colunasVisiveisAtuais = colunasVisiveisPorEscopo[escopoEstoque] || colunasPadraoTabela
+  const isColunaVisivel = (key: string) => colunasVisiveisAtuais.includes(key)
+  const colunasTabela = NUMERIC_COLUMNS.filter((col) => isColunaVisivel(col.key))
+  const larguraMinimaTabela = Math.max(isTabelaProdutos ? 1200 : 1800, 560 + colunasVisiveisAtuais.length * 92)
+
+  const toggleColunaTabela = (key: string) => {
+    setColunasVisiveisPorEscopo((current) => {
+      const atuais = current[escopoEstoque] || colunasPadraoTabela
+      const next = atuais.includes(key)
+        ? atuais.filter((col) => col !== key)
+        : [...atuais, key]
+
+      return {
+        ...current,
+        [escopoEstoque]: next,
+      }
+    })
+  }
+
+  const resetColunasTabela = () => {
+    setColunasVisiveisPorEscopo((current) => ({
+      ...current,
+      [escopoEstoque]: colunasPadraoTabela,
+    }))
+  }
+
+  const mostrarTodasColunasTabela = () => {
+    setColunasVisiveisPorEscopo((current) => ({
+      ...current,
+      [escopoEstoque]: colunasOpcoesTabela.map((col) => col.key),
+    }))
+  }
 
 
   const exportCsv = () => {
     const header = [
-      "codigo", "produto", "semaforo", "curva_a", "tipo", "unid", "segmento", "mercado",
-      "custo_unitario", "lead_time_dias", "qtd_minima", "saldo", "saldo_quarentena", "saldo_sb8_bruto", "empenho_lote", "saldo_origem", "data_saldo_origem", "estoque_atual_valor",
-      "qtd_pedidos_abertos", "pedidos_abertos_valor", "estoque_mais_pedidos", "estoque_mais_pedidos_valor",
-      "maior_media", "maior_media_valor", "estoque_ideal", "estoque_ideal_valor", "dias_em_estoque",
-      "cobertura_meses_atual", "cobertura_meses_futura", "cobertura_consumo_lt",
-      "demanda_mes_atual", "consumo_mes_atual", "previsto_vs_consumido_pct",
+      "codigo",
+      "produto",
+      ...colunasBaseTabela.filter((col) => isColunaVisivel(col.key)).map((col) => col.key),
+      ...colunasTabela.map((col) => col.key),
     ]
     const csv = [
       header.join(";"),
       ...itensOrdenados.map((r) =>
         header
-          .map((h) => String(h === "semaforo" ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)] : ((r as any)[h] ?? "")).replace(/;/g, ","))
+          .map((h) => String(h === "status" ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)] : ((r as any)[h] ?? "")).replace(/;/g, ","))
           .join(";")
       ),
     ].join("\n")
@@ -3201,7 +3290,9 @@ export default function AgingEstoquePage() {
         <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
-            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{escopoTitulo} por cobertura e estoque ideal</h2>
+            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>
+              {isTabelaProdutos ? `${escopoTitulo} por disponibilidade e faturamento` : `${escopoTitulo} por cobertura e estoque ideal`}
+            </h2>
           </div>
           <div className="flex items-center gap-3">
             {loadingItens && (
@@ -3209,6 +3300,80 @@ export default function AgingEstoquePage() {
                 <RefreshCw size={13} className="animate-spin" /> Atualizando tabela
               </span>
             )}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setColumnSelectorOpen((current) => !current)}
+                className="inline-flex h-8 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-bold transition hover:bg-slate-50"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: columnSelectorOpen ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
+                title="Selecionar colunas"
+              >
+                <Settings2 size={14} /> Colunas
+              </button>
+
+              {columnSelectorOpen && (
+                <div
+                  className="absolute right-0 top-10 z-[90] w-[320px] rounded-2xl border bg-white p-3 text-left shadow-2xl"
+                  style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                >
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                        Selecionar colunas
+                      </p>
+                      <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                        Código e descrição ficam fixos.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setColumnSelectorOpen(false)}
+                      className="rounded-md p-1 hover:bg-slate-100"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={resetColunasTabela}
+                      className="rounded-lg border px-3 py-1.5 text-xs font-bold transition hover:bg-slate-50"
+                      style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    >
+                      Padrão
+                    </button>
+                    <button
+                      type="button"
+                      onClick={mostrarTodasColunasTabela}
+                      className="rounded-lg border px-3 py-1.5 text-xs font-bold transition hover:bg-slate-50"
+                      style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    >
+                      Mostrar todas
+                    </button>
+                  </div>
+
+                  <div className="max-h-[360px] space-y-1 overflow-auto pr-1">
+                    {colunasOpcoesTabela.map((col) => (
+                      <label
+                        key={col.key}
+                        className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold hover:bg-slate-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isColunaVisivel(col.key)}
+                          onChange={() => toggleColunaTabela(col.key)}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        <span>{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
           </div>
         </div>
@@ -3220,22 +3385,22 @@ export default function AgingEstoquePage() {
               Buscando itens da tabela...
             </div>
           )}
-          <table className="w-full min-w-[2650px] table-fixed border-separate border-spacing-0 text-xs">
+          <table className="w-full table-fixed border-separate border-spacing-0 text-xs" style={{ minWidth: larguraMinimaTabela }}>
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
                 <th className="sticky left-0 z-30 w-[82px] min-w-[82px] px-3 py-2" style={{ background: "#163B63" }}>Código</th>
                 <th className="sticky left-[82px] z-30 w-[220px] min-w-[220px] px-3 py-2" style={{ background: "#163B63" }}>
                   {renderFiltroDescricao()}
                 </th>
-                <th className="px-2 py-2">Status</th>
-                <th className="px-2 py-2">Curva A</th>
-                <th className="px-2 py-2">Tipo</th>
-                <th className="px-2 py-2">UM</th>
-                <th className="px-2 py-2">Segmento</th>
-                <th className="px-2 py-2">Mercado</th>
-                <th className="px-2 py-2">Origem saldo</th>
-                <th className="px-2 py-2">Data saldo</th>
-                {NUMERIC_COLUMNS.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
+                {isColunaVisivel("status") && <th className="px-2 py-2">Status</th>}
+                {isColunaVisivel("curva_a") && <th className="px-2 py-2">Curva A</th>}
+                {isColunaVisivel("tipo") && <th className="px-2 py-2">Tipo</th>}
+                {isColunaVisivel("unid") && <th className="px-2 py-2">UM</th>}
+                {isColunaVisivel("segmento") && <th className="px-2 py-2">Segmento</th>}
+                {isColunaVisivel("mercado") && <th className="px-2 py-2">Mercado</th>}
+                {isColunaVisivel("saldo_origem") && <th className="px-2 py-2">Origem saldo</th>}
+                {isColunaVisivel("data_saldo_origem") && <th className="px-2 py-2">Data saldo</th>}
+                {colunasTabela.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
               </tr>
             </thead>
             <tbody>
@@ -3265,19 +3430,21 @@ export default function AgingEstoquePage() {
                     >
                       <div className="max-w-[190px] truncate font-medium" style={{ color: "var(--text-primary)" }} title={item.produto || ""}>{item.produto || "—"}</div>
                     </td>
-                    <td className="px-2 py-2"><SemaforoBadge item={item} /></td>
-                    <td className="px-2 py-2 text-center whitespace-nowrap">{String(itemEx.curva_a || item.abc_ytm || "—")}</td>
-                    <td className="px-2 py-2 max-w-[70px] truncate whitespace-nowrap" title={String(item.tipo || item.tipo_produto_erp || "—")}>{item.tipo || item.tipo_produto_erp || "—"}</td>
-                    <td className="px-2 py-2 text-center whitespace-nowrap">{item.unid || "—"}</td>
-                    <td className="px-2 py-2 max-w-[92px] truncate whitespace-nowrap" title={String(item.segmento || "—")}>{item.segmento || "—"}</td>
-                    <td className="px-2 py-2 max-w-[82px] truncate whitespace-nowrap" title={String(item.mercado || "—")}>{item.mercado || "—"}</td>
-                    <td className="px-2 py-2">
-                      <span className="inline-flex max-w-[82px] truncate rounded-full border px-2 py-1 text-[10px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "rgba(15,23,42,0.03)" }} title={getSaldoOrigemTitle(itemEx)}>
-                        {getSaldoOrigemLabel(itemEx)}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2 whitespace-nowrap">{itemEx.data_saldo_origem ? fmtDate(String(itemEx.data_saldo_origem)) : "—"}</td>
-                    {NUMERIC_COLUMNS.map((col) => {
+                    {isColunaVisivel("status") && <td className="px-2 py-2"><SemaforoBadge item={item} /></td>}
+                    {isColunaVisivel("curva_a") && <td className="px-2 py-2 text-center whitespace-nowrap">{String(itemEx.curva_a || item.abc_ytm || "—")}</td>}
+                    {isColunaVisivel("tipo") && <td className="px-2 py-2 max-w-[70px] truncate whitespace-nowrap" title={String(item.tipo || item.tipo_produto_erp || "—")}>{item.tipo || item.tipo_produto_erp || "—"}</td>}
+                    {isColunaVisivel("unid") && <td className="px-2 py-2 text-center whitespace-nowrap">{item.unid || "—"}</td>}
+                    {isColunaVisivel("segmento") && <td className="px-2 py-2 max-w-[92px] truncate whitespace-nowrap" title={String(item.segmento || "—")}>{item.segmento || "—"}</td>}
+                    {isColunaVisivel("mercado") && <td className="px-2 py-2 max-w-[82px] truncate whitespace-nowrap" title={String(item.mercado || "—")}>{item.mercado || "—"}</td>}
+                    {isColunaVisivel("saldo_origem") && (
+                      <td className="px-2 py-2">
+                        <span className="inline-flex max-w-[82px] truncate rounded-full border px-2 py-1 text-[10px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "rgba(15,23,42,0.03)" }} title={getSaldoOrigemTitle(itemEx)}>
+                          {getSaldoOrigemLabel(itemEx)}
+                        </span>
+                      </td>
+                    )}
+                    {isColunaVisivel("data_saldo_origem") && <td className="px-2 py-2 whitespace-nowrap">{itemEx.data_saldo_origem ? fmtDate(String(itemEx.data_saldo_origem)) : "—"}</td>}
+                    {colunasTabela.map((col) => {
                       const isGap = col.key === "estoque_ideal" || col.key === "estoque_ideal_valor" || col.key === "cobertura_consumo_lt" || col.key === "previsto_vs_consumido_pct"
                       const color = col.key === "previsto_vs_consumido_pct" && alertaPrevisao
                         ? "#DC2626"
