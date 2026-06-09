@@ -2706,10 +2706,7 @@ export default function AgingEstoquePage() {
     setActiveFilter(null)
     setResumo(null)
     setItensResp(null)
-    setTableFilterOpen(null)
-    setColumnSelectorOpen(false)
     setMostrarSaudeLinhas(false)
-    setHorizonteFuturo(6)
   }
 
   useEffect(() => {
@@ -3073,6 +3070,312 @@ export default function AgingEstoquePage() {
     a.download = `gestao_estoque_${escopoEstoque}_pagina.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+
+  if (escopoEstoque === "insumos") {
+    return (
+      <div className="min-h-screen p-6 space-y-5">
+        <div className="fade-in flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-widest mb-1" style={{ color: "var(--text-secondary)" }}>Suprimentos · Estoque</p>
+            <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Gestão de Estoque</h1>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Visão de estoque para produção, consumo histórico, cobertura e demanda via BOM.</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setBasesModalOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
+              style={{ background: "#163B63" }}
+            >
+              <Database size={16} /> Bases
+            </button>
+            <button
+              onClick={() => setRefreshTick((x) => x + 1)}
+              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              <RefreshCw size={16} /> Atualizar
+            </button>
+            <button
+              onClick={exportCsv}
+              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              <Download size={16} /> Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        <div className="card p-4">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Visão da gestão de estoque</p>
+              <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Insumos de produção</h2>
+              <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>MP, ME, MI e materiais com demanda explodida pela BOM.</p>
+            </div>
+
+            <div className="w-full max-w-[260px]">
+              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                Escopo da análise
+              </label>
+              <select
+                value={escopoEstoque}
+                onChange={(event) => alterarEscopoEstoque(event.target.value as EscopoEstoque)}
+                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-semibold outline-none transition focus:ring-2"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                {ESCOPO_ESTOQUE_OPTIONS.map((option) => (
+                  <option key={option.key} value={option.key}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <div className="rounded-2xl border px-4 py-3 text-sm font-semibold" style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)", color: "#B91C1C" }}>
+            {error}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <KpiCard
+            label="Itens"
+            value={fmtNumber(resumo?.resumo?.total_itens || 0)}
+            helper={`Insumos de produção · Snapshot: ${resumo?.data_snapshot_consumo ? fmtDate(resumo.data_snapshot_consumo) : "—"}`}
+            icon={<Network size={20} />}
+            active={!activeFilter}
+          />
+          <KpiCard
+            label="Ruptura"
+            value={fmtNumber(resumo?.resumo?.ruptura || 0)}
+            helper="Saldo zerado com demanda"
+            icon={<AlertTriangle size={20} />}
+            tone="danger"
+            onClick={() => aplicarFiltro({ label: "Ruptura", status: "RUPTURA" })}
+            active={isFiltroAtivo(activeFilter, { status: "RUPTURA" })}
+          />
+          <KpiCard
+            label="Críticos"
+            value={fmtNumber(resumo?.resumo?.critico || 0)}
+            helper="Abaixo da necessidade"
+            icon={<ArrowDownRight size={20} />}
+            tone="warning"
+            onClick={() => aplicarFiltro({ label: "Críticos", semaforo: "VERMELHO" })}
+            active={isFiltroAtivo(activeFilter, { semaforo: "VERMELHO" }) && !activeFilter?.tipo_negocio}
+          />
+          <KpiCard
+            label="Excesso"
+            value={fmtNumber(resumo?.resumo?.excesso || 0)}
+            helper="Acima da política"
+            icon={<ArrowUpRight size={20} />}
+            tone="blue"
+            onClick={() => aplicarFiltro({ label: "Excesso", status: "EXCESSO" })}
+            active={isFiltroAtivo(activeFilter, { status: "EXCESSO" }) && !activeFilter?.tipo_negocio}
+          />
+          <KpiCard
+            label="Sem giro"
+            value={fmtNumber(resumo?.resumo?.sem_giro || 0)}
+            helper="sem consumo histórico relevante"
+            icon={<PackageSearch size={20} />}
+            tone="neutral"
+            onClick={() => aplicarFiltro({ label: "Sem giro", status: "SEM_GIRO" })}
+            active={isFiltroAtivo(activeFilter, { status: "SEM_GIRO" })}
+          />
+          <KpiCard
+            label="Pedidos abertos"
+            value={fmtCompact(resumo?.resumo?.pedidos_total || 0)}
+            helper="volume em compras abertas"
+            icon={<ShoppingCart size={20} />}
+            tone="blue"
+          />
+        </div>
+
+        <div className="card p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Filter size={18} style={{ color: "var(--text-secondary)" }} />
+              <h2 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>Filtros</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => aplicarFiltro(null)}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-semibold transition hover:bg-slate-50"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              <X size={15} /> Limpar filtros
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 items-end gap-3 border-t pt-4 md:grid-cols-4" style={{ borderColor: "var(--border)" }}>
+            <label className="md:col-span-2">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Código ou produto</span>
+              <div className="flex gap-2">
+                <input
+                  value={tableSearchDraft}
+                  onChange={(e) => setTableSearchDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") atualizarFiltroCampo("busca", tableSearchDraft.trim() || undefined)
+                  }}
+                  placeholder="Buscar código, nome, família, segmento..."
+                  className="h-10 min-w-0 flex-1 rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+                  style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => atualizarFiltroCampo("busca", tableSearchDraft.trim() || undefined)}
+                  className="h-10 rounded-xl border px-3 text-sm font-bold transition hover:bg-slate-50"
+                  style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                >
+                  Buscar
+                </button>
+              </div>
+            </label>
+
+            <label>
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status visual</span>
+              <select
+                value={activeFilter?.semaforo || "TODOS"}
+                onChange={(e) => atualizarFiltroCampo("semaforo", e.target.value === "TODOS" ? undefined : e.target.value as SemaforoEstoque)}
+                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="TODOS">Todos</option>
+                <option value="VERMELHO">Crítico</option>
+                <option value="AMARELO">Atenção</option>
+                <option value="VERDE">Ok</option>
+                <option value="CINZA">Sem referência</option>
+              </select>
+            </label>
+
+            <label>
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status estoque</span>
+              <select
+                value={activeFilter?.status || "TODOS"}
+                onChange={(e) => atualizarFiltroCampo("status", e.target.value === "TODOS" ? undefined : e.target.value)}
+                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="TODOS">Todos</option>
+                <option value="RUPTURA">Ruptura</option>
+                <option value="CRITICO">Crítico</option>
+                <option value="ATENCAO">Atenção</option>
+                <option value="SAUDAVEL">Saudável</option>
+                <option value="EXCESSO">Excesso</option>
+                <option value="SEM_GIRO">Sem giro</option>
+                <option value="SEM_CONSUMO">Sem consumo</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
+              <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Insumos de produção por cobertura e estoque ideal</h2>
+            </div>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
+          </div>
+
+          {loadingItens && (
+            <div className="flex items-center gap-2 border-b px-5 py-3 text-sm font-semibold" style={{ borderColor: "var(--border)", background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
+              <RefreshCw size={14} className="animate-spin" /> Buscando itens da tabela...
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1850px] table-fixed border-separate border-spacing-0 text-xs">
+              <thead>
+                <tr className="text-left text-white" style={{ background: "#163B63" }}>
+                  <th className="w-[90px] px-3 py-3">Código</th>
+                  <th className="w-[220px] px-3 py-3">Descrição</th>
+                  <th className="w-[100px] px-3 py-3">Status</th>
+                  <th className="w-[80px] px-3 py-3">Tipo</th>
+                  <th className="w-[70px] px-3 py-3">UM</th>
+                  <th className="w-[120px] px-3 py-3 text-right">Estoque atual</th>
+                  <th className="w-[120px] px-3 py-3 text-right">Quarentena 98</th>
+                  <th className="w-[120px] px-3 py-3 text-right">Pedidos</th>
+                  <th className="w-[130px] px-3 py-3 text-right">Estoque + entradas</th>
+                  <th className="w-[120px] px-3 py-3 text-right">Maior média</th>
+                  <th className="w-[100px] px-3 py-3 text-right">Lead time</th>
+                  <th className="w-[120px] px-3 py-3 text-right">MOQ</th>
+                  <th className="w-[130px] px-3 py-3 text-right">Ponto pedido</th>
+                  <th className="w-[120px] px-3 py-3 text-right">Estoque ideal</th>
+                  <th className="w-[120px] px-3 py-3 text-right">Gap</th>
+                  <th className="w-[120px] px-3 py-3 text-right">Demanda mês</th>
+                  <th className="w-[120px] px-3 py-3 text-right">Consumo mês</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itensOrdenados.map((item) => (
+                  <tr
+                    key={item.codigo}
+                    className="cursor-pointer border-b transition hover:bg-slate-100"
+                    style={{ borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "rgba(22,59,99,0.07)" : undefined }}
+                    onClick={() => setSelected(item as AgingEstoqueItemDetalhe)}
+                  >
+                    <td className="px-3 py-2 font-bold">{item.codigo}</td>
+                    <td className="truncate px-3 py-2" title={item.produto}>{item.produto}</td>
+                    <td className="px-3 py-2"><SemaforoBadge item={item} /></td>
+                    <td className="px-3 py-2">{item.tipo || item.tipo_produto_erp || "—"}</td>
+                    <td className="px-3 py-2 text-center">{item.unid || "—"}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(getEstoqueAtualReal(item), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_quarentena"), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(getPedidosAbertos(item), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(getEstoqueAtualReal(item) + getPedidosAbertos(item), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(item.maior_media || 0, 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(item.lead_time_dias || 0, 0)} d</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(item.qtd_minima || 0, 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(item.consumo_durante_lt || 0, 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(item.estoque_ideal || 0, 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(item.gap_volume || 0, 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(item.demanda_mes_atual || 0, 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(item.consumo_mes_atual || 0, 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {!loadingItens && itensOrdenados.length === 0 && (
+              <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item encontrado na base atual.</div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between border-t px-5 py-4" style={{ borderColor: "var(--border)" }}>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              {loadingItens ? "Atualizando resultados..." : `Exibindo ${fmtNumber(itensOrdenados.length)} de ${fmtNumber(itensResp?.total || 0)} itens`}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loadingItens} className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Anterior</button>
+              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages || loadingItens} className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Próxima</button>
+            </div>
+          </div>
+        </div>
+
+        {selected && (
+          <TimelinePrincipal
+            item={selected}
+            loading={loadingDetalhe}
+            horizonteFuturo={horizonteFuturo}
+            onHorizonteChange={setHorizonteFuturo}
+          />
+        )}
+
+        <BasesModal
+          open={basesModalOpen}
+          onClose={() => setBasesModalOpen(false)}
+          ultimasAtualizacoes={ultimasAtualizacoesBases}
+          loadingAtualizacoes={loadingAtualizacoesBases}
+          uploadingBaseId={uploadingBaseId}
+          uploadMessage={uploadMessage}
+          onUpload={handleUploadBase}
+          onRefresh={carregarAtualizacoesBases}
+        />
+      </div>
+    )
   }
 
   return (
@@ -3542,7 +3845,7 @@ export default function AgingEstoquePage() {
         </div>
       </div>
 
-      {escopoEstoque === "insumos" && selected && (
+      {escopoEstoque === "insumos" && (
         <TimelinePrincipal
           item={selected}
           loading={loadingDetalhe}
