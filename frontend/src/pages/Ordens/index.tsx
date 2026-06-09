@@ -474,7 +474,8 @@ function isTubete(item: Partial<Gargalo> | Record<string, unknown> | null | unde
 
 function isTipoNaoGargalante(tp: unknown) {
   const tipo = normalizarTexto(tp).toUpperCase()
-  return tipo === "MC" || tipo === "PI"
+  // MC passou a travar OP. PI continua fora da criticidade visual.
+  return tipo === "PI"
 }
 
 function isComponenteGargalante(item: Partial<Gargalo> | Record<string, unknown> | null | undefined) {
@@ -496,7 +497,7 @@ function toNumber(value: unknown) {
 
 function alertaToGargalo(comp: Record<string, unknown>): Gargalo {
   const necessario = toNumber(comp.necessario)
-  const saldoChegou = toNumber(comp.saldo_chegou ?? comp.saldo_01 ?? comp.saldo_atual)
+  const saldoChegou = toNumber(comp.saldo_chegou ?? comp.saldo_20 ?? comp.saldo_01 ?? comp.saldo_atual)
   const saldo98 = toNumber(comp.saldo_chegou_98 ?? comp.saldo_98)
   const faltante = toNumber(comp.faltante ?? Math.max(0, necessario - saldoChegou))
   return {
@@ -515,8 +516,8 @@ function alertaToGargalo(comp: Record<string, unknown>): Gargalo {
 function sanitizarOP(op: OPEditavel): OPEditavel {
   const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
 
-  // Mantém MC e PI visíveis nos detalhes quando vierem do backend,
-  // mas eles NÃO podem gerar gargalo/status de falta.
+  // Mantém componentes visíveis nos detalhes.
+  // MC agora pode gerar gargalo/status de falta; PI continua fora da criticidade visual.
   const alertasVisiveis = alertasOriginais.filter(comp => !isTubete(comp as unknown as Record<string, unknown>))
   const alertasGargalantes = alertasVisiveis.filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
   const alertasCriticos = alertasGargalantes.filter(comp => comp.status === "falta" || comp.status === "quarentena")
@@ -686,6 +687,9 @@ function getSaldoChegouNaOP(comp: unknown): number {
   const c = comp as Record<string, unknown>
   const saldoChegou = toNumber(c.saldo_chegou)
   if (saldoChegou !== 0) return saldoChegou
+
+  const saldo20 = toNumber(c.saldo_20)
+  if (saldo20 !== 0) return saldo20
 
   const saldoAtualFIFO = toNumber(c.saldo_atual_fifo)
   if (saldoAtualFIFO !== 0) return saldoAtualFIFO
@@ -1676,7 +1680,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                       position: "relative",
                     }}
                   >
-                    <table className="w-full text-xs min-w-[1820px]">
+                    <table className="w-full text-xs min-w-[1900px]">
                       <thead
                         style={{
                           position: "sticky",
@@ -1691,6 +1695,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                             "Descrição",
                             "TP",
                             "Necessário",
+                            "Saldo 20",
                             "Saldo na OP",
                             "Saldo Restante",
                             "Saldo 98",
@@ -1731,6 +1736,8 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                           const compCfg = STATUS_CONFIG[compStatusVisual] || STATUS_CONFIG.ok
                           const saldoChegouNaOP = getSaldoChegouNaOP(comp)
                           const saldoRestante = getSaldoRestanteNaOP(comp)
+                          const tpComponente = String(compRecord.tp || "").trim().toUpperCase()
+                          const saldo20Display = toNumber(compRecord.saldo_20)
                           const componenteGargalante = isComponenteGargalante(compRecord)
                           const comprasComp = getComprasAbertas(comp)
                           const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
@@ -1785,7 +1792,14 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
                                 <td className="py-2 pr-4" style={{ color: "var(--text-primary)", minWidth: 180 }}>{comp.descricao}</td>
                                 <td className="py-2 pr-4"><span className="rounded px-1.5 py-0.5 font-mono font-bold" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)", fontSize: 10 }}>{comp.tp}</span></td>
                                 <td className="py-2 pr-4 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(comp.necessario)}</td>
-                                <td className="py-2 pr-4 font-semibold" style={{ color: saldoChegouNaOP >= comp.necessario ? "#16A34A" : saldoChegouNaOP > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }} title="Saldo disponível no momento desta OP, já considerando o consumo das OPs anteriores na sequência.">{fmt(saldoChegouNaOP)}</td>
+                                <td
+                                  className="py-2 pr-4 font-semibold"
+                                  style={{ color: tpComponente === "MC" ? (saldo20Display >= comp.necessario ? "#16A34A" : saldo20Display > 0 ? "#F59E0B" : "#DC2626") : "var(--text-secondary)" }}
+                                  title={tpComponente === "MC" ? "Saldo do MC vindo da Posição de Estoque / base de consumo. Na operação, o MC pertence ao armazém 20." : undefined}
+                                >
+                                  {tpComponente === "MC" ? fmt(saldo20Display) : "—"}
+                                </td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: saldoChegouNaOP >= comp.necessario ? "#16A34A" : saldoChegouNaOP > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }} title="Saldo disponível no momento desta OP, já considerando o consumo das OPs anteriores na sequência. Para MC, vem da Posição de Estoque como saldo_20.">{fmt(saldoChegouNaOP)}</td>
                                 <td className="py-2 pr-4 font-semibold" style={{ color: saldoRestante >= 0 ? "#16A34A" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(saldoRestante)}</td>
                                 <td className="py-2 pr-4" style={{ color: comp.saldo_98 > 0 ? "#F59E0B" : "var(--text-secondary)", fontWeight: comp.saldo_98 > 0 ? 600 : 400 }}
                                   title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
