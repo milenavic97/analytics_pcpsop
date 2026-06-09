@@ -206,6 +206,7 @@ function getAgingItensDireto(params: {
     status_portfolio: params.status_portfolio,
     transferencia_bravi: params.transferencia_bravi,
     classificacao_cadastro: params.classificacao_cadastro,
+    semaforo: params.semaforo,
   })
 }
 
@@ -561,8 +562,45 @@ function getNum(item: AgingEstoqueItem, key: string) {
   return Number((item as AgingEstoqueItem & Record<string, unknown>)[key] || 0)
 }
 
-function fmtTableValue(item: AgingEstoqueItem, col: { key: SortKey; kind?: NumericColumnKind; digits?: number }) {
-  const value = getNum(item, col.key)
+function getEstoqueAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+
+  const raw = item as unknown as Record<string, unknown>
+  const saldoSb8 = Number(raw.saldo_sb8_bruto ?? raw.saldo_sb8 ?? raw.estoque_atual_real ?? raw.estoque_atual ?? NaN)
+
+  if (Number.isFinite(saldoSb8)) {
+    return Math.max(0, saldoSb8)
+  }
+
+  return Math.max(0, Number(raw.saldo || 0))
+}
+
+function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+
+  const raw = item as unknown as Record<string, unknown>
+  return Math.max(
+    0,
+    Number(
+      raw.qtd_pedidos_abertos ??
+      raw.entradas_previstas ??
+      raw.qtd_entradas_previstas ??
+      0
+    )
+  )
+}
+
+function fmtTableValue(item: AgingEstoqueItem, col: { key: SortKey; kind?: NumericColumnKind; digits?: number }, isTabelaProdutos = false) {
+  let value = getNum(item, col.key)
+
+  if (isTabelaProdutos && col.key === "saldo") {
+    value = getEstoqueAtualReal(item)
+  }
+
+  if (isTabelaProdutos && col.key === "estoque_mais_pedidos") {
+    value = getEstoqueAtualReal(item) + getPedidosAbertos(item)
+  }
+
   if (col.kind === "currency") return fmtCurrency(value, col.digits ?? 2)
   if (col.kind === "days") return `${fmtNumber(value, col.digits ?? 0)} d`
   if (col.kind === "months") return fmtNumber(value, col.digits ?? 1)
@@ -740,13 +778,16 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   }
 
   // Estoque atual é uma foto do momento atual.
-  // Por isso ele aparece apenas no mês corrente, e não repetido em todos os meses históricos/futuros.
+  // Para PA/MR, ele não pode ficar negativo por projeção.
+  // Projeção de saldo só entra nos meses futuros.
+  const estoqueAtualReal = getEstoqueAtualReal(item)
+  const pedidosAbertos = getPedidosAbertos(item)
   const pontoAtual = ensure(hoje.getFullYear(), hoje.getMonth() + 1)
-  pontoAtual.estoque_atual = Number(item.saldo || 0)
-  pontoAtual.estoque_mais_pedidos = Number(item.estoque_mais_pedidos || 0)
+  pontoAtual.estoque_atual = estoqueAtualReal
+  pontoAtual.estoque_mais_pedidos = estoqueAtualReal + pedidosAbertos
   pontoAtual.estoque_quarentena = getAnyNumber(item as Record<string, unknown>, "saldo_quarentena") || getAnyNumber(item as Record<string, unknown>, "quarentena")
   pontoAtual.quarentena = pontoAtual.estoque_quarentena
-  pontoAtual.saldo_grafico = Number(item.saldo || 0)
+  pontoAtual.saldo_grafico = estoqueAtualReal
   pontoAtual.ponto_pedido = Number(item.consumo_durante_lt || 0) || null
 
   // Saldo é uma foto atual. No gráfico mensal, ele só deve aparecer do mês atual para frente.
@@ -838,19 +879,24 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
     }
   }
 
-  let saldoProjetado = Number(item.saldo || 0)
+  let saldoProjetado = estoqueAtualReal
 
   return Array.from(mapa.values())
     .sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes))
     .map((p) => {
       const key = monthKey(p.ano, p.mes)
 
-      if (key >= chaveAtual) {
+      if (key > chaveAtual) {
         const demanda = Number(p.demanda || 0)
         p.ponto_pedido = calcularPontoPedidoMensal(item, p.ano, p.mes, demanda)
         saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - demanda
         p.saldo_projetado = saldoProjetado
-        p.saldo_grafico = p.saldo_grafico ?? saldoProjetado
+        p.saldo_grafico = Math.max(0, saldoProjetado)
+      } else if (key === chaveAtual) {
+        const demanda = Number(p.demanda || 0)
+        p.ponto_pedido = calcularPontoPedidoMensal(item, p.ano, p.mes, demanda)
+        p.saldo_projetado = null
+        p.saldo_grafico = p.saldo_grafico ?? estoqueAtualReal
       } else {
         p.ponto_pedido = (p.ponto_pedido ?? Number(item.consumo_durante_lt || 0)) || null
         p.saldo_projetado = null
@@ -872,8 +918,8 @@ function buildSerieOperacionalItemSelecionado(item: AgingEstoqueItemDetalhe | nu
       periodo_completo: p.periodo,
       ano: p.ano,
       mes: p.mes,
-      estoque: p.estoque_atual ?? (p.saldo_grafico !== null && p.saldo_grafico !== undefined ? Math.max(0, Number(p.saldo_grafico || 0)) : null),
-      estoque_medio: p.estoque_atual ?? (p.saldo_grafico !== null && p.saldo_grafico !== undefined ? Math.max(0, Number(p.saldo_grafico || 0)) : null),
+      estoque: p.estoque_atual !== null && p.estoque_atual !== undefined ? Math.max(0, Number(p.estoque_atual || 0)) : (p.saldo_grafico !== null && p.saldo_grafico !== undefined ? Math.max(0, Number(p.saldo_grafico || 0)) : null),
+      estoque_medio: p.estoque_atual !== null && p.estoque_atual !== undefined ? Math.max(0, Number(p.estoque_atual || 0)) : (p.saldo_grafico !== null && p.saldo_grafico !== undefined ? Math.max(0, Number(p.saldo_grafico || 0)) : null),
       estoque_quarentena: p.estoque_quarentena ?? p.quarentena ?? null,
       quarentena: p.quarentena ?? p.estoque_quarentena ?? null,
       saldo_quarentena: p.quarentena ?? p.estoque_quarentena ?? null,
@@ -1506,12 +1552,8 @@ function BraviSeriePanel({
   const serie = itemCarregando ? [] : itemSelecionado ? serieItemSelecionado : data?.serie || []
   const resumo = itemSelecionado
     ? {
-        estoque_atual: Number(itemSelecionado.saldo || 0),
-        pedidos_abertos:
-          getAnyNumber(itemSelecionado as unknown as Record<string, unknown>, "qtd_pedidos_abertos") ||
-          getAnyNumber(itemSelecionado as unknown as Record<string, unknown>, "entradas_previstas") ||
-          getAnyNumber(itemSelecionado as unknown as Record<string, unknown>, "qtd_entradas_previstas") ||
-          0,
+        estoque_atual: getEstoqueAtualReal(itemSelecionado),
+        pedidos_abertos: getPedidosAbertos(itemSelecionado),
         faturamento_ytd_qtd: Number(itemSelecionado.faturamento_ytd_qtd || 0),
         faturamento_ytd_valor: Number(itemSelecionado.faturamento_ytd_valor || 0),
         criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
@@ -1609,7 +1651,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Estoque disponível é barra. Entradas previstas ficam empilhadas sobre o estoque. Faturamento e forecast aparecem como linhas.
+                Estoque disponível é o saldo real atual. Projeção de saldo aparece apenas nos meses futuros. Entradas previstas ficam empilhadas sobre o estoque.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -1870,7 +1912,7 @@ function FiltrosEstoquePanel({
         </label>
 
         <label>
-          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Status</span>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Status visual</span>
           <select
             value={filtro?.semaforo || "TODOS"}
             onChange={(e) => onChange("semaforo", e.target.value === "TODOS" ? undefined : e.target.value as SemaforoEstoque)}
@@ -2687,6 +2729,7 @@ export default function AgingEstoquePage() {
         status_portfolio: activeFilter?.status_portfolio,
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+        semaforo: activeFilter?.semaforo,
       })
       .then((res) => {
         if (!mounted) return
@@ -3115,8 +3158,8 @@ export default function AgingEstoquePage() {
           helper={escopoEstoque === "produtos" ? "Disponibilidade abaixo do necessário" : "Abaixo do ideal/LT"}
           icon={<ArrowDownRight size={20} />}
           tone="warning"
-          onClick={() => aplicarFiltro({ label: "Críticos", status: "CRITICO" })}
-          active={isFiltroAtivo(activeFilter, { status: "CRITICO" }) && !activeFilter?.tipo_negocio}
+          onClick={() => aplicarFiltro({ label: "Críticos", semaforo: "VERMELHO" })}
+          active={isFiltroAtivo(activeFilter, { semaforo: "VERMELHO" }) && !activeFilter?.tipo_negocio}
         />
         <KpiCard
           label="Excesso"
@@ -3230,8 +3273,8 @@ export default function AgingEstoquePage() {
                     <KpiSmall
                       label="Críticos"
                       value={fmtNumber(negocio.criticos)}
-                      onClick={() => aplicarFiltro({ label: `Críticos · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "CRITICO" })}
-                      active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "CRITICO" })}
+                      onClick={() => aplicarFiltro({ label: `Críticos · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, semaforo: "VERMELHO" })}
+                      active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, semaforo: "VERMELHO" })}
                     />
                     <KpiSmall
                       label="Excesso"
@@ -3452,7 +3495,7 @@ export default function AgingEstoquePage() {
 
                       return (
                         <td key={col.key} className={`px-2 py-2 text-right whitespace-nowrap ${isGap ? "font-semibold" : ""}`} style={{ color }}>
-                          {fmtTableValue(item, col)}
+                          {fmtTableValue(item, col, isTabelaProdutos)}
                         </td>
                       )
                     })}
