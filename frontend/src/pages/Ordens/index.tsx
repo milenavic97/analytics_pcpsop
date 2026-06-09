@@ -52,6 +52,22 @@ type Gargalo = {
   status: "falta" | "quarentena"
 }
 
+type MaterialCriticoResumo = {
+  codigo_comp: string
+  descricao: string
+  tp: string
+  unidade: string
+  qtd_ops_impactadas: number
+  necessario_total: number
+  estoque_disponivel: number
+  saldo_98: number
+  compras_abertas: number
+  sc_pc: string[]
+  menor_data_entrega: string | null
+  faltante_total: number
+  status: "falta" | "quarentena"
+}
+
 type OPEditavel = OPResult & {
   id?: string
   mes_ref?: string
@@ -559,6 +575,133 @@ function getGargalosOP(op: OPEditavel): Gargalo[] {
     vistos.add(key)
     return true
   })
+}
+
+function getEstoqueDisponivelResumo(comp: Record<string, unknown>): number {
+  const tp = normalizarTexto(comp.tp).toUpperCase()
+
+  if (tp === "MC") {
+    return toNumber(comp.saldo_20 ?? comp.saldo_disponivel ?? comp.saldo_chegou)
+  }
+
+  if (tp === "PI") {
+    return toNumber(comp.saldo_02 ?? comp.saldo_disponivel ?? comp.saldo_chegou)
+  }
+
+  return toNumber(comp.saldo_01 ?? comp.saldo_disponivel ?? comp.saldo_chegou ?? comp.saldo_atual)
+}
+
+function formatarIdsResumo(ids: string[]): string {
+  const unicos = Array.from(new Set(ids.map(id => String(id || "").trim()).filter(Boolean)))
+
+  if (unicos.length === 0) return "—"
+  if (unicos.length <= 2) return unicos.join(", ")
+
+  return `${unicos.slice(0, 2).join(", ")} +${unicos.length - 2}`
+}
+
+function montarResumoMateriaisCriticos(opsBase: OPEditavel[]): MaterialCriticoResumo[] {
+  type LinhaResumoInterna = MaterialCriticoResumo & {
+    opsSet: Set<string>
+    idsSet: Set<string>
+  }
+
+  const mapa = new Map<string, LinhaResumoInterna>()
+
+  for (const op of opsBase) {
+    const alertas = Array.isArray(op.alertas) ? op.alertas : []
+    const opKey = String(op.id || `${op.lote || ""}-${op.codigo || ""}-${op.fifo_posicao || ""}`)
+
+    for (const item of alertas) {
+      const comp = item as unknown as Record<string, unknown>
+
+      if (!isComponenteGargalante(comp)) continue
+
+      const statusVisual = statusComponenteVisual(comp)
+
+      if (statusVisual !== "falta" && statusVisual !== "quarentena") continue
+
+      const codigo = String(comp.codigo_comp || "").trim()
+      if (!codigo) continue
+
+      const descricao = String(comp.descricao || comp.descricao_comp || codigo)
+      const tp = String(comp.tp || "").trim().toUpperCase()
+      const unidade = String(comp.unidade || "").trim()
+      const chave = codigo
+
+      if (!mapa.has(chave)) {
+        mapa.set(chave, {
+          codigo_comp: codigo,
+          descricao,
+          tp,
+          unidade,
+          qtd_ops_impactadas: 0,
+          necessario_total: 0,
+          estoque_disponivel: 0,
+          saldo_98: 0,
+          compras_abertas: 0,
+          sc_pc: [],
+          menor_data_entrega: null,
+          faltante_total: 0,
+          status: statusVisual,
+          opsSet: new Set<string>(),
+          idsSet: new Set<string>(),
+        })
+      }
+
+      const linha = mapa.get(chave)!
+      linha.opsSet.add(opKey)
+      linha.qtd_ops_impactadas = linha.opsSet.size
+      linha.necessario_total += toNumber(comp.necessario)
+      linha.faltante_total += getFaltanteParaSimulacao(comp) || toNumber(comp.faltante)
+      linha.estoque_disponivel = Math.max(linha.estoque_disponivel, getEstoqueDisponivelResumo(comp))
+      linha.saldo_98 = Math.max(
+        linha.saldo_98,
+        toNumber(comp.saldo_98 ?? comp.saldo_disponivel_98 ?? comp.saldo_chegou_98)
+      )
+
+      const qtdCompraUsada = getQtdCompraUsada(comp)
+      const qtdCompraTotal = qtdCompraUsada > 0 ? qtdCompraUsada : getQtdComprasTotal(comp)
+      linha.compras_abertas += qtdCompraTotal
+
+      const menorData = getMenorDataEntregaCompra(comp)
+      if (menorData && (!linha.menor_data_entrega || menorData < linha.menor_data_entrega)) {
+        linha.menor_data_entrega = menorData
+      }
+
+      for (const compra of getComprasAbertas(comp)) {
+        const id = compra.pedido_numero || compra.sc_numero
+        if (id) linha.idsSet.add(String(id))
+      }
+
+      if (statusVisual === "falta") {
+        linha.status = "falta"
+      }
+    }
+  }
+
+  return Array.from(mapa.values())
+    .map(({ opsSet, idsSet, ...linha }) => ({
+      ...linha,
+      qtd_ops_impactadas: opsSet.size,
+      sc_pc: Array.from(idsSet),
+      necessario_total: Number(linha.necessario_total.toFixed(4)),
+      estoque_disponivel: Number(linha.estoque_disponivel.toFixed(4)),
+      saldo_98: Number(linha.saldo_98.toFixed(4)),
+      compras_abertas: Number(linha.compras_abertas.toFixed(4)),
+      faltante_total: Number(linha.faltante_total.toFixed(4)),
+    }))
+    .sort((a, b) => {
+      const statusA = a.status === "falta" ? 0 : 1
+      const statusB = b.status === "falta" ? 0 : 1
+      if (statusA !== statusB) return statusA - statusB
+
+      if (b.qtd_ops_impactadas !== a.qtd_ops_impactadas) {
+        return b.qtd_ops_impactadas - a.qtd_ops_impactadas
+      }
+
+      return b.faltante_total - a.faltante_total
+    })
 }
 
 function getEstoqueAtualizadoEm(dados: ResumoViabilidade | null): string | null {
@@ -1997,6 +2140,124 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesComp
   )
 }
 
+function MateriaisCriticosResumoTable({
+  materiais,
+  totalOps,
+}: {
+  materiais: MaterialCriticoResumo[]
+  totalOps: number
+}) {
+  const totalMateriais = materiais.length
+  const totalOpsImpactadas = materiais.reduce((acc, m) => acc + m.qtd_ops_impactadas, 0)
+  const totalFaltante = materiais.reduce((acc, m) => acc + m.faltante_total, 0)
+
+  if (totalMateriais === 0) {
+    return (
+      <div className="rounded-2xl border p-5" style={{ background: "#F0FDF4", borderColor: "#BBF7D0" }}>
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: "#DCFCE7", color: "#166534" }}>
+            <CheckCircle2 size={18} />
+          </div>
+          <div>
+            <p className="text-sm font-bold" style={{ color: "#166534" }}>Nenhum material travando as OPs filtradas</p>
+            <p className="mt-1 text-xs" style={{ color: "#15803D" }}>
+              Considerando os filtros atuais, não há componentes gargalantes com falta ou dependência de quarentena.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
+      <div className="flex flex-col gap-3 border-b px-5 py-4 md:flex-row md:items-center md:justify-between" style={{ borderColor: "var(--border)" }}>
+        <div>
+          <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Materiais travando abertura das OPs</p>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+            Resumo por componente considerando as {totalOps} OP{totalOps !== 1 ? "s" : ""} filtrada{totalOps !== 1 ? "s" : ""}. Quarentena aparece separada e não entra como saldo livre.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl border px-3 py-2" style={{ background: "#F8FAFC", borderColor: "#E2E8F0" }}>
+            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#64748B" }}>Itens</p>
+            <p className="text-sm font-bold" style={{ color: "#0F172A" }}>{totalMateriais}</p>
+          </div>
+          <div className="rounded-xl border px-3 py-2" style={{ background: "#FFF7ED", borderColor: "#FED7AA" }}>
+            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#9A3412" }}>Qtd. OPs</p>
+            <p className="text-sm font-bold" style={{ color: "#C2410C" }}>{totalOpsImpactadas}</p>
+          </div>
+          <div className="rounded-xl border px-3 py-2" style={{ background: "#FEF2F2", borderColor: "#FECACA" }}>
+            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#991B1B" }}>Faltante</p>
+            <p className="text-sm font-bold" style={{ color: "#DC2626" }}>{fmt(totalFaltante)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-auto">
+        <table className="w-full border-separate border-spacing-0" style={{ minWidth: 1180 }}>
+          <thead>
+            <tr style={{ background: TABLE_HEADER_BG }}>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Código</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Descrição</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>TP</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Qtd. OPs impactadas</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Necessário total</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Estoque disponível</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Saldo 98</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Compras abertas</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>SC / PC</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Menor entrega</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Faltante total</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {materiais.map((m, idx) => {
+              const idsLabel = formatarIdsResumo(m.sc_pc)
+              const idsTooltip = m.sc_pc.length > 0 ? m.sc_pc.join("\n") : ""
+              const unidade = m.unidade ? ` ${m.unidade}` : ""
+
+              return (
+                <tr key={`${m.codigo_comp}-${idx}`} className="border-b" style={{ background: idx % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-primary)" }}>
+                  <td className="px-4 py-3 align-top text-xs font-mono font-bold" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{m.codigo_comp}</td>
+                  <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
+                    <div className="max-w-[260px] truncate" title={m.descricao}>{m.descricao}</div>
+                  </td>
+                  <td className="px-4 py-3 align-top text-xs font-bold" style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{m.tp || "—"}</td>
+                  <td className="px-4 py-3 align-top text-right text-xs font-bold" style={{ color: "#C2410C", borderBottom: "1px solid var(--border)" }}>{m.qtd_ops_impactadas}</td>
+                  <td className="px-4 py-3 align-top text-right text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.necessario_total)}{unidade}</td>
+                  <td className="px-4 py-3 align-top text-right text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.estoque_disponivel)}{unidade}</td>
+                  <td className="px-4 py-3 align-top text-right text-xs" style={{ color: m.saldo_98 > 0 ? "#92400E" : "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.saldo_98)}{unidade}</td>
+                  <td className="px-4 py-3 align-top text-right text-xs" style={{ color: m.compras_abertas > 0 ? "#1D4ED8" : "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.compras_abertas)}{unidade}</td>
+                  <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
+                    {idsTooltip ? (
+                      <Tooltip text={idsTooltip}>
+                        <span className="inline-flex max-w-[150px] truncate rounded-full border px-2 py-1 text-[11px] font-semibold" style={{ background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}>
+                          {idsLabel}
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      <span style={{ color: "var(--text-secondary)" }}>—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmtData(m.menor_data_entrega)}</td>
+                  <td className="px-4 py-3 align-top text-right text-xs font-bold" style={{ color: m.status === "falta" ? "#DC2626" : "#92400E", borderBottom: "1px solid var(--border)" }}>{fmt(m.faltante_total)}{unidade}</td>
+                  <td className="px-4 py-3 align-top text-xs" style={{ borderBottom: "1px solid var(--border)" }}>
+                    <StatusBadge status={m.status} />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+
 // ─── Export Excel ─────────────────────────────────────────────────────────────
 
 function exportarExcel(ops: OPEditavel[], mesRef: string) {
@@ -2293,6 +2554,8 @@ export function OrdensPage() {
     return true
   })
 
+  const materiaisCriticosResumo = montarResumoMateriaisCriticos(opsFiltradas)
+
   function handleSelect(id: string, val: boolean) {
     setSelecionados(prev => { const n = new Set(prev); val ? n.add(id) : n.delete(id); return n })
   }
@@ -2587,6 +2850,11 @@ export function OrdensPage() {
             onSalvarNegociacao={handleSalvarNegociacao}
             onAjusteCompraChange={handleAjusteCompraChange}
             onAjusteCompraDataChange={handleAjusteCompraDataChange}
+          />
+
+          <MateriaisCriticosResumoTable
+            materiais={materiaisCriticosResumo}
+            totalOps={opsFiltradas.length}
           />
         </div>
       )}
