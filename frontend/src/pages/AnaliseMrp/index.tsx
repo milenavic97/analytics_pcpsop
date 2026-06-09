@@ -1425,11 +1425,13 @@ function BraviSeriePanel({
   refreshTick,
   selectedItem,
   onClearSelected,
+  loadingSelected = false,
 }: {
   active: boolean
   refreshTick: number
   selectedItem?: AgingEstoqueItemDetalhe | null
   onClearSelected?: () => void
+  loadingSelected?: boolean
 }) {
   const [granularidade, setGranularidade] = useState<GranularidadeSerie>("mensal")
   const [data, setData] = useState<BraviSerieResponse | null>(null)
@@ -1460,7 +1462,8 @@ function BraviSeriePanel({
     return () => { mounted = false }
   }, [active, granularidade, refreshTick])
 
-  const itemSelecionado = selectedItem?.codigo ? selectedItem : null
+  const itemCarregando = loadingSelected && selectedItem?.codigo ? selectedItem : null
+  const itemSelecionado = !loadingSelected && selectedItem?.codigo ? selectedItem : null
   const serieItemSelecionado = useMemo(
     () => buildSerieOperacionalItemSelecionado(itemSelecionado),
     [itemSelecionado]
@@ -1479,7 +1482,7 @@ function BraviSeriePanel({
   }
 
   const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
-  const serie = itemSelecionado ? serieItemSelecionado : data?.serie || []
+  const serie = itemCarregando ? [] : itemSelecionado ? serieItemSelecionado : data?.serie || []
   const resumo = itemSelecionado
     ? {
         estoque_atual: Number(itemSelecionado.saldo || 0),
@@ -1493,12 +1496,16 @@ function BraviSeriePanel({
         criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
       }
     : data?.resumo || {}
-  const tituloSerie = itemSelecionado
-    ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}`
-    : "Estoque e faturamento dos PA / MR"
-  const descricaoSerie = itemSelecionado
-    ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
-    : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
+  const tituloSerie = itemCarregando
+    ? `${itemCarregando.codigo} · carregando dados do item...`
+    : itemSelecionado
+      ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}`
+      : "Estoque e faturamento dos PA / MR"
+  const descricaoSerie = itemCarregando
+    ? "Aguarde alguns segundos enquanto a série correta do item é carregada."
+    : itemSelecionado
+      ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
+      : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
@@ -1585,7 +1592,7 @@ function BraviSeriePanel({
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              {itemSelecionado ? "Item selecionado" : "PA / MR"}
+              {itemCarregando ? "Carregando item" : itemSelecionado ? "Item selecionado" : "PA / MR"}
             </span>
           </div>
 
@@ -1715,7 +1722,7 @@ function BraviSeriePanel({
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                {loading ? "Carregando série PA/MR..." : "Sem série disponível para os PA/MR."}
+                {loading || itemCarregando ? "Carregando série do item selecionado..." : "Sem série disponível para os PA/MR."}
               </div>
             )}
           </div>
@@ -3140,6 +3147,7 @@ export default function AgingEstoquePage() {
         active={mostrarCardsPortfolio && escopoEstoque === "produtos"}
         refreshTick={refreshTick}
         selectedItem={selected}
+        loadingSelected={loadingDetalhe}
         onClearSelected={() => setSelected(null)}
       />
 
