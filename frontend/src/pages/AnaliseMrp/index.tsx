@@ -3145,7 +3145,7 @@ export default function AgingEstoquePage() {
             label="Itens"
             value={fmtNumber(resumo?.resumo?.total_itens || 0)}
             helper={`Insumos de produção · Snapshot: ${resumo?.data_snapshot_consumo ? fmtDate(resumo.data_snapshot_consumo) : "—"}`}
-            icon={<Network size={20} />}
+            icon={<Boxes size={20} />}
             active={!activeFilter}
           />
           <KpiCard
@@ -3180,7 +3180,7 @@ export default function AgingEstoquePage() {
             value={fmtNumber(resumo?.resumo?.sem_giro || 0)}
             helper="sem consumo histórico relevante"
             icon={<PackageSearch size={20} />}
-            tone="neutral"
+            tone="default"
             onClick={() => aplicarFiltro({ label: "Sem giro", status: "SEM_GIRO" })}
             active={isFiltroAtivo(activeFilter, { status: "SEM_GIRO" })}
           />
@@ -3318,7 +3318,7 @@ export default function AgingEstoquePage() {
                     onClick={() => setSelected(item as AgingEstoqueItemDetalhe)}
                   >
                     <td className="px-3 py-2 font-bold">{item.codigo}</td>
-                    <td className="truncate px-3 py-2" title={item.produto}>{item.produto}</td>
+                    <td className="truncate px-3 py-2" title={item.produto || ""}>{item.produto || "—"}</td>
                     <td className="px-3 py-2"><SemaforoBadge item={item} /></td>
                     <td className="px-3 py-2">{item.tipo || item.tipo_produto_erp || "—"}</td>
                     <td className="px-3 py-2 text-center">{item.unid || "—"}</td>
@@ -3460,9 +3460,9 @@ export default function AgingEstoquePage() {
           value={fmtNumber(resumo?.resumo?.total_itens || 0)}
           helper={`${escopoTitulo} · Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`}
           details={[
-            { label: escopoEstoque === "insumos" ? "Componentes BOM" : "Ativos/outros", value: fmtNumber(escopoEstoque === "insumos" ? totalItensResumo : totalAtivosOutros), tone: "success" },
-            ...(escopoEstoque !== "insumos" && totalDescontinuadoSaldo > 0 ? [{ label: "Desc. c/ saldo", value: fmtNumber(totalDescontinuadoSaldo), tone: "danger" as const }] : []),
-            ...(escopoEstoque !== "insumos" && totalBravi > 0 ? [{ label: "Bravi", value: fmtNumber(totalBravi), tone: "blue" as const }] : []),
+            { label: "Ativos/outros", value: fmtNumber(totalAtivosOutros), tone: "success" },
+            ...(totalDescontinuadoSaldo > 0 ? [{ label: "Desc. c/ saldo", value: fmtNumber(totalDescontinuadoSaldo), tone: "danger" as const }] : []),
+            ...(totalBravi > 0 ? [{ label: "Bravi", value: fmtNumber(totalBravi), tone: "blue" as const }] : []),
             ...(qtdAClassificar ? [{ label: "A classificar", value: fmtNumber(qtdAClassificar), tone: "warning" as const }] : []),
           ]}
           icon={<Boxes size={20} />}
@@ -3554,7 +3554,7 @@ export default function AgingEstoquePage() {
                       className="text-left"
                       onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
                     >
-                      <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{escopoEstoque === "insumos" ? "Saúde dos insumos" : "Saúde da linha"}</p>
+                      <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>"Saúde da linha"</p>
                       <h3 className="mt-1 text-lg font-bold hover:underline" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
                     </button>
 
@@ -3844,15 +3844,6 @@ export default function AgingEstoquePage() {
           </div>
         </div>
       </div>
-
-      {escopoEstoque === "insumos" && (
-        <TimelinePrincipal
-          item={selected}
-          loading={loadingDetalhe}
-          horizonteFuturo={horizonteFuturo}
-          onHorizonteChange={setHorizonteFuturo}
-        />
-      )}
 
       <BasesModal
         open={basesModalOpen}
