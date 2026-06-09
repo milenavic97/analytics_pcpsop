@@ -1556,8 +1556,6 @@ function BraviSeriePanel({
     [itemSelecionado]
   )
 
-  if (!active) return null
-
   const toggleSerie = (dataKey?: string) => {
     if (!dataKey) return
     setSeriesOcultas((current) => {
@@ -1604,6 +1602,8 @@ function BraviSeriePanel({
 
     return arredondarEixoMaximo(maiorValor)
   }, [serie])
+
+  if (!active) return null
 
   return (
     <div className="card overflow-hidden">
