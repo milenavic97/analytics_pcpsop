@@ -556,30 +556,72 @@ function fmtCompact(value: number | null | undefined) {
   return fmtNumber(n, 0)
 }
 
+function arredondarEixoMaximo(value: number) {
+  const n = Math.max(0, Number(value || 0))
+  if (!Number.isFinite(n) || n <= 0) return 1
+
+  const potencia = Math.pow(10, Math.floor(Math.log10(n)))
+  const normalizado = n / potencia
+
+  const fator =
+    normalizado <= 1 ? 1 :
+    normalizado <= 2 ? 2 :
+    normalizado <= 5 ? 5 :
+    10
+
+  return fator * potencia
+}
+
 function fmtDate(value?: string | null) {
   if (!value) return "—"
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10).split("-").reverse().join("/")
+
+  const texto = String(value).trim()
+  const isoDate = texto.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoDate) {
+    const [, ano, mes, dia] = isoDate
+    return `${dia}/${mes}/${ano}`
+  }
+
+  const brDate = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (brDate) {
+    const [, dia, mes, ano] = brDate
+    return `${dia}/${mes}/${ano}`
+  }
+
+  const d = new Date(texto)
+  if (Number.isNaN(d.getTime())) return texto.slice(0, 10)
+
   return d.toLocaleDateString("pt-BR")
 }
 
 function fmtDateTime(value?: string | null) {
   if (!value) return "—"
 
-  const d = new Date(value)
+  const texto = String(value).trim()
+  const horaMatch = texto.match(/T(\d{2}:\d{2})|\s(\d{2}:\d{2})/)
+  const hora = horaMatch?.[1] || horaMatch?.[2]
 
-  if (Number.isNaN(d.getTime())) {
-    const texto = String(value)
-    const data = texto.slice(0, 10).split("-").reverse().join("/")
-    const horaMatch = texto.match(/T(\d{2}:\d{2})|\s(\d{2}:\d{2})/)
-    const hora = horaMatch?.[1] || horaMatch?.[2]
+  const isoDate = texto.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoDate) {
+    const [, ano, mes, dia] = isoDate
+    const data = `${dia}/${mes}/${ano}`
     return hora ? `${data} às ${hora}` : data
   }
 
-  const data = d.toLocaleDateString("pt-BR")
-  const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  const brDate = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (brDate) {
+    const [, dia, mes, ano] = brDate
+    const data = `${dia}/${mes}/${ano}`
+    return hora ? `${data} às ${hora}` : data
+  }
 
-  return `${data} às ${hora}`
+  const d = new Date(texto)
+  if (Number.isNaN(d.getTime())) return texto.slice(0, 10)
+
+  const data = d.toLocaleDateString("pt-BR")
+  const horaLocal = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+
+  return `${data} às ${horaLocal}`
 }
 
 function getAnyNumber(item: Record<string, unknown> | null | undefined, key: string) {
@@ -1041,9 +1083,14 @@ function SortableTh({ label, column, sortKey, sortDirection, onSort }: { label: 
   const active = sortKey === column
   const arrow = active ? (sortDirection === "asc" ? "↑" : "↓") : "↕"
   return (
-    <th className="px-4 py-3 text-right">
-      <button type="button" onClick={() => onSort(column)} className="inline-flex items-center justify-end gap-1 rounded-md text-right font-bold text-white/95 transition hover:text-white" title={`Ordenar por ${label}`}>
-        <span>{label}</span>
+    <th className="min-w-[82px] px-2 py-2 text-right align-middle">
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className="inline-flex w-full items-center justify-end gap-1 rounded-md text-right text-[10px] font-bold leading-tight text-white/95 transition hover:text-white"
+        title={`Ordenar por ${label}`}
+      >
+        <span className="max-w-[72px] whitespace-normal">{label}</span>
         <span className={active ? "text-white" : "text-white/55"}>{arrow}</span>
       </button>
     </th>
@@ -1206,6 +1253,41 @@ function renderChartLabel(props: any) {
   return (
     <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={700} fill="#334155">
       {fmtCompact(n)}
+    </text>
+  )
+}
+
+function renderChartLabelAberto(props: any) {
+  const { x, y, width, height, value } = props
+  const n = Number(value || 0)
+  if (!Number.isFinite(n) || n === 0 || x == null || y == null) return null
+
+  const texto = fmtNumber(n, 0)
+  const hasBarBox = typeof width === "number" && typeof height === "number"
+
+  if (hasBarBox) {
+    const cx = Number(x) + Number(width) / 2
+    const cy = Number(y) + Number(height) / 2
+    const isNegative = n < 0
+
+    return (
+      <text
+        x={cx}
+        y={cy}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize={10}
+        fontWeight={700}
+        fill={isNegative ? "#991B1B" : "#334155"}
+      >
+        {texto}
+      </text>
+    )
+  }
+
+  return (
+    <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={700} fill="#334155">
+      {texto}
     </text>
   )
 }
@@ -1418,6 +1500,21 @@ function BraviSeriePanel({
     ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
     : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
 
+  const eixoMaxComum = useMemo(() => {
+    const maiorValor = serie.reduce((max, ponto: any) => {
+      const estoqueDisponivel = Math.max(0, Number(ponto.estoque || 0))
+      const entradasPrevistas = Math.max(0, Number(ponto.entradas_previstas || 0))
+      const quarentena = Math.max(0, Number(ponto.estoque_quarentena || ponto.quarentena || 0))
+      const faturamento = Math.max(0, Number(ponto.faturamento_qtd || 0))
+      const forecast = Math.max(0, Number(ponto.demanda || ponto.forecast || 0))
+      const disponibilidade = estoqueDisponivel + entradasPrevistas + quarentena
+
+      return Math.max(max, disponibilidade, faturamento, forecast)
+    }, 0)
+
+    return arredondarEixoMaximo(maiorValor)
+  }, [serie])
+
   return (
     <div className="card overflow-hidden">
       <div className="flex flex-col justify-between gap-3 border-b px-5 py-4 lg:flex-row lg:items-start" style={{ borderColor: "var(--border)" }}>
@@ -1510,7 +1607,9 @@ function BraviSeriePanel({
                     orientation="left"
                     tick={{ fontSize: 11, fill: "#64748B" }}
                     width={80}
-                    domain={[0, "auto"]}
+                    domain={[0, eixoMaxComum]}
+                    allowDataOverflow={false}
+                    tickFormatter={(value) => fmtNumber(Number(value), 0)}
                     label={{ value: "Estoque + entradas", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
                   />
                   <YAxis
@@ -1518,7 +1617,9 @@ function BraviSeriePanel({
                     orientation="right"
                     tick={{ fontSize: 11, fill: "#64748B" }}
                     width={80}
-                    domain={[0, "auto"]}
+                    domain={[0, eixoMaxComum]}
+                    allowDataOverflow={false}
+                    tickFormatter={(value) => fmtNumber(Number(value), 0)}
                     label={{ value: "Faturamento / forecast", angle: 90, position: "insideRight", style: { fill: "#64748B", fontSize: 11 } }}
                   />
                   <YAxis yAxisId="valor" hide />
@@ -1538,7 +1639,7 @@ function BraviSeriePanel({
                     radius={[6, 6, 0, 0]}
                     hide={serieOculta("estoque")}
                   >
-                    <LabelList dataKey="estoque" content={renderChartLabel} />
+                    <LabelList dataKey="estoque" content={renderChartLabelAberto} />
                   </Bar>
 
                   <Bar
@@ -1553,7 +1654,7 @@ function BraviSeriePanel({
                     radius={[6, 6, 0, 0]}
                     hide={serieOculta("entradas_previstas")}
                   >
-                    <LabelList dataKey="entradas_previstas" content={renderChartLabel} />
+                    <LabelList dataKey="entradas_previstas" content={renderChartLabelAberto} />
                   </Bar>
 
                   <Line
@@ -1567,7 +1668,7 @@ function BraviSeriePanel({
                     connectNulls={false}
                     hide={serieOculta("faturamento_qtd")}
                   >
-                    <LabelList dataKey="faturamento_qtd" content={renderChartLabel} />
+                    <LabelList dataKey="faturamento_qtd" content={renderChartLabelAberto} />
                   </Line>
 
                   <Line
@@ -1582,7 +1683,7 @@ function BraviSeriePanel({
                     connectNulls={false}
                     hide={serieOculta("demanda")}
                   >
-                    <LabelList dataKey="demanda" content={renderChartLabel} />
+                    <LabelList dataKey="demanda" content={renderChartLabelAberto} />
                   </Line>
 
                   <Line
@@ -2553,6 +2654,7 @@ export default function AgingEstoquePage() {
   }
 
   const atualizarFiltroCampo = (campo: keyof FiltroTabelaEstoque, value?: string) => {
+    setLoadingItens(true)
     setPage(1)
     setSelected(null)
     setActiveFilter((current) => {
@@ -3073,20 +3175,33 @@ export default function AgingEstoquePage() {
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{escopoTitulo} por cobertura e estoque ideal</h2>
           </div>
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
+          <div className="flex items-center gap-3">
+            {loadingItens && (
+              <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold" style={{ background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}>
+                <RefreshCw size={13} className="animate-spin" /> Atualizando tabela
+              </span>
+            )}
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
+          </div>
         </div>
 
-        <div className="overflow-auto scrollbar-thin scrollbar-thumb-slate-400 scrollbar-track-slate-100" style={{ maxHeight: "calc(100vh - 300px)", scrollbarGutter: "stable" }}>
-          <table className="w-full min-w-[3300px] border-separate border-spacing-0 text-sm">
+        <div className="relative overflow-auto scrollbar-thin scrollbar-thumb-slate-400 scrollbar-track-slate-100" style={{ maxHeight: "calc(100vh - 300px)", scrollbarGutter: "stable" }}>
+          {loadingItens && (
+            <div className="sticky left-0 top-0 z-[90] flex items-center gap-2 border-b px-4 py-2 text-xs font-bold shadow-sm" style={{ background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}>
+              <RefreshCw size={14} className="animate-spin" />
+              Buscando itens da tabela...
+            </div>
+          )}
+          <table className="w-full min-w-[2650px] table-fixed border-separate border-spacing-0 text-xs">
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
-                <th className="sticky left-0 z-30 min-w-[90px] px-4 py-3" style={{ background: "#163B63" }}>
+                <th className="sticky left-0 z-30 w-[82px] min-w-[82px] px-3 py-2" style={{ background: "#163B63" }}>
                   {renderFiltroExcel("busca", "Código", "texto", [], "Código...")}
                 </th>
-                <th className="sticky left-[90px] z-30 min-w-[260px] px-4 py-3" style={{ background: "#163B63" }}>
+                <th className="sticky left-[82px] z-30 w-[220px] min-w-[220px] px-3 py-2" style={{ background: "#163B63" }}>
                   {renderFiltroExcel("busca", "Descrição", "texto", [], "Buscar produto, ex.: SUGCLEAN")}
                 </th>
-                <th className="px-4 py-3">
+                <th className="px-2 py-2">
                   {renderFiltroExcel("semaforo", "Semáforo", "select", [
                     { value: "", label: "Todos" },
                     { value: "VERMELHO", label: "Crítico" },
@@ -3095,22 +3210,22 @@ export default function AgingEstoquePage() {
                     { value: "CINZA", label: "Sem referência" },
                   ])}
                 </th>
-                <th className="px-4 py-3">Curva A</th>
-                <th className="px-4 py-3">
+                <th className="px-2 py-2">Curva A</th>
+                <th className="px-2 py-2">
                   {renderFiltroExcel("tipo_negocio", "Tipo", "select", montarOpcoesTabela(opcoesFiltros.tipo_negocio))}
                 </th>
-                <th className="px-4 py-3">UM</th>
-                <th className="px-4 py-3">
+                <th className="px-2 py-2">UM</th>
+                <th className="px-2 py-2">
                   {renderFiltroExcel("status_portfolio", "Segmento", "select", montarOpcoesTabela(opcoesFiltros.status_portfolio))}
                 </th>
-                <th className="px-4 py-3">
+                <th className="px-2 py-2">
                   {renderFiltroExcel("transferencia_bravi", "Mercado", "select", [
                     { value: "", label: "Todos" },
                     { value: "Sim", label: "Bravi" },
                     { value: "Não", label: "Não Bravi" },
                   ])}
                 </th>
-                <th className="px-4 py-3">
+                <th className="px-2 py-2">
                   {renderFiltroExcel("classificacao_cadastro", "Origem saldo", "select", [
                     { value: "", label: "Todos" },
                     { value: "MAPEADOS", label: "Mapeados" },
@@ -3119,7 +3234,7 @@ export default function AgingEstoquePage() {
                     { value: "NAO_CLASSIFICADOS", label: "Não classificados" },
                   ])}
                 </th>
-                <th className="px-4 py-3">Data saldo</th>
+                <th className="px-2 py-2">Data saldo</th>
                 {NUMERIC_COLUMNS.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
               </tr>
             </thead>
@@ -3131,7 +3246,7 @@ export default function AgingEstoquePage() {
                 return (
                   <tr
                     key={`${item.codigo}-${item.tipo}-${item.grupo_gerencial}`}
-                    className="cursor-pointer border-t transition hover:bg-slate-50"
+                    className="cursor-pointer border-t text-xs transition hover:bg-slate-50"
                     style={{
                       borderColor: "var(--border)",
                       background: selected?.codigo === item.codigo ? "rgba(37,99,235,0.06)" : undefined,
@@ -3139,29 +3254,29 @@ export default function AgingEstoquePage() {
                     onClick={() => abrirDetalhe(item)}
                   >
                     <td
-                      className="sticky left-0 z-10 min-w-[90px] border-r px-4 py-3 font-bold"
+                      className="sticky left-0 z-10 w-[82px] min-w-[82px] whitespace-nowrap border-r px-3 py-2 text-xs font-bold"
                       style={{ color: "var(--text-primary)", borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "#EFF6FF" : "#FFFFFF" }}
                     >
                       {item.codigo}
                     </td>
                     <td
-                      className="sticky left-[90px] z-10 min-w-[260px] border-r px-4 py-3"
+                      className="sticky left-[82px] z-10 w-[220px] min-w-[220px] border-r px-3 py-2 text-xs"
                       style={{ borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "#EFF6FF" : "#FFFFFF" }}
                     >
-                      <div className="max-w-[240px] truncate font-medium" style={{ color: "var(--text-primary)" }} title={item.produto || ""}>{item.produto || "—"}</div>
+                      <div className="max-w-[190px] truncate font-medium" style={{ color: "var(--text-primary)" }} title={item.produto || ""}>{item.produto || "—"}</div>
                     </td>
-                    <td className="px-4 py-3"><SemaforoBadge item={item} /></td>
-                    <td className="px-4 py-3">{String(itemEx.curva_a || item.abc_ytm || "—")}</td>
-                    <td className="px-4 py-3">{item.tipo || item.tipo_produto_erp || "—"}</td>
-                    <td className="px-4 py-3">{item.unid || "—"}</td>
-                    <td className="px-4 py-3">{item.segmento || "—"}</td>
-                    <td className="px-4 py-3">{item.mercado || "—"}</td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex rounded-full border px-2 py-1 text-[11px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "rgba(15,23,42,0.03)" }} title={getSaldoOrigemTitle(itemEx)}>
+                    <td className="px-2 py-2"><SemaforoBadge item={item} /></td>
+                    <td className="px-2 py-2 text-center whitespace-nowrap">{String(itemEx.curva_a || item.abc_ytm || "—")}</td>
+                    <td className="px-2 py-2 max-w-[70px] truncate whitespace-nowrap" title={String(item.tipo || item.tipo_produto_erp || "—")}>{item.tipo || item.tipo_produto_erp || "—"}</td>
+                    <td className="px-2 py-2 text-center whitespace-nowrap">{item.unid || "—"}</td>
+                    <td className="px-2 py-2 max-w-[92px] truncate whitespace-nowrap" title={String(item.segmento || "—")}>{item.segmento || "—"}</td>
+                    <td className="px-2 py-2 max-w-[82px] truncate whitespace-nowrap" title={String(item.mercado || "—")}>{item.mercado || "—"}</td>
+                    <td className="px-2 py-2">
+                      <span className="inline-flex max-w-[82px] truncate rounded-full border px-2 py-1 text-[10px] font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "rgba(15,23,42,0.03)" }} title={getSaldoOrigemTitle(itemEx)}>
                         {getSaldoOrigemLabel(itemEx)}
                       </span>
                     </td>
-                    <td className="px-4 py-3">{itemEx.data_saldo_origem ? fmtDate(String(itemEx.data_saldo_origem)) : "—"}</td>
+                    <td className="px-2 py-2 whitespace-nowrap">{itemEx.data_saldo_origem ? fmtDate(String(itemEx.data_saldo_origem)) : "—"}</td>
                     {NUMERIC_COLUMNS.map((col) => {
                       const isGap = col.key === "estoque_ideal" || col.key === "estoque_ideal_valor" || col.key === "cobertura_consumo_lt" || col.key === "previsto_vs_consumido_pct"
                       const color = col.key === "previsto_vs_consumido_pct" && alertaPrevisao
@@ -3169,7 +3284,7 @@ export default function AgingEstoquePage() {
                         : "var(--text-primary)"
 
                       return (
-                        <td key={col.key} className={`px-4 py-3 text-right ${isGap ? "font-semibold" : ""}`} style={{ color }}>
+                        <td key={col.key} className={`px-2 py-2 text-right whitespace-nowrap ${isGap ? "font-semibold" : ""}`} style={{ color }}>
                           {fmtTableValue(item, col)}
                         </td>
                       )
@@ -3180,11 +3295,13 @@ export default function AgingEstoquePage() {
             </tbody>
           </table>
           {!loadingItens && !itensOrdenados.length && <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item encontrado na base atual.</div>}
-          {loadingItens && <div className="p-10 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Carregando itens...</div>}
+          {loadingItens && !itensOrdenados.length && <div className="p-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Carregando itens...</div>}
         </div>
 
         <div className="flex items-center justify-between border-t px-5 py-4" style={{ borderColor: "var(--border)" }}>
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Exibindo {fmtNumber(itensOrdenados.length)} de {fmtNumber(itensResp?.total || 0)} itens</p>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            {loadingItens ? "Atualizando resultados..." : `Exibindo ${fmtNumber(itensOrdenados.length)} de ${fmtNumber(itensResp?.total || 0)} itens`}
+          </p>
           <div className="flex gap-2">
             <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loadingItens} className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Anterior</button>
             <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages || loadingItens} className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Próxima</button>
