@@ -2067,7 +2067,7 @@ function TimelinePrincipal({
             <div className="h-[380px]">
               {linhaTempo.length ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={linhaTempo} margin={{ top: 24, right: 22, left: 0, bottom: 50 }}>
+                  <ComposedChart data={linhaTempo} margin={{ top: 24, right: 16, left: 0, bottom: 50 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                     <XAxis dataKey="periodo" angle={-35} textAnchor="end" height={68} interval={0} tick={{ fontSize: 10, fill: "#64748B" }} />
                     <YAxis
@@ -2075,14 +2075,7 @@ function TimelinePrincipal({
                       orientation="left"
                       tick={{ fontSize: 11, fill: "#64748B" }}
                       width={78}
-                      label={{ value: "Estoque / saldo", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
-                    />
-                    <YAxis
-                      yAxisId="fluxo"
-                      orientation="right"
-                      tick={{ fontSize: 11, fill: "#64748B" }}
-                      width={78}
-                      label={{ value: "Consumo / demanda", angle: 90, position: "insideRight", style: { fill: "#64748B", fontSize: 11 } }}
+                      label={{ value: "Quantidade / saldo", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
                     />
                     <Tooltip content={<LinhaTempoTooltip />} />
                     <Legend
@@ -2139,10 +2132,10 @@ function TimelinePrincipal({
                       <LabelList dataKey="entradas_previstas" content={renderChartLabel} />
                     </Bar>
 
-                    <Line yAxisId="fluxo" type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls hide={serieOculta("consumo")}>
+                    <Line yAxisId="estoque" type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls hide={serieOculta("consumo")}>
                       <LabelList dataKey="consumo" content={renderChartLabel} />
                     </Line>
-                    <Line yAxisId="fluxo" type="monotone" dataKey="demanda" name="Demanda MPS/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls hide={serieOculta("demanda")}>
+                    <Line yAxisId="estoque" type="monotone" dataKey="demanda" name="Demanda MPS/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls hide={serieOculta("demanda")}>
                       <LabelList dataKey="demanda" content={renderChartLabel} />
                     </Line>
                     <Line yAxisId="estoque" type="monotone" dataKey="ponto_pedido" name="Ponto de pedido" stroke="#D97706" strokeWidth={2.4} strokeDasharray="3 5" dot={false} connectNulls hide={serieOculta("ponto_pedido")}>
