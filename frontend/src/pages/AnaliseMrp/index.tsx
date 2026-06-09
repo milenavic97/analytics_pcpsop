@@ -75,6 +75,13 @@ const ESCOPO_DESCRICAO: Record<EscopoEstoque, string> = {
 }
 
 
+function classificacaoPadraoPorEscopo(escopo: EscopoEstoque): string {
+  // Para PA/MR precisamos mostrar todos os produtos do cadastro/dimensão,
+  // inclusive linhas sintéticas da d_produtos que não aparecem no Aging.
+  // Para insumos mantemos o padrão mapeado para não poluir a visão com itens administrativos.
+  return escopo === "produtos" ? "TODOS" : "MAPEADOS"
+}
+
 type BraviSeriePonto = {
   key: string
   ordem?: string
@@ -2383,7 +2390,10 @@ export default function AgingEstoquePage() {
     let mounted = true
     setLoadingResumo(true)
     setError("")
-    getAgingResumoDireto({ escopo: escopoEstoque })
+    getAgingResumoDireto({
+      escopo: escopoEstoque,
+      classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+    })
       .then((res) => {
         if (!mounted) return
         if (res?.escopo && res.escopo !== escopoEstoque) return
@@ -2397,7 +2407,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingResumo(false)
       })
     return () => { mounted = false }
-  }, [refreshTick, escopoEstoque])
+  }, [refreshTick, escopoEstoque, activeFilter?.classificacao_cadastro])
 
 
   useEffect(() => {
@@ -2415,7 +2425,7 @@ export default function AgingEstoquePage() {
         tipo_negocio: activeFilter?.tipo_negocio,
         status_portfolio: activeFilter?.status_portfolio,
         transferencia_bravi: activeFilter?.transferencia_bravi,
-        classificacao_cadastro: activeFilter?.classificacao_cadastro,
+        classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
       })
       .then((res) => {
         if (!mounted) return
