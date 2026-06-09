@@ -2749,6 +2749,7 @@ export default function AgingEstoquePage() {
         status_portfolio: activeFilter?.status_portfolio,
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+        semaforo: activeFilter?.semaforo,
       })
       .then((res) => {
         if (!mounted) return
