@@ -1399,7 +1399,11 @@ function BraviSeriePanel({
   const resumo = itemSelecionado
     ? {
         estoque_atual: Number(itemSelecionado.saldo || 0),
-        pedidos_abertos: Number(itemSelecionado.qtd_pedidos_abertos || itemSelecionado.entradas_previstas || 0),
+        pedidos_abertos:
+          getAnyNumber(itemSelecionado as unknown as Record<string, unknown>, "qtd_pedidos_abertos") ||
+          getAnyNumber(itemSelecionado as unknown as Record<string, unknown>, "entradas_previstas") ||
+          getAnyNumber(itemSelecionado as unknown as Record<string, unknown>, "qtd_entradas_previstas") ||
+          0,
         faturamento_ytd_qtd: Number(itemSelecionado.faturamento_ytd_qtd || 0),
         faturamento_ytd_valor: Number(itemSelecionado.faturamento_ytd_valor || 0),
         criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
