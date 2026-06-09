@@ -52,6 +52,27 @@ type Gargalo = {
   status: "falta" | "quarentena"
 }
 
+type MaterialCriticoOPResumo = {
+  op_id: string
+  fifo_posicao: number | null
+  tipo_fifo?: string | null
+  lote?: string | null
+  produto?: string | null
+  codigo_produto?: string | null
+  linha?: string | null
+  status_op?: StatusOP | string | null
+  data_lavagem_emb?: string | null
+  data_inicio_fabricacao?: string | null
+  data_fim?: string | null
+  necessario: number
+  estoque_disponivel: number
+  saldo_98: number
+  compras_abertas: number
+  menor_data_entrega: string | null
+  faltante: number
+  status_material: "falta" | "quarentena"
+}
+
 type MaterialCriticoResumo = {
   codigo_comp: string
   descricao: string
@@ -66,6 +87,7 @@ type MaterialCriticoResumo = {
   menor_data_entrega: string | null
   faltante_total: number
   status: "falta" | "quarentena"
+  ops_impactadas: MaterialCriticoOPResumo[]
 }
 
 type OPEditavel = OPResult & {
@@ -628,6 +650,12 @@ function montarResumoMateriaisCriticos(opsBase: OPEditavel[]): MaterialCriticoRe
       const tp = String(comp.tp || "").trim().toUpperCase()
       const unidade = String(comp.unidade || "").trim()
       const chave = codigo
+      const faltanteItem = getFaltanteParaSimulacao(comp) || toNumber(comp.faltante)
+      const estoqueDisponivelItem = getEstoqueDisponivelResumo(comp)
+      const saldo98Item = toNumber(comp.saldo_98 ?? comp.saldo_disponivel_98 ?? comp.saldo_chegou_98)
+      const qtdCompraUsada = getQtdCompraUsada(comp)
+      const qtdCompraTotal = qtdCompraUsada > 0 ? qtdCompraUsada : getQtdComprasTotal(comp)
+      const menorData = getMenorDataEntregaCompra(comp)
 
       if (!mapa.has(chave)) {
         mapa.set(chave, {
@@ -644,6 +672,7 @@ function montarResumoMateriaisCriticos(opsBase: OPEditavel[]): MaterialCriticoRe
           menor_data_entrega: null,
           faltante_total: 0,
           status: statusVisual,
+          ops_impactadas: [],
           opsSet: new Set<string>(),
           idsSet: new Set<string>(),
         })
@@ -653,18 +682,11 @@ function montarResumoMateriaisCriticos(opsBase: OPEditavel[]): MaterialCriticoRe
       linha.opsSet.add(opKey)
       linha.qtd_ops_impactadas = linha.opsSet.size
       linha.necessario_total += toNumber(comp.necessario)
-      linha.faltante_total += getFaltanteParaSimulacao(comp) || toNumber(comp.faltante)
-      linha.estoque_disponivel = Math.max(linha.estoque_disponivel, getEstoqueDisponivelResumo(comp))
-      linha.saldo_98 = Math.max(
-        linha.saldo_98,
-        toNumber(comp.saldo_98 ?? comp.saldo_disponivel_98 ?? comp.saldo_chegou_98)
-      )
-
-      const qtdCompraUsada = getQtdCompraUsada(comp)
-      const qtdCompraTotal = qtdCompraUsada > 0 ? qtdCompraUsada : getQtdComprasTotal(comp)
+      linha.faltante_total += faltanteItem
+      linha.estoque_disponivel = Math.max(linha.estoque_disponivel, estoqueDisponivelItem)
+      linha.saldo_98 = Math.max(linha.saldo_98, saldo98Item)
       linha.compras_abertas += qtdCompraTotal
 
-      const menorData = getMenorDataEntregaCompra(comp)
       if (menorData && (!linha.menor_data_entrega || menorData < linha.menor_data_entrega)) {
         linha.menor_data_entrega = menorData
       }
@@ -673,6 +695,27 @@ function montarResumoMateriaisCriticos(opsBase: OPEditavel[]): MaterialCriticoRe
         const id = compra.pedido_numero || compra.sc_numero
         if (id) linha.idsSet.add(String(id))
       }
+
+      linha.ops_impactadas.push({
+        op_id: opKey,
+        fifo_posicao: op.fifo_posicao ?? null,
+        tipo_fifo: (op as any).tipo_fifo ?? tipoProduto(op.linha),
+        lote: op.lote,
+        produto: op.produto || op.codigo,
+        codigo_produto: op.codigo,
+        linha: op.linha,
+        status_op: op.status,
+        data_lavagem_emb: op.data_lavagem_emb,
+        data_inicio_fabricacao: op.data_inicio_fabricacao,
+        data_fim: op.data_fim,
+        necessario: Number(toNumber(comp.necessario).toFixed(4)),
+        estoque_disponivel: Number(estoqueDisponivelItem.toFixed(4)),
+        saldo_98: Number(saldo98Item.toFixed(4)),
+        compras_abertas: Number(qtdCompraTotal.toFixed(4)),
+        menor_data_entrega: menorData,
+        faltante: Number(faltanteItem.toFixed(4)),
+        status_material: statusVisual,
+      })
 
       if (statusVisual === "falta") {
         linha.status = "falta"
@@ -685,6 +728,17 @@ function montarResumoMateriaisCriticos(opsBase: OPEditavel[]): MaterialCriticoRe
       ...linha,
       qtd_ops_impactadas: opsSet.size,
       sc_pc: Array.from(idsSet),
+      ops_impactadas: linha.ops_impactadas.sort((a, b) => {
+        const tipoA = a.tipo_fifo === "PA" ? 0 : 1
+        const tipoB = b.tipo_fifo === "PA" ? 0 : 1
+        if (tipoA !== tipoB) return tipoA - tipoB
+
+        const fifoA = Number(a.fifo_posicao ?? 999999)
+        const fifoB = Number(b.fifo_posicao ?? 999999)
+        if (fifoA !== fifoB) return fifoA - fifoB
+
+        return String(a.lote || "").localeCompare(String(b.lote || ""))
+      }),
       necessario_total: Number(linha.necessario_total.toFixed(4)),
       estoque_disponivel: Number(linha.estoque_disponivel.toFixed(4)),
       saldo_98: Number(linha.saldo_98.toFixed(4)),
@@ -2143,13 +2197,50 @@ function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesComp
 function MateriaisCriticosResumoTable({
   materiais,
   totalOps,
+  mesRef,
 }: {
   materiais: MaterialCriticoResumo[]
   totalOps: number
+  mesRef: string
 }) {
+  const [selecionadosResumo, setSelecionadosResumo] = useState<Set<string>>(new Set())
+  const [materialAberto, setMaterialAberto] = useState<string | null>(null)
+
   const totalMateriais = materiais.length
   const totalOpsImpactadas = materiais.reduce((acc, m) => acc + m.qtd_ops_impactadas, 0)
   const totalFaltante = materiais.reduce((acc, m) => acc + m.faltante_total, 0)
+  const todosSelecionados = totalMateriais > 0 && materiais.every(m => selecionadosResumo.has(m.codigo_comp))
+  const materiaisSelecionados = materiais.filter(m => selecionadosResumo.has(m.codigo_comp))
+
+  useEffect(() => {
+    setSelecionadosResumo(prev => {
+      const codigosValidos = new Set(materiais.map(m => m.codigo_comp))
+      const next = new Set(Array.from(prev).filter(codigo => codigosValidos.has(codigo)))
+      return next
+    })
+
+    setMaterialAberto(prev => {
+      if (!prev) return prev
+      return materiais.some(m => m.codigo_comp === prev) ? prev : null
+    })
+  }, [materiais])
+
+  function handleSelecionarMaterial(codigo: string, checked: boolean) {
+    setSelecionadosResumo(prev => {
+      const next = new Set(prev)
+      checked ? next.add(codigo) : next.delete(codigo)
+      return next
+    })
+  }
+
+  function handleSelecionarTodos(checked: boolean) {
+    setSelecionadosResumo(checked ? new Set(materiais.map(m => m.codigo_comp)) : new Set())
+  }
+
+  function handleExportarSelecionados() {
+    if (materiaisSelecionados.length === 0) return
+    exportarMateriaisCriticos(materiaisSelecionados, mesRef)
+  }
 
   if (totalMateriais === 0) {
     return (
@@ -2171,34 +2262,55 @@ function MateriaisCriticosResumoTable({
 
   return (
     <div className="rounded-2xl border overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
-      <div className="flex flex-col gap-3 border-b px-5 py-4 md:flex-row md:items-center md:justify-between" style={{ borderColor: "var(--border)" }}>
+      <div className="flex flex-col gap-3 border-b px-5 py-4 xl:flex-row xl:items-center xl:justify-between" style={{ borderColor: "var(--border)" }}>
         <div>
           <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Materiais travando abertura das OPs</p>
           <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-            Resumo por componente considerando as {totalOps} OP{totalOps !== 1 ? "s" : ""} filtrada{totalOps !== 1 ? "s" : ""}. Quarentena aparece separada e não entra como saldo livre.
+            Resumo por componente considerando as {totalOps} OP{totalOps !== 1 ? "s" : ""} filtrada{totalOps !== 1 ? "s" : ""}. Clique em um material para ver quais OPs ele está travando.
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-xl border px-3 py-2" style={{ background: "#F8FAFC", borderColor: "#E2E8F0" }}>
-            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#64748B" }}>Itens</p>
-            <p className="text-sm font-bold" style={{ color: "#0F172A" }}>{totalMateriais}</p>
-          </div>
-          <div className="rounded-xl border px-3 py-2" style={{ background: "#FFF7ED", borderColor: "#FED7AA" }}>
-            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#9A3412" }}>Qtd. OPs</p>
-            <p className="text-sm font-bold" style={{ color: "#C2410C" }}>{totalOpsImpactadas}</p>
-          </div>
-          <div className="rounded-xl border px-3 py-2" style={{ background: "#FEF2F2", borderColor: "#FECACA" }}>
-            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#991B1B" }}>Faltante</p>
-            <p className="text-sm font-bold" style={{ color: "#DC2626" }}>{fmt(totalFaltante)}</p>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <button
+            type="button"
+            onClick={handleExportarSelecionados}
+            disabled={materiaisSelecionados.length === 0}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}
+          >
+            <Download size={14} />
+            Exportar selecionados ({materiaisSelecionados.length})
+          </button>
+
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl border px-3 py-2" style={{ background: "#F8FAFC", borderColor: "#E2E8F0" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#64748B" }}>Itens</p>
+              <p className="text-sm font-bold" style={{ color: "#0F172A" }}>{totalMateriais}</p>
+            </div>
+            <div className="rounded-xl border px-3 py-2" style={{ background: "#FFF7ED", borderColor: "#FED7AA" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#9A3412" }}>Qtd. OPs</p>
+              <p className="text-sm font-bold" style={{ color: "#C2410C" }}>{totalOpsImpactadas}</p>
+            </div>
+            <div className="rounded-xl border px-3 py-2" style={{ background: "#FEF2F2", borderColor: "#FECACA" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#991B1B" }}>Faltante</p>
+              <p className="text-sm font-bold" style={{ color: "#DC2626" }}>{fmt(totalFaltante)}</p>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="overflow-auto">
-        <table className="w-full border-separate border-spacing-0" style={{ minWidth: 1180 }}>
+        <table className="w-full border-separate border-spacing-0" style={{ minWidth: 1260 }}>
           <thead>
             <tr style={{ background: TABLE_HEADER_BG }}>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)", width: 42 }}>
+                <input
+                  type="checkbox"
+                  checked={todosSelecionados}
+                  onChange={e => handleSelecionarTodos(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+              </th>
               <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Código</th>
               <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Descrição</th>
               <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>TP</th>
@@ -2218,36 +2330,121 @@ function MateriaisCriticosResumoTable({
               const idsLabel = formatarIdsResumo(m.sc_pc)
               const idsTooltip = m.sc_pc.length > 0 ? m.sc_pc.join("\n") : ""
               const unidade = m.unidade ? ` ${m.unidade}` : ""
+              const isAberto = materialAberto === m.codigo_comp
+              const isSelecionado = selecionadosResumo.has(m.codigo_comp)
 
               return (
-                <tr key={`${m.codigo_comp}-${idx}`} className="border-b" style={{ background: idx % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-primary)" }}>
-                  <td className="px-4 py-3 align-top text-xs font-mono font-bold" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{m.codigo_comp}</td>
-                  <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
-                    <div className="max-w-[260px] truncate" title={m.descricao}>{m.descricao}</div>
-                  </td>
-                  <td className="px-4 py-3 align-top text-xs font-bold" style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{m.tp || "—"}</td>
-                  <td className="px-4 py-3 align-top text-right text-xs font-bold" style={{ color: "#C2410C", borderBottom: "1px solid var(--border)" }}>{m.qtd_ops_impactadas}</td>
-                  <td className="px-4 py-3 align-top text-right text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.necessario_total)}{unidade}</td>
-                  <td className="px-4 py-3 align-top text-right text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.estoque_disponivel)}{unidade}</td>
-                  <td className="px-4 py-3 align-top text-right text-xs" style={{ color: m.saldo_98 > 0 ? "#92400E" : "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.saldo_98)}{unidade}</td>
-                  <td className="px-4 py-3 align-top text-right text-xs" style={{ color: m.compras_abertas > 0 ? "#1D4ED8" : "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.compras_abertas)}{unidade}</td>
-                  <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
-                    {idsTooltip ? (
-                      <Tooltip text={idsTooltip}>
-                        <span className="inline-flex max-w-[150px] truncate rounded-full border px-2 py-1 text-[11px] font-semibold" style={{ background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}>
-                          {idsLabel}
-                        </span>
-                      </Tooltip>
-                    ) : (
-                      <span style={{ color: "var(--text-secondary)" }}>—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmtData(m.menor_data_entrega)}</td>
-                  <td className="px-4 py-3 align-top text-right text-xs font-bold" style={{ color: m.status === "falta" ? "#DC2626" : "#92400E", borderBottom: "1px solid var(--border)" }}>{fmt(m.faltante_total)}{unidade}</td>
-                  <td className="px-4 py-3 align-top text-xs" style={{ borderBottom: "1px solid var(--border)" }}>
-                    <StatusBadge status={m.status} />
-                  </td>
-                </tr>
+                <>
+                  <tr
+                    key={`${m.codigo_comp}-${idx}`}
+                    className="cursor-pointer border-b transition hover:bg-slate-50"
+                    onClick={() => setMaterialAberto(isAberto ? null : m.codigo_comp)}
+                    style={{ background: isAberto ? "#F8FAFC" : idx % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-primary)" }}
+                  >
+                    <td className="px-4 py-3 align-top text-xs" style={{ borderBottom: "1px solid var(--border)" }} onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={isSelecionado}
+                        onChange={e => handleSelecionarMaterial(m.codigo_comp, e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs font-mono font-bold" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
+                      <div className="flex items-center gap-2">
+                        {isAberto ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        {m.codigo_comp}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
+                      <div className="max-w-[260px] truncate" title={m.descricao}>{m.descricao}</div>
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs font-bold" style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{m.tp || "—"}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs font-bold" style={{ color: "#C2410C", borderBottom: "1px solid var(--border)" }}>{m.qtd_ops_impactadas}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.necessario_total)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.estoque_disponivel)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs" style={{ color: m.saldo_98 > 0 ? "#92400E" : "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.saldo_98)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs" style={{ color: m.compras_abertas > 0 ? "#1D4ED8" : "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.compras_abertas)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
+                      {idsTooltip ? (
+                        <Tooltip text={idsTooltip}>
+                          <span className="inline-flex max-w-[150px] truncate rounded-full border px-2 py-1 text-[11px] font-semibold" style={{ background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}>
+                            {idsLabel}
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        <span style={{ color: "var(--text-secondary)" }}>—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmtData(m.menor_data_entrega)}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs font-bold" style={{ color: m.status === "falta" ? "#DC2626" : "#92400E", borderBottom: "1px solid var(--border)" }}>{fmt(m.faltante_total)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-xs" style={{ borderBottom: "1px solid var(--border)" }}>
+                      <StatusBadge status={m.status} />
+                    </td>
+                  </tr>
+
+                  {isAberto && (
+                    <tr key={`${m.codigo_comp}-${idx}-detalhe`}>
+                      <td colSpan={13} className="p-0" style={{ background: "#F8FAFC", borderBottom: "1px solid var(--border)" }}>
+                        <div className="px-5 py-4">
+                          <div className="mb-3 flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wide" style={{ color: "#334155" }}>OPs impactadas por este material</p>
+                              <p className="mt-1 text-[11px]" style={{ color: "#64748B" }}>
+                                Lista para bater com a tabela principal. A ordem segue a mesma sequência # da tela.
+                              </p>
+                            </div>
+                            <span className="rounded-full border px-3 py-1 text-[11px] font-bold" style={{ background: "#FFF7ED", borderColor: "#FED7AA", color: "#C2410C" }}>
+                              {m.ops_impactadas.length} OP{m.ops_impactadas.length !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+
+                          <div className="overflow-auto rounded-xl border" style={{ borderColor: "#E2E8F0", background: "#FFFFFF" }}>
+                            <table className="w-full border-separate border-spacing-0" style={{ minWidth: 980 }}>
+                              <thead>
+                                <tr style={{ background: "#F1F5F9" }}>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>#</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Lote</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Produto</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Linha</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Lav. Êmb</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Início Fab.</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Necessário</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Estoque na OP</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Saldo 98</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Compras</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Faltante</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {m.ops_impactadas.map((opImpactada, opIdx) => (
+                                  <tr key={`${m.codigo_comp}-${opImpactada.op_id}-${opIdx}`} style={{ background: opIdx % 2 === 0 ? "#FFFFFF" : "#F8FAFC" }}>
+                                    <td className="px-3 py-2 text-xs font-bold" style={{ color: "#334155", borderTop: "1px solid #E2E8F0" }}>{opImpactada.fifo_posicao ?? "—"}</td>
+                                    <td className="px-3 py-2 text-xs font-mono font-bold" style={{ color: "#0F172A", borderTop: "1px solid #E2E8F0" }}>{opImpactada.lote || "—"}</td>
+                                    <td className="px-3 py-2 text-xs" style={{ color: "#0F172A", borderTop: "1px solid #E2E8F0" }}>
+                                      <div className="max-w-[240px] truncate" title={opImpactada.produto || ""}>{opImpactada.produto || "—"}</div>
+                                    </td>
+                                    <td className="px-3 py-2 text-xs" style={{ color: "#475569", borderTop: "1px solid #E2E8F0" }}>{LINHA_LABEL[String(opImpactada.linha || "")] || opImpactada.linha || "—"}</td>
+                                    <td className="px-3 py-2 text-xs" style={{ color: "#475569", borderTop: "1px solid #E2E8F0" }}>{fmtData(opImpactada.data_lavagem_emb)}</td>
+                                    <td className="px-3 py-2 text-xs" style={{ color: "#475569", borderTop: "1px solid #E2E8F0" }}>{fmtData(opImpactada.data_inicio_fabricacao)}</td>
+                                    <td className="px-3 py-2 text-right text-xs" style={{ color: "#0F172A", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.necessario)}{unidade}</td>
+                                    <td className="px-3 py-2 text-right text-xs" style={{ color: "#0F172A", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.estoque_disponivel)}{unidade}</td>
+                                    <td className="px-3 py-2 text-right text-xs" style={{ color: opImpactada.saldo_98 > 0 ? "#92400E" : "#64748B", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.saldo_98)}{unidade}</td>
+                                    <td className="px-3 py-2 text-right text-xs" style={{ color: opImpactada.compras_abertas > 0 ? "#1D4ED8" : "#64748B", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.compras_abertas)}{unidade}</td>
+                                    <td className="px-3 py-2 text-right text-xs font-bold" style={{ color: opImpactada.status_material === "falta" ? "#DC2626" : "#92400E", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.faltante)}{unidade}</td>
+                                    <td className="px-3 py-2 text-xs" style={{ borderTop: "1px solid #E2E8F0" }}>
+                                      <StatusBadge status={opImpactada.status_material} />
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               )
             })}
           </tbody>
@@ -2257,8 +2454,57 @@ function MateriaisCriticosResumoTable({
   )
 }
 
-
 // ─── Export Excel ─────────────────────────────────────────────────────────────
+
+function exportarMateriaisCriticos(materiais: MaterialCriticoResumo[], mesRef: string) {
+  const headers = [
+    "Código",
+    "Descrição",
+    "TP",
+    "Unidade",
+    "Qtd. OPs impactadas",
+    "Necessário total",
+    "Estoque disponível",
+    "Saldo 98",
+    "Compras abertas",
+    "SC / PC",
+    "Menor entrega",
+    "Faltante total",
+    "Status",
+    "OPs impactadas",
+  ]
+
+  const rows = materiais.map(m => [
+    m.codigo_comp,
+    m.descricao,
+    m.tp,
+    m.unidade,
+    m.qtd_ops_impactadas,
+    m.necessario_total,
+    m.estoque_disponivel,
+    m.saldo_98,
+    m.compras_abertas,
+    m.sc_pc.join(", "),
+    fmtData(m.menor_data_entrega),
+    m.faltante_total,
+    m.status === "falta" ? "Falta" : "Quarentena",
+    m.ops_impactadas
+      .map(op => `#${op.fifo_posicao ?? ""} ${op.lote || ""} - ${op.produto || ""} (${LINHA_LABEL[String(op.linha || "")] || op.linha || ""})`)
+      .join(" | "),
+  ])
+
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(";"))
+    .join("\n")
+
+  const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `materiais_criticos_ops_${mesRef || "export"}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 function exportarExcel(ops: OPEditavel[], mesRef: string) {
   const headers = ["#FIFO", "Lote", "Produto", "Código", "Linha", "Tipo", "OP", "Qtd.", "Qtd. Teórica", "Usa Lote Teórico", "Lav. Êmb", "Início Fab.", "Data Fim", "Status", "Gargalo", "Observação", "Anotação"]
@@ -2855,6 +3101,7 @@ export function OrdensPage() {
           <MateriaisCriticosResumoTable
             materiais={materiaisCriticosResumo}
             totalOps={opsFiltradas.length}
+            mesRef={mesSel}
           />
         </div>
       )}
