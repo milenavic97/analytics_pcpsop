@@ -36,7 +36,7 @@ import {
   uploadBase,
 } from "@/services/api"
 
-const PAGE_SIZE = 100
+const PAGE_SIZE = 10
 
 const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
 
@@ -2828,6 +2828,41 @@ export default function AgingEstoquePage() {
     )
   }
 
+  const qtdAClassificar = Number(negocioAClassificar?.itens || 0)
+  const totalItensResumo = Number(resumo?.resumo?.total_itens || 0)
+  const totalDescontinuadoSaldo = Number(resumo?.resumo?.descontinuado_com_saldo || 0)
+  const totalBravi = Number(resumo?.resumo?.transferencia_bravi || 0)
+  const totalAtivosOutros = Math.max(0, totalItensResumo - totalDescontinuadoSaldo - totalBravi - qtdAClassificar)
+  const escopoTitulo = ESCOPO_TITULO[escopoEstoque]
+  const escopoDescricao = ESCOPO_DESCRICAO[escopoEstoque]
+  const mostrarCardsPortfolio = escopoEstoque !== "insumos"
+
+
+  const exportCsv = () => {
+    const header = [
+      "codigo", "produto", "semaforo", "curva_a", "tipo", "unid", "segmento", "mercado",
+      "custo_unitario", "lead_time_dias", "qtd_minima", "saldo", "saldo_quarentena", "saldo_sb8_bruto", "empenho_lote", "saldo_origem", "data_saldo_origem", "estoque_atual_valor",
+      "qtd_pedidos_abertos", "pedidos_abertos_valor", "estoque_mais_pedidos", "estoque_mais_pedidos_valor",
+      "maior_media", "maior_media_valor", "estoque_ideal", "estoque_ideal_valor", "dias_em_estoque",
+      "cobertura_meses_atual", "cobertura_meses_futura", "cobertura_consumo_lt",
+      "demanda_mes_atual", "consumo_mes_atual", "previsto_vs_consumido_pct",
+    ]
+    const csv = [
+      header.join(";"),
+      ...itensOrdenados.map((r) =>
+        header
+          .map((h) => String(h === "semaforo" ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)] : ((r as any)[h] ?? "")).replace(/;/g, ","))
+          .join(";")
+      ),
+    ].join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `gestao_estoque_${escopoEstoque}_pagina.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="min-h-screen p-6 space-y-5">
