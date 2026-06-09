@@ -36,7 +36,7 @@ import {
   uploadBase,
 } from "@/services/api"
 
-const PAGE_SIZE = 100
+const PAGE_SIZE = 10
 
 const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
 
@@ -1425,11 +1425,13 @@ function BraviSeriePanel({
   refreshTick,
   selectedItem,
   onClearSelected,
+  loadingSelected = false,
 }: {
   active: boolean
   refreshTick: number
   selectedItem?: AgingEstoqueItemDetalhe | null
   onClearSelected?: () => void
+  loadingSelected?: boolean
 }) {
   const [granularidade, setGranularidade] = useState<GranularidadeSerie>("mensal")
   const [data, setData] = useState<BraviSerieResponse | null>(null)
@@ -1460,7 +1462,8 @@ function BraviSeriePanel({
     return () => { mounted = false }
   }, [active, granularidade, refreshTick])
 
-  const itemSelecionado = selectedItem?.codigo ? selectedItem : null
+  const itemCarregando = loadingSelected && selectedItem?.codigo ? selectedItem : null
+  const itemSelecionado = !loadingSelected && selectedItem?.codigo ? selectedItem : null
   const serieItemSelecionado = useMemo(
     () => buildSerieOperacionalItemSelecionado(itemSelecionado),
     [itemSelecionado]
@@ -1479,7 +1482,7 @@ function BraviSeriePanel({
   }
 
   const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
-  const serie = itemSelecionado ? serieItemSelecionado : data?.serie || []
+  const serie = itemCarregando ? [] : itemSelecionado ? serieItemSelecionado : data?.serie || []
   const resumo = itemSelecionado
     ? {
         estoque_atual: Number(itemSelecionado.saldo || 0),
@@ -1493,12 +1496,16 @@ function BraviSeriePanel({
         criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
       }
     : data?.resumo || {}
-  const tituloSerie = itemSelecionado
-    ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}`
-    : "Estoque e faturamento dos PA / MR"
-  const descricaoSerie = itemSelecionado
-    ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
-    : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
+  const tituloSerie = itemCarregando
+    ? `${itemCarregando.codigo} · carregando dados do item...`
+    : itemSelecionado
+      ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}`
+      : "Estoque e faturamento dos PA / MR"
+  const descricaoSerie = itemCarregando
+    ? "Aguarde alguns segundos enquanto o detalhe do item é carregado. O gráfico será atualizado quando a série correta chegar."
+    : itemSelecionado
+      ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
+      : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
@@ -1585,7 +1592,7 @@ function BraviSeriePanel({
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              {itemSelecionado ? "Item selecionado" : "PA / MR"}
+              {itemCarregando ? "Carregando item" : itemSelecionado ? "Item selecionado" : "PA / MR"}
             </span>
           </div>
 
@@ -1715,7 +1722,7 @@ function BraviSeriePanel({
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                {loading ? "Carregando série PA/MR..." : "Sem série disponível para os PA/MR."}
+                {loading || itemCarregando ? "Carregando série do item selecionado..." : "Sem série disponível para os PA/MR."}
               </div>
             )}
           </div>
@@ -1820,7 +1827,7 @@ function FiltrosEstoquePanel({
         </label>
 
         <label>
-          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Semáforo</span>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Status</span>
           <select
             value={filtro?.semaforo || "TODOS"}
             onChange={(e) => onChange("semaforo", e.target.value === "TODOS" ? undefined : e.target.value as SemaforoEstoque)}
@@ -2524,6 +2531,7 @@ export default function AgingEstoquePage() {
   const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(null)
   const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>("produtos")
   const [tableFilterOpen, setTableFilterOpen] = useState<keyof FiltroTabelaEstoque | null>(null)
+  const [tableSearchDraft, setTableSearchDraft] = useState("")
 
   const carregarAtualizacoesBases = async () => {
     setLoadingAtualizacoesBases(true)
@@ -2577,6 +2585,10 @@ export default function AgingEstoquePage() {
       void carregarAtualizacoesBases()
     }
   }, [basesModalOpen])
+
+  useEffect(() => {
+    setTableSearchDraft(activeFilter?.busca || "")
+  }, [activeFilter?.busca])
 
   const alterarEscopoEstoque = (novoEscopo: EscopoEstoque) => {
     if (novoEscopo === escopoEstoque) return
@@ -2746,54 +2758,56 @@ export default function AgingEstoquePage() {
     return String(valor || "")
   }
 
-  const montarOpcoesTabela = (valores?: string[], incluirTodos = true) => {
-    const limpos = Array.from(new Set((valores || []).map((v) => String(v || "").trim()).filter(Boolean)))
-    return [
-      ...(incluirTodos ? [{ value: "", label: "Todos" }] : []),
-      ...limpos.map((v) => ({ value: v, label: v })),
-    ]
-  }
-
-  const renderFiltroExcel = (
-    campo: keyof FiltroTabelaEstoque,
-    label: string,
-    tipo: "texto" | "select",
-    opcoes: { value: string; label: string }[] = [],
-    placeholder = "Filtrar..."
-  ) => {
+  const renderFiltroDescricao = () => {
+    const campo: keyof FiltroTabelaEstoque = "busca"
     const aberto = tableFilterOpen === campo
     const valor = getValorFiltroTabela(campo)
     const ativo = Boolean(valor)
 
+    const aplicarBusca = () => {
+      atualizarFiltroCampo(campo, tableSearchDraft.trim() || undefined)
+      setTableFilterOpen(null)
+    }
+
+    const limparBusca = () => {
+      setTableSearchDraft("")
+      atualizarFiltroCampo(campo, undefined)
+      setTableFilterOpen(null)
+    }
+
     return (
-      <span className="relative inline-flex items-center gap-1">
-        <span>{label}</span>
+      <span className="relative inline-flex w-full items-center">
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation()
+            setTableSearchDraft(valor)
             setTableFilterOpen(aberto ? null : campo)
           }}
-          className="inline-flex h-5 w-5 items-center justify-center rounded-md border transition hover:bg-white/15"
-          style={{
-            borderColor: ativo ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.25)",
-            background: ativo ? "rgba(255,255,255,0.18)" : "transparent",
-            color: "#FFFFFF",
-          }}
-          title={`Filtrar ${label}`}
+          className="inline-flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left font-bold text-white/95 transition hover:bg-white/10"
+          title="Filtrar por código ou descrição"
         >
-          <Filter size={11} />
+          <span>Descrição</span>
+          <span
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border"
+            style={{
+              borderColor: ativo ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.25)",
+              background: ativo ? "rgba(255,255,255,0.18)" : "transparent",
+            }}
+          >
+            <Filter size={11} />
+          </span>
         </button>
 
         {aberto && (
           <div
-            className="absolute left-0 top-7 z-[80] w-[250px] rounded-xl border bg-white p-3 text-left normal-case tracking-normal shadow-2xl"
+            className="absolute left-0 top-7 z-[80] w-[280px] rounded-xl border bg-white p-3 text-left normal-case tracking-normal shadow-2xl"
             style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
-                Filtrar {label}
+                Buscar na tabela
               </span>
               <button
                 type="button"
@@ -2805,35 +2819,27 @@ export default function AgingEstoquePage() {
               </button>
             </div>
 
-            {tipo === "texto" ? (
-              <input
-                autoFocus
-                value={valor}
-                onChange={(e) => atualizarFiltroCampo(campo, e.target.value)}
-                placeholder={placeholder}
-                className="h-9 w-full rounded-lg border bg-white px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
-                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-              />
-            ) : (
-              <select
-                autoFocus
-                value={valor}
-                onChange={(e) => atualizarFiltroCampo(campo, e.target.value || undefined)}
-                className="h-9 w-full rounded-lg border bg-white px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
-                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-              >
-                {opcoes.map((opcao) => (
-                  <option key={`${campo}-${opcao.value || "TODOS"}`} value={opcao.value}>
-                    {opcao.label}
-                  </option>
-                ))}
-              </select>
-            )}
+            <input
+              autoFocus
+              value={tableSearchDraft}
+              onChange={(e) => setTableSearchDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") aplicarBusca()
+                if (e.key === "Escape") setTableFilterOpen(null)
+              }}
+              placeholder="Digite código ou produto. Ex.: SUGCLEAN"
+              className="h-9 w-full rounded-lg border bg-white px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            />
+
+            <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+              Pressione Enter ou clique em Aplicar.
+            </p>
 
             <div className="mt-3 flex justify-between gap-2">
               <button
                 type="button"
-                onClick={() => atualizarFiltroCampo(campo, undefined)}
+                onClick={limparBusca}
                 className="rounded-lg border px-3 py-1.5 text-xs font-bold transition hover:bg-slate-50"
                 style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
               >
@@ -2841,7 +2847,7 @@ export default function AgingEstoquePage() {
               </button>
               <button
                 type="button"
-                onClick={() => setTableFilterOpen(null)}
+                onClick={aplicarBusca}
                 className="rounded-lg px-3 py-1.5 text-xs font-bold text-white transition"
                 style={{ background: "#163B63" }}
               >
@@ -2854,41 +2860,6 @@ export default function AgingEstoquePage() {
     )
   }
 
-  const qtdAClassificar = Number(negocioAClassificar?.itens || 0)
-  const totalItensResumo = Number(resumo?.resumo?.total_itens || 0)
-  const totalDescontinuadoSaldo = Number(resumo?.resumo?.descontinuado_com_saldo || 0)
-  const totalBravi = Number(resumo?.resumo?.transferencia_bravi || 0)
-  const totalAtivosOutros = Math.max(0, totalItensResumo - totalDescontinuadoSaldo - totalBravi - qtdAClassificar)
-  const escopoTitulo = ESCOPO_TITULO[escopoEstoque]
-  const escopoDescricao = ESCOPO_DESCRICAO[escopoEstoque]
-  const mostrarCardsPortfolio = escopoEstoque !== "insumos"
-
-
-  const exportCsv = () => {
-    const header = [
-      "codigo", "produto", "semaforo", "curva_a", "tipo", "unid", "segmento", "mercado",
-      "custo_unitario", "lead_time_dias", "qtd_minima", "saldo", "saldo_quarentena", "saldo_sb8_bruto", "empenho_lote", "saldo_origem", "data_saldo_origem", "estoque_atual_valor",
-      "qtd_pedidos_abertos", "pedidos_abertos_valor", "estoque_mais_pedidos", "estoque_mais_pedidos_valor",
-      "maior_media", "maior_media_valor", "estoque_ideal", "estoque_ideal_valor", "dias_em_estoque",
-      "cobertura_meses_atual", "cobertura_meses_futura", "cobertura_consumo_lt",
-      "demanda_mes_atual", "consumo_mes_atual", "previsto_vs_consumido_pct",
-    ]
-    const csv = [
-      header.join(";"),
-      ...itensOrdenados.map((r) =>
-        header
-          .map((h) => String(h === "semaforo" ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)] : ((r as any)[h] ?? "")).replace(/;/g, ","))
-          .join(";")
-      ),
-    ].join("\n")
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `gestao_estoque_${escopoEstoque}_pagina.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
 
   return (
     <div className="min-h-screen p-6 space-y-5">
@@ -3163,9 +3134,10 @@ export default function AgingEstoquePage() {
       )}
 
       <BraviSeriePanel
-        active={mostrarCardsPortfolio}
+        active={mostrarCardsPortfolio && escopoEstoque === "produtos"}
         refreshTick={refreshTick}
         selectedItem={selected}
+        loadingSelected={loadingDetalhe}
         onClearSelected={() => setSelected(null)}
       />
 
@@ -3195,45 +3167,17 @@ export default function AgingEstoquePage() {
           <table className="w-full min-w-[2650px] table-fixed border-separate border-spacing-0 text-xs">
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
-                <th className="sticky left-0 z-30 w-[82px] min-w-[82px] px-3 py-2" style={{ background: "#163B63" }}>
-                  {renderFiltroExcel("busca", "Código", "texto", [], "Código...")}
-                </th>
+                <th className="sticky left-0 z-30 w-[82px] min-w-[82px] px-3 py-2" style={{ background: "#163B63" }}>Código</th>
                 <th className="sticky left-[82px] z-30 w-[220px] min-w-[220px] px-3 py-2" style={{ background: "#163B63" }}>
-                  {renderFiltroExcel("busca", "Descrição", "texto", [], "Buscar produto, ex.: SUGCLEAN")}
+                  {renderFiltroDescricao()}
                 </th>
-                <th className="px-2 py-2">
-                  {renderFiltroExcel("semaforo", "Semáforo", "select", [
-                    { value: "", label: "Todos" },
-                    { value: "VERMELHO", label: "Crítico" },
-                    { value: "AMARELO", label: "Atenção" },
-                    { value: "VERDE", label: "Ok" },
-                    { value: "CINZA", label: "Sem referência" },
-                  ])}
-                </th>
+                <th className="px-2 py-2">Status</th>
                 <th className="px-2 py-2">Curva A</th>
-                <th className="px-2 py-2">
-                  {renderFiltroExcel("tipo_negocio", "Tipo", "select", montarOpcoesTabela(opcoesFiltros.tipo_negocio))}
-                </th>
+                <th className="px-2 py-2">Tipo</th>
                 <th className="px-2 py-2">UM</th>
-                <th className="px-2 py-2">
-                  {renderFiltroExcel("status_portfolio", "Segmento", "select", montarOpcoesTabela(opcoesFiltros.status_portfolio))}
-                </th>
-                <th className="px-2 py-2">
-                  {renderFiltroExcel("transferencia_bravi", "Mercado", "select", [
-                    { value: "", label: "Todos" },
-                    { value: "Sim", label: "Bravi" },
-                    { value: "Não", label: "Não Bravi" },
-                  ])}
-                </th>
-                <th className="px-2 py-2">
-                  {renderFiltroExcel("classificacao_cadastro", "Origem saldo", "select", [
-                    { value: "", label: "Todos" },
-                    { value: "MAPEADOS", label: "Mapeados" },
-                    { value: "DIMENSAO", label: "Dimensão" },
-                    { value: "BOM", label: "BOM" },
-                    { value: "NAO_CLASSIFICADOS", label: "Não classificados" },
-                  ])}
-                </th>
+                <th className="px-2 py-2">Segmento</th>
+                <th className="px-2 py-2">Mercado</th>
+                <th className="px-2 py-2">Origem saldo</th>
                 <th className="px-2 py-2">Data saldo</th>
                 {NUMERIC_COLUMNS.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
               </tr>
@@ -3309,12 +3253,14 @@ export default function AgingEstoquePage() {
         </div>
       </div>
 
-      <TimelinePrincipal
-        item={selected}
-        loading={loadingDetalhe}
-        horizonteFuturo={horizonteFuturo}
-        onHorizonteChange={setHorizonteFuturo}
-      />
+      {escopoEstoque === "insumos" && (
+        <TimelinePrincipal
+          item={selected}
+          loading={loadingDetalhe}
+          horizonteFuturo={horizonteFuturo}
+          onHorizonteChange={setHorizonteFuturo}
+        />
+      )}
 
       <BasesModal
         open={basesModalOpen}
