@@ -2531,6 +2531,7 @@ export default function AgingEstoquePage() {
   const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(null)
   const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>("produtos")
   const [tableFilterOpen, setTableFilterOpen] = useState<keyof FiltroTabelaEstoque | null>(null)
+  const [mostrarSaudeLinhas, setMostrarSaudeLinhas] = useState(false)
 
   const carregarAtualizacoesBases = async () => {
     setLoadingAtualizacoesBases(true)
@@ -2593,6 +2594,7 @@ export default function AgingEstoquePage() {
     setActiveFilter(null)
     setResumo(null)
     setItensResp(null)
+    setMostrarSaudeLinhas(false)
   }
 
   useEffect(() => {
@@ -3021,100 +3023,143 @@ export default function AgingEstoquePage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        {negociosClassificados.map((negocio) => (
-          <div
-            key={negocio.tipo_negocio}
-            className="card p-4 text-left"
-            style={{ borderColor: "var(--border)" }}
-          >
-            <div className="min-h-[104px]">
+      <div className="rounded-2xl border bg-white px-4 py-3" style={{ borderColor: "var(--border)" }}>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+              {escopoEstoque === "insumos" ? "Saúde dos insumos" : "Saúde das linhas"}
+            </p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+              {mostrarSaudeLinhas
+                ? "Visão aberta por linha/família. Clique nos cards para filtrar a tabela."
+                : `${fmtNumber(negociosClassificados.length)} linha${negociosClassificados.length !== 1 ? "s" : ""} recolhida${negociosClassificados.length !== 1 ? "s" : ""} para manter a tela mais limpa.`}
+              {negocioAClassificar && negocioAClassificar.itens > 0 ? ` · ${fmtNumber(negocioAClassificar.itens)} item${negocioAClassificar.itens !== 1 ? "s" : ""} a classificar` : ""}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {!mostrarSaudeLinhas && negocioAClassificar && negocioAClassificar.itens > 0 && (
               <button
                 type="button"
-                className="text-left"
-                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
+                onClick={() => aplicarFiltro({ label: "Itens a classificar", classificacao_cadastro: "NAO_CLASSIFICADOS" })}
+                className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold transition hover:bg-slate-50"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: activeFilter?.classificacao_cadastro === "NAO_CLASSIFICADOS" ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
               >
-                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{escopoEstoque === "insumos" ? "Saúde dos insumos" : "Saúde da linha"}</p>
-                <h3 className="mt-1 text-lg font-bold hover:underline" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
+                <PackageSearch size={15} />
+                {fmtNumber(negocioAClassificar.itens)} a classificar
               </button>
+            )}
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
-                  className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
-                  style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}
-                >
-                  {fmtNumber(negocio.itens)} SKUs
-                </button>
-                <span
-                  className="rounded-full px-2.5 py-1 text-xs font-bold"
-                  style={{ background: "rgba(22,163,74,0.08)", color: "#15803D" }}
-                >
-                  Ativos/outros: {fmtNumber(Math.max(0, negocio.itens - negocio.descontinuado_com_saldo - negocio.transferencia_bravi))}
-                </span>
-                {negocio.descontinuado_com_saldo > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => aplicarFiltro({ label: `Descontinuados · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "DESCONTINUADO_COM_SALDO" })}
-                    className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
-                    style={{ background: "rgba(185,28,28,0.10)", color: "#991B1B" }}
-                  >
-                    Desc. c/ saldo: {fmtNumber(negocio.descontinuado_com_saldo)}
-                  </button>
-                )}
-                {negocio.transferencia_bravi > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => aplicarFiltro({ label: `Bravi · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, transferencia_bravi: "Sim" })}
-                    className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
-                    style={{ background: "rgba(124,58,237,0.10)", color: "#6D28D9" }}
-                  >
-                    Bravi: {fmtNumber(negocio.transferencia_bravi)}
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <KpiSmall
-                label="Críticos"
-                value={fmtNumber(negocio.criticos)}
-                onClick={() => aplicarFiltro({ label: `Críticos · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "CRITICO" })}
-                active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "CRITICO" })}
-              />
-              <KpiSmall
-                label="Excesso"
-                value={fmtNumber(negocio.excesso)}
-                onClick={() => aplicarFiltro({ label: `Excesso · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "EXCESSO" })}
-                active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "EXCESSO" })}
-              />
-              <KpiSmall
-                label="Saldo"
-                value={fmtCompact(negocio.saldo_total)}
-                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
-                active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio }) && !activeFilter?.status}
-              />
-              <KpiSmall
-                label="Cob. futura"
-                value={`${fmtNumber(negocio.cobertura_futura_media_dias, 0)} d`}
-                onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
-              />
-            </div>
+            <button
+              type="button"
+              onClick={() => setMostrarSaudeLinhas((current) => !current)}
+              className="inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-bold transition hover:bg-slate-50"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              {mostrarSaudeLinhas ? "Ocultar saúde das linhas" : "Mostrar saúde das linhas"}
+            </button>
           </div>
-        ))}
-      </div>
+        </div>
 
-      {negocioAClassificar && negocioAClassificar.itens > 0 && (
-        <button
-          type="button"
-          onClick={() => aplicarFiltro({ label: "Itens a classificar", classificacao_cadastro: "NAO_CLASSIFICADOS" })}
-          className="inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition hover:bg-slate-50"
-          style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: activeFilter?.classificacao_cadastro === "NAO_CLASSIFICADOS" ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
-        >
-          <PackageSearch size={16} />
-          {fmtNumber(negocioAClassificar.itens)} itens a classificar
-        </button>
-      )}
+        {mostrarSaudeLinhas && (
+          <div className="mt-4 space-y-4">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              {negociosClassificados.map((negocio) => (
+                <div
+                  key={negocio.tipo_negocio}
+                  className="rounded-2xl border p-4 text-left"
+                  style={{ borderColor: "var(--border)", background: "#FFFFFF" }}
+                >
+                  <div className="min-h-[104px]">
+                    <button
+                      type="button"
+                      className="text-left"
+                      onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
+                    >
+                      <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{escopoEstoque === "insumos" ? "Saúde dos insumos" : "Saúde da linha"}</p>
+                      <h3 className="mt-1 text-lg font-bold hover:underline" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
+                    </button>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
+                        className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
+                        style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}
+                      >
+                        {fmtNumber(negocio.itens)} SKUs
+                      </button>
+                      <span
+                        className="rounded-full px-2.5 py-1 text-xs font-bold"
+                        style={{ background: "rgba(22,163,74,0.08)", color: "#15803D" }}
+                      >
+                        Ativos/outros: {fmtNumber(Math.max(0, negocio.itens - negocio.descontinuado_com_saldo - negocio.transferencia_bravi))}
+                      </span>
+                      {negocio.descontinuado_com_saldo > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => aplicarFiltro({ label: `Descontinuados · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "DESCONTINUADO_COM_SALDO" })}
+                          className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
+                          style={{ background: "rgba(185,28,28,0.10)", color: "#991B1B" }}
+                        >
+                          Desc. c/ saldo: {fmtNumber(negocio.descontinuado_com_saldo)}
+                        </button>
+                      )}
+                      {negocio.transferencia_bravi > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => aplicarFiltro({ label: `Bravi · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, transferencia_bravi: "Sim" })}
+                          className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
+                          style={{ background: "rgba(124,58,237,0.10)", color: "#6D28D9" }}
+                        >
+                          Bravi: {fmtNumber(negocio.transferencia_bravi)}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <KpiSmall
+                      label="Críticos"
+                      value={fmtNumber(negocio.criticos)}
+                      onClick={() => aplicarFiltro({ label: `Críticos · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "CRITICO" })}
+                      active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "CRITICO" })}
+                    />
+                    <KpiSmall
+                      label="Excesso"
+                      value={fmtNumber(negocio.excesso)}
+                      onClick={() => aplicarFiltro({ label: `Excesso · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "EXCESSO" })}
+                      active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "EXCESSO" })}
+                    />
+                    <KpiSmall
+                      label="Saldo"
+                      value={fmtCompact(negocio.saldo_total)}
+                      onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
+                      active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio }) && !activeFilter?.status}
+                    />
+                    <KpiSmall
+                      label="Cob. futura"
+                      value={`${fmtNumber(negocio.cobertura_futura_media_dias, 0)} d`}
+                      onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {negocioAClassificar && negocioAClassificar.itens > 0 && (
+              <button
+                type="button"
+                onClick={() => aplicarFiltro({ label: "Itens a classificar", classificacao_cadastro: "NAO_CLASSIFICADOS" })}
+                className="inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition hover:bg-slate-50"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: activeFilter?.classificacao_cadastro === "NAO_CLASSIFICADOS" ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
+              >
+                <PackageSearch size={16} />
+                {fmtNumber(negocioAClassificar.itens)} itens a classificar
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
 
       <FiltrosEstoquePanel
