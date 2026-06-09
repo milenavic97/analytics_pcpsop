@@ -113,6 +113,8 @@ type BraviSeriePonto = {
 type BraviSerieResponse = {
   granularidade: GranularidadeSerie
   data_snapshot_consumo?: string | null
+  total_itens_produtos?: number
+  codigos_produtos?: string[]
   total_itens_bravi: number
   codigos_bravi: string[]
   resumo?: {
@@ -129,10 +131,10 @@ type BraviSerieResponse = {
 }
 
 async function getBraviSerie(granularidade: GranularidadeSerie): Promise<BraviSerieResponse> {
-  const url = `${API_BASE}/aging-estoque/bravi/serie?granularidade=${granularidade}`
-  const response = await fetch(url)
+  const url = `${API_BASE}/aging-estoque/produtos/serie?granularidade=${granularidade}&_=${Date.now()}`
+  const response = await fetch(url, { cache: "no-store" })
   if (!response.ok) {
-    throw new Error(`Erro ao buscar série Bravi: ${response.status}`)
+    throw new Error(`Erro ao buscar série PA/MR: ${response.status}`)
   }
   return response.json()
 }
@@ -273,7 +275,7 @@ const STATUS_LABEL: Record<string, string> = {
   SEM_GIRO: "Sem giro",
   SEM_CONSUMO: "Sem consumo",
   DESCONTINUADO_COM_SALDO: "Descontinuado c/ saldo",
-  TRANSFERENCIA_BRAVI: "Transferência Bravi",
+  TRANSFERENCIA_BRAVI: "PA / MR",
 }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; border: string }> = {
@@ -487,6 +489,8 @@ type AgingEstoqueItemDetalhe = Omit<AgingEstoqueItem, "linha_tempo_estoque" | "p
   }[]
   historico_consumo?: { ano: number; mes: number; periodo: string; consumo: number }[]
   forecast?: { ano: number; mes: number; periodo: string; forecast: number }[]
+  faturamento_sd2?: BraviSeriePonto[]
+  serie_operacional?: BraviSeriePonto[]
   pedidos?: {
     pedido_numero?: string | null
     sc_numero?: string | null
@@ -645,6 +649,9 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         forecast: null,
         entradas_previstas: null,
         entradas_detalhe: [],
+        faturamento_qtd: null,
+        faturamento_valor: null,
+        faturamento_detalhe: [],
         estoque_atual: null,
         estoque_mais_pedidos: null,
         estoque_quarentena: null,
@@ -726,6 +733,38 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
       comprador: pedido.comprador,
       status_entrega: pedido.status_entrega,
     })
+  }
+
+  // Faturamento SD2: sempre linha no gráfico, para PA/MR/PPS quando houver venda.
+  const faturamentoSerie = item.faturamento_sd2 || item.serie_operacional || []
+  for (const fat of faturamentoSerie) {
+    const ano = Number(fat.ano || 0)
+    const mes = Number(fat.mes || 0)
+    if (!ano || !mes) continue
+
+    const keyDate = new Date(ano, mes - 1, 1)
+    if (keyDate < inicio || keyDate > fim) continue
+
+    const qtd = Number(fat.faturamento_qtd || 0)
+    const valor = Number(fat.faturamento_valor || 0)
+
+    if (qtd <= 0 && valor <= 0) continue
+
+    const ponto = ensure(ano, mes)
+    ponto.faturamento_qtd = Number(ponto.faturamento_qtd || 0) + qtd
+    ponto.faturamento_valor = Number(ponto.faturamento_valor || 0) + valor
+    ponto.faturamento_detalhe = Array.isArray(ponto.faturamento_detalhe) ? ponto.faturamento_detalhe : []
+
+    if (Array.isArray(fat.faturamento_detalhe) && fat.faturamento_detalhe.length > 0) {
+      ponto.faturamento_detalhe.push(...fat.faturamento_detalhe)
+    } else {
+      ponto.faturamento_detalhe.push({
+        data: fat.data_inicio || fat.periodo_completo || fat.periodo,
+        codigo: item.codigo,
+        quantidade: qtd,
+        valor,
+      })
+    }
   }
 
   let saldoProjetado = Number(item.saldo || 0)
@@ -1130,23 +1169,43 @@ function LinhaTempoTooltip({ active, payload, label }: any) {
 
   const ponto = payload[0]?.payload || {}
   const entradas = Array.isArray(ponto.entradas_detalhe) ? ponto.entradas_detalhe : []
+  const faturamento = Array.isArray(ponto.faturamento_detalhe) ? ponto.faturamento_detalhe : []
 
   const itensValidos = payload.filter((entry: any) => entry?.value !== null && entry?.value !== undefined)
 
   return (
-    <div className="max-w-[340px] rounded-2xl border bg-white p-3 text-xs shadow-xl" style={{ borderColor: "var(--border)" }}>
+    <div className="max-w-[380px] rounded-2xl border bg-white p-3 text-xs shadow-xl" style={{ borderColor: "var(--border)" }}>
       <p className="mb-2 font-bold" style={{ color: "var(--text-primary)" }}>Período: {label}</p>
       <div className="space-y-1">
-        {itensValidos.map((entry: any) => (
-          <div key={`${entry.dataKey}-${entry.name}`} className="flex items-center justify-between gap-4">
-            <span className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: entry.color }} />
-              {entry.name}
-            </span>
-            <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(Number(entry.value), 0)}</span>
-          </div>
-        ))}
+        {itensValidos.map((entry: any) => {
+          const isValor = entry.dataKey === "faturamento_valor"
+          return (
+            <div key={`${entry.dataKey}-${entry.name}`} className="flex items-center justify-between gap-4">
+              <span className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: entry.color }} />
+                {entry.name}
+              </span>
+              <span className="font-bold" style={{ color: "var(--text-primary)" }}>{isValor ? fmtCurrency(Number(entry.value), 0) : fmtNumber(Number(entry.value), 0)}</span>
+            </div>
+          )
+        })}
       </div>
+
+      {faturamento.length > 0 && (
+        <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--border)" }}>
+          <p className="mb-1 font-bold" style={{ color: "var(--text-primary)" }}>Faturamento SD2</p>
+          <div className="max-h-[160px] space-y-1 overflow-auto pr-1">
+            {faturamento.slice(0, 6).map((linha: any, idx: number) => (
+              <div key={`${linha.codigo}-${linha.data}-${idx}`} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-2 py-1.5">
+                <span style={{ color: "var(--text-secondary)" }}>{linha.codigo || "—"}</span>
+                <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmtNumber(Number(linha.quantidade || 0), 0)}</span>
+                <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmtCurrency(Number(linha.valor || 0), 0)}</span>
+              </div>
+            ))}
+            {faturamento.length > 6 && <p style={{ color: "var(--text-secondary)" }}>+ {fmtNumber(faturamento.length - 6)} linha(s) de faturamento</p>}
+          </div>
+        </div>
+      )}
 
       {entradas.length > 0 && (
         <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--border)" }}>
@@ -1254,7 +1313,7 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
       })
       .catch((err: unknown) => {
         if (!mounted) return
-        setError(err instanceof Error ? err.message : "Erro ao carregar série Bravi")
+        setError(err instanceof Error ? err.message : "Erro ao carregar série PA/MR")
       })
       .finally(() => {
         if (mounted) setLoading(false)
@@ -1283,10 +1342,10 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
     <div className="card overflow-hidden">
       <div className="flex flex-col justify-between gap-3 border-b px-5 py-4 lg:flex-row lg:items-start" style={{ borderColor: "var(--border)" }}>
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Acompanhamento Bravi</p>
-          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Estoque e faturamento dos itens em transferência</h2>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Acompanhamento PA / MR</p>
+          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Estoque e faturamento dos PA / MR</h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            Visão consolidada apenas dos SKUs marcados como Transferência Bravi. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses.
+            Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses.
           </p>
         </div>
 
@@ -1322,7 +1381,7 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
         {error && <div className="rounded-2xl border px-4 py-3 text-sm text-red-600" style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)" }}>{error}</div>}
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-          <KpiSmall label="Itens Bravi" value={fmtNumber(data?.total_itens_bravi || 0)} />
+          <KpiSmall label="Itens PA/MR" value={fmtNumber(data?.total_itens_produtos || data?.total_itens_bravi || 0)} />
           <KpiSmall label="Estoque atual" value={fmtCompact(resumo.estoque_atual)} />
           <KpiSmall label="Pedidos" value={fmtCompact(resumo.pedidos_abertos)} />
           <KpiSmall label="Fat. 2026 qtd" value={fmtCompact(resumo.faturamento_ytd_qtd)} />
@@ -1333,13 +1392,13 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
         <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série Bravi</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                 Faturamento vem da SD2. Estoque vem dos snapshots diários disponíveis. Use a legenda para ligar/desligar séries.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              Transferência Bravi
+              PA / MR
             </span>
           </div>
 
@@ -1377,18 +1436,19 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
                     onClick={(entry: any) => toggleSerie(String(entry?.dataKey || ""))}
                   />
 
-                  <Bar
+                  <Line
                     yAxisId="fluxo"
+                    type="monotone"
                     dataKey="faturamento_qtd"
                     name="Faturamento SD2 (qtd)"
-                    fill="#0F766E"
-                    fillOpacity={0.28}
                     stroke="#0F766E"
-                    radius={[6, 6, 0, 0]}
+                    strokeWidth={3}
+                    dot={{ r: 3 }}
+                    connectNulls={false}
                     hide={serieOculta("faturamento_qtd")}
                   >
                     <LabelList dataKey="faturamento_qtd" content={renderChartLabel} />
-                  </Bar>
+                  </Line>
 
                   <Bar
                     yAxisId="fluxo"
@@ -1447,7 +1507,7 @@ function BraviSeriePanel({ active, refreshTick }: { active: boolean; refreshTick
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                {loading ? "Carregando série Bravi..." : "Sem série disponível para os itens Bravi."}
+                {loading ? "Carregando série PA/MR..." : "Sem série disponível para os PA/MR."}
               </div>
             )}
           </div>
@@ -1996,7 +2056,7 @@ function TimelinePrincipal({
             {item ? `${item.codigo} · ${item.produto || "Item selecionado"}` : "Selecione um item na tabela"}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            Consumo histórico, demanda MPS/BOM, compras previstas, estoque disponível, quarentena e ponto de pedido.
+            Consumo histórico, demanda MPS/BOM, faturamento SD2, compras previstas, estoque disponível, quarentena e ponto de pedido.
           </p>
         </div>
 
@@ -2077,6 +2137,7 @@ function TimelinePrincipal({
                       width={78}
                       label={{ value: "Quantidade / saldo", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
                     />
+                    <YAxis yAxisId="valor" hide />
                     <Tooltip content={<LinhaTempoTooltip />} />
                     <Legend
                       wrapperStyle={{ fontSize: 12, cursor: "pointer" }}
@@ -2141,6 +2202,10 @@ function TimelinePrincipal({
                     <Line yAxisId="estoque" type="monotone" dataKey="ponto_pedido" name="Ponto de pedido" stroke="#D97706" strokeWidth={2.4} strokeDasharray="3 5" dot={false} connectNulls hide={serieOculta("ponto_pedido")}>
                       <LabelList dataKey="ponto_pedido" content={renderChartLabel} />
                     </Line>
+                    <Line yAxisId="estoque" type="monotone" dataKey="faturamento_qtd" name="Faturamento SD2 (qtd)" stroke="#0F766E" strokeWidth={3} dot={{ r: 3 }} connectNulls={false} hide={serieOculta("faturamento_qtd")}>
+                      <LabelList dataKey="faturamento_qtd" content={renderChartLabel} />
+                    </Line>
+                    <Line yAxisId="valor" type="monotone" dataKey="faturamento_valor" name="Faturamento SD2 (R$)" stroke="#9333EA" strokeWidth={2.5} strokeDasharray="6 4" dot={false} connectNulls={false} hide={serieOculta("faturamento_valor")} />
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
@@ -2771,7 +2836,7 @@ export default function AgingEstoquePage() {
         </div>
       )}
 
-      <BraviSeriePanel active={mostrarCardsPortfolio && activeFilter?.transferencia_bravi === "Sim"} refreshTick={refreshTick} />
+      <BraviSeriePanel active={mostrarCardsPortfolio} refreshTick={refreshTick} />
 
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
