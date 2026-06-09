@@ -1766,6 +1766,15 @@ function FiltrosEstoquePanel({
 
   const selectClass = "h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
   const labelClass = "mb-1 block text-[10px] font-bold uppercase tracking-wide"
+  const [buscaDraft, setBuscaDraft] = useState(filtro?.busca || "")
+
+  useEffect(() => {
+    setBuscaDraft(filtro?.busca || "")
+  }, [filtro?.busca])
+
+  const aplicarBuscaRapida = () => {
+    onChange("busca", buscaDraft.trim() || undefined)
+  }
 
   return (
     <div className="card p-4">
@@ -1793,13 +1802,26 @@ function FiltrosEstoquePanel({
       >
         <label>
           <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Código ou produto</span>
-          <input
-            value={filtro?.busca || ""}
-            onChange={(e) => onChange("busca", e.target.value)}
-            placeholder="Buscar código, nome, família, segmento..."
-            className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
-            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-          />
+          <div className="flex gap-2">
+            <input
+              value={buscaDraft}
+              onChange={(e) => setBuscaDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") aplicarBuscaRapida()
+              }}
+              placeholder="Buscar código, nome, família, segmento..."
+              className="h-10 min-w-0 flex-1 rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            />
+            <button
+              type="button"
+              onClick={aplicarBuscaRapida}
+              className="h-10 rounded-xl border px-3 text-sm font-bold transition hover:bg-slate-50"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              Buscar
+            </button>
+          </div>
         </label>
 
         <label>
@@ -2531,6 +2553,7 @@ export default function AgingEstoquePage() {
   const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(null)
   const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>("produtos")
   const [tableFilterOpen, setTableFilterOpen] = useState<keyof FiltroTabelaEstoque | null>(null)
+  const [tableSearchDraft, setTableSearchDraft] = useState("")
   const [mostrarSaudeLinhas, setMostrarSaudeLinhas] = useState(false)
 
   const carregarAtualizacoesBases = async () => {
@@ -2585,6 +2608,10 @@ export default function AgingEstoquePage() {
       void carregarAtualizacoesBases()
     }
   }, [basesModalOpen])
+
+  useEffect(() => {
+    setTableSearchDraft(activeFilter?.busca || "")
+  }, [activeFilter?.busca])
 
   const alterarEscopoEstoque = (novoEscopo: EscopoEstoque) => {
     if (novoEscopo === escopoEstoque) return
@@ -2761,12 +2788,24 @@ export default function AgingEstoquePage() {
     const valor = getValorFiltroTabela(campo)
     const ativo = Boolean(valor)
 
+    const aplicarBuscaTabela = () => {
+      atualizarFiltroCampo(campo, tableSearchDraft.trim() || undefined)
+      setTableFilterOpen(null)
+    }
+
+    const limparBuscaTabela = () => {
+      setTableSearchDraft("")
+      atualizarFiltroCampo(campo, undefined)
+      setTableFilterOpen(null)
+    }
+
     return (
       <span className="relative inline-flex w-full items-center">
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation()
+            setTableSearchDraft(valor)
             setTableFilterOpen(aberto ? null : campo)
           }}
           className="inline-flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left font-bold text-white/95 transition hover:bg-white/10"
@@ -2806,17 +2845,25 @@ export default function AgingEstoquePage() {
 
             <input
               autoFocus
-              value={valor}
-              onChange={(e) => atualizarFiltroCampo(campo, e.target.value)}
+              value={tableSearchDraft}
+              onChange={(e) => setTableSearchDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") aplicarBuscaTabela()
+                if (e.key === "Escape") setTableFilterOpen(null)
+              }}
               placeholder="Digite código ou produto. Ex.: SUGCLEAN"
               className="h-9 w-full rounded-lg border bg-white px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
               style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
             />
 
+            <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+              Pressione Enter ou clique em Aplicar.
+            </p>
+
             <div className="mt-3 flex justify-between gap-2">
               <button
                 type="button"
-                onClick={() => atualizarFiltroCampo(campo, undefined)}
+                onClick={limparBuscaTabela}
                 className="rounded-lg border px-3 py-1.5 text-xs font-bold transition hover:bg-slate-50"
                 style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
               >
@@ -2824,7 +2871,7 @@ export default function AgingEstoquePage() {
               </button>
               <button
                 type="button"
-                onClick={() => setTableFilterOpen(null)}
+                onClick={aplicarBuscaTabela}
                 className="rounded-lg px-3 py-1.5 text-xs font-bold text-white transition"
                 style={{ background: "#163B63" }}
               >
@@ -2914,24 +2961,35 @@ export default function AgingEstoquePage() {
             </p>
           </div>
 
-          <div className="w-full max-w-[260px]">
-            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
-              Escopo da análise
-            </label>
-            <select
-              value={escopoEstoque}
-              onChange={(event) => alterarEscopoEstoque(event.target.value as EscopoEstoque)}
-              className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-semibold outline-none transition focus:ring-2"
-              style={{
-                borderColor: "var(--border)",
-                color: "var(--text-primary)",
-                boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
-              }}
+          <div className="flex w-full flex-col gap-2 sm:max-w-[520px] sm:flex-row sm:items-end sm:justify-end">
+            <div className="w-full sm:max-w-[260px]">
+              <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                Escopo da análise
+              </label>
+              <select
+                value={escopoEstoque}
+                onChange={(event) => alterarEscopoEstoque(event.target.value as EscopoEstoque)}
+                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-semibold outline-none transition focus:ring-2"
+                style={{
+                  borderColor: "var(--border)",
+                  color: "var(--text-primary)",
+                  boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+                }}
+              >
+                {ESCOPO_ESTOQUE_OPTIONS.map((option) => (
+                  <option key={option.key} value={option.key}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setMostrarSaudeLinhas((current) => !current)}
+              className="h-10 rounded-xl border px-3 text-sm font-bold transition hover:bg-slate-50"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: mostrarSaudeLinhas ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
             >
-              {ESCOPO_ESTOQUE_OPTIONS.map((option) => (
-                <option key={option.key} value={option.key}>{option.label}</option>
-              ))}
-            </select>
+              {mostrarSaudeLinhas ? "Ocultar saúde" : "Mostrar saúde"}
+            </button>
           </div>
         </div>
       </div>
@@ -3023,48 +3081,10 @@ export default function AgingEstoquePage() {
         )}
       </div>
 
-      <div className="rounded-2xl border bg-white px-4 py-3" style={{ borderColor: "var(--border)" }}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
-              {escopoEstoque === "insumos" ? "Saúde dos insumos" : "Saúde das linhas"}
-            </p>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-              {mostrarSaudeLinhas
-                ? "Visão aberta por linha/família. Clique nos cards para filtrar a tabela."
-                : `${fmtNumber(negociosClassificados.length)} linha${negociosClassificados.length !== 1 ? "s" : ""} recolhida${negociosClassificados.length !== 1 ? "s" : ""} para manter a tela mais limpa.`}
-              {negocioAClassificar && negocioAClassificar.itens > 0 ? ` · ${fmtNumber(negocioAClassificar.itens)} item${negocioAClassificar.itens !== 1 ? "s" : ""} a classificar` : ""}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {!mostrarSaudeLinhas && negocioAClassificar && negocioAClassificar.itens > 0 && (
-              <button
-                type="button"
-                onClick={() => aplicarFiltro({ label: "Itens a classificar", classificacao_cadastro: "NAO_CLASSIFICADOS" })}
-                className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold transition hover:bg-slate-50"
-                style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: activeFilter?.classificacao_cadastro === "NAO_CLASSIFICADOS" ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
-              >
-                <PackageSearch size={15} />
-                {fmtNumber(negocioAClassificar.itens)} a classificar
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setMostrarSaudeLinhas((current) => !current)}
-              className="inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-bold transition hover:bg-slate-50"
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            >
-              {mostrarSaudeLinhas ? "Ocultar saúde das linhas" : "Mostrar saúde das linhas"}
-            </button>
-          </div>
-        </div>
-
-        {mostrarSaudeLinhas && (
-          <div className="mt-4 space-y-4">
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-              {negociosClassificados.map((negocio) => (
+      {mostrarSaudeLinhas && (
+        <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        {negociosClassificados.map((negocio) => (
                 <div
                   key={negocio.tipo_negocio}
                   className="rounded-2xl border p-4 text-left"
@@ -3144,23 +3164,21 @@ export default function AgingEstoquePage() {
                   </div>
                 </div>
               ))}
-            </div>
-
-            {negocioAClassificar && negocioAClassificar.itens > 0 && (
-              <button
-                type="button"
-                onClick={() => aplicarFiltro({ label: "Itens a classificar", classificacao_cadastro: "NAO_CLASSIFICADOS" })}
-                className="inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition hover:bg-slate-50"
-                style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: activeFilter?.classificacao_cadastro === "NAO_CLASSIFICADOS" ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
-              >
-                <PackageSearch size={16} />
-                {fmtNumber(negocioAClassificar.itens)} itens a classificar
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
+        {negocioAClassificar && negocioAClassificar.itens > 0 && (
+          <button
+            type="button"
+            onClick={() => aplicarFiltro({ label: "Itens a classificar", classificacao_cadastro: "NAO_CLASSIFICADOS" })}
+            className="inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition hover:bg-slate-50"
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: activeFilter?.classificacao_cadastro === "NAO_CLASSIFICADOS" ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
+              >
+            <PackageSearch size={16} />
+            {fmtNumber(negocioAClassificar.itens)} itens a classificar
+          </button>
+        )}
+        </div>
+      )}
 
       <FiltrosEstoquePanel
         filtro={activeFilter}
@@ -3170,23 +3188,6 @@ export default function AgingEstoquePage() {
         onClear={() => aplicarFiltro(null)}
       />
 
-
-      {activeFilter && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Filtro ativo da tabela</p>
-            <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>{escopoTitulo} · {labelFiltroTabela(activeFilter)}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => aplicarFiltro(null)}
-            className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition hover:bg-slate-50"
-            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-          >
-            <X size={15} /> Limpar filtro
-          </button>
-        </div>
-      )}
 
       <BraviSeriePanel
         active={mostrarCardsPortfolio && escopoEstoque === "produtos"}
