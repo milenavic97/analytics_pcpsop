@@ -2706,7 +2706,10 @@ export default function AgingEstoquePage() {
     setActiveFilter(null)
     setResumo(null)
     setItensResp(null)
+    setTableFilterOpen(null)
+    setColumnSelectorOpen(false)
     setMostrarSaudeLinhas(false)
+    setHorizonteFuturo(6)
   }
 
   useEffect(() => {
@@ -3539,7 +3542,7 @@ export default function AgingEstoquePage() {
         </div>
       </div>
 
-      {escopoEstoque === "insumos" && (
+      {escopoEstoque === "insumos" && selected && (
         <TimelinePrincipal
           item={selected}
           loading={loadingDetalhe}
