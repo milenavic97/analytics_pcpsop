@@ -36,7 +36,7 @@ import {
   uploadBase,
 } from "@/services/api"
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 100
 
 const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
 
@@ -1425,13 +1425,11 @@ function BraviSeriePanel({
   refreshTick,
   selectedItem,
   onClearSelected,
-  loadingSelected = false,
 }: {
   active: boolean
   refreshTick: number
   selectedItem?: AgingEstoqueItemDetalhe | null
   onClearSelected?: () => void
-  loadingSelected?: boolean
 }) {
   const [granularidade, setGranularidade] = useState<GranularidadeSerie>("mensal")
   const [data, setData] = useState<BraviSerieResponse | null>(null)
@@ -1462,8 +1460,7 @@ function BraviSeriePanel({
     return () => { mounted = false }
   }, [active, granularidade, refreshTick])
 
-  const itemCarregando = loadingSelected && selectedItem?.codigo ? selectedItem : null
-  const itemSelecionado = !loadingSelected && selectedItem?.codigo ? selectedItem : null
+  const itemSelecionado = selectedItem?.codigo ? selectedItem : null
   const serieItemSelecionado = useMemo(
     () => buildSerieOperacionalItemSelecionado(itemSelecionado),
     [itemSelecionado]
@@ -1482,7 +1479,7 @@ function BraviSeriePanel({
   }
 
   const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
-  const serie = itemCarregando ? [] : itemSelecionado ? serieItemSelecionado : data?.serie || []
+  const serie = itemSelecionado ? serieItemSelecionado : data?.serie || []
   const resumo = itemSelecionado
     ? {
         estoque_atual: Number(itemSelecionado.saldo || 0),
@@ -1496,16 +1493,12 @@ function BraviSeriePanel({
         criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
       }
     : data?.resumo || {}
-  const tituloSerie = itemCarregando
-    ? `${itemCarregando.codigo} · carregando dados do item...`
-    : itemSelecionado
-      ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}`
-      : "Estoque e faturamento dos PA / MR"
-  const descricaoSerie = itemCarregando
-    ? "Aguarde alguns segundos enquanto o detalhe do item é carregado. O gráfico será atualizado quando a série correta chegar."
-    : itemSelecionado
-      ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
-      : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
+  const tituloSerie = itemSelecionado
+    ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}`
+    : "Estoque e faturamento dos PA / MR"
+  const descricaoSerie = itemSelecionado
+    ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
+    : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
@@ -1592,7 +1585,7 @@ function BraviSeriePanel({
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              {itemCarregando ? "Carregando item" : itemSelecionado ? "Item selecionado" : "PA / MR"}
+              {itemSelecionado ? "Item selecionado" : "PA / MR"}
             </span>
           </div>
 
@@ -1722,7 +1715,7 @@ function BraviSeriePanel({
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                {loading || itemCarregando ? "Carregando série do item selecionado..." : "Sem série disponível para os PA/MR."}
+                {loading ? "Carregando série PA/MR..." : "Sem série disponível para os PA/MR."}
               </div>
             )}
           </div>
@@ -2531,7 +2524,6 @@ export default function AgingEstoquePage() {
   const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(null)
   const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>("produtos")
   const [tableFilterOpen, setTableFilterOpen] = useState<keyof FiltroTabelaEstoque | null>(null)
-  const [tableSearchDraft, setTableSearchDraft] = useState("")
 
   const carregarAtualizacoesBases = async () => {
     setLoadingAtualizacoesBases(true)
@@ -2585,10 +2577,6 @@ export default function AgingEstoquePage() {
       void carregarAtualizacoesBases()
     }
   }, [basesModalOpen])
-
-  useEffect(() => {
-    setTableSearchDraft(activeFilter?.busca || "")
-  }, [activeFilter?.busca])
 
   const alterarEscopoEstoque = (novoEscopo: EscopoEstoque) => {
     if (novoEscopo === escopoEstoque) return
@@ -2764,24 +2752,12 @@ export default function AgingEstoquePage() {
     const valor = getValorFiltroTabela(campo)
     const ativo = Boolean(valor)
 
-    const aplicarBusca = () => {
-      atualizarFiltroCampo(campo, tableSearchDraft.trim() || undefined)
-      setTableFilterOpen(null)
-    }
-
-    const limparBusca = () => {
-      setTableSearchDraft("")
-      atualizarFiltroCampo(campo, undefined)
-      setTableFilterOpen(null)
-    }
-
     return (
       <span className="relative inline-flex w-full items-center">
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation()
-            setTableSearchDraft(valor)
             setTableFilterOpen(aberto ? null : campo)
           }}
           className="inline-flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left font-bold text-white/95 transition hover:bg-white/10"
@@ -2821,25 +2797,17 @@ export default function AgingEstoquePage() {
 
             <input
               autoFocus
-              value={tableSearchDraft}
-              onChange={(e) => setTableSearchDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") aplicarBusca()
-                if (e.key === "Escape") setTableFilterOpen(null)
-              }}
+              value={valor}
+              onChange={(e) => atualizarFiltroCampo(campo, e.target.value)}
               placeholder="Digite código ou produto. Ex.: SUGCLEAN"
               className="h-9 w-full rounded-lg border bg-white px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
               style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
             />
 
-            <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-              Pressione Enter ou clique em Aplicar.
-            </p>
-
             <div className="mt-3 flex justify-between gap-2">
               <button
                 type="button"
-                onClick={limparBusca}
+                onClick={() => atualizarFiltroCampo(campo, undefined)}
                 className="rounded-lg border px-3 py-1.5 text-xs font-bold transition hover:bg-slate-50"
                 style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
               >
@@ -2847,7 +2815,7 @@ export default function AgingEstoquePage() {
               </button>
               <button
                 type="button"
-                onClick={aplicarBusca}
+                onClick={() => setTableFilterOpen(null)}
                 className="rounded-lg px-3 py-1.5 text-xs font-bold text-white transition"
                 style={{ background: "#163B63" }}
               >
@@ -3137,7 +3105,6 @@ export default function AgingEstoquePage() {
         active={mostrarCardsPortfolio && escopoEstoque === "produtos"}
         refreshTick={refreshTick}
         selectedItem={selected}
-        loadingSelected={loadingDetalhe}
         onClearSelected={() => setSelected(null)}
       />
 
