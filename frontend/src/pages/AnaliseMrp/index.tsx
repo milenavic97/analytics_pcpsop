@@ -101,6 +101,7 @@ type BraviSeriePonto = {
   faturamento_valor?: number | null
   consumo?: number | null
   demanda?: number | null
+  forecast?: number | null
   pedidos_detalhe?: {
     pedido_numero?: string | null
     sc_numero?: string | null
@@ -808,8 +809,8 @@ function buildSerieOperacionalItemSelecionado(item: AgingEstoqueItemDetalhe | nu
       periodo_completo: p.periodo,
       ano: p.ano,
       mes: p.mes,
-      estoque: p.estoque_atual ?? p.saldo_grafico ?? null,
-      estoque_medio: p.estoque_atual ?? p.saldo_grafico ?? null,
+      estoque: p.estoque_atual ?? (p.saldo_grafico !== null && p.saldo_grafico !== undefined ? Math.max(0, Number(p.saldo_grafico || 0)) : null),
+      estoque_medio: p.estoque_atual ?? (p.saldo_grafico !== null && p.saldo_grafico !== undefined ? Math.max(0, Number(p.saldo_grafico || 0)) : null),
       estoque_quarentena: p.estoque_quarentena ?? p.quarentena ?? null,
       quarentena: p.quarentena ?? p.estoque_quarentena ?? null,
       saldo_quarentena: p.quarentena ?? p.estoque_quarentena ?? null,
@@ -818,6 +819,7 @@ function buildSerieOperacionalItemSelecionado(item: AgingEstoqueItemDetalhe | nu
       faturamento_valor: p.faturamento_valor ?? null,
       consumo: p.consumo ?? null,
       demanda: p.demanda ?? p.forecast ?? null,
+      forecast: p.forecast ?? p.demanda ?? null,
       pedidos_detalhe: p.entradas_detalhe || [],
       faturamento_detalhe: p.faturamento_detalhe || [],
     }))
@@ -1482,7 +1484,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Faturamento vem da SD2. Estoque vem dos snapshots diários disponíveis. Use a legenda para ligar/desligar séries.
+                Estoque disponível é barra. Entradas previstas ficam empilhadas sobre o estoque. Faturamento e forecast aparecem como linhas.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -1508,14 +1510,16 @@ function BraviSeriePanel({
                     orientation="left"
                     tick={{ fontSize: 11, fill: "#64748B" }}
                     width={80}
-                    label={{ value: "Estoque", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
+                    domain={[0, "auto"]}
+                    label={{ value: "Estoque + entradas", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
                   />
                   <YAxis
                     yAxisId="fluxo"
                     orientation="right"
                     tick={{ fontSize: 11, fill: "#64748B" }}
                     width={80}
-                    label={{ value: "Faturamento qtd / entradas", angle: 90, position: "insideRight", style: { fill: "#64748B", fontSize: 11 } }}
+                    domain={[0, "auto"]}
+                    label={{ value: "Faturamento / forecast", angle: 90, position: "insideRight", style: { fill: "#64748B", fontSize: 11 } }}
                   />
                   <YAxis yAxisId="valor" hide />
                   <Tooltip content={<BraviSerieTooltip />} />
@@ -1523,6 +1527,34 @@ function BraviSeriePanel({
                     wrapperStyle={{ fontSize: 12, cursor: "pointer" }}
                     onClick={(entry: any) => toggleSerie(String(entry?.dataKey || ""))}
                   />
+
+                  <Bar
+                    yAxisId="estoque"
+                    stackId="disponibilidade"
+                    dataKey="estoque"
+                    name="Estoque disponível"
+                    fill="#163B63"
+                    fillOpacity={0.82}
+                    radius={[6, 6, 0, 0]}
+                    hide={serieOculta("estoque")}
+                  >
+                    <LabelList dataKey="estoque" content={renderChartLabel} />
+                  </Bar>
+
+                  <Bar
+                    yAxisId="estoque"
+                    stackId="disponibilidade"
+                    dataKey="entradas_previstas"
+                    name="Entradas previstas"
+                    fill="#F59E0B"
+                    fillOpacity={0.18}
+                    stroke="#B45309"
+                    strokeDasharray="4 3"
+                    radius={[6, 6, 0, 0]}
+                    hide={serieOculta("entradas_previstas")}
+                  >
+                    <LabelList dataKey="entradas_previstas" content={renderChartLabel} />
+                  </Bar>
 
                   <Line
                     yAxisId="fluxo"
@@ -1538,32 +1570,19 @@ function BraviSeriePanel({
                     <LabelList dataKey="faturamento_qtd" content={renderChartLabel} />
                   </Line>
 
-                  <Bar
-                    yAxisId="fluxo"
-                    dataKey="entradas_previstas"
-                    name="Entradas previstas"
-                    fill="#F59E0B"
-                    fillOpacity={0.22}
-                    stroke="#B45309"
-                    strokeDasharray="4 3"
-                    radius={[6, 6, 0, 0]}
-                    hide={serieOculta("entradas_previstas")}
-                  >
-                    <LabelList dataKey="entradas_previstas" content={renderChartLabel} />
-                  </Bar>
-
                   <Line
-                    yAxisId="estoque"
+                    yAxisId="fluxo"
                     type="monotone"
-                    dataKey="estoque"
-                    name="Estoque disponível"
-                    stroke="#163B63"
-                    strokeWidth={3}
-                    dot={{ r: 3 }}
+                    dataKey="demanda"
+                    name="Forecast / demanda"
+                    stroke="#DC2626"
+                    strokeWidth={2.8}
+                    strokeDasharray="5 4"
+                    dot={{ r: 2 }}
                     connectNulls={false}
-                    hide={serieOculta("estoque")}
+                    hide={serieOculta("demanda")}
                   >
-                    <LabelList dataKey="estoque" content={renderChartLabel} />
+                    <LabelList dataKey="demanda" content={renderChartLabel} />
                   </Line>
 
                   <Line
@@ -2403,6 +2422,7 @@ export default function AgingEstoquePage() {
   const [refreshTick, setRefreshTick] = useState(0)
   const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(null)
   const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>("produtos")
+  const [tableFilterOpen, setTableFilterOpen] = useState<keyof FiltroTabelaEstoque | null>(null)
 
   const carregarAtualizacoesBases = async () => {
     setLoadingAtualizacoesBases(true)
@@ -2619,6 +2639,119 @@ export default function AgingEstoquePage() {
   )
 
   const opcoesFiltros = useMemo(() => resumo?.opcoes || itensResp?.opcoes || {}, [resumo, itensResp])
+  const getValorFiltroTabela = (campo: keyof FiltroTabelaEstoque) => {
+    const valor = (activeFilter as Record<string, string | undefined> | null)?.[campo]
+    return String(valor || "")
+  }
+
+  const montarOpcoesTabela = (valores?: string[], incluirTodos = true) => {
+    const limpos = Array.from(new Set((valores || []).map((v) => String(v || "").trim()).filter(Boolean)))
+    return [
+      ...(incluirTodos ? [{ value: "", label: "Todos" }] : []),
+      ...limpos.map((v) => ({ value: v, label: v })),
+    ]
+  }
+
+  const renderFiltroExcel = (
+    campo: keyof FiltroTabelaEstoque,
+    label: string,
+    tipo: "texto" | "select",
+    opcoes: { value: string; label: string }[] = [],
+    placeholder = "Filtrar..."
+  ) => {
+    const aberto = tableFilterOpen === campo
+    const valor = getValorFiltroTabela(campo)
+    const ativo = Boolean(valor)
+
+    return (
+      <span className="relative inline-flex items-center gap-1">
+        <span>{label}</span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            setTableFilterOpen(aberto ? null : campo)
+          }}
+          className="inline-flex h-5 w-5 items-center justify-center rounded-md border transition hover:bg-white/15"
+          style={{
+            borderColor: ativo ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.25)",
+            background: ativo ? "rgba(255,255,255,0.18)" : "transparent",
+            color: "#FFFFFF",
+          }}
+          title={`Filtrar ${label}`}
+        >
+          <Filter size={11} />
+        </button>
+
+        {aberto && (
+          <div
+            className="absolute left-0 top-7 z-[80] w-[250px] rounded-xl border bg-white p-3 text-left normal-case tracking-normal shadow-2xl"
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                Filtrar {label}
+              </span>
+              <button
+                type="button"
+                onClick={() => setTableFilterOpen(null)}
+                className="rounded-md p-1 hover:bg-slate-100"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                <X size={13} />
+              </button>
+            </div>
+
+            {tipo === "texto" ? (
+              <input
+                autoFocus
+                value={valor}
+                onChange={(e) => atualizarFiltroCampo(campo, e.target.value)}
+                placeholder={placeholder}
+                className="h-9 w-full rounded-lg border bg-white px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              />
+            ) : (
+              <select
+                autoFocus
+                value={valor}
+                onChange={(e) => atualizarFiltroCampo(campo, e.target.value || undefined)}
+                className="h-9 w-full rounded-lg border bg-white px-3 text-xs font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                {opcoes.map((opcao) => (
+                  <option key={`${campo}-${opcao.value || "TODOS"}`} value={opcao.value}>
+                    {opcao.label}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <div className="mt-3 flex justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => atualizarFiltroCampo(campo, undefined)}
+                className="rounded-lg border px-3 py-1.5 text-xs font-bold transition hover:bg-slate-50"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              >
+                Limpar
+              </button>
+              <button
+                type="button"
+                onClick={() => setTableFilterOpen(null)}
+                className="rounded-lg px-3 py-1.5 text-xs font-bold text-white transition"
+                style={{ background: "#163B63" }}
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+        )}
+      </span>
+    )
+  }
+
   const qtdAClassificar = Number(negocioAClassificar?.itens || 0)
   const totalItensResumo = Number(resumo?.resumo?.total_itens || 0)
   const totalDescontinuadoSaldo = Number(resumo?.resumo?.descontinuado_com_saldo || 0)
@@ -2947,105 +3080,47 @@ export default function AgingEstoquePage() {
           <table className="w-full min-w-[3300px] border-separate border-spacing-0 text-sm">
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
-                <th className="sticky left-0 z-30 min-w-[90px] px-4 py-3" style={{ background: "#163B63" }}>Código</th>
-                <th className="sticky left-[90px] z-30 min-w-[260px] px-4 py-3" style={{ background: "#163B63" }}>Descrição</th>
-                <th className="px-4 py-3">Semáforo</th>
+                <th className="sticky left-0 z-30 min-w-[90px] px-4 py-3" style={{ background: "#163B63" }}>
+                  {renderFiltroExcel("busca", "Código", "texto", [], "Código...")}
+                </th>
+                <th className="sticky left-[90px] z-30 min-w-[260px] px-4 py-3" style={{ background: "#163B63" }}>
+                  {renderFiltroExcel("busca", "Descrição", "texto", [], "Buscar produto, ex.: SUGCLEAN")}
+                </th>
+                <th className="px-4 py-3">
+                  {renderFiltroExcel("semaforo", "Semáforo", "select", [
+                    { value: "", label: "Todos" },
+                    { value: "VERMELHO", label: "Crítico" },
+                    { value: "AMARELO", label: "Atenção" },
+                    { value: "VERDE", label: "Ok" },
+                    { value: "CINZA", label: "Sem referência" },
+                  ])}
+                </th>
                 <th className="px-4 py-3">Curva A</th>
-                <th className="px-4 py-3">Tipo</th>
+                <th className="px-4 py-3">
+                  {renderFiltroExcel("tipo_negocio", "Tipo", "select", montarOpcoesTabela(opcoesFiltros.tipo_negocio))}
+                </th>
                 <th className="px-4 py-3">UM</th>
-                <th className="px-4 py-3">Segmento</th>
-                <th className="px-4 py-3">Mercado</th>
-                <th className="px-4 py-3">Origem saldo</th>
+                <th className="px-4 py-3">
+                  {renderFiltroExcel("status_portfolio", "Segmento", "select", montarOpcoesTabela(opcoesFiltros.status_portfolio))}
+                </th>
+                <th className="px-4 py-3">
+                  {renderFiltroExcel("transferencia_bravi", "Mercado", "select", [
+                    { value: "", label: "Todos" },
+                    { value: "Sim", label: "Bravi" },
+                    { value: "Não", label: "Não Bravi" },
+                  ])}
+                </th>
+                <th className="px-4 py-3">
+                  {renderFiltroExcel("classificacao_cadastro", "Origem saldo", "select", [
+                    { value: "", label: "Todos" },
+                    { value: "MAPEADOS", label: "Mapeados" },
+                    { value: "DIMENSAO", label: "Dimensão" },
+                    { value: "BOM", label: "BOM" },
+                    { value: "NAO_CLASSIFICADOS", label: "Não classificados" },
+                  ])}
+                </th>
                 <th className="px-4 py-3">Data saldo</th>
                 {NUMERIC_COLUMNS.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
-              </tr>
-              <tr className="normal-case tracking-normal text-slate-700" style={{ background: "#F8FAFC" }}>
-                <th className="sticky left-0 z-30 min-w-[90px] px-2 py-2" style={{ background: "#F8FAFC" }}>
-                  <input
-                    value={activeFilter?.busca || ""}
-                    onChange={(e) => atualizarFiltroCampo("busca", e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    placeholder="Buscar..."
-                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
-                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-                  />
-                </th>
-                <th className="sticky left-[90px] z-30 min-w-[260px] px-2 py-2" style={{ background: "#F8FAFC" }}>
-                  <input
-                    value={activeFilter?.busca || ""}
-                    onChange={(e) => atualizarFiltroCampo("busca", e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    placeholder="Buscar produto, ex.: SUGCLEAN"
-                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none focus:ring-2 focus:ring-[#163B63]/20"
-                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-                  />
-                </th>
-                <th className="px-2 py-2">
-                  <select
-                    value={activeFilter?.semaforo || "TODOS"}
-                    onChange={(e) => atualizarFiltroCampo("semaforo", e.target.value === "TODOS" ? undefined : e.target.value as SemaforoEstoque)}
-                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
-                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-                  >
-                    <option value="TODOS">Todos</option>
-                    <option value="VERMELHO">Crítico</option>
-                    <option value="AMARELO">Atenção</option>
-                    <option value="VERDE">Ok</option>
-                    <option value="CINZA">Sem ref.</option>
-                  </select>
-                </th>
-                <th className="px-2 py-2" />
-                <th className="px-2 py-2">
-                  <select
-                    value={activeFilter?.tipo_negocio || "TODOS"}
-                    onChange={(e) => atualizarFiltroCampo("tipo_negocio", e.target.value === "TODOS" ? undefined : e.target.value)}
-                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
-                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-                  >
-                    <option value="TODOS">Todos</option>
-                    {(opcoesFiltros.tipo_negocio || []).map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
-                  </select>
-                </th>
-                <th className="px-2 py-2" />
-                <th className="px-2 py-2">
-                  <select
-                    value={activeFilter?.status_portfolio || "TODOS"}
-                    onChange={(e) => atualizarFiltroCampo("status_portfolio", e.target.value === "TODOS" ? undefined : e.target.value)}
-                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
-                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-                  >
-                    <option value="TODOS">Todos</option>
-                    {(opcoesFiltros.status_portfolio || []).map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
-                  </select>
-                </th>
-                <th className="px-2 py-2">
-                  <select
-                    value={activeFilter?.transferencia_bravi || "TODOS"}
-                    onChange={(e) => atualizarFiltroCampo("transferencia_bravi", e.target.value === "TODOS" ? undefined : e.target.value)}
-                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
-                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-                  >
-                    <option value="TODOS">Todos</option>
-                    <option value="Sim">Bravi</option>
-                    <option value="Não">Não</option>
-                  </select>
-                </th>
-                <th className="px-2 py-2">
-                  <select
-                    value={activeFilter?.classificacao_cadastro || "TODOS"}
-                    onChange={(e) => atualizarFiltroCampo("classificacao_cadastro", e.target.value === "TODOS" ? undefined : e.target.value)}
-                    className="h-8 w-full rounded-lg border bg-white px-2 text-[11px] font-semibold outline-none"
-                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-                  >
-                    <option value="TODOS">Todos</option>
-                    <option value="MAPEADOS">Mapeados</option>
-                    <option value="DIMENSAO">Dimensão</option>
-                    <option value="BOM">BOM</option>
-                    <option value="NAO_CLASSIFICADOS">Não class.</option>
-                  </select>
-                </th>
-                <th className="px-2 py-2" />
-                {NUMERIC_COLUMNS.map((col) => <th key={`filter-${col.key}`} className="px-2 py-2" />)}
               </tr>
             </thead>
             <tbody>
