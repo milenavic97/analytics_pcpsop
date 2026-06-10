@@ -722,10 +722,46 @@ function getDiasEstoqueProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe 
   return getCoberturaAtualProduto(item) * 30
 }
 
+function getEstoqueMaisEntradasProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  return getEstoqueAtualReal(item) + getPedidosAbertos(item)
+}
+
+function normalizarCoberturaPaMrItem<T extends AgingEstoqueItem | AgingEstoqueItemDetalhe>(item: T): T {
+  const demandaMes = getCoberturaBaseProduto(item)
+  const estoqueAtual = getEstoqueAtualReal(item)
+  const estoqueMaisEntradas = getEstoqueMaisEntradasProduto(item)
+
+  const coberturaAtual = demandaMes > 0 ? estoqueAtual / demandaMes : 0
+  const coberturaFutura = demandaMes > 0 ? estoqueMaisEntradas / demandaMes : 0
+  const diasEstoque = coberturaAtual * 30
+
+  return {
+    ...(item as Record<string, unknown>),
+    saldo: estoqueAtual,
+    estoque_mais_pedidos: estoqueMaisEntradas,
+    estoque_mais_entradas: estoqueMaisEntradas,
+    dias_em_estoque: diasEstoque,
+    cobertura_dias: diasEstoque,
+    cobertura_meses_atual: coberturaAtual,
+    cobertura_meses_futura: coberturaFutura,
+    cobertura_futura_dias: coberturaFutura * 30,
+    __cobertura_pa_mr_recalculada_front: true,
+  } as unknown as T
+}
+
+function normalizarCoberturaPaMrResponse(res: AgingItensResponse, escopo: EscopoEstoque): AgingItensResponse {
+  if (escopo === "insumos") return res
+
+  return {
+    ...res,
+    itens: (res.itens || []).map((item) => normalizarCoberturaPaMrItem(item)),
+  }
+}
+
 function getValorNumericoTabela(item: AgingEstoqueItem, key: SortKey, isTabelaProdutos = false) {
   if (isTabelaProdutos) {
     if (key === "saldo") return getEstoqueAtualReal(item)
-    if (key === "estoque_mais_pedidos") return getEstoqueAtualReal(item) + getPedidosAbertos(item)
+    if (key === "estoque_mais_pedidos") return getEstoqueMaisEntradasProduto(item)
     if (key === "dias_em_estoque") return getDiasEstoqueProduto(item)
     if (key === "cobertura_meses_atual") return getCoberturaAtualProduto(item)
     if (key === "cobertura_meses_futura") return getCoberturaFuturaProduto(item)
@@ -2004,7 +2040,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V21: estoque e cobertura PA/MR usam o saldo da tabela e a demanda do mês. Dias estoque = estoque atual / demanda mês x 30.
+                V22: cobertura PA/MR recalculada no front após carregar a tabela. Dias estoque = estoque atual / demanda mês x 30.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -3087,7 +3123,7 @@ export default function AgingEstoquePage() {
       .then((res) => {
         if (!mounted) return
         if (res?.escopo && res.escopo !== escopoEstoque) return
-        setItensResp(res)
+        setItensResp(normalizarCoberturaPaMrResponse(res, escopoEstoque))
       })
       .catch((err: unknown) => {
         if (!mounted) return
@@ -3138,7 +3174,11 @@ export default function AgingEstoquePage() {
   }
 
   const abrirDetalhe = (item: AgingEstoqueItem) => {
-    setSelected(item as AgingEstoqueItemDetalhe)
+    const itemSelecionado = escopoEstoque === "insumos"
+      ? item
+      : normalizarCoberturaPaMrItem(item)
+
+    setSelected(itemSelecionado as AgingEstoqueItemDetalhe)
   }
 
   useEffect(() => {
