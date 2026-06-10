@@ -686,8 +686,8 @@ function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
 function getCoberturaBaseProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
 
-  // Fallback simples, usado enquanto a cobertura por forecast futuro ainda está carregando.
-  // A regra definitiva da v24 fica em calcularCoberturaForecastPaMrItem, usando a série mensal futura.
+  // Para PA/MR, a melhor base de cobertura é a demanda/previsão do mês.
+  // Se não existir, cai para maior média para manter compatibilidade com itens sem forecast.
   const chavesBase = [
     "demanda_mes_atual",
     "demanda_mes",
@@ -707,172 +707,23 @@ function getCoberturaBaseProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalh
 }
 
 function getCoberturaAtualProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
-  const raw = item as unknown as Record<string, unknown> | null | undefined
-  const coberturaForecast = toNumberSafe(raw?.cobertura_meses_atual, Number.NaN)
-  if (Number.isFinite(coberturaForecast)) return Math.max(0, coberturaForecast)
-
   const base = getCoberturaBaseProduto(item)
   if (base <= 0) return 0
   return getEstoqueAtualReal(item) / base
 }
 
 function getCoberturaFuturaProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
-  const raw = item as unknown as Record<string, unknown> | null | undefined
-  const coberturaForecast = toNumberSafe(raw?.cobertura_meses_futura, Number.NaN)
-  if (Number.isFinite(coberturaForecast)) return Math.max(0, coberturaForecast)
-
   const base = getCoberturaBaseProduto(item)
   if (base <= 0) return 0
   return (getEstoqueAtualReal(item) + getPedidosAbertos(item)) / base
 }
 
 function getDiasEstoqueProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
-  const raw = item as unknown as Record<string, unknown> | null | undefined
-  const diasForecast = toNumberSafe(raw?.dias_em_estoque ?? raw?.cobertura_dias, Number.NaN)
-  if (Number.isFinite(diasForecast)) return Math.max(0, diasForecast)
   return getCoberturaAtualProduto(item) * 30
 }
 
 function getEstoqueMaisEntradasProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   return getEstoqueAtualReal(item) + getPedidosAbertos(item)
-}
-
-type CoberturaForecastPaMr = {
-  meses: number
-  dias: number
-  demandaReferencia: number
-  mesRuptura: string | null
-  mesesComForecast: number
-  metodo: string
-}
-
-function ordemMensalPonto(ponto: Partial<BraviSeriePonto>) {
-  const ano = toNumberSafe(ponto.ano, 0)
-  const mes = toNumberSafe(ponto.mes, 0)
-
-  if (ano > 0 && mes > 0) {
-    return `${Math.trunc(ano)}-${String(Math.trunc(mes)).padStart(2, "0")}`
-  }
-
-  const ordem = String(ponto.ordem || ponto.key || "").slice(0, 7)
-  if (/^\d{4}-\d{2}$/.test(ordem)) return ordem
-
-  return "9999-99"
-}
-
-function filtrarSerieForecastFutura(serie: Partial<BraviSeriePonto>[] | null | undefined) {
-  const hoje = new Date()
-  const ordemAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`
-
-  return (serie || [])
-    .map((ponto) => ({ ...ponto, __ordem: ordemMensalPonto(ponto) }))
-    .filter((ponto) => /^\d{4}-\d{2}$/.test(String(ponto.__ordem)) && String(ponto.__ordem) >= ordemAtual)
-    .sort((a, b) => String(a.__ordem).localeCompare(String(b.__ordem)))
-}
-
-function demandaForecastPonto(ponto: Partial<BraviSeriePonto>) {
-  return Math.max(0, toNumberSafe(ponto.demanda ?? ponto.forecast ?? 0))
-}
-
-function entradaPrevistaPonto(ponto: Partial<BraviSeriePonto>) {
-  return Math.max(0, toNumberSafe(ponto.entradas_previstas ?? 0))
-}
-
-function calcularMesesCoberturaContraForecast(
-  saldoInicial: number,
-  serie: Partial<BraviSeriePonto>[] | null | undefined,
-  incluirEntradasPrevistas: boolean,
-): CoberturaForecastPaMr {
-  const pontos = filtrarSerieForecastFutura(serie)
-  const pontosComDemanda = pontos.filter((ponto) => demandaForecastPonto(ponto) > 0)
-
-  if (pontosComDemanda.length === 0) {
-    return {
-      meses: 0,
-      dias: 0,
-      demandaReferencia: 0,
-      mesRuptura: null,
-      mesesComForecast: 0,
-      metodo: "sem_forecast_futuro",
-    }
-  }
-
-  let saldo = Math.max(0, saldoInicial)
-  let meses = 0
-  let mesRuptura: string | null = null
-  let demandaReferencia = 0
-
-  for (const ponto of pontos) {
-    const demandaMes = demandaForecastPonto(ponto)
-
-    if (incluirEntradasPrevistas) {
-      saldo += entradaPrevistaPonto(ponto)
-    }
-
-    if (demandaMes <= 0) {
-      // Mês sem forecast não consome saldo. Conta como mês coberto apenas quando
-      // existe forecast em meses posteriores, para preservar a leitura calendário.
-      meses += 1
-      continue
-    }
-
-    if (demandaReferencia <= 0) demandaReferencia = demandaMes
-
-    if (saldo >= demandaMes) {
-      saldo -= demandaMes
-      meses += 1
-      continue
-    }
-
-    const fracaoMes = demandaMes > 0 ? saldo / demandaMes : 0
-    meses += Math.max(0, Math.min(1, fracaoMes))
-    mesRuptura = String((ponto as Record<string, unknown>).periodo || (ponto as Record<string, unknown>).__ordem || "") || null
-    break
-  }
-
-  return {
-    meses: Number(meses.toFixed(2)),
-    dias: Number((meses * 30).toFixed(1)),
-    demandaReferencia,
-    mesRuptura,
-    mesesComForecast: pontosComDemanda.length,
-    metodo: incluirEntradasPrevistas ? "forecast_mensal_com_entradas_previstas" : "forecast_mensal_estoque_atual",
-  }
-}
-
-function calcularCoberturaForecastPaMrItem<T extends AgingEstoqueItem | AgingEstoqueItemDetalhe>(item: T, serie: Partial<BraviSeriePonto>[] | null | undefined): T {
-  const estoqueAtual = getEstoqueAtualReal(item)
-  const estoqueMaisEntradas = getEstoqueMaisEntradasProduto(item)
-
-  const coberturaAtual = calcularMesesCoberturaContraForecast(estoqueAtual, serie, false)
-  const coberturaFutura = calcularMesesCoberturaContraForecast(estoqueAtual, serie, true)
-
-  // Se a série mensal ainda não tiver forecast, mantém fallback simples por demanda do mês.
-  const demandaFallback = getCoberturaBaseProduto(item)
-  const coberturaAtualFallback = demandaFallback > 0 ? estoqueAtual / demandaFallback : 0
-  const coberturaFuturaFallback = demandaFallback > 0 ? estoqueMaisEntradas / demandaFallback : 0
-
-  const coberturaAtualMeses = coberturaAtual.mesesComForecast > 0 ? coberturaAtual.meses : coberturaAtualFallback
-  const coberturaFuturaMeses = coberturaFutura.mesesComForecast > 0 ? coberturaFutura.meses : coberturaFuturaFallback
-  const diasEstoque = coberturaAtualMeses * 30
-
-  return {
-    ...(item as Record<string, unknown>),
-    saldo: estoqueAtual,
-    estoque_mais_pedidos: estoqueMaisEntradas,
-    estoque_mais_entradas: estoqueMaisEntradas,
-    dias_em_estoque: diasEstoque,
-    cobertura_dias: diasEstoque,
-    cobertura_meses_atual: coberturaAtualMeses,
-    cobertura_meses_futura: coberturaFuturaMeses,
-    cobertura_futura_dias: coberturaFuturaMeses * 30,
-    demanda_referencia_cobertura: coberturaAtual.demandaReferencia || demandaFallback,
-    metodo_cobertura: coberturaAtual.mesesComForecast > 0 ? "forecast_futuro_mes_a_mes" : "fallback_demanda_mes_atual",
-    mes_ruptura_cobertura_atual: coberturaAtual.mesRuptura,
-    mes_ruptura_cobertura_futura: coberturaFutura.mesRuptura,
-    __cobertura_pa_mr_recalculada_front: true,
-    __cobertura_forecast_calculada_front: coberturaAtual.mesesComForecast > 0,
-  } as unknown as T
 }
 
 function normalizarCoberturaPaMrItem<T extends AgingEstoqueItem | AgingEstoqueItemDetalhe>(item: T): T {
@@ -894,8 +745,6 @@ function normalizarCoberturaPaMrItem<T extends AgingEstoqueItem | AgingEstoqueIt
     cobertura_meses_atual: coberturaAtual,
     cobertura_meses_futura: coberturaFutura,
     cobertura_futura_dias: coberturaFutura * 30,
-    demanda_referencia_cobertura: demandaMes,
-    metodo_cobertura: "fallback_demanda_mes_atual_aguardando_forecast",
     __cobertura_pa_mr_recalculada_front: true,
   } as unknown as T
 }
@@ -2086,7 +1935,8 @@ function BraviSeriePanel({
       }
 
       if (isFuturo) {
-        // V24: por decisão de negócio, não projetamos saldo de estoque no gráfico PA/MR.
+        // V25: por decisão de negócio/apresentação, não projetamos saldo de estoque no gráfico PA/MR.
+        // Mantém a tela leve: a tabela não chama série por item para calcular cobertura.
         // Mantemos somente entradas previstas e forecast/demanda para não confundir
         // disponibilidade real com uma projeção simplificada.
         pontoSaida.estoque = null
@@ -2188,7 +2038,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V24: cobertura PA/MR calculada frente ao forecast futuro mês a mês. Sem projeção de saldo no gráfico; estoque aparece como foto atual e entradas previstas ficam separadas.
+                V25: modo apresentação rápido. Cobertura PA/MR recalculada no front sem chamadas extras por item; sem projeção de saldo no gráfico.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -3137,7 +2987,6 @@ export default function AgingEstoquePage() {
   const [itensResp, setItensResp] = useState<AgingItensResponse | null>(null)
   const [, setLoadingResumo] = useState(true)
   const [loadingItens, setLoadingItens] = useState(true)
-  const [loadingCoberturaForecast, setLoadingCoberturaForecast] = useState(false)
   const [loadingDetalhe, setLoadingDetalhe] = useState(false)
   const [error, setError] = useState("")
   const [page, setPage] = useState(1)
@@ -3251,6 +3100,8 @@ export default function AgingEstoquePage() {
   }, [refreshTick, escopoEstoque, activeFilter?.classificacao_cadastro])
 
 
+  const buscaServidorItens = escopoEstoque === "insumos" ? activeFilter?.busca : undefined
+
   useEffect(() => {
     let mounted = true
     setLoadingItens(true)
@@ -3258,10 +3109,10 @@ export default function AgingEstoquePage() {
     getAgingItensDireto({
         escopo: escopoEstoque,
         page,
-        page_size: PAGE_SIZE,
+        page_size: escopoEstoque === "produtos" ? 200 : PAGE_SIZE,
         sort_key: sortKey || undefined,
         sort_direction: sortDirection,
-        busca: activeFilter?.busca,
+        busca: buscaServidorItens,
         status: activeFilter?.status,
         tipo_negocio: activeFilter?.tipo_negocio,
         status_portfolio: activeFilter?.status_portfolio,
@@ -3282,66 +3133,46 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingItens(false)
       })
     return () => { mounted = false }
-  }, [page, sortKey, sortDirection, refreshTick, activeFilter, escopoEstoque])
+  }, [
+    page,
+    sortKey,
+    sortDirection,
+    refreshTick,
+    escopoEstoque,
+    buscaServidorItens,
+    activeFilter?.status,
+    activeFilter?.tipo_negocio,
+    activeFilter?.status_portfolio,
+    activeFilter?.transferencia_bravi,
+    activeFilter?.classificacao_cadastro,
+    activeFilter?.semaforo,
+  ])
 
+  const itensBaseTabela = itensResp?.itens || []
+  const itens = useMemo(() => {
+    const termo = String(activeFilter?.busca || "").trim().toUpperCase()
 
-  useEffect(() => {
-    if (escopoEstoque === "insumos") return
+    if (!termo || escopoEstoque === "insumos") return itensBaseTabela
 
-    const itensPagina = itensResp?.itens || []
-    const codigosPagina = itensPagina
-      .map((item) => String(item.codigo || "").trim())
-      .filter(Boolean)
+    return itensBaseTabela.filter((item) => {
+      const campos = [
+        item.codigo,
+        item.produto,
+        item.grupo_descricao,
+        item.grupo_gerencial,
+        item.status_portfolio,
+        item.tipo_negocio,
+        item.familia,
+        item.segmento,
+      ]
 
-    if (!codigosPagina.length) return
+      return campos.some((campo) => String(campo || "").toUpperCase().includes(termo))
+    })
+  }, [itensBaseTabela, activeFilter?.busca, escopoEstoque])
 
-    // Evita refazer a mesma busca quando a tabela já foi enriquecida com forecast.
-    const todosJaCalculados = itensPagina.every((item) => Boolean((item as unknown as Record<string, unknown>).__cobertura_forecast_calculada_front))
-    if (todosJaCalculados) return
-
-    let mounted = true
-    setLoadingCoberturaForecast(true)
-
-    Promise.all(
-      codigosPagina.map(async (codigo) => {
-        try {
-          const serieItem = await getBraviSerie("mensal", codigo)
-          return [codigo, serieItem.serie || []] as const
-        } catch {
-          return [codigo, null] as const
-        }
-      })
-    )
-      .then((seriesPorCodigoEntries) => {
-        if (!mounted) return
-
-        const seriesPorCodigo = new Map(seriesPorCodigoEntries)
-
-        setItensResp((current) => {
-          if (!current || current.escopo === "insumos") return current
-
-          return {
-            ...current,
-            itens: (current.itens || []).map((item) => {
-              const codigo = String(item.codigo || "").trim()
-              const serieItem = seriesPorCodigo.get(codigo)
-
-              if (!serieItem) return item
-
-              return calcularCoberturaForecastPaMrItem(item, serieItem)
-            }),
-          }
-        })
-      })
-      .finally(() => {
-        if (mounted) setLoadingCoberturaForecast(false)
-      })
-
-    return () => { mounted = false }
-  }, [escopoEstoque, page, sortKey, sortDirection, refreshTick, activeFilter, itensResp?.escopo, itensResp?.page])
-
-  const itens = itensResp?.itens || []
-  const totalPages = Math.max(1, itensResp?.total_pages || 1)
+  const totalPages = activeFilter?.busca && escopoEstoque !== "insumos"
+    ? 1
+    : Math.max(1, itensResp?.total_pages || 1)
 
   const aplicarFiltro = (filtro: FiltroTabelaEstoque | null) => {
     setPage(1)
@@ -4402,9 +4233,9 @@ export default function AgingEstoquePage() {
             </h2>
           </div>
           <div className="flex items-center gap-3">
-            {(loadingItens || loadingCoberturaForecast) && (
+            {loadingItens && (
               <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold" style={{ background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}>
-                <RefreshCw size={13} className="animate-spin" /> {loadingCoberturaForecast ? "Calculando cobertura forecast" : "Atualizando tabela"}
+                <RefreshCw size={13} className="animate-spin" /> Atualizando tabela
               </span>
             )}
             <div className="relative">
