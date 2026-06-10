@@ -665,6 +665,53 @@ function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
   )
 }
 
+function getCoberturaBaseProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+
+  const raw = item as unknown as Record<string, unknown>
+
+  // Para PA/MR, a melhor base de cobertura é a demanda/previsão do mês.
+  // Se não existir, cai para maior_media para manter compatibilidade com itens sem forecast.
+  return Math.max(
+    0,
+    Number(
+      raw.demanda_mes_atual ??
+      raw.previsao_mes_atual ??
+      raw.maior_media ??
+      raw.media_consumo ??
+      0
+    )
+  )
+}
+
+function getCoberturaAtualProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const base = getCoberturaBaseProduto(item)
+  if (base <= 0) return 0
+  return getEstoqueAtualReal(item) / base
+}
+
+function getCoberturaFuturaProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const base = getCoberturaBaseProduto(item)
+  if (base <= 0) return 0
+  return (getEstoqueAtualReal(item) + getPedidosAbertos(item)) / base
+}
+
+function getDiasEstoqueProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  return getCoberturaAtualProduto(item) * 30
+}
+
+function getValorNumericoTabela(item: AgingEstoqueItem, key: SortKey, isTabelaProdutos = false) {
+  if (isTabelaProdutos) {
+    if (key === "saldo") return getEstoqueAtualReal(item)
+    if (key === "estoque_mais_pedidos") return getEstoqueAtualReal(item) + getPedidosAbertos(item)
+    if (key === "dias_em_estoque") return getDiasEstoqueProduto(item)
+    if (key === "cobertura_meses_atual") return getCoberturaAtualProduto(item)
+    if (key === "cobertura_meses_futura") return getCoberturaFuturaProduto(item)
+  }
+
+  return getNum(item, key)
+}
+
 function getPrevisaoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
   const raw = item as unknown as Record<string, unknown>
@@ -785,15 +832,7 @@ function renderValorColunaInsumo(item: AgingEstoqueItem, key: string): ReactNode
 }
 
 function fmtTableValue(item: AgingEstoqueItem, col: { key: SortKey; kind?: NumericColumnKind; digits?: number }, isTabelaProdutos = false) {
-  let value = getNum(item, col.key)
-
-  if (isTabelaProdutos && col.key === "saldo") {
-    value = getEstoqueAtualReal(item)
-  }
-
-  if (isTabelaProdutos && col.key === "estoque_mais_pedidos") {
-    value = getEstoqueAtualReal(item) + getPedidosAbertos(item)
-  }
+  const value = getValorNumericoTabela(item, col.key, isTabelaProdutos)
 
   if (col.kind === "currency") return fmtCurrency(value, col.digits ?? 2)
   if (col.kind === "days") return `${fmtNumber(value, col.digits ?? 0)} d`
@@ -3119,8 +3158,8 @@ export default function AgingEstoquePage() {
     const direction = sortDirection === "asc" ? 1 : -1
 
     return [...base].sort((a, b) => {
-      const aValue = getNum(a, sortKey)
-      const bValue = getNum(b, sortKey)
+      const aValue = getValorNumericoTabela(a, sortKey, isTabelaProdutos)
+      const bValue = getValorNumericoTabela(b, sortKey, isTabelaProdutos)
 
       if (aValue === bValue) {
         return String(a.codigo || "").localeCompare(String(b.codigo || ""))
@@ -3128,7 +3167,7 @@ export default function AgingEstoquePage() {
 
       return (aValue - bValue) * direction
     })
-  }, [itens, sortKey, sortDirection, activeFilter?.semaforo])
+  }, [itens, sortKey, sortDirection, activeFilter?.semaforo, isTabelaProdutos])
 
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
   const negociosClassificados = useMemo(
@@ -3397,7 +3436,16 @@ export default function AgingEstoquePage() {
       header.join(";"),
       ...itensOrdenados.map((r) =>
         header
-          .map((h) => String(h === "status" ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)] : ((r as any)[h] ?? "")).replace(/;/g, ","))
+          .map((h) => {
+            const colunaNumerica = NUMERIC_COLUMNS.find((col) => col.key === h)
+            const valor = h === "status"
+              ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)]
+              : colunaNumerica
+                ? getValorNumericoTabela(r, colunaNumerica.key, isTabelaProdutos)
+                : ((r as any)[h] ?? "")
+
+            return String(valor).replace(/;/g, ",")
+          })
           .join(";")
       ),
     ].join("\n")
