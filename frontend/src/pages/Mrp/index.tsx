@@ -1774,7 +1774,10 @@ function BraviSeriePanel({
     const diaAtual = hoje.toISOString().slice(0, 10)
     const ordemMensalAtual = `${anoAtual}-${String(mesAtual).padStart(2, "0")}`
 
-    const estoqueAtual = Number(resumo.estoque_atual ?? getEstoqueAtualReal(itemSelecionado) ?? 0)
+    // Para o gráfico por item PA/MR, o estoque precisa vir da mesma linha da tabela.
+    // O resumo do endpoint de série pode trazer valor de série/posição diferente e estava gerando 1.052 no SUGCLEAN.
+    const estoqueTabela = getEstoqueAtualReal(itemSelecionado)
+    const estoqueAtual = Number(Number.isFinite(estoqueTabela) ? estoqueTabela : (resumo.estoque_atual ?? 0))
     const quarentenaAtual = Number((itemSelecionado as any).saldo_quarentena ?? (itemSelecionado as any).quarentena_98 ?? 0)
 
     let saldoProjetado = estoqueAtual
@@ -1917,7 +1920,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Estoque disponível usa o saldo atual da tabela. Histórico não inventa estoque; futuro projeta saldo = estoque atual + entradas - forecast/demanda.
+                Estoque disponível usa o saldo atual da linha selecionada na tabela. Histórico não inventa estoque; futuro projeta saldo = estoque atual + entradas - forecast/demanda.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
