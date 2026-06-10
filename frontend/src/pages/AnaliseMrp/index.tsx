@@ -1816,25 +1816,35 @@ function BraviSeriePanel({
     if (!active) return
 
     const codigoEsperado = codigoSelecionado
+
+    // V26 performance: não carrega mais a série consolidada PA/MR na abertura.
+    // A chamada sem código em /produtos/serie é pesada porque consolida muitos SKUs.
+    // A tela agora carrega cards + tabela primeiro; o gráfico busca a série somente
+    // quando um item é selecionado na tabela.
+    if (!codigoEsperado) {
+      setLoading(false)
+      setError("")
+      setData(null)
+      return
+    }
+
     let mounted = true
     setLoading(true)
     setError("")
     setData(null)
 
-    getBraviSerie(granularidade, codigoEsperado || undefined)
+    getBraviSerie(granularidade, codigoEsperado)
       .then((res) => {
         if (!mounted) return
 
-        if (codigoEsperado) {
-          const codigoRetornado = String(res?.item?.codigo || res?.codigos_produtos?.[0] || res?.codigos_bravi?.[0] || "")
-          const modo = String(res?.debug?.modo || "")
-          const qtdCodigos = Number(res?.codigos_produtos?.length ?? res?.codigos_bravi?.length ?? 0)
+        const codigoRetornado = String(res?.item?.codigo || res?.codigos_produtos?.[0] || res?.codigos_bravi?.[0] || "")
+        const modo = String(res?.debug?.modo || "")
+        const qtdCodigos = Number(res?.codigos_produtos?.length ?? res?.codigos_bravi?.length ?? 0)
 
-          if (codigoRetornado !== codigoEsperado || (qtdCodigos && qtdCodigos !== 1) || (modo && modo !== "item_pa_mr_rapido")) {
-            setData(null)
-            setError(`A série retornada não está filtrada pelo item ${codigoEsperado}. Confirme se o backend está na versão v8.`)
-            return
-          }
+        if (codigoRetornado !== codigoEsperado || (qtdCodigos && qtdCodigos !== 1) || (modo && modo !== "item_pa_mr_rapido")) {
+          setData(null)
+          setError(`A série retornada não está filtrada pelo item ${codigoEsperado}. Confirme se o backend está na versão v17 ou superior.`)
+          return
         }
 
         setData(res)
@@ -1949,10 +1959,10 @@ function BraviSeriePanel({
   }, [serieOriginal, itemSelecionado, resumo.estoque_atual, granularidade])
   const tituloSerie = itemSelecionado
     ? `${itemSelecionado.codigo} · ${loading ? "carregando série do item..." : (itemSelecionado.produto || "Item selecionado")}`
-    : "Estoque e faturamento dos PA / MR"
+    : "Série PA / MR por item"
   const descricaoSerie = itemSelecionado
-    ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
-    : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
+    ? "Visão filtrada pelo item selecionado na tabela. Para carregar outro gráfico, clique em outro item."
+    : "Para manter a página rápida em reunião, o gráfico consolidado não carrega na abertura. Clique em um item da tabela para carregar a série individual."
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
@@ -2037,11 +2047,11 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V23: cobertura PA/MR recalculada no front. Sem projeção de saldo no gráfico; estoque aparece como foto atual e entradas previstas ficam separadas.
+                V26: modo performance. Abertura sem gráfico consolidado PA/MR; a série carrega somente ao selecionar um item. Sem projeção de saldo no gráfico.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              {loading && itemSelecionado ? "Carregando item" : itemSelecionado ? "Item selecionado" : "PA / MR"}
+              {loading && itemSelecionado ? "Carregando item" : itemSelecionado ? "Item selecionado" : "Aguardando seleção"}
             </span>
           </div>
 
@@ -2171,7 +2181,7 @@ function BraviSeriePanel({
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                {loading ? "Carregando série do item selecionado..." : codigoSelecionado ? "Sem série disponível para este item." : "Sem série disponível para os PA/MR."}
+                {loading ? "Carregando série do item selecionado..." : codigoSelecionado ? "Sem série disponível para este item." : "Selecione um item da tabela para carregar o gráfico PA/MR individual."}
               </div>
             )}
           </div>
