@@ -3156,10 +3156,11 @@ export default function AgingEstoquePage() {
     if (!sortKey) return base
 
     const direction = sortDirection === "asc" ? 1 : -1
+    const tabelaProdutosOrdenacao = escopoEstoque !== "insumos"
 
     return [...base].sort((a, b) => {
-      const aValue = getValorNumericoTabela(a, sortKey, isTabelaProdutos)
-      const bValue = getValorNumericoTabela(b, sortKey, isTabelaProdutos)
+      const aValue = getValorNumericoTabela(a, sortKey, tabelaProdutosOrdenacao)
+      const bValue = getValorNumericoTabela(b, sortKey, tabelaProdutosOrdenacao)
 
       if (aValue === bValue) {
         return String(a.codigo || "").localeCompare(String(b.codigo || ""))
@@ -3167,7 +3168,7 @@ export default function AgingEstoquePage() {
 
       return (aValue - bValue) * direction
     })
-  }, [itens, sortKey, sortDirection, activeFilter?.semaforo, isTabelaProdutos])
+  }, [itens, sortKey, sortDirection, activeFilter?.semaforo, escopoEstoque])
 
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
   const negociosClassificados = useMemo(
