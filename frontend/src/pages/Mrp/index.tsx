@@ -628,13 +628,26 @@ function getEstoqueAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | 
   if (!item) return 0
 
   const raw = item as unknown as Record<string, unknown>
-  const saldoSb8 = Number(raw.saldo_sb8_bruto ?? raw.saldo_sb8 ?? raw.estoque_atual_real ?? raw.estoque_atual ?? NaN)
 
-  if (Number.isFinite(saldoSb8)) {
-    return Math.max(0, saldoSb8)
+  // Para a tela executiva, o estoque atual correto é o mesmo valor exibido na tabela.
+  // Em alguns casos o saldo_sb8_bruto vem diferente do saldo disponível, como SUGCLEAN:
+  // tabela = 1.030, saldo_sb8_bruto/série = 1.052. Por isso, "saldo" tem prioridade.
+  const candidatos = [
+    raw.saldo,
+    raw.estoque_atual_real,
+    raw.estoque_atual,
+    raw.saldo_sb8,
+    raw.saldo_sb8_bruto,
+  ]
+
+  for (const candidato of candidatos) {
+    const valor = Number(candidato)
+    if (Number.isFinite(valor)) {
+      return Math.max(0, valor)
+    }
   }
 
-  return Math.max(0, Number(raw.saldo || 0))
+  return 0
 }
 
 function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -1753,7 +1766,7 @@ function BraviSeriePanel({
   const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
   const dataEhDoItemSelecionado = !codigoSelecionado || String(data?.item?.codigo || data?.codigos_produtos?.[0] || data?.codigos_bravi?.[0] || "") === codigoSelecionado
   const serieOriginal = dataEhDoItemSelecionado ? (data?.serie || []) : []
-  const resumo = dataEhDoItemSelecionado && data?.resumo
+  const resumoBase = dataEhDoItemSelecionado && data?.resumo
     ? data.resumo
     : itemSelecionado
       ? {
@@ -1764,6 +1777,16 @@ function BraviSeriePanel({
           criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
         }
       : {}
+
+  // Mesmo quando o backend da série retorna resumo, estoque/pedidos do item selecionado
+  // precisam seguir a linha da tabela para não mostrar saldo bruto/série incorreta.
+  const resumo = itemSelecionado
+    ? {
+        ...resumoBase,
+        estoque_atual: getEstoqueAtualReal(itemSelecionado),
+        pedidos_abertos: getPedidosAbertos(itemSelecionado),
+      }
+    : resumoBase
 
   const serie = useMemo(() => {
     if (!itemSelecionado) return serieOriginal
@@ -1920,7 +1943,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Estoque disponível usa o saldo atual da linha selecionada na tabela. Histórico não inventa estoque; futuro projeta saldo = estoque atual + entradas - forecast/demanda.
+                Estoque disponível usa o saldo da linha selecionada na tabela. Histórico não inventa estoque; futuro projeta saldo = estoque atual + entradas - forecast/demanda.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
