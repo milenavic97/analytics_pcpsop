@@ -1900,8 +1900,6 @@ function BraviSeriePanel({
     const estoqueAtual = Number(Number.isFinite(estoqueTabela) ? estoqueTabela : (resumo.estoque_atual ?? 0))
     const quarentenaAtual = Number((itemSelecionado as any).saldo_quarentena ?? (itemSelecionado as any).quarentena_98 ?? 0)
 
-    let saldoProjetado = estoqueAtual
-
     return serieOriginal.map((ponto: any) => {
       const ordem = String(ponto?.ordem || ponto?.key || "")
       const dataInicio = String(ponto?.data_inicio || ordem || "")
@@ -1933,18 +1931,17 @@ function BraviSeriePanel({
         pontoSaida.quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
         pontoSaida.saldo_quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
         pontoSaida.tipo_estoque = "atual"
-        saldoProjetado = estoqueAtual
         return pontoSaida
       }
 
       if (isFuturo) {
-        const entradas = Number(pontoSaida.entradas_previstas || 0)
-        const demanda = Number(pontoSaida.demanda || pontoSaida.forecast || 0)
-        saldoProjetado = saldoProjetado + entradas - demanda
-        pontoSaida.estoque = saldoProjetado
-        pontoSaida.estoque_medio = saldoProjetado
-        pontoSaida.saldo_projetado = saldoProjetado
-        pontoSaida.tipo_estoque = "projetado"
+        // V23: por decisão de negócio, não projetamos saldo de estoque no gráfico PA/MR.
+        // Mantemos somente entradas previstas e forecast/demanda para não confundir
+        // disponibilidade real com uma projeção simplificada.
+        pontoSaida.estoque = null
+        pontoSaida.estoque_medio = null
+        pontoSaida.saldo_projetado = null
+        pontoSaida.tipo_estoque = "sem_projecao"
       }
 
       return pontoSaida
@@ -2040,7 +2037,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V22: cobertura PA/MR recalculada no front após carregar a tabela. Dias estoque = estoque atual / demanda mês x 30.
+                V23: cobertura PA/MR recalculada no front. Sem projeção de saldo no gráfico; estoque aparece como foto atual e entradas previstas ficam separadas.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
