@@ -620,8 +620,26 @@ function fmtCurrency(value: number | null | undefined, digits = 2) {
   }).format(Number(value || 0))
 }
 
+function toNumberSafe(value: unknown, defaultValue = 0) {
+  if (value === null || value === undefined || value === "") return defaultValue
+  if (typeof value === "number") return Number.isFinite(value) ? value : defaultValue
+
+  const textoOriginal = String(value).trim()
+  if (!textoOriginal) return defaultValue
+
+  let texto = textoOriginal.replace(/\s/g, "")
+
+  // Formato brasileiro: 1.030,50 ou 1.030
+  if (texto.includes(",")) {
+    texto = texto.replace(/\./g, "").replace(",", ".")
+  }
+
+  const numero = Number(texto)
+  return Number.isFinite(numero) ? numero : defaultValue
+}
+
 function getNum(item: AgingEstoqueItem, key: string) {
-  return Number((item as AgingEstoqueItem & Record<string, unknown>)[key] || 0)
+  return toNumberSafe((item as AgingEstoqueItem & Record<string, unknown>)[key], 0)
 }
 
 function getEstoqueAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -641,7 +659,7 @@ function getEstoqueAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | 
   ]
 
   for (const candidato of candidatos) {
-    const valor = Number(candidato)
+    const valor = toNumberSafe(candidato, Number.NaN)
     if (Number.isFinite(valor)) {
       return Math.max(0, valor)
     }
@@ -656,7 +674,7 @@ function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
   const raw = item as unknown as Record<string, unknown>
   return Math.max(
     0,
-    Number(
+    toNumberSafe(
       raw.qtd_pedidos_abertos ??
       raw.entradas_previstas ??
       raw.qtd_entradas_previstas ??
@@ -668,20 +686,24 @@ function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
 function getCoberturaBaseProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
 
-  const raw = item as unknown as Record<string, unknown>
-
   // Para PA/MR, a melhor base de cobertura é a demanda/previsão do mês.
-  // Se não existir, cai para maior_media para manter compatibilidade com itens sem forecast.
-  return Math.max(
-    0,
-    Number(
-      raw.demanda_mes_atual ??
-      raw.previsao_mes_atual ??
-      raw.maior_media ??
-      raw.media_consumo ??
-      0
-    )
-  )
+  // Se não existir, cai para maior média para manter compatibilidade com itens sem forecast.
+  const chavesBase = [
+    "demanda_mes_atual",
+    "demanda_mes",
+    "previsao_mes_atual",
+    "previsao_mes",
+    "forecast_mes",
+    "maior_media",
+    "media_consumo",
+  ]
+
+  for (const chave of chavesBase) {
+    const valor = getNum(item as AgingEstoqueItem, chave)
+    if (valor > 0) return valor
+  }
+
+  return 0
 }
 
 function getCoberturaAtualProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -1982,7 +2004,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Estoque disponível usa o saldo da linha selecionada na tabela. Histórico não inventa estoque; futuro projeta saldo = estoque atual + entradas - forecast/demanda.
+                V21: estoque e cobertura PA/MR usam o saldo da tabela e a demanda do mês. Dias estoque = estoque atual / demanda mês x 30.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
