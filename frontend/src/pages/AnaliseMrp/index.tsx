@@ -135,6 +135,11 @@ type BraviSerieResponse = {
     excesso?: number | null
   }
   serie: BraviSeriePonto[]
+  item?: {
+    codigo?: string | null
+    produto?: string | null
+    tipo?: string | null
+  }
   debug?: Record<string, unknown>
   backend_versao?: string
 }
@@ -1700,13 +1705,28 @@ function BraviSeriePanel({
   useEffect(() => {
     if (!active) return
 
+    const codigoEsperado = codigoSelecionado
     let mounted = true
     setLoading(true)
     setError("")
+    setData(null)
 
-    getBraviSerie(granularidade, codigoSelecionado || undefined)
+    getBraviSerie(granularidade, codigoEsperado || undefined)
       .then((res) => {
         if (!mounted) return
+
+        if (codigoEsperado) {
+          const codigoRetornado = String(res?.item?.codigo || res?.codigos_produtos?.[0] || res?.codigos_bravi?.[0] || "")
+          const modo = String(res?.debug?.modo || "")
+          const qtdCodigos = Number(res?.codigos_produtos?.length ?? res?.codigos_bravi?.length ?? 0)
+
+          if (codigoRetornado !== codigoEsperado || (qtdCodigos && qtdCodigos !== 1) || (modo && modo !== "item_pa_mr_rapido")) {
+            setData(null)
+            setError(`A série retornada não está filtrada pelo item ${codigoEsperado}. Confirme se o backend está na versão v8.`)
+            return
+          }
+        }
+
         setData(res)
       })
       .catch((err: unknown) => {
@@ -1731,16 +1751,19 @@ function BraviSeriePanel({
   }
 
   const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
-  const serie = data?.serie || []
-  const resumo = data?.resumo || (itemSelecionado
-    ? {
-        estoque_atual: getEstoqueAtualReal(itemSelecionado),
-        pedidos_abertos: getPedidosAbertos(itemSelecionado),
-        faturamento_ytd_qtd: Number(itemSelecionado.faturamento_ytd_qtd || 0),
-        faturamento_ytd_valor: Number(itemSelecionado.faturamento_ytd_valor || 0),
-        criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
-      }
-    : {})
+  const dataEhDoItemSelecionado = !codigoSelecionado || String(data?.item?.codigo || data?.codigos_produtos?.[0] || data?.codigos_bravi?.[0] || "") === codigoSelecionado
+  const serie = dataEhDoItemSelecionado ? (data?.serie || []) : []
+  const resumo = dataEhDoItemSelecionado && data?.resumo
+    ? data.resumo
+    : itemSelecionado
+      ? {
+          estoque_atual: getEstoqueAtualReal(itemSelecionado),
+          pedidos_abertos: getPedidosAbertos(itemSelecionado),
+          faturamento_ytd_qtd: Number(itemSelecionado.faturamento_ytd_qtd || 0),
+          faturamento_ytd_valor: Number(itemSelecionado.faturamento_ytd_valor || 0),
+          criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
+        }
+      : {}
   const tituloSerie = itemSelecionado
     ? `${itemSelecionado.codigo} · ${loading ? "carregando série do item..." : (itemSelecionado.produto || "Item selecionado")}`
     : "Estoque e faturamento dos PA / MR"
@@ -1965,7 +1988,7 @@ function BraviSeriePanel({
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                {loading ? "Carregando série do item selecionado..." : "Sem série disponível para os PA/MR."}
+                {loading ? "Carregando série do item selecionado..." : codigoSelecionado ? "Sem série disponível para este item." : "Sem série disponível para os PA/MR."}
               </div>
             )}
           </div>
