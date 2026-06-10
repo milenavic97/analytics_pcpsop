@@ -378,6 +378,57 @@ const COLUNAS_PADRAO_PA_MR = [
   "estoque_mais_pedidos_valor",
 ]
 
+const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "center" | "right"; width?: string }[] = [
+  { key: "status", label: "Status", width: "w-[110px]" },
+  { key: "tipo", label: "Tipo", width: "w-[80px]" },
+  { key: "unid", label: "UM", align: "center", width: "w-[70px]" },
+  { key: "saldo", label: "Estoque atual", align: "right", width: "w-[120px]" },
+  { key: "saldo_quarentena", label: "Quarentena 98", align: "right", width: "w-[120px]" },
+  { key: "qtd_pedidos_abertos", label: "Pedidos", align: "right", width: "w-[110px]" },
+  { key: "estoque_mais_pedidos", label: "Estoque + entradas", align: "right", width: "w-[135px]" },
+  { key: "consumo_mes_atual", label: "Consumo mês", align: "right", width: "w-[120px]" },
+  { key: "demanda_mes_atual", label: "Previsão mês", align: "right", width: "w-[120px]" },
+  { key: "pct_consumo_previsto", label: "% previsão consumida", align: "right", width: "w-[140px]" },
+  { key: "pct_mes_decorrido", label: "% mês decorrido", align: "right", width: "w-[125px]" },
+  { key: "desvio_ritmo_pct", label: "Desvio ritmo", align: "right", width: "w-[120px]" },
+  { key: "dias_em_estoque", label: "Dias estoque", align: "right", width: "w-[110px]" },
+  { key: "cobertura_meses_atual", label: "Cob. atual", align: "right", width: "w-[110px]" },
+  { key: "cobertura_meses_futura", label: "Cob. futura", align: "right", width: "w-[110px]" },
+  { key: "maior_media", label: "Maior média", align: "right", width: "w-[110px]" },
+  { key: "lead_time_dias", label: "Lead time", align: "right", width: "w-[100px]" },
+  { key: "qtd_minima", label: "MOQ", align: "right", width: "w-[110px]" },
+  { key: "consumo_durante_lt", label: "Ponto pedido", align: "right", width: "w-[120px]" },
+  { key: "estoque_ideal", label: "Estoque ideal", align: "right", width: "w-[120px]" },
+  { key: "gap_volume", label: "Gap", align: "right", width: "w-[110px]" },
+  { key: "saldo_sb8_bruto", label: "Saldo bruto SB8", align: "right", width: "w-[120px]" },
+  { key: "empenho_lote", label: "Empenho lote", align: "right", width: "w-[120px]" },
+  { key: "custo_unitario", label: "Custo unitário", align: "right", width: "w-[120px]" },
+  { key: "estoque_atual_valor", label: "Estoque R$", align: "right", width: "w-[120px]" },
+  { key: "pedidos_abertos_valor", label: "Pedidos R$", align: "right", width: "w-[120px]" },
+  { key: "estoque_mais_pedidos_valor", label: "Estoque + entradas R$", align: "right", width: "w-[140px]" },
+]
+
+const COLUNAS_PADRAO_INSUMOS = [
+  "status",
+  "tipo",
+  "unid",
+  "saldo",
+  "saldo_quarentena",
+  "qtd_pedidos_abertos",
+  "estoque_mais_pedidos",
+  "consumo_mes_atual",
+  "demanda_mes_atual",
+  "pct_consumo_previsto",
+  "pct_mes_decorrido",
+  "desvio_ritmo_pct",
+  "dias_em_estoque",
+  "lead_time_dias",
+  "qtd_minima",
+  "consumo_durante_lt",
+  "estoque_ideal",
+  "gap_volume",
+]
+
 
 
 type FiltroTabelaEstoque = {
@@ -588,6 +639,123 @@ function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
       0
     )
   )
+}
+
+function getPrevisaoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+  const raw = item as unknown as Record<string, unknown>
+  return Math.max(0, Number(raw.previsao_mes_atual ?? raw.demanda_mes_atual ?? 0))
+}
+
+function getConsumoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+  const raw = item as unknown as Record<string, unknown>
+  return Math.max(0, Number(raw.consumo_mes_atual ?? 0))
+}
+
+function getPercentualMesDecorrido() {
+  const hoje = new Date()
+  const totalDias = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate() || 30
+  return Math.min(100, Math.max(0, (hoje.getDate() / totalDias) * 100))
+}
+
+function getPercentualConsumoPrevisto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const previsao = getPrevisaoMesAtual(item)
+  const consumo = getConsumoMesAtual(item)
+  if (previsao <= 0) return consumo > 0 ? 999 : 0
+  return (consumo / previsao) * 100
+}
+
+function getDesvioRitmoPct(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  return getPercentualConsumoPrevisto(item) - getPercentualMesDecorrido()
+}
+
+function calcularSemaforoConsumoInsumo(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined): SemaforoEstoque {
+  const previsao = getPrevisaoMesAtual(item)
+  const consumo = getConsumoMesAtual(item)
+
+  if (previsao <= 0 && consumo <= 0) return "CINZA"
+  if (previsao <= 0 && consumo > 0) return "AMARELO"
+
+  const pctConsumo = getPercentualConsumoPrevisto(item)
+  const pctMes = getPercentualMesDecorrido()
+  const desvio = pctConsumo - pctMes
+
+  if ((pctConsumo >= 100 && pctMes < 98) || desvio > 25) return "VERMELHO"
+  if (desvio > 10) return "AMARELO"
+
+  return "VERDE"
+}
+
+function renderValorColunaInsumo(item: AgingEstoqueItem, key: string): ReactNode {
+  switch (key) {
+    case "status":
+      return <SemaforoBadge item={item} />
+    case "tipo":
+      return item.tipo || item.tipo_produto_erp || "—"
+    case "unid":
+      return item.unid || "—"
+    case "saldo":
+      return fmtNumber(getEstoqueAtualReal(item), 0)
+    case "saldo_quarentena":
+      return fmtNumber(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_quarentena"), 0)
+    case "qtd_pedidos_abertos":
+      return fmtNumber(getPedidosAbertos(item), 0)
+    case "estoque_mais_pedidos":
+      return fmtNumber(getEstoqueAtualReal(item) + getPedidosAbertos(item), 0)
+    case "consumo_mes_atual":
+      return fmtNumber(getConsumoMesAtual(item), 0)
+    case "demanda_mes_atual":
+      return fmtNumber(getPrevisaoMesAtual(item), 0)
+    case "pct_consumo_previsto": {
+      const previsao = getPrevisaoMesAtual(item)
+      const consumo = getConsumoMesAtual(item)
+      if (previsao <= 0 && consumo <= 0) return "—"
+      if (previsao <= 0 && consumo > 0) return "Sem previsão"
+      return `${fmtNumber(getPercentualConsumoPrevisto(item), 0)}%`
+    }
+    case "pct_mes_decorrido":
+      return `${fmtNumber(getPercentualMesDecorrido(), 0)}%`
+    case "desvio_ritmo_pct": {
+      const previsao = getPrevisaoMesAtual(item)
+      const consumo = getConsumoMesAtual(item)
+      if (previsao <= 0 && consumo <= 0) return "—"
+      if (previsao <= 0 && consumo > 0) return "Sem previsão"
+      return `${getDesvioRitmoPct(item) > 0 ? "+" : ""}${fmtNumber(getDesvioRitmoPct(item), 0)} p.p.`
+    }
+    case "dias_em_estoque":
+      return `${fmtNumber(getNum(item, "dias_em_estoque"), 0)} d`
+    case "cobertura_meses_atual":
+      return fmtNumber(getNum(item, "cobertura_meses_atual"), 1)
+    case "cobertura_meses_futura":
+      return fmtNumber(getNum(item, "cobertura_meses_futura"), 1)
+    case "maior_media":
+      return fmtNumber(getNum(item, "maior_media"), 0)
+    case "lead_time_dias":
+      return `${fmtNumber(getNum(item, "lead_time_dias"), 0)} d`
+    case "qtd_minima":
+      return fmtNumber(getNum(item, "qtd_minima"), 0)
+    case "consumo_durante_lt":
+      return fmtNumber(getNum(item, "consumo_durante_lt"), 0)
+    case "estoque_ideal":
+      return fmtNumber(getNum(item, "estoque_ideal"), 0)
+    case "gap_volume":
+      return fmtNumber(getNum(item, "gap_volume"), 0)
+    case "saldo_sb8_bruto":
+      return fmtNumber(getNum(item, "saldo_sb8_bruto"), 0)
+    case "empenho_lote":
+      return fmtNumber(getNum(item, "empenho_lote"), 0)
+    case "custo_unitario":
+      return fmtCurrency(getNum(item, "custo_unitario"), 4)
+    case "estoque_atual_valor":
+      return fmtCurrency(getNum(item, "estoque_atual_valor"), 2)
+    case "pedidos_abertos_valor":
+      return fmtCurrency(getNum(item, "pedidos_abertos_valor"), 2)
+    case "estoque_mais_pedidos_valor":
+      return fmtCurrency(getNum(item, "estoque_mais_pedidos_valor"), 2)
+    default:
+      return "—"
+  }
 }
 
 function fmtTableValue(item: AgingEstoqueItem, col: { key: SortKey; kind?: NumericColumnKind; digits?: number }, isTabelaProdutos = false) {
@@ -963,37 +1131,28 @@ function calcularSemaforoEstoque(item: AgingEstoqueItem | null | undefined): Sem
   if (!item) return "CINZA"
 
   const raw = item as AgingEstoqueItem & Record<string, unknown>
+  const tipo = String(item.tipo || raw.tipo_produto_erp || "").toUpperCase()
+
+  if (tipo !== "PA" && tipo !== "MR") {
+    return calcularSemaforoConsumoInsumo(item)
+  }
+
   const statusVisualBackend = String(raw.status_visual || "").toUpperCase()
   if (["VERMELHO", "AMARELO", "VERDE", "CINZA"].includes(statusVisualBackend)) {
     return statusVisualBackend as SemaforoEstoque
   }
 
   const status = String(raw.status_estoque || item.status || "").toUpperCase()
-  const tipo = String(item.tipo || raw.tipo_produto_erp || "").toUpperCase()
-
   const saldoReal = getEstoqueAtualReal(item)
   const estoqueComEntradas = saldoReal + getPedidosAbertos(item)
   const demanda = getNum(item, "demanda_mes_atual")
-  const consumoMes = getNum(item, "consumo_mes_atual")
-  const coberturaLt = getNum(item, "cobertura_consumo_lt")
 
-  // Regra revisada:
-  // estoque zero sozinho não é crítico.
-  // PA/MR precisa ter forecast/demanda.
-  // Insumo precisa ter demanda BOM/MPS ou consumo no mês.
-  const temNecessidade = tipo === "PA" || tipo === "MR"
-    ? demanda > 0
-    : demanda > 0 || consumoMes > 0
-
-  if (!temNecessidade) return "CINZA"
-
+  if (demanda <= 0) return "CINZA"
   if (status === "RUPTURA" || status === "CRITICO") return "VERMELHO"
   if (saldoReal <= 0) return "VERMELHO"
   if (demanda > 0 && estoqueComEntradas < demanda) return "VERMELHO"
-  if (consumoMes > 0 && estoqueComEntradas < consumoMes) return "VERMELHO"
 
   if (status === "EXCESSO" || status === "SAUDAVEL") return "VERDE"
-  if (coberturaLt > 0 && coberturaLt < 1.2) return "AMARELO"
 
   return "VERDE"
 }
@@ -1003,11 +1162,12 @@ function SemaforoBadge({ item }: { item: AgingEstoqueItem }) {
   const style = SEMAFORO_STYLE[semaforo]
   const saldoReal = getEstoqueAtualReal(item)
   const estoqueComEntradas = saldoReal + getPedidosAbertos(item)
-  const demandaReferencia = Math.max(
-    getNum(item, "demanda_mes_atual"),
-    getNum(item, "consumo_mes_atual")
-  )
-  const title = `Status: ${SEMAFORO_LABEL[semaforo]} | Estoque real: ${fmtNumber(saldoReal, 0)} | Estoque + entradas: ${fmtNumber(estoqueComEntradas, 0)} | Demanda/consumo ref.: ${fmtNumber(demandaReferencia, 0)}`
+  const previsaoMes = getPrevisaoMesAtual(item)
+  const consumoMes = getConsumoMesAtual(item)
+  const tipo = String(item.tipo || (item as AgingEstoqueItem & Record<string, unknown>).tipo_produto_erp || "").toUpperCase()
+  const title = tipo !== "PA" && tipo !== "MR"
+    ? `Status: ${SEMAFORO_LABEL[semaforo]} | Consumo mês: ${fmtNumber(consumoMes, 0)} | Previsão mês: ${fmtNumber(previsaoMes, 0)} | Consumo previsto: ${fmtNumber(getPercentualConsumoPrevisto(item), 0)}% | Mês decorrido: ${fmtNumber(getPercentualMesDecorrido(), 0)}%`
+    : `Status: ${SEMAFORO_LABEL[semaforo]} | Estoque real: ${fmtNumber(saldoReal, 0)} | Estoque + entradas: ${fmtNumber(estoqueComEntradas, 0)} | Demanda ref.: ${fmtNumber(previsaoMes, 0)}`
 
   return (
     <span
@@ -3047,6 +3207,39 @@ export default function AgingEstoquePage() {
     }))
   }
 
+  const colunasInsumosVisiveis = colunasVisiveisPorEscopo.insumos || COLUNAS_PADRAO_INSUMOS
+  const colunasInsumosTabela = COLUNAS_INSUMOS_OPCOES.filter((col) => colunasInsumosVisiveis.includes(col.key))
+  const isColunaInsumoVisivel = (key: string) => colunasInsumosVisiveis.includes(key)
+  const larguraMinimaTabelaInsumos = Math.max(1500, 320 + colunasInsumosTabela.length * 110)
+
+  const toggleColunaInsumo = (key: string) => {
+    setColunasVisiveisPorEscopo((current) => {
+      const atuais = current.insumos || COLUNAS_PADRAO_INSUMOS
+      const next = atuais.includes(key)
+        ? atuais.filter((col) => col !== key)
+        : [...atuais, key]
+
+      return {
+        ...current,
+        insumos: next,
+      }
+    })
+  }
+
+  const resetColunasInsumos = () => {
+    setColunasVisiveisPorEscopo((current) => ({
+      ...current,
+      insumos: COLUNAS_PADRAO_INSUMOS,
+    }))
+  }
+
+  const mostrarTodasColunasInsumos = () => {
+    setColunasVisiveisPorEscopo((current) => ({
+      ...current,
+      insumos: COLUNAS_INSUMOS_OPCOES.map((col) => col.key),
+    }))
+  }
+
 
   const exportCsv = () => {
     const header = [
@@ -3272,12 +3465,92 @@ export default function AgingEstoquePage() {
         </div>
 
         <div className="card overflow-hidden">
-          <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
+          <div className="flex items-center justify-between gap-4 border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
-              <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Insumos de produção por cobertura e estoque ideal</h2>
+              <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Insumos por consumo vs previsão e cobertura</h2>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                Status compara consumo acumulado do mês com a previsão proporcional ao dia atual.
+              </p>
             </div>
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
+
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setColumnSelectorOpen((current) => !current)}
+                  className="inline-flex h-8 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-bold transition hover:bg-slate-50"
+                  style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: columnSelectorOpen ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
+                  title="Selecionar colunas"
+                >
+                  <Settings2 size={14} /> Colunas
+                </button>
+
+                {columnSelectorOpen && (
+                  <div
+                    className="absolute right-0 top-10 z-[90] w-[330px] rounded-2xl border bg-white p-3 text-left shadow-2xl"
+                    style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                          Selecionar colunas
+                        </p>
+                        <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                          Código e descrição ficam fixos.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setColumnSelectorOpen(false)}
+                        className="rounded-md p-1 hover:bg-slate-100"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={resetColunasInsumos}
+                        className="rounded-lg border px-3 py-1.5 text-xs font-bold transition hover:bg-slate-50"
+                        style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      >
+                        Padrão
+                      </button>
+                      <button
+                        type="button"
+                        onClick={mostrarTodasColunasInsumos}
+                        className="rounded-lg border px-3 py-1.5 text-xs font-bold transition hover:bg-slate-50"
+                        style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                      >
+                        Mostrar todas
+                      </button>
+                    </div>
+
+                    <div className="max-h-[360px] space-y-1 overflow-auto pr-1">
+                      {COLUNAS_INSUMOS_OPCOES.map((col) => (
+                        <label
+                          key={col.key}
+                          className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold hover:bg-slate-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isColunaInsumoVisivel(col.key)}
+                            onChange={() => toggleColunaInsumo(col.key)}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                          <span>{col.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
+            </div>
           </div>
 
           {loadingItens && (
@@ -3287,26 +3560,19 @@ export default function AgingEstoquePage() {
           )}
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1850px] table-fixed border-separate border-spacing-0 text-xs">
+            <table className="w-full table-fixed border-separate border-spacing-0 text-xs" style={{ minWidth: larguraMinimaTabelaInsumos }}>
               <thead>
                 <tr className="text-left text-white" style={{ background: "#163B63" }}>
                   <th className="w-[90px] px-3 py-3">Código</th>
-                  <th className="w-[220px] px-3 py-3">Descrição</th>
-                  <th className="w-[100px] px-3 py-3">Status</th>
-                  <th className="w-[80px] px-3 py-3">Tipo</th>
-                  <th className="w-[70px] px-3 py-3">UM</th>
-                  <th className="w-[120px] px-3 py-3 text-right">Estoque atual</th>
-                  <th className="w-[120px] px-3 py-3 text-right">Quarentena 98</th>
-                  <th className="w-[120px] px-3 py-3 text-right">Pedidos</th>
-                  <th className="w-[130px] px-3 py-3 text-right">Estoque + entradas</th>
-                  <th className="w-[120px] px-3 py-3 text-right">Maior média</th>
-                  <th className="w-[100px] px-3 py-3 text-right">Lead time</th>
-                  <th className="w-[120px] px-3 py-3 text-right">MOQ</th>
-                  <th className="w-[130px] px-3 py-3 text-right">Ponto pedido</th>
-                  <th className="w-[120px] px-3 py-3 text-right">Estoque ideal</th>
-                  <th className="w-[120px] px-3 py-3 text-right">Gap</th>
-                  <th className="w-[120px] px-3 py-3 text-right">Demanda mês</th>
-                  <th className="w-[120px] px-3 py-3 text-right">Consumo mês</th>
+                  <th className="w-[240px] px-3 py-3">Descrição</th>
+                  {colunasInsumosTabela.map((col) => (
+                    <th
+                      key={col.key}
+                      className={`${col.width || "w-[110px]"} px-3 py-3 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : ""}`}
+                    >
+                      {col.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -3319,21 +3585,14 @@ export default function AgingEstoquePage() {
                   >
                     <td className="px-3 py-2 font-bold">{item.codigo}</td>
                     <td className="truncate px-3 py-2" title={item.produto || ""}>{item.produto || "—"}</td>
-                    <td className="px-3 py-2"><SemaforoBadge item={item} /></td>
-                    <td className="px-3 py-2">{item.tipo || item.tipo_produto_erp || "—"}</td>
-                    <td className="px-3 py-2 text-center">{item.unid || "—"}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(getEstoqueAtualReal(item), 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_quarentena"), 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(getPedidosAbertos(item), 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(getEstoqueAtualReal(item) + getPedidosAbertos(item), 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(item.maior_media || 0, 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(item.lead_time_dias || 0, 0)} d</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(item.qtd_minima || 0, 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(item.consumo_durante_lt || 0, 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(item.estoque_ideal || 0, 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(item.gap_volume || 0, 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(item.demanda_mes_atual || 0, 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(item.consumo_mes_atual || 0, 0)}</td>
+                    {colunasInsumosTabela.map((col) => (
+                      <td
+                        key={`${item.codigo}-${col.key}`}
+                        className={`px-3 py-2 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : ""}`}
+                      >
+                        {renderValorColunaInsumo(item, col.key)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
