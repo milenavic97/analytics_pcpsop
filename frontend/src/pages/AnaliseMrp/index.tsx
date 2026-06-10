@@ -139,9 +139,13 @@ type BraviSerieResponse = {
   backend_versao?: string
 }
 
-async function getBraviSerie(granularidade: GranularidadeSerie): Promise<BraviSerieResponse> {
-  const url = `${API_BASE}/aging-estoque/produtos/serie?granularidade=${granularidade}&_=${Date.now()}`
-  const response = await fetch(url, { cache: "no-store" })
+async function getBraviSerie(granularidade: GranularidadeSerie, codigo?: string): Promise<BraviSerieResponse> {
+  const params = new URLSearchParams()
+  params.set("granularidade", granularidade)
+  if (codigo) params.set("codigo", codigo)
+  params.set("_", String(Date.now()))
+
+  const response = await fetch(`${API_BASE}/aging-estoque/produtos/serie?${params.toString()}`, { cache: "no-store" })
   if (!response.ok) {
     throw new Error(`Erro ao buscar série PA/MR: ${response.status}`)
   }
@@ -676,7 +680,9 @@ function calcularSemaforoConsumoInsumo(item: AgingEstoqueItem | AgingEstoqueItem
   const previsao = getPrevisaoMesAtual(item)
   const consumo = getConsumoMesAtual(item)
 
-  if (previsao <= 0 && consumo <= 0) return "CINZA"
+  // Sem previsão e sem consumo: não há risco operacional para acompanhar agora.
+  // Então fica OK, não "Sem referência".
+  if (previsao <= 0 && consumo <= 0) return "VERDE"
   if (previsao <= 0 && consumo > 0) return "AMARELO"
 
   const pctConsumo = getPercentualConsumoPrevisto(item)
@@ -1688,6 +1694,9 @@ function BraviSeriePanel({
   const [error, setError] = useState("")
   const [seriesOcultas, setSeriesOcultas] = useState<Set<string>>(new Set())
 
+  const codigoSelecionado = selectedItem?.codigo || ""
+  const itemSelecionado = selectedItem?.codigo ? selectedItem : null
+
   useEffect(() => {
     if (!active) return
 
@@ -1695,7 +1704,7 @@ function BraviSeriePanel({
     setLoading(true)
     setError("")
 
-    getBraviSerie(granularidade)
+    getBraviSerie(granularidade, codigoSelecionado || undefined)
       .then((res) => {
         if (!mounted) return
         setData(res)
@@ -1709,14 +1718,7 @@ function BraviSeriePanel({
       })
 
     return () => { mounted = false }
-  }, [active, granularidade, refreshTick])
-
-  const itemCarregando = loadingSelected && selectedItem?.codigo ? selectedItem : null
-  const itemSelecionado = !loadingSelected && selectedItem?.codigo ? selectedItem : null
-  const serieItemSelecionado = useMemo(
-    () => buildSerieOperacionalItemSelecionado(itemSelecionado),
-    [itemSelecionado]
-  )
+  }, [active, granularidade, refreshTick, codigoSelecionado])
 
   const toggleSerie = (dataKey?: string) => {
     if (!dataKey) return
@@ -1729,8 +1731,8 @@ function BraviSeriePanel({
   }
 
   const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
-  const serie = itemCarregando ? [] : itemSelecionado ? serieItemSelecionado : data?.serie || []
-  const resumo = itemSelecionado
+  const serie = data?.serie || []
+  const resumo = data?.resumo || (itemSelecionado
     ? {
         estoque_atual: getEstoqueAtualReal(itemSelecionado),
         pedidos_abertos: getPedidosAbertos(itemSelecionado),
@@ -1738,17 +1740,13 @@ function BraviSeriePanel({
         faturamento_ytd_valor: Number(itemSelecionado.faturamento_ytd_valor || 0),
         criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
       }
-    : data?.resumo || {}
-  const tituloSerie = itemCarregando
-    ? `${itemCarregando.codigo} · carregando dados do item...`
-    : itemSelecionado
-      ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}`
-      : "Estoque e faturamento dos PA / MR"
-  const descricaoSerie = itemCarregando
-    ? "Aguarde alguns segundos enquanto a série correta do item é carregada."
-    : itemSelecionado
-      ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
-      : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
+    : {})
+  const tituloSerie = itemSelecionado
+    ? `${itemSelecionado.codigo} · ${loading ? "carregando série do item..." : (itemSelecionado.produto || "Item selecionado")}`
+    : "Estoque e faturamento dos PA / MR"
+  const descricaoSerie = itemSelecionado
+    ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em limpar seleção."
+    : "Visão consolidada dos produtos PA/MR da tela, com Bravi apenas como tag/filtro. O estoque é exibido somente nos períodos com snapshot real; não é repetido artificialmente em todos os meses."
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
@@ -1837,7 +1835,7 @@ function BraviSeriePanel({
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              {itemCarregando ? "Carregando item" : itemSelecionado ? "Item selecionado" : "PA / MR"}
+              {loading && itemSelecionado ? "Carregando item" : itemSelecionado ? "Item selecionado" : "PA / MR"}
             </span>
           </div>
 
@@ -1967,7 +1965,7 @@ function BraviSeriePanel({
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                {loading || itemCarregando ? "Carregando série do item selecionado..." : "Sem série disponível para os PA/MR."}
+                {loading ? "Carregando série do item selecionado..." : "Sem série disponível para os PA/MR."}
               </div>
             )}
           </div>
@@ -2972,7 +2970,13 @@ export default function AgingEstoquePage() {
 
   useEffect(() => {
     const codigo = selected?.codigo
-    if (!codigo) return
+
+    // Detalhe completo só é necessário para a linha do tempo de Insumos.
+    // Em PA/MR, a série por item usa o endpoint leve /produtos/serie com o código do item.
+    if (!codigo || escopoEstoque !== "insumos") {
+      setLoadingDetalhe(false)
+      return
+    }
 
     let mounted = true
     setLoadingDetalhe(true)
@@ -2990,7 +2994,7 @@ export default function AgingEstoquePage() {
       })
 
     return () => { mounted = false }
-  }, [selected?.codigo, horizonteFuturo, refreshTick])
+  }, [selected?.codigo, horizonteFuturo, refreshTick, escopoEstoque])
 
   // O backend ordena a base inteira; esta ordenação local garante resposta visual imediata na página carregada.
   const itensOrdenados = useMemo(() => {
@@ -3957,7 +3961,7 @@ export default function AgingEstoquePage() {
         active={mostrarCardsPortfolio && escopoEstoque === "produtos"}
         refreshTick={refreshTick}
         selectedItem={selected}
-        loadingSelected={loadingDetalhe}
+        loadingSelected={false}
         onClearSelected={() => setSelected(null)}
       />
 
