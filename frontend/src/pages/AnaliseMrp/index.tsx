@@ -620,21 +620,52 @@ function fmtCurrency(value: number | null | undefined, digits = 2) {
   }).format(Number(value || 0))
 }
 
+function toNumberSafe(value: unknown, defaultValue = 0) {
+  if (value === null || value === undefined || value === "") return defaultValue
+  if (typeof value === "number") return Number.isFinite(value) ? value : defaultValue
+
+  const textoOriginal = String(value).trim()
+  if (!textoOriginal) return defaultValue
+
+  let texto = textoOriginal.replace(/\s/g, "")
+
+  // Formato brasileiro: 1.030,50 ou 1.030
+  if (texto.includes(",")) {
+    texto = texto.replace(/\./g, "").replace(",", ".")
+  }
+
+  const numero = Number(texto)
+  return Number.isFinite(numero) ? numero : defaultValue
+}
+
 function getNum(item: AgingEstoqueItem, key: string) {
-  return Number((item as AgingEstoqueItem & Record<string, unknown>)[key] || 0)
+  return toNumberSafe((item as AgingEstoqueItem & Record<string, unknown>)[key], 0)
 }
 
 function getEstoqueAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
 
   const raw = item as unknown as Record<string, unknown>
-  const saldoSb8 = Number(raw.saldo_sb8_bruto ?? raw.saldo_sb8 ?? raw.estoque_atual_real ?? raw.estoque_atual ?? NaN)
 
-  if (Number.isFinite(saldoSb8)) {
-    return Math.max(0, saldoSb8)
+  // Para a tela executiva, o estoque atual correto é o mesmo valor exibido na tabela.
+  // Em alguns casos o saldo_sb8_bruto vem diferente do saldo disponível, como SUGCLEAN:
+  // tabela = 1.030, saldo_sb8_bruto/série = 1.052. Por isso, "saldo" tem prioridade.
+  const candidatos = [
+    raw.saldo,
+    raw.estoque_atual_real,
+    raw.estoque_atual,
+    raw.saldo_sb8,
+    raw.saldo_sb8_bruto,
+  ]
+
+  for (const candidato of candidatos) {
+    const valor = toNumberSafe(candidato, Number.NaN)
+    if (Number.isFinite(valor)) {
+      return Math.max(0, valor)
+    }
   }
 
-  return Math.max(0, Number(raw.saldo || 0))
+  return 0
 }
 
 function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -643,13 +674,100 @@ function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
   const raw = item as unknown as Record<string, unknown>
   return Math.max(
     0,
-    Number(
+    toNumberSafe(
       raw.qtd_pedidos_abertos ??
       raw.entradas_previstas ??
       raw.qtd_entradas_previstas ??
       0
     )
   )
+}
+
+function getCoberturaBaseProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+
+  // Para PA/MR, a melhor base de cobertura é a demanda/previsão do mês.
+  // Se não existir, cai para maior média para manter compatibilidade com itens sem forecast.
+  const chavesBase = [
+    "demanda_mes_atual",
+    "demanda_mes",
+    "previsao_mes_atual",
+    "previsao_mes",
+    "forecast_mes",
+    "maior_media",
+    "media_consumo",
+  ]
+
+  for (const chave of chavesBase) {
+    const valor = getNum(item as AgingEstoqueItem, chave)
+    if (valor > 0) return valor
+  }
+
+  return 0
+}
+
+function getCoberturaAtualProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const base = getCoberturaBaseProduto(item)
+  if (base <= 0) return 0
+  return getEstoqueAtualReal(item) / base
+}
+
+function getCoberturaFuturaProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const base = getCoberturaBaseProduto(item)
+  if (base <= 0) return 0
+  return (getEstoqueAtualReal(item) + getPedidosAbertos(item)) / base
+}
+
+function getDiasEstoqueProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  return getCoberturaAtualProduto(item) * 30
+}
+
+function getEstoqueMaisEntradasProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  return getEstoqueAtualReal(item) + getPedidosAbertos(item)
+}
+
+function normalizarCoberturaPaMrItem<T extends AgingEstoqueItem | AgingEstoqueItemDetalhe>(item: T): T {
+  const demandaMes = getCoberturaBaseProduto(item)
+  const estoqueAtual = getEstoqueAtualReal(item)
+  const estoqueMaisEntradas = getEstoqueMaisEntradasProduto(item)
+
+  const coberturaAtual = demandaMes > 0 ? estoqueAtual / demandaMes : 0
+  const coberturaFutura = demandaMes > 0 ? estoqueMaisEntradas / demandaMes : 0
+  const diasEstoque = coberturaAtual * 30
+
+  return {
+    ...(item as Record<string, unknown>),
+    saldo: estoqueAtual,
+    estoque_mais_pedidos: estoqueMaisEntradas,
+    estoque_mais_entradas: estoqueMaisEntradas,
+    dias_em_estoque: diasEstoque,
+    cobertura_dias: diasEstoque,
+    cobertura_meses_atual: coberturaAtual,
+    cobertura_meses_futura: coberturaFutura,
+    cobertura_futura_dias: coberturaFutura * 30,
+    __cobertura_pa_mr_recalculada_front: true,
+  } as unknown as T
+}
+
+function normalizarCoberturaPaMrResponse(res: AgingItensResponse, escopo: EscopoEstoque): AgingItensResponse {
+  if (escopo === "insumos") return res
+
+  return {
+    ...res,
+    itens: (res.itens || []).map((item) => normalizarCoberturaPaMrItem(item)),
+  }
+}
+
+function getValorNumericoTabela(item: AgingEstoqueItem, key: SortKey, isTabelaProdutos = false) {
+  if (isTabelaProdutos) {
+    if (key === "saldo") return getEstoqueAtualReal(item)
+    if (key === "estoque_mais_pedidos") return getEstoqueMaisEntradasProduto(item)
+    if (key === "dias_em_estoque") return getDiasEstoqueProduto(item)
+    if (key === "cobertura_meses_atual") return getCoberturaAtualProduto(item)
+    if (key === "cobertura_meses_futura") return getCoberturaFuturaProduto(item)
+  }
+
+  return getNum(item, key)
 }
 
 function getPrevisaoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -772,15 +890,7 @@ function renderValorColunaInsumo(item: AgingEstoqueItem, key: string): ReactNode
 }
 
 function fmtTableValue(item: AgingEstoqueItem, col: { key: SortKey; kind?: NumericColumnKind; digits?: number }, isTabelaProdutos = false) {
-  let value = getNum(item, col.key)
-
-  if (isTabelaProdutos && col.key === "saldo") {
-    value = getEstoqueAtualReal(item)
-  }
-
-  if (isTabelaProdutos && col.key === "estoque_mais_pedidos") {
-    value = getEstoqueAtualReal(item) + getPedidosAbertos(item)
-  }
+  const value = getValorNumericoTabela(item, col.key, isTabelaProdutos)
 
   if (col.kind === "currency") return fmtCurrency(value, col.digits ?? 2)
   if (col.kind === "days") return `${fmtNumber(value, col.digits ?? 0)} d`
@@ -1752,8 +1862,8 @@ function BraviSeriePanel({
 
   const serieOculta = (dataKey: string) => seriesOcultas.has(dataKey)
   const dataEhDoItemSelecionado = !codigoSelecionado || String(data?.item?.codigo || data?.codigos_produtos?.[0] || data?.codigos_bravi?.[0] || "") === codigoSelecionado
-  const serie = dataEhDoItemSelecionado ? (data?.serie || []) : []
-  const resumo = dataEhDoItemSelecionado && data?.resumo
+  const serieOriginal = dataEhDoItemSelecionado ? (data?.serie || []) : []
+  const resumoBase = dataEhDoItemSelecionado && data?.resumo
     ? data.resumo
     : itemSelecionado
       ? {
@@ -1764,6 +1874,82 @@ function BraviSeriePanel({
           criticos: ["RUPTURA", "CRITICO"].includes(String(itemSelecionado.status || itemSelecionado.status_estoque || "").toUpperCase()) ? 1 : 0,
         }
       : {}
+
+  // Mesmo quando o backend da série retorna resumo, estoque/pedidos do item selecionado
+  // precisam seguir a linha da tabela para não mostrar saldo bruto/série incorreta.
+  const resumo = itemSelecionado
+    ? {
+        ...resumoBase,
+        estoque_atual: getEstoqueAtualReal(itemSelecionado),
+        pedidos_abertos: getPedidosAbertos(itemSelecionado),
+      }
+    : resumoBase
+
+  const serie = useMemo(() => {
+    if (!itemSelecionado) return serieOriginal
+
+    const hoje = new Date()
+    const anoAtual = hoje.getFullYear()
+    const mesAtual = hoje.getMonth() + 1
+    const diaAtual = hoje.toISOString().slice(0, 10)
+    const ordemMensalAtual = `${anoAtual}-${String(mesAtual).padStart(2, "0")}`
+
+    // Para o gráfico por item PA/MR, o estoque precisa vir da mesma linha da tabela.
+    // O resumo do endpoint de série pode trazer valor de série/posição diferente e estava gerando 1.052 no SUGCLEAN.
+    const estoqueTabela = getEstoqueAtualReal(itemSelecionado)
+    const estoqueAtual = Number(Number.isFinite(estoqueTabela) ? estoqueTabela : (resumo.estoque_atual ?? 0))
+    const quarentenaAtual = Number((itemSelecionado as any).saldo_quarentena ?? (itemSelecionado as any).quarentena_98 ?? 0)
+
+    let saldoProjetado = estoqueAtual
+
+    return serieOriginal.map((ponto: any) => {
+      const ordem = String(ponto?.ordem || ponto?.key || "")
+      const dataInicio = String(ponto?.data_inicio || ordem || "")
+      const dataFim = String(ponto?.data_fim || dataInicio || "")
+
+      const isAtual = granularidade === "mensal"
+        ? ordem === ordemMensalAtual
+        : granularidade === "semanal"
+          ? dataInicio <= diaAtual && diaAtual <= dataFim
+          : ordem === diaAtual || dataInicio === diaAtual
+
+      const isFuturo = granularidade === "mensal"
+        ? ordem > ordemMensalAtual
+        : dataInicio > diaAtual
+
+      const pontoSaida: any = {
+        ...ponto,
+        estoque: null,
+        estoque_medio: null,
+        estoque_quarentena: null,
+        quarentena: null,
+        saldo_quarentena: null,
+      }
+
+      if (isAtual) {
+        pontoSaida.estoque = estoqueAtual > 0 ? estoqueAtual : null
+        pontoSaida.estoque_medio = estoqueAtual > 0 ? estoqueAtual : null
+        pontoSaida.estoque_quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
+        pontoSaida.quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
+        pontoSaida.saldo_quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
+        pontoSaida.tipo_estoque = "atual"
+        saldoProjetado = estoqueAtual
+        return pontoSaida
+      }
+
+      if (isFuturo) {
+        const entradas = Number(pontoSaida.entradas_previstas || 0)
+        const demanda = Number(pontoSaida.demanda || pontoSaida.forecast || 0)
+        saldoProjetado = saldoProjetado + entradas - demanda
+        pontoSaida.estoque = saldoProjetado
+        pontoSaida.estoque_medio = saldoProjetado
+        pontoSaida.saldo_projetado = saldoProjetado
+        pontoSaida.tipo_estoque = "projetado"
+      }
+
+      return pontoSaida
+    })
+  }, [serieOriginal, itemSelecionado, resumo.estoque_atual, granularidade])
   const tituloSerie = itemSelecionado
     ? `${itemSelecionado.codigo} · ${loading ? "carregando série do item..." : (itemSelecionado.produto || "Item selecionado")}`
     : "Estoque e faturamento dos PA / MR"
@@ -1854,7 +2040,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Estoque disponível é o saldo real atual. Projeção de saldo aparece apenas nos meses futuros. Entradas previstas ficam empilhadas sobre o estoque.
+                V22: cobertura PA/MR recalculada no front após carregar a tabela. Dias estoque = estoque atual / demanda mês x 30.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -2937,7 +3123,7 @@ export default function AgingEstoquePage() {
       .then((res) => {
         if (!mounted) return
         if (res?.escopo && res.escopo !== escopoEstoque) return
-        setItensResp(res)
+        setItensResp(normalizarCoberturaPaMrResponse(res, escopoEstoque))
       })
       .catch((err: unknown) => {
         if (!mounted) return
@@ -2988,7 +3174,11 @@ export default function AgingEstoquePage() {
   }
 
   const abrirDetalhe = (item: AgingEstoqueItem) => {
-    setSelected(item as AgingEstoqueItemDetalhe)
+    const itemSelecionado = escopoEstoque === "insumos"
+      ? item
+      : normalizarCoberturaPaMrItem(item)
+
+    setSelected(itemSelecionado as AgingEstoqueItemDetalhe)
   }
 
   useEffect(() => {
@@ -3028,10 +3218,11 @@ export default function AgingEstoquePage() {
     if (!sortKey) return base
 
     const direction = sortDirection === "asc" ? 1 : -1
+    const tabelaProdutosOrdenacao = escopoEstoque !== "insumos"
 
     return [...base].sort((a, b) => {
-      const aValue = getNum(a, sortKey)
-      const bValue = getNum(b, sortKey)
+      const aValue = getValorNumericoTabela(a, sortKey, tabelaProdutosOrdenacao)
+      const bValue = getValorNumericoTabela(b, sortKey, tabelaProdutosOrdenacao)
 
       if (aValue === bValue) {
         return String(a.codigo || "").localeCompare(String(b.codigo || ""))
@@ -3039,7 +3230,7 @@ export default function AgingEstoquePage() {
 
       return (aValue - bValue) * direction
     })
-  }, [itens, sortKey, sortDirection, activeFilter?.semaforo])
+  }, [itens, sortKey, sortDirection, activeFilter?.semaforo, escopoEstoque])
 
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
   const negociosClassificados = useMemo(
@@ -3308,7 +3499,16 @@ export default function AgingEstoquePage() {
       header.join(";"),
       ...itensOrdenados.map((r) =>
         header
-          .map((h) => String(h === "status" ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)] : ((r as any)[h] ?? "")).replace(/;/g, ","))
+          .map((h) => {
+            const colunaNumerica = NUMERIC_COLUMNS.find((col) => col.key === h)
+            const valor = h === "status"
+              ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)]
+              : colunaNumerica
+                ? getValorNumericoTabela(r, colunaNumerica.key, isTabelaProdutos)
+                : ((r as any)[h] ?? "")
+
+            return String(valor).replace(/;/g, ",")
+          })
           .join(";")
       ),
     ].join("\n")
