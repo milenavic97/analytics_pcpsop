@@ -1935,8 +1935,7 @@ function BraviSeriePanel({
       }
 
       if (isFuturo) {
-        // V25: por decisão de negócio/apresentação, não projetamos saldo de estoque no gráfico PA/MR.
-        // Mantém a tela leve: a tabela não chama série por item para calcular cobertura.
+        // V23: por decisão de negócio, não projetamos saldo de estoque no gráfico PA/MR.
         // Mantemos somente entradas previstas e forecast/demanda para não confundir
         // disponibilidade real com uma projeção simplificada.
         pontoSaida.estoque = null
@@ -2038,7 +2037,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V25: modo apresentação rápido. Cobertura PA/MR recalculada no front sem chamadas extras por item; sem projeção de saldo no gráfico.
+                V23: cobertura PA/MR recalculada no front. Sem projeção de saldo no gráfico; estoque aparece como foto atual e entradas previstas ficam separadas.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -3100,8 +3099,6 @@ export default function AgingEstoquePage() {
   }, [refreshTick, escopoEstoque, activeFilter?.classificacao_cadastro])
 
 
-  const buscaServidorItens = escopoEstoque === "insumos" ? activeFilter?.busca : undefined
-
   useEffect(() => {
     let mounted = true
     setLoadingItens(true)
@@ -3109,10 +3106,10 @@ export default function AgingEstoquePage() {
     getAgingItensDireto({
         escopo: escopoEstoque,
         page,
-        page_size: escopoEstoque === "produtos" ? 200 : PAGE_SIZE,
+        page_size: PAGE_SIZE,
         sort_key: sortKey || undefined,
         sort_direction: sortDirection,
-        busca: buscaServidorItens,
+        busca: activeFilter?.busca,
         status: activeFilter?.status,
         tipo_negocio: activeFilter?.tipo_negocio,
         status_portfolio: activeFilter?.status_portfolio,
@@ -3133,46 +3130,10 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingItens(false)
       })
     return () => { mounted = false }
-  }, [
-    page,
-    sortKey,
-    sortDirection,
-    refreshTick,
-    escopoEstoque,
-    buscaServidorItens,
-    activeFilter?.status,
-    activeFilter?.tipo_negocio,
-    activeFilter?.status_portfolio,
-    activeFilter?.transferencia_bravi,
-    activeFilter?.classificacao_cadastro,
-    activeFilter?.semaforo,
-  ])
+  }, [page, sortKey, sortDirection, refreshTick, activeFilter, escopoEstoque])
 
-  const itensBaseTabela = itensResp?.itens || []
-  const itens = useMemo(() => {
-    const termo = String(activeFilter?.busca || "").trim().toUpperCase()
-
-    if (!termo || escopoEstoque === "insumos") return itensBaseTabela
-
-    return itensBaseTabela.filter((item) => {
-      const campos = [
-        item.codigo,
-        item.produto,
-        item.grupo_descricao,
-        item.grupo_gerencial,
-        item.status_portfolio,
-        item.tipo_negocio,
-        item.familia,
-        item.segmento,
-      ]
-
-      return campos.some((campo) => String(campo || "").toUpperCase().includes(termo))
-    })
-  }, [itensBaseTabela, activeFilter?.busca, escopoEstoque])
-
-  const totalPages = activeFilter?.busca && escopoEstoque !== "insumos"
-    ? 1
-    : Math.max(1, itensResp?.total_pages || 1)
+  const itens = itensResp?.itens || []
+  const totalPages = Math.max(1, itensResp?.total_pages || 1)
 
   const aplicarFiltro = (filtro: FiltroTabelaEstoque | null) => {
     setPage(1)
