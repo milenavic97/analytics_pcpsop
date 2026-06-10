@@ -325,6 +325,8 @@ type SortKey =
   | "demanda_mes_atual"
   | "consumo_mes_atual"
   | "previsto_vs_consumido_pct"
+  | "perc_mes_decorrido"
+  | "desvio_ritmo_pct"
   | "gap_volume"
   | "consumo_durante_lt"
 
@@ -388,7 +390,7 @@ const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "ce
   { key: "estoque_mais_pedidos", label: "Estoque + entradas", align: "right", width: "w-[135px]" },
   { key: "consumo_mes_atual", label: "Consumo mês", align: "right", width: "w-[120px]" },
   { key: "demanda_mes_atual", label: "Previsão mês", align: "right", width: "w-[120px]" },
-  { key: "pct_consumo_previsto", label: "% previsão consumida", align: "right", width: "w-[140px]" },
+  { key: "previsto_vs_consumido_pct", label: "% previsão consumida", align: "right", width: "w-[140px]" },
   { key: "pct_mes_decorrido", label: "% mês decorrido", align: "right", width: "w-[125px]" },
   { key: "desvio_ritmo_pct", label: "Desvio ritmo", align: "right", width: "w-[120px]" },
   { key: "dias_em_estoque", label: "Dias estoque", align: "right", width: "w-[110px]" },
@@ -707,7 +709,7 @@ function renderValorColunaInsumo(item: AgingEstoqueItem, key: string): ReactNode
       return fmtNumber(getConsumoMesAtual(item), 0)
     case "demanda_mes_atual":
       return fmtNumber(getPrevisaoMesAtual(item), 0)
-    case "pct_consumo_previsto": {
+    case "previsto_vs_consumido_pct": {
       const previsao = getPrevisaoMesAtual(item)
       const consumo = getConsumoMesAtual(item)
       if (previsao <= 0 && consumo <= 0) return "—"
@@ -3207,6 +3209,33 @@ export default function AgingEstoquePage() {
     }))
   }
 
+  const colunasInsumosOrdenaveis = new Set<string>([
+    "saldo",
+    "saldo_quarentena",
+    "qtd_pedidos_abertos",
+    "estoque_mais_pedidos",
+    "consumo_mes_atual",
+    "demanda_mes_atual",
+    "previsto_vs_consumido_pct",
+    "perc_mes_decorrido",
+    "desvio_ritmo_pct",
+    "dias_em_estoque",
+    "cobertura_meses_atual",
+    "cobertura_meses_futura",
+    "maior_media",
+    "lead_time_dias",
+    "qtd_minima",
+    "consumo_durante_lt",
+    "estoque_ideal",
+    "gap_volume",
+    "saldo_sb8_bruto",
+    "empenho_lote",
+    "custo_unitario",
+    "estoque_atual_valor",
+    "pedidos_abertos_valor",
+    "estoque_mais_pedidos_valor",
+  ])
+
   const colunasInsumosVisiveis = colunasVisiveisPorEscopo.insumos || COLUNAS_PADRAO_INSUMOS
   const colunasInsumosTabela = COLUNAS_INSUMOS_OPCOES.filter((col) => colunasInsumosVisiveis.includes(col.key))
   const isColunaInsumoVisivel = (key: string) => colunasInsumosVisiveis.includes(key)
@@ -3565,14 +3594,32 @@ export default function AgingEstoquePage() {
                 <tr className="text-left text-white" style={{ background: "#163B63" }}>
                   <th className="w-[90px] px-3 py-3">Código</th>
                   <th className="w-[240px] px-3 py-3">Descrição</th>
-                  {colunasInsumosTabela.map((col) => (
-                    <th
-                      key={col.key}
-                      className={`${col.width || "w-[110px]"} px-3 py-3 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : ""}`}
-                    >
-                      {col.label}
-                    </th>
-                  ))}
+                  {colunasInsumosTabela.map((col) => {
+                    const ordenavel = colunasInsumosOrdenaveis.has(col.key)
+                    const ativo = sortKey === col.key
+                    const seta = ativo ? (sortDirection === "asc" ? "↑" : "↓") : "↕"
+
+                    return (
+                      <th
+                        key={col.key}
+                        className={`${col.width || "w-[110px]"} px-3 py-3 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : ""}`}
+                      >
+                        {ordenavel ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSort(col.key as SortKey)}
+                            className={`inline-flex w-full items-center gap-1 rounded-md text-[11px] font-bold leading-tight text-white/95 transition hover:text-white ${col.align === "right" ? "justify-end text-right" : col.align === "center" ? "justify-center text-center" : "justify-start text-left"}`}
+                            title={`Ordenar por ${col.label}`}
+                          >
+                            <span className="whitespace-normal">{col.label}</span>
+                            <span className={ativo ? "text-white" : "text-white/55"}>{seta}</span>
+                          </button>
+                        ) : (
+                          col.label
+                        )}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>
