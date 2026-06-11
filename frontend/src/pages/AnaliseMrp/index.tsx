@@ -165,13 +165,19 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
     searchParams.set(key, String(value))
   })
 
-  // Evita que o navegador reutilize um resumo antigo quando muda o escopo ou sobe base nova.
+  // Evita que o navegador reutilize uma resposta antiga quando o cache local for limpo
+  // ou quando o usuário clicar em Atualizar.
   searchParams.set("_t", String(Date.now()))
 
   const query = searchParams.toString()
   const response = await fetch(`${API_BASE}${path}${query ? `?${query}` : ""}`, {
     method: "GET",
     cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
   })
 
   if (!response.ok) {
@@ -182,8 +188,120 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v1"
+const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+
+type CacheGestaoEstoquePayload<T> = {
+  savedAt: number
+  path: string
+  params: Record<string, string | number | boolean | null | undefined>
+  payload: T
+}
+
+function normalizarCacheParams(params: Record<string, string | number | boolean | null | undefined>) {
+  return Object.fromEntries(
+    Object.entries(params)
+      .filter(([, value]) => value !== undefined && value !== null && value !== "")
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => [key, String(value)])
+  )
+}
+
+function cacheKeyGestaoEstoque(path: string, params: Record<string, string | number | boolean | null | undefined>) {
+  const normalized = normalizarCacheParams(params)
+  return `${GESTAO_ESTOQUE_CACHE_PREFIX}:${path}:${JSON.stringify(normalized)}`
+}
+
+function lerCacheGestaoEstoque<T>(path: string, params: Record<string, string | number | boolean | null | undefined>): T | null {
+  try {
+    if (typeof window === "undefined") return null
+
+    const key = cacheKeyGestaoEstoque(path, params)
+    const raw = window.localStorage.getItem(key)
+
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as CacheGestaoEstoquePayload<T>
+    const savedAt = Number(parsed.savedAt || 0)
+    const expirado = !savedAt || Date.now() - savedAt > GESTAO_ESTOQUE_CACHE_TTL_MS
+
+    if (expirado || !parsed.payload) {
+      window.localStorage.removeItem(key)
+      return null
+    }
+
+    return parsed.payload
+  } catch {
+    return null
+  }
+}
+
+function salvarCacheGestaoEstoque<T>(
+  path: string,
+  params: Record<string, string | number | boolean | null | undefined>,
+  payload: T
+) {
+  try {
+    if (typeof window === "undefined") return
+
+    const key = cacheKeyGestaoEstoque(path, params)
+    const value: CacheGestaoEstoquePayload<T> = {
+      savedAt: Date.now(),
+      path,
+      params: normalizarCacheParams(params),
+      payload,
+    }
+
+    window.localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Se o storage estiver cheio/bloqueado, a tela continua funcionando sem cache.
+  }
+}
+
+function limparCacheGestaoEstoqueLocal() {
+  try {
+    if (typeof window === "undefined") return
+
+    const keysToRemove: string[] = []
+
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i)
+      if (!key) continue
+
+      if (
+        key.startsWith(GESTAO_ESTOQUE_CACHE_PREFIX) ||
+        key.includes("/aging-estoque/resumo") ||
+        key.includes("/aging-estoque/itens") ||
+        key.includes("/aging-estoque/produtos/serie") ||
+        key.includes("dfl-api-cache")
+      ) {
+        keysToRemove.push(key)
+      }
+    }
+
+    keysToRemove.forEach((key) => window.localStorage.removeItem(key))
+  } catch {
+    // Não bloqueia a tela se o navegador impedir acesso ao storage.
+  }
+}
+
+async function fetchJsonComCache<T>(
+  path: string,
+  params: Record<string, string | number | boolean | null | undefined> = {}
+): Promise<T> {
+  const cached = lerCacheGestaoEstoque<T>(path, params)
+
+  if (cached) {
+    return cached
+  }
+
+  const payload = await fetchJson<T>(path, params)
+  salvarCacheGestaoEstoque(path, params, payload)
+  return payload
+}
+
 function getAgingResumoDireto(params: { escopo: EscopoEstoque; classificacao_cadastro?: string }): Promise<AgingResumoResponse> {
-  return fetchJson<AgingResumoResponse>("/aging-estoque/resumo", {
+  return fetchJsonComCache<AgingResumoResponse>("/aging-estoque/resumo", {
     escopo: params.escopo,
     classificacao_cadastro: params.classificacao_cadastro,
   })
@@ -203,7 +321,7 @@ function getAgingItensDireto(params: {
   classificacao_cadastro?: string
   semaforo?: SemaforoEstoque
 }): Promise<AgingItensResponse> {
-  return fetchJson<AgingItensResponse>("/aging-estoque/itens", {
+  return fetchJsonComCache<AgingItensResponse>("/aging-estoque/itens", {
     escopo: params.escopo,
     page: params.page,
     page_size: params.page_size,
@@ -3046,6 +3164,7 @@ export default function AgingEstoquePage() {
 
     try {
       const res = await uploadBase(baseId, file)
+      limparCacheGestaoEstoqueLocal()
       const total = res.total_inserido ?? 0
       const erros = res.erros || []
 
@@ -3548,7 +3667,7 @@ export default function AgingEstoquePage() {
               <Database size={16} /> Bases
             </button>
             <button
-              onClick={() => setRefreshTick((x) => x + 1)}
+              onClick={() => { limparCacheGestaoEstoqueLocal(); setRefreshTick((x) => x + 1) }}
               className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
               style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
             >
@@ -3937,7 +4056,7 @@ export default function AgingEstoquePage() {
           </button>
           <button
             type="button"
-            onClick={() => setRefreshTick((current) => current + 1)}
+            onClick={() => { limparCacheGestaoEstoqueLocal(); setRefreshTick((current) => current + 1) }}
             className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
             style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
           >
