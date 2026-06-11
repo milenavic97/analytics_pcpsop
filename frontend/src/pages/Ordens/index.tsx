@@ -583,8 +583,10 @@ function toNumber(value: unknown) {
 function alertaToGargalo(comp: Record<string, unknown>): Gargalo {
   const necessario = toNumber(comp.necessario)
   const saldoChegou = toNumber(comp.saldo_chegou ?? comp.saldo_20 ?? comp.saldo_01 ?? comp.saldo_atual)
-  const saldo98 = toNumber(comp.saldo_chegou_98 ?? comp.saldo_98)
+  const saldo98 = toNumber(comp.saldo_chegou_98 ?? comp.saldo_98 ?? comp.saldo_disponivel_98)
   const faltante = toNumber(comp.faltante ?? Math.max(0, necessario - saldoChegou))
+  const statusVisual = statusComponenteVisual(comp)
+
   return {
     codigo_comp: String(comp.codigo_comp ?? ""),
     descricao: String(comp.descricao ?? comp.codigo_comp ?? ""),
@@ -594,8 +596,37 @@ function alertaToGargalo(comp: Record<string, unknown>): Gargalo {
     saldo_chegou: saldoChegou,
     saldo_chegou_98: saldo98,
     faltante,
-    status: comp.status === "quarentena" ? "quarentena" : "falta",
+    status: statusVisual === "quarentena" ? "quarentena" : "falta",
   }
+}
+
+function getStatusOperacionalOP(op: OPEditavel): StatusOP {
+  if (op.status === "aberta" || op.status === "sem_bom") return op.status
+
+  const detalhes = Array.isArray(op.detalhes) ? op.detalhes : []
+  const alertas = Array.isArray(op.alertas) ? op.alertas : []
+
+  // O backend pode mandar a OP como "falta" por compatibilidade, mas o detalhe do
+  // componente mostrar que o material existe no armazém 98. Nessa tela, o que manda
+  // para a classificação visual da OP é o status operacional dos componentes.
+  const componentes = [...detalhes, ...alertas]
+    .filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
+
+  let temFaltaReal = false
+  let temQuarentena = false
+
+  for (const comp of componentes) {
+    const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+
+    if (status === "falta") temFaltaReal = true
+    if (status === "quarentena") temQuarentena = true
+  }
+
+  if (temFaltaReal) return "falta"
+  if (temQuarentena) return "quarentena"
+
+  if (op.status === "falta" || op.status === "quarentena") return "ok"
+  return op.status || "ok"
 }
 
 function sanitizarOP(op: OPEditavel): OPEditavel {
@@ -610,14 +641,20 @@ function sanitizarOP(op: OPEditavel): OPEditavel {
     return status === "falta" || status === "quarentena"
   })
 
-  let status = op.status
-  if ((status === "falta" || status === "quarentena") && alertasCriticos.length === 0) {
-    status = "ok"
-  }
+  const status = getStatusOperacionalOP({ ...op, alertas: alertasVisiveis } as OPEditavel)
 
-  let gargalo = op.gargalo && isComponenteGargalante(op.gargalo) ? op.gargalo : null
-  if (!gargalo && alertasCriticos.length > 0) {
-    gargalo = alertaToGargalo(alertasCriticos[0] as unknown as Record<string, unknown>)
+  let gargalo: Gargalo | null = null
+  if (status === "falta" || status === "quarentena") {
+    const prioridade = status === "falta" ? "falta" : "quarentena"
+    const alertaPrincipal =
+      alertasCriticos.find(comp => statusComponenteVisual(comp as unknown as Record<string, unknown>) === prioridade) ||
+      alertasCriticos[0]
+
+    gargalo = alertaPrincipal
+      ? alertaToGargalo(alertaPrincipal as unknown as Record<string, unknown>)
+      : op.gargalo && isComponenteGargalante(op.gargalo)
+        ? { ...op.gargalo, status: prioridade }
+        : null
   }
 
   return { ...op, status, alertas: alertasVisiveis, gargalo }
@@ -1022,7 +1059,15 @@ function aplicarSimulacaoComprasNaOP(
     return comp
   })
 
-  if (codigosCobertos.size === 0) return { ...op, detalhes }
+  if (codigosCobertos.size === 0) {
+    const status = getStatusOperacionalOP({ ...op, detalhes } as OPEditavel)
+    return {
+      ...op,
+      detalhes,
+      status,
+      gargalo: status === "falta" || status === "quarentena" ? op.gargalo : null,
+    }
+  }
 
   const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
   const alertas = alertasOriginais.filter((comp) => {
@@ -1030,24 +1075,29 @@ function aplicarSimulacaoComprasNaOP(
     return !codigosCobertos.has(codigo)
   })
 
+  const opAtualizada = { ...op, alertas, detalhes } as OPEditavel
+  const status = getStatusOperacionalOP(opAtualizada)
+
   const alertasCriticos = alertas
     .filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
     .filter(comp => {
-      const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
-      return status === "falta" || status === "quarentena"
+      const statusComp = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+      return statusComp === "falta" || statusComp === "quarentena"
     })
 
-  let status = op.status
-  let gargalo = op.gargalo
+  let gargalo: Gargalo | null = null
 
-  if (op.status === "falta" || op.status === "quarentena") {
-    if (alertasCriticos.length === 0) {
-      status = "ok"
-      gargalo = null
-    } else {
-      status = alertasCriticos.some(a => statusComponenteVisual(a as unknown as Record<string, unknown>) === "falta") ? "falta" : "quarentena"
-      gargalo = alertaToGargalo(alertasCriticos[0] as unknown as Record<string, unknown>)
-    }
+  if (status === "falta" || status === "quarentena") {
+    const prioridade = status === "falta" ? "falta" : "quarentena"
+    const alertaPrincipal =
+      alertasCriticos.find(a => statusComponenteVisual(a as unknown as Record<string, unknown>) === prioridade) ||
+      alertasCriticos[0]
+
+    gargalo = alertaPrincipal
+      ? alertaToGargalo(alertaPrincipal as unknown as Record<string, unknown>)
+      : op.gargalo && isComponenteGargalante(op.gargalo)
+        ? { ...op.gargalo, status: prioridade }
+        : null
   }
 
   return {
