@@ -145,16 +145,12 @@ type BraviSerieResponse = {
 }
 
 async function getBraviSerie(granularidade: GranularidadeSerie, codigo?: string): Promise<BraviSerieResponse> {
-  const params = new URLSearchParams()
-  params.set("granularidade", granularidade)
-  if (codigo) params.set("codigo", codigo)
-  params.set("_", String(Date.now()))
+  // V29: a série PA/MR também entra no cache local de 12h.
+  // Isso vale tanto para a visão geral quanto para o item selecionado.
+  const params: Record<string, string> = { granularidade }
+  if (codigo) params.codigo = codigo
 
-  const response = await fetch(`${API_BASE}/aging-estoque/produtos/serie?${params.toString()}`, { cache: "no-store" })
-  if (!response.ok) {
-    throw new Error(`Erro ao buscar série PA/MR: ${response.status}`)
-  }
-  return response.json()
+  return fetchJsonComCache<BraviSerieResponse>("/aging-estoque/produtos/serie", params)
 }
 
 async function fetchJson<T>(path: string, params: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {
@@ -165,19 +161,13 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
     searchParams.set(key, String(value))
   })
 
-  // Evita que o navegador reutilize uma resposta antiga quando o cache local for limpo
-  // ou quando o usuário clicar em Atualizar.
+  // Evita que o navegador reutilize um resumo antigo quando muda o escopo ou sobe base nova.
   searchParams.set("_t", String(Date.now()))
 
   const query = searchParams.toString()
   const response = await fetch(`${API_BASE}${path}${query ? `?${query}` : ""}`, {
     method: "GET",
     cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-    },
   })
 
   if (!response.ok) {
@@ -188,7 +178,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v1"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v2"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -1935,14 +1925,10 @@ function BraviSeriePanel({
 
     const codigoEsperado = codigoSelecionado
 
-    // V26 performance: não carrega mais a série consolidada PA/MR na abertura.
-    // A chamada sem código em /produtos/serie é pesada porque consolida muitos SKUs.
-    // A tela agora carrega cards + tabela primeiro; o gráfico busca a série somente
-    // quando um item é selecionado na tabela.
-    if (!codigoEsperado) {
-      setLoading(false)
-      setError("")
-      setData(null)
+    // A visão geral de todos os PA/MR é propositalmente mensal.
+    // Sem isso, uma série diária/semanal consolidada pode ficar pesada demais.
+    if (!codigoEsperado && granularidade !== "mensal") {
+      setGranularidade("mensal")
       return
     }
 
@@ -1951,18 +1937,21 @@ function BraviSeriePanel({
     setError("")
     setData(null)
 
-    getBraviSerie(granularidade, codigoEsperado)
+    getBraviSerie(granularidade, codigoEsperado || undefined)
       .then((res) => {
         if (!mounted) return
 
-        const codigoRetornado = String(res?.item?.codigo || res?.codigos_produtos?.[0] || res?.codigos_bravi?.[0] || "")
-        const modo = String(res?.debug?.modo || "")
-        const qtdCodigos = Number(res?.codigos_produtos?.length ?? res?.codigos_bravi?.length ?? 0)
+        // Quando há item selecionado, mantém a proteção para não exibir uma série consolidada por engano.
+        if (codigoEsperado) {
+          const codigoRetornado = String(res?.item?.codigo || res?.codigos_produtos?.[0] || res?.codigos_bravi?.[0] || "")
+          const modo = String(res?.debug?.modo || "")
+          const qtdCodigos = Number(res?.codigos_produtos?.length ?? res?.codigos_bravi?.length ?? 0)
 
-        if (codigoRetornado !== codigoEsperado || (qtdCodigos && qtdCodigos !== 1) || (modo && modo !== "item_pa_mr_rapido")) {
-          setData(null)
-          setError(`A série retornada não está filtrada pelo item ${codigoEsperado}. Confirme se o backend está na versão v17 ou superior.`)
-          return
+          if (codigoRetornado !== codigoEsperado || (qtdCodigos && qtdCodigos !== 1) || (modo && modo !== "item_pa_mr_rapido")) {
+            setData(null)
+            setError(`A série retornada não está filtrada pelo item ${codigoEsperado}. Confirme se o backend está na versão v17 ou superior.`)
+            return
+          }
         }
 
         setData(res)
@@ -2077,10 +2066,12 @@ function BraviSeriePanel({
   }, [serieOriginal, itemSelecionado, resumo.estoque_atual, granularidade])
   const tituloSerie = itemSelecionado
     ? `${itemSelecionado.codigo} · ${loading ? "carregando série do item..." : (itemSelecionado.produto || "Item selecionado")}`
-    : "Série PA / MR por item"
+    : loading
+      ? "Visão geral PA / MR · carregando consolidado..."
+      : "Visão geral PA / MR"
   const descricaoSerie = itemSelecionado
-    ? "Visão filtrada pelo item selecionado na tabela. Para carregar outro gráfico, clique em outro item."
-    : "Para manter a página rápida em reunião, o gráfico consolidado não carrega na abertura. Clique em um item da tabela para carregar a série individual."
+    ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em Ver todo."
+    : "Consolidado mensal de todos os PA/MR. O primeiro carregamento pode demorar, mas depois fica salvo em cache local por 12 horas."
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
@@ -2118,28 +2109,33 @@ function BraviSeriePanel({
               className="rounded-xl border px-3 py-2 text-sm font-bold transition hover:bg-slate-50"
               style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)", color: "#B91C1C" }}
             >
-              Limpar seleção
+              Ver todo
             </button>
           )}
           {([
             ["mensal", "Mensal"],
             ["semanal", "Semanal"],
             ["diaria", "Diária"],
-          ] as [GranularidadeSerie, string][]).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setGranularidade(key)}
-              className="rounded-xl border px-3 py-2 text-sm font-bold transition hover:bg-slate-50"
-              style={{
-                borderColor: granularidade === key ? "#163B63" : "var(--border)",
-                background: granularidade === key ? "rgba(22,59,99,0.08)" : "#FFFFFF",
-                color: granularidade === key ? "#163B63" : "var(--text-primary)",
-              }}
-            >
-              {label}
-            </button>
-          ))}
+          ] as [GranularidadeSerie, string][]).map(([key, label]) => {
+            const disabled = !itemSelecionado && key !== "mensal"
+            return (
+              <button
+                key={key}
+                type="button"
+                disabled={disabled}
+                onClick={() => !disabled && setGranularidade(key)}
+                title={disabled ? "Na visão geral, o consolidado fica mensal para manter performance." : undefined}
+                className="rounded-xl border px-3 py-2 text-sm font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+                style={{
+                  borderColor: granularidade === key ? "#163B63" : "var(--border)",
+                  background: granularidade === key ? "rgba(22,59,99,0.08)" : "#FFFFFF",
+                  color: granularidade === key ? "#163B63" : "var(--text-primary)",
+                }}
+              >
+                {label}
+              </button>
+            )
+          })}
           {loading && (
             <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
               <RefreshCw size={13} className="animate-spin" /> Atualizando
@@ -2165,11 +2161,11 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V26: modo performance. Abertura sem gráfico consolidado PA/MR; a série carrega somente ao selecionar um item. Sem projeção de saldo no gráfico.
+                V29: gráfico PA/MR com visão geral mensal + item selecionado. Série salva em cache local por 12h. Sem projeção futura de saldo.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              {loading && itemSelecionado ? "Carregando item" : itemSelecionado ? "Item selecionado" : "Aguardando seleção"}
+              {loading ? (itemSelecionado ? "Carregando item" : "Carregando visão geral") : itemSelecionado ? "Item selecionado" : "Visão geral"}
             </span>
           </div>
 
@@ -2299,7 +2295,7 @@ function BraviSeriePanel({
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                {loading ? "Carregando série do item selecionado..." : codigoSelecionado ? "Sem série disponível para este item." : "Selecione um item da tabela para carregar o gráfico PA/MR individual."}
+                {loading ? (codigoSelecionado ? "Carregando série do item selecionado..." : "Carregando visão geral PA/MR...") : codigoSelecionado ? "Sem série disponível para este item." : "Sem série consolidada disponível para PA/MR."}
               </div>
             )}
           </div>
