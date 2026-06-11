@@ -2391,10 +2391,12 @@ function BraviSeriePanel({
                     stroke="#9333EA"
                     strokeWidth={2.5}
                     strokeDasharray="6 4"
-                    dot={false}
+                    dot={{ r: 2 }}
                     connectNulls={false}
                     hide={serieOculta("faturamento_valor")}
-                  />
+                  >
+                    <LabelList dataKey="faturamento_valor" content={renderChartLabelAberto} />
+                  </Line>
                 </ComposedChart>
               </ResponsiveContainer>
             ) : (
