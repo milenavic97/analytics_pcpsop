@@ -1109,6 +1109,28 @@ function aplicarSimulacaoComprasNaOP(
   }
 }
 
+const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v14"
+const ORDENS_VIABILIDADE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+
+type CacheOrdensViabilidade = {
+  savedAt: number
+  mesRef: string
+  leadtimeCompraDias: number
+  payload: ResumoViabilidade
+}
+
+function _leadtimeNormalizado(leadtimeCompraDias: number) {
+  return Math.max(
+    0,
+    Number.isFinite(Number(leadtimeCompraDias)) ? Number(leadtimeCompraDias) : 0
+  )
+}
+
+function _cacheKeyOrdensViabilidade(mesRef: string, leadtimeCompraDias: number) {
+  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+  return `${ORDENS_VIABILIDADE_CACHE_PREFIX}:${mesRef}:leadtime-${leadtime}`
+}
+
 function limparCacheOrdensLocal() {
   try {
     if (typeof window === "undefined") return
@@ -1120,6 +1142,7 @@ function limparCacheOrdensLocal() {
       if (!key) continue
 
       if (
+        key.startsWith(ORDENS_VIABILIDADE_CACHE_PREFIX) ||
         key.includes("/ops/viabilidade") ||
         key.includes("/ops/resumo") ||
         key.includes("dfl-api-cache")
@@ -1134,16 +1157,72 @@ function limparCacheOrdensLocal() {
   }
 }
 
-async function getOpsViabilidadeComLeadtimeSemCache(
+function lerCacheOrdensViabilidade(
   mesRef: string,
   leadtimeCompraDias: number
-): Promise<ResumoViabilidade> {
-  limparCacheOrdensLocal()
+): ResumoViabilidade | null {
+  try {
+    if (typeof window === "undefined") return null
 
-  const leadtime = Math.max(
-    0,
-    Number.isFinite(Number(leadtimeCompraDias)) ? Number(leadtimeCompraDias) : 0
-  )
+    const key = _cacheKeyOrdensViabilidade(mesRef, leadtimeCompraDias)
+    const raw = window.localStorage.getItem(key)
+
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as CacheOrdensViabilidade
+    const savedAt = Number(parsed.savedAt || 0)
+    const expirado = !savedAt || (Date.now() - savedAt) > ORDENS_VIABILIDADE_CACHE_TTL_MS
+
+    if (expirado || !parsed.payload) {
+      window.localStorage.removeItem(key)
+      return null
+    }
+
+    return parsed.payload
+  } catch {
+    return null
+  }
+}
+
+function salvarCacheOrdensViabilidade(
+  mesRef: string,
+  leadtimeCompraDias: number,
+  payload: ResumoViabilidade
+) {
+  try {
+    if (typeof window === "undefined") return
+
+    const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+    const key = _cacheKeyOrdensViabilidade(mesRef, leadtime)
+    const value: CacheOrdensViabilidade = {
+      savedAt: Date.now(),
+      mesRef,
+      leadtimeCompraDias: leadtime,
+      payload,
+    }
+
+    window.localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Se o storage estiver cheio/bloqueado, a tela continua funcionando sem cache.
+  }
+}
+
+async function getOpsViabilidadeComLeadtime(
+  mesRef: string,
+  leadtimeCompraDias: number,
+  forceRefresh = false
+): Promise<ResumoViabilidade> {
+  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+
+  if (!forceRefresh) {
+    const cached = lerCacheOrdensViabilidade(mesRef, leadtime)
+
+    if (cached) {
+      return cached
+    }
+  } else {
+    limparCacheOrdensLocal()
+  }
 
   const query = new URLSearchParams()
   query.set("mes_ref", mesRef)
@@ -1169,7 +1248,10 @@ async function getOpsViabilidadeComLeadtimeSemCache(
     )
   }
 
-  return payload as ResumoViabilidade
+  const resumo = payload as ResumoViabilidade
+  salvarCacheOrdensViabilidade(mesRef, leadtime, resumo)
+
+  return resumo
 }
 
 // ─── Hook: resize de coluna ───────────────────────────────────────────────────
@@ -2869,6 +2951,7 @@ export function OrdensPage() {
 
     try {
       const resp = await uploadBase(baseId, arquivoBase)
+      limparCacheOrdensLocal()
       const erros = Array.isArray(resp.erros) ? resp.erros.filter(Boolean) : []
 
       if (erros.length > 0) {
@@ -2893,7 +2976,7 @@ export function OrdensPage() {
       await carregarAtualizacoesBases()
 
       if (mesParaBuscar) {
-        await buscar(mesParaBuscar)
+        await buscar(mesParaBuscar, true)
       }
 
       const base = BASES_OPERACIONAIS_ORDENS.find(b => b.id === baseId)
@@ -2915,6 +2998,7 @@ export function OrdensPage() {
     try {
       const resp = await excluirProgramacaoOpsMes(confirmarExclusaoMes)
       setConfirmarExclusaoMes(null)
+      limparCacheOrdensLocal()
       setSelecionados(new Set())
       setOps([])
       setDados(null)
@@ -2973,12 +3057,12 @@ export function OrdensPage() {
 
   useEffect(() => { if (mesSel) buscar() }, [mesSel])
 
-  const buscar = async (mesRefOverride?: string) => {
+  const buscar = async (mesRefOverride?: string, forceRefresh = false) => {
     const mesBusca = mesRefOverride || mesSel
     if (!mesBusca) return
     setLoading(true); setErro(""); setSelecionados(new Set())
     try {
-      const res = await getOpsViabilidadeComLeadtimeSemCache(mesBusca, leadtimeCompraDias)
+      const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias, forceRefresh)
       setDados(res)
       const opsTratadas = ordenarESequenciarOps(
         res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
@@ -3180,7 +3264,7 @@ export function OrdensPage() {
       })
 
       mostrarToast("success", "Configuração de compras salva para todos.")
-      buscar()
+      buscar(undefined, true)
     } catch (e: unknown) {
       mostrarToast("error", e instanceof Error ? e.message : "Erro ao salvar configuração de compras")
     } finally {
@@ -3249,7 +3333,7 @@ export function OrdensPage() {
           <button onClick={() => setNovaOpModal(true)} className="flex h-10 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-white" style={{ background: "var(--bg-sidebar)" }}>
             <Plus size={14} /> Nova OP
           </button>
-          <button onClick={() => buscar()} disabled={loading || !mesSel} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold" style={{ cursor: loading ? "not-allowed" : "pointer" }}>
+          <button onClick={() => buscar(undefined, true)} disabled={loading || !mesSel} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold" style={{ cursor: loading ? "not-allowed" : "pointer" }}>
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Atualizar
           </button>
           <button
