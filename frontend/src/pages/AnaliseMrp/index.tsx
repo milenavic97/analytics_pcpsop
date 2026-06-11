@@ -145,8 +145,8 @@ type BraviSerieResponse = {
 }
 
 async function getBraviSerie(granularidade: GranularidadeSerie, codigo?: string): Promise<BraviSerieResponse> {
-  // V30: a série geral PA/MR também entra no cache local de 12h.
-  // O item selecionado não chama o backend ao trocar de linha; usa a linha da tabela para responder rápido.
+  // V31: a série geral PA/MR e a série por item entram no cache local de 12h.
+  // Ao selecionar item, o front mostra fallback rápido e troca pela série real quando o backend/cache responder.
   const params: Record<string, string> = { granularidade }
   if (codigo) params.codigo = codigo
 
@@ -1925,21 +1925,21 @@ function BraviSeriePanel({
 
     const codigoEsperado = codigoSelecionado
 
-    // V30: para manter a troca de linha instantânea, o gráfico PA/MR fica mensal.
-    // A visão geral ainda usa o endpoint consolidado; o item selecionado usa a própria linha da tabela.
+    // V31: mantém a troca de linha rápida, mas não abre mão da série real.
+    // Primeiro monta um fallback instantâneo com a linha da tabela; depois busca a série do backend em segundo plano.
+    // Como getBraviSerie usa cache local de 12h, a segunda vez que o item for aberto fica praticamente imediata.
     if (granularidade !== "mensal") {
       setGranularidade("mensal")
       return
     }
 
     if (itemSelecionado) {
+      let mounted = true
       const itemNormalizado = normalizarCoberturaPaMrItem(itemSelecionado)
       const serieLocal = buildSerieOperacionalItemSelecionado(itemNormalizado)
       const statusItem = String((itemNormalizado as any).status || (itemNormalizado as any).status_estoque || "").toUpperCase()
 
-      setLoading(false)
-      setError("")
-      setData({
+      const fallbackItem: BraviSerieResponse = {
         granularidade: "mensal",
         total_itens_produtos: 1,
         total_itens_bravi: 1,
@@ -1958,10 +1958,66 @@ function BraviSeriePanel({
           criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : 0,
         },
         serie: serieLocal,
-        debug: { modo: "item_pa_mr_front_instantaneo_v30" },
-        backend_versao: "front_v30",
-      })
-      return
+        debug: { modo: "item_pa_mr_fallback_tabela_v31" },
+        backend_versao: "front_v31_fallback",
+      }
+
+      setData(fallbackItem)
+      setError("")
+      setLoading(true)
+
+      getBraviSerie("mensal", codigoEsperado)
+        .then((res) => {
+          if (!mounted) return
+
+          const codigoResposta = String(res?.item?.codigo || res?.codigos_produtos?.[0] || res?.codigos_bravi?.[0] || "")
+          if (codigoResposta && codigoResposta !== codigoEsperado) return
+
+          const serieBackend = Array.isArray(res?.serie) ? res.serie : []
+
+          // Se por algum motivo o backend não devolver pontos, mantém o fallback da tabela
+          // para não deixar o gráfico vazio.
+          if (serieBackend.length === 0) {
+            setData(fallbackItem)
+            return
+          }
+
+          setData({
+            ...res,
+            granularidade: "mensal",
+            total_itens_produtos: 1,
+            total_itens_bravi: 1,
+            codigos_produtos: codigoEsperado ? [codigoEsperado] : [],
+            codigos_bravi: codigoEsperado ? [codigoEsperado] : [],
+            item: {
+              ...(res.item || {}),
+              codigo: codigoEsperado,
+              produto: String((itemNormalizado as any).produto || (itemNormalizado as any).descricao || res.item?.produto || "Item selecionado"),
+              tipo: String((itemNormalizado as any).tipo || res.item?.tipo || ""),
+            },
+            resumo: {
+              ...(res.resumo || {}),
+              estoque_atual: getEstoqueAtualReal(itemNormalizado),
+              pedidos_abertos: getPedidosAbertos(itemNormalizado),
+              faturamento_ytd_qtd: Number((res.resumo?.faturamento_ytd_qtd ?? (itemNormalizado as any).faturamento_ytd_qtd) || 0),
+              faturamento_ytd_valor: Number((res.resumo?.faturamento_ytd_valor ?? (itemNormalizado as any).faturamento_ytd_valor) || 0),
+              criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : Number(res.resumo?.criticos || 0),
+            },
+            serie: serieBackend,
+            debug: { ...(res.debug || {}), modo_front: "item_pa_mr_backend_cache_v31" },
+          })
+        })
+        .catch((err: unknown) => {
+          if (!mounted) return
+          console.warn("Não foi possível carregar série real do item PA/MR; mantendo fallback da tabela", err)
+          setError("")
+          setData(fallbackItem)
+        })
+        .finally(() => {
+          if (mounted) setLoading(false)
+        })
+
+      return () => { mounted = false }
     }
 
     let mounted = true
@@ -2082,12 +2138,12 @@ function BraviSeriePanel({
     })
   }, [serieOriginal, itemSelecionado, resumo.estoque_atual, granularidade])
   const tituloSerie = itemSelecionado
-    ? `${itemSelecionado.codigo} · ${loading ? "carregando série do item..." : (itemSelecionado.produto || "Item selecionado")}`
+    ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}${loading ? " · atualizando série" : ""}`
     : loading
       ? "Visão geral PA / MR · carregando consolidado..."
       : "Visão geral PA / MR"
   const descricaoSerie = itemSelecionado
-    ? "Visão rápida do item selecionado, montada a partir da própria linha da tabela para não recarregar ao trocar de item. Para voltar ao consolidado, clique em Ver todo."
+    ? "Ao clicar no item, a tela mostra uma visão rápida pela linha da tabela e carrega a série real em segundo plano com cache local de 12 horas. Para voltar ao consolidado, clique em Ver todo."
     : "Consolidado mensal de todos os PA/MR. O primeiro carregamento pode demorar, mas depois fica salvo em cache local por 12 horas."
 
   const eixoMaxComum = useMemo(() => {
@@ -2178,11 +2234,11 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V30: visão geral mensal em cache + item selecionado instantâneo pela linha da tabela. Sem projeção futura de saldo.
+                V31: visão geral em cache + item selecionado com fallback rápido e série real em cache. Sem projeção futura de saldo.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              {loading ? (itemSelecionado ? "Carregando item" : "Carregando visão geral") : itemSelecionado ? "Item selecionado" : "Visão geral"}
+              {loading ? (itemSelecionado ? "Atualizando série" : "Carregando visão geral") : itemSelecionado ? "Item selecionado" : "Visão geral"}
             </span>
           </div>
 
@@ -2312,7 +2368,7 @@ function BraviSeriePanel({
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                {loading ? (codigoSelecionado ? "Carregando série do item selecionado..." : "Carregando visão geral PA/MR...") : codigoSelecionado ? "Sem série disponível para este item." : "Sem série consolidada disponível para PA/MR."}
+                {loading ? (codigoSelecionado ? "Montando visão rápida e buscando série real..." : "Carregando visão geral PA/MR...") : codigoSelecionado ? "Sem série disponível para este item." : "Sem série consolidada disponível para PA/MR."}
               </div>
             )}
           </div>
