@@ -1738,7 +1738,9 @@ type ModalTipo = "total" | "abertas" | "faltam" | "com_material" | "sem_material
 
 function CardModal({ tipo, ops, onClose }: { tipo: ModalTipo; ops: OPEditavel[]; onClose: () => void }) {
   if (!tipo) return null
+
   const LINHAS = ["ENVASE_L1", "ENVASE_L2", "EMBALAGEM"]
+
   function filtrar(linha: string) {
     const l = ops.filter(op => op.linha === linha)
     if (tipo === "total")        return l
@@ -1748,43 +1750,93 @@ function CardModal({ tipo, ops, onClose }: { tipo: ModalTipo; ops: OPEditavel[];
     if (tipo === "sem_material") return l.filter(op => op.status === "falta" || op.status === "quarentena")
     return []
   }
-  const TITULO: Record<NonNullable<ModalTipo>, string> = {
-    total: "Total de OPs do mês", abertas: "OPs abertas no Protheus",
-    faltam: "OPs que faltam abrir", com_material: "OPs com material disponível",
-    sem_material: "OPs com material insuficiente",
+
+  function contarStatus(lista: OPEditavel[]) {
+    return {
+      falta: lista.filter(op => op.status === "falta").length,
+      quarentena: lista.filter(op => op.status === "quarentena").length,
+    }
   }
-  const mat: Record<string, { descricao: string; count: number }> = {}
+
+  const TITULO: Record<NonNullable<ModalTipo>, string> = {
+    total: "Total de OPs do mês",
+    abertas: "OPs abertas no Protheus",
+    faltam: "OPs que faltam abrir",
+    com_material: "OPs com material disponível",
+    sem_material: "OPs sem material ou dependentes de CQ",
+  }
+
+  const SUBTITULO: Partial<Record<NonNullable<ModalTipo>, string>> = {
+    sem_material: "Separado entre falta real e itens que têm saldo em quarentena 98 aguardando liberação do CQ.",
+  }
+
+  const mat: Record<string, { descricao: string; falta: number; quarentena: number }> = {}
+
   if (tipo === "sem_material") {
     ops.filter(op => op.status === "falta" || op.status === "quarentena").forEach(op => {
-      op.alertas
+      const alertas = Array.isArray(op.alertas) ? op.alertas : []
+
+      alertas
         .filter(a => isComponenteGargalante(a as unknown as Record<string, unknown>))
-        .filter(a => {
-          const status = statusComponenteVisual(a as unknown as Record<string, unknown>)
-          return status === "falta" || status === "quarentena"
-        })
         .forEach(comp => {
-          if (!mat[comp.codigo_comp]) mat[comp.codigo_comp] = { descricao: comp.descricao || comp.codigo_comp, count: 0 }
-          mat[comp.codigo_comp].count++
+          const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+          if (status !== "falta" && status !== "quarentena") return
+
+          const codigo = String(comp.codigo_comp || "").trim()
+          if (!codigo) return
+
+          if (!mat[codigo]) {
+            mat[codigo] = {
+              descricao: comp.descricao || comp.codigo_comp,
+              falta: 0,
+              quarentena: 0,
+            }
+          }
+
+          if (status === "falta") mat[codigo].falta += 1
+          if (status === "quarentena") mat[codigo].quarentena += 1
         })
     })
   }
-  const topMat = Object.entries(mat).sort((a, b) => b[1].count - a[1].count).slice(0, 8)
+
+  const topMat = Object.entries(mat)
+    .sort((a, b) => (b[1].falta + b[1].quarentena) - (a[1].falta + a[1].quarentena))
+    .slice(0, 8)
 
   return (
-    <div className="fixed inset-0 z-[998] flex items-end md:items-center justify-center p-0 md:p-4"
-      style={{ background: "rgba(15,23,42,0.5)" }} onClick={onClose}>
-      <div className="w-full md:max-w-lg rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden"
+    <div
+      className="fixed inset-0 z-[998] flex items-end md:items-center justify-center p-0 md:p-4"
+      style={{ background: "rgba(15,23,42,0.5)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full md:max-w-lg rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden"
         style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", maxHeight: "85vh" }}
-        onClick={e => e.stopPropagation()}>
+        onClick={e => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
-          <div><p className="card-label mb-0.5">Detalhamento</p><h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{TITULO[tipo]}</h3></div>
+          <div>
+            <p className="card-label mb-0.5">Detalhamento</p>
+            <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{TITULO[tipo]}</h3>
+            {SUBTITULO[tipo] && (
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{SUBTITULO[tipo]}</p>
+            )}
+          </div>
           <button onClick={onClose} className="btn-ghost p-2"><X size={18} /></button>
         </div>
+
         <div className="overflow-y-auto p-5 space-y-4" style={{ maxHeight: "calc(85vh - 80px)" }}>
           {LINHAS.map(linha => {
             const opsL = filtrar(linha)
             const total = ops.filter(op => op.linha === linha).length
             const pct = total > 0 ? Math.round((opsL.length / total) * 100) : 0
+            const contagem = contarStatus(opsL)
+            const corBarra =
+              tipo === "com_material" ? "#16A34A" :
+              tipo === "sem_material" ? (contagem.falta > 0 ? "#DC2626" : "#F59E0B") :
+              tipo === "abertas" ? "#2563EB" :
+              "#6B7280"
+
             return (
               <div key={linha} className="rounded-xl p-4" style={{ background: "var(--bg-primary)", border: "1px solid var(--border)" }}>
                 <div className="flex items-center justify-between mb-2">
@@ -1794,24 +1846,72 @@ function CardModal({ tipo, ops, onClose }: { tipo: ModalTipo; ops: OPEditavel[];
                     {tipo !== "total" && <span className="text-xs" style={{ color: "var(--text-secondary)" }}>de {total} · {pct}%</span>}
                   </div>
                 </div>
+
+                {tipo === "sem_material" && opsL.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {contagem.falta > 0 && (
+                      <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ color: "#DC2626", borderColor: "#FECACA", background: "#FEF2F2" }}>
+                        {contagem.falta} Falta Mat.
+                      </span>
+                    )}
+                    {contagem.quarentena > 0 && (
+                      <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ color: "#92400E", borderColor: "#FDE68A", background: "#FFFBEB" }}>
+                        {contagem.quarentena} Quarentena/CQ
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {tipo !== "total" && total > 0 && (
                   <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: tipo === "com_material" ? "#16A34A" : tipo === "sem_material" ? "#DC2626" : tipo === "abertas" ? "#2563EB" : "#6B7280" }} />
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: corBarra }} />
                   </div>
                 )}
               </div>
             )
           })}
+
           {tipo === "sem_material" && topMat.length > 0 && (
             <div>
-              <p className="card-label mb-3">Materiais mais críticos</p>
+              <p className="card-label mb-3">Materiais com falta ou quarentena</p>
               <div className="space-y-2">
-                {topMat.map(([codigo, info]) => (
-                  <div key={codigo} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ background: "#FEF2F2", border: "1px solid #FECACA" }}>
-                    <div className="min-w-0"><p className="text-xs font-mono" style={{ color: "#991B1B" }}>{codigo}</p><p className="text-xs truncate" style={{ color: "#7F1D1D" }}>{info.descricao}</p></div>
-                    <span className="text-xs font-bold ml-3 flex-shrink-0" style={{ color: "#DC2626" }}>{info.count} OP{info.count !== 1 ? "s" : ""}</span>
-                  </div>
-                ))}
+                {topMat.map(([codigo, info]) => {
+                  const total = info.falta + info.quarentena
+                  const somenteQuarentena = info.falta === 0 && info.quarentena > 0
+                  return (
+                    <div
+                      key={codigo}
+                      className="rounded-lg px-3 py-2"
+                      style={{
+                        background: somenteQuarentena ? "#FFFBEB" : "#FEF2F2",
+                        border: `1px solid ${somenteQuarentena ? "#FDE68A" : "#FECACA"}`,
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-mono" style={{ color: somenteQuarentena ? "#92400E" : "#991B1B" }}>{codigo}</p>
+                          <p className="text-xs truncate" style={{ color: somenteQuarentena ? "#78350F" : "#7F1D1D" }}>{info.descricao}</p>
+                        </div>
+                        <span className="text-xs font-bold ml-3 flex-shrink-0" style={{ color: somenteQuarentena ? "#92400E" : "#DC2626" }}>
+                          {total} OP{total !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {info.falta > 0 && (
+                          <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ color: "#DC2626", borderColor: "#FECACA", background: "#FFF" }}>
+                            {info.falta} Falta Mat.
+                          </span>
+                        )}
+                        {info.quarentena > 0 && (
+                          <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ color: "#92400E", borderColor: "#FDE68A", background: "#FFF" }}>
+                            {info.quarentena} Quarentena/CQ
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -2903,7 +3003,9 @@ export function OrdensPage() {
   const abertas     = opsComAjustes.filter(op => op.status === "aberta").length
   const faltamAbrir = opsComAjustes.filter(op => op.status !== "aberta").length
   const comMaterial = opsComAjustes.filter(op => op.status === "ok").length
-  const semMaterial = opsComAjustes.filter(op => op.status === "falta" || op.status === "quarentena").length
+  const faltaMaterial = opsComAjustes.filter(op => op.status === "falta").length
+  const quarentenaMaterial = opsComAjustes.filter(op => op.status === "quarentena").length
+  const semMaterial = faltaMaterial + quarentenaMaterial
   const pctAbertas  = totalMes > 0 ? Math.round((abertas / totalMes) * 100) : 0
   const estoqueAtualizadoEm = fmtDataHora(getEstoqueAtualizadoEm(dados))
   const programacaoAtualizadaEm = fmtDataHora(getProgramacaoAtualizadaEm(dados))
@@ -3130,7 +3232,14 @@ export function OrdensPage() {
             <SummaryCard label="OPs abertas"   value={abertas}     sub={`de ${totalMes} · ${pctAbertas}%`} color="#2563EB" Icon={ClipboardList} onClick={() => setModalCard("abertas")} />
             <SummaryCard label="Faltam abrir"  value={faltamAbrir} sub="sem OP emitida"               color="#F59E0B" Icon={Clock}         onClick={() => setModalCard("faltam")} />
             <SummaryCard label="Com material"  value={comMaterial} sub="prontas para abrir"           color="#16A34A" Icon={PackageCheck}  onClick={() => setModalCard("com_material")} />
-            <SummaryCard label="Sem material"  value={semMaterial} sub="falta ou quarentena"          color="#DC2626" Icon={PackageX}      onClick={() => setModalCard("sem_material")} />
+            <SummaryCard
+              label="Sem material"
+              value={semMaterial}
+              sub={`${faltaMaterial} falta · ${quarentenaMaterial} quarentena`}
+              color={faltaMaterial > 0 ? "#DC2626" : "#F59E0B"}
+              Icon={PackageX}
+              onClick={() => setModalCard("sem_material")}
+            />
           </div>
 
           <div className="fade-in rounded-xl border px-4 py-2 text-xs"
