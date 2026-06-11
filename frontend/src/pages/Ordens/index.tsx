@@ -7,7 +7,6 @@ import {
 } from "lucide-react"
 import {
   getOpsMeses,
-  getOpsViabilidadeComLeadtime,
   atualizarRegistro,
   getAjustesComprasOps,
   salvarAjusteCompraOP,
@@ -116,6 +115,10 @@ type OPEditavel = OPResult & {
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
+
+const API_URL_ORDENS =
+  (import.meta as unknown as { env: Record<string, string> }).env
+    .VITE_API_URL || "https://dfl-sop-api.fly.dev"
 
 const TABLE_HEADER_BG = "var(--bg-sidebar)"
 const GRID_COLOR = "#E2E8F0"
@@ -230,8 +233,21 @@ function getQtdCompraTotal(c: CompraAberta): number {
 }
 
 function getQtdComprasTotal(comp: unknown): number {
-  const direto = toNumber((comp as { qtd_compras_total?: number })?.qtd_compras_total)
-  if (direto > 0) return direto
+  const c = comp as {
+    qtd_compras_total_aberto?: number
+    qtd_compras_total?: number
+    compras_total_aberto?: number
+    compras_abertas_total?: number
+  }
+
+  // Backend v8/v9: total aberto no ERP para o código, sem consumir/duplicar por OP.
+  const totalAberto =
+    toNumber(c.qtd_compras_total_aberto) ||
+    toNumber(c.compras_total_aberto) ||
+    toNumber(c.compras_abertas_total) ||
+    toNumber(c.qtd_compras_total)
+
+  if (totalAberto > 0) return totalAberto
 
   return getComprasAbertas(comp).reduce((acc, c) => acc + getQtdCompraTotal(c), 0)
 }
@@ -524,6 +540,27 @@ function isComponenteGargalante(item: Partial<Gargalo> | Record<string, unknown>
 
 function statusComponenteVisual(comp: Record<string, unknown>): StatusOP {
   if (!isComponenteGargalante(comp)) return "ok"
+
+  // Backend v8/v9: quando a compra cobre no prazo, não deve aparecer como material travando.
+  // Mantém compatibilidade mesmo se o front receber status antigo = falta.
+  const statusOperacional = String(comp.status_operacional || "")
+  const statusCompra = String(comp.status_compra || "")
+  const abreNoPrazo = Boolean(comp.abre_no_prazo)
+  const temFaltanteAposCompras =
+    Object.prototype.hasOwnProperty.call(comp, "faltante_apos_compras") ||
+    Object.prototype.hasOwnProperty.call(comp, "faltante_pos_compra") ||
+    Object.prototype.hasOwnProperty.call(comp, "faltante_na_data_op")
+  const faltanteAposCompras = toNumber(comp.faltante_apos_compras ?? comp.faltante_pos_compra ?? comp.faltante_na_data_op)
+
+  if (
+    statusOperacional === "compra_no_prazo" ||
+    statusCompra === "no_prazo" ||
+    abreNoPrazo ||
+    (temFaltanteAposCompras && faltanteAposCompras <= 0)
+  ) {
+    return "ok"
+  }
+
   const status = String(comp.status || "ok") as StatusOP
   return STATUS_CONFIG[status] ? status : "ok"
 }
@@ -558,7 +595,10 @@ function sanitizarOP(op: OPEditavel): OPEditavel {
   // MC agora pode gerar gargalo/status de falta; PI continua fora da criticidade visual.
   const alertasVisiveis = alertasOriginais.filter(comp => !isTubete(comp as unknown as Record<string, unknown>))
   const alertasGargalantes = alertasVisiveis.filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
-  const alertasCriticos = alertasGargalantes.filter(comp => comp.status === "falta" || comp.status === "quarentena")
+  const alertasCriticos = alertasGargalantes.filter(comp => {
+    const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+    return status === "falta" || status === "quarentena"
+  })
 
   let status = op.status
   if ((status === "falta" || status === "quarentena") && alertasCriticos.length === 0) {
@@ -584,7 +624,10 @@ function getGargalosOP(op: OPEditavel): Gargalo[] {
   const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
   const alertasCriticosMP = alertasOriginais
     .filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
-    .filter(comp => comp.status === "falta" || comp.status === "quarentena")
+    .filter(comp => {
+      const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+      return status === "falta" || status === "quarentena"
+    })
 
   for (const comp of alertasCriticosMP) {
     gargalos.push(alertaToGargalo(comp as unknown as Record<string, unknown>))
@@ -654,7 +697,8 @@ function montarResumoMateriaisCriticos(opsBase: OPEditavel[]): MaterialCriticoRe
       const estoqueDisponivelItem = getEstoqueDisponivelResumo(comp)
       const saldo98Item = toNumber(comp.saldo_98 ?? comp.saldo_disponivel_98 ?? comp.saldo_chegou_98)
       const qtdCompraUsada = getQtdCompraUsada(comp)
-      const qtdCompraTotal = qtdCompraUsada > 0 ? qtdCompraUsada : getQtdComprasTotal(comp)
+      const qtdCompraTotalAberto = getQtdComprasTotal(comp)
+      const qtdCompraTotal = qtdCompraTotalAberto > 0 ? qtdCompraTotalAberto : qtdCompraUsada
       const menorData = getMenorDataEntregaCompra(comp)
 
       if (!mapa.has(chave)) {
@@ -685,7 +729,13 @@ function montarResumoMateriaisCriticos(opsBase: OPEditavel[]): MaterialCriticoRe
       linha.faltante_total += faltanteItem
       linha.estoque_disponivel = Math.max(linha.estoque_disponivel, estoqueDisponivelItem)
       linha.saldo_98 = Math.max(linha.saldo_98, saldo98Item)
-      linha.compras_abertas += qtdCompraTotal
+      // Total aberto do ERP não deve somar por OP, senão duplica.
+      // Se vier só compra usada/alocada, mantém soma como fallback.
+      if (qtdCompraTotalAberto > 0) {
+        linha.compras_abertas = Math.max(linha.compras_abertas, qtdCompraTotalAberto)
+      } else {
+        linha.compras_abertas += qtdCompraTotal
+      }
 
       if (menorData && (!linha.menor_data_entrega || menorData < linha.menor_data_entrega)) {
         linha.menor_data_entrega = menorData
@@ -972,7 +1022,10 @@ function aplicarSimulacaoComprasNaOP(
 
   const alertasCriticos = alertas
     .filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
-    .filter(comp => comp.status === "falta" || comp.status === "quarentena")
+    .filter(comp => {
+      const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+      return status === "falta" || status === "quarentena"
+    })
 
   let status = op.status
   let gargalo = op.gargalo
@@ -982,7 +1035,7 @@ function aplicarSimulacaoComprasNaOP(
       status = "ok"
       gargalo = null
     } else {
-      status = alertasCriticos.some(a => a.status === "falta") ? "falta" : "quarentena"
+      status = alertasCriticos.some(a => statusComponenteVisual(a as unknown as Record<string, unknown>) === "falta") ? "falta" : "quarentena"
       gargalo = alertaToGargalo(alertasCriticos[0] as unknown as Record<string, unknown>)
     }
   }
@@ -994,6 +1047,69 @@ function aplicarSimulacaoComprasNaOP(
     detalhes,
     gargalo,
   }
+}
+
+function limparCacheOrdensLocal() {
+  try {
+    if (typeof window === "undefined") return
+
+    const keysToRemove: string[] = []
+
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i)
+      if (!key) continue
+
+      if (
+        key.includes("/ops/viabilidade") ||
+        key.includes("/ops/resumo") ||
+        key.includes("dfl-api-cache")
+      ) {
+        keysToRemove.push(key)
+      }
+    }
+
+    keysToRemove.forEach((key) => window.localStorage.removeItem(key))
+  } catch {
+    // Não bloqueia a tela se o navegador impedir acesso ao storage.
+  }
+}
+
+async function getOpsViabilidadeComLeadtimeSemCache(
+  mesRef: string,
+  leadtimeCompraDias: number
+): Promise<ResumoViabilidade> {
+  limparCacheOrdensLocal()
+
+  const leadtime = Math.max(
+    0,
+    Number.isFinite(Number(leadtimeCompraDias)) ? Number(leadtimeCompraDias) : 0
+  )
+
+  const query = new URLSearchParams()
+  query.set("mes_ref", mesRef)
+  query.set("leadtime_compra_dias", String(leadtime))
+  query.set("_ts", String(Date.now()))
+
+  const res = await fetch(`${API_URL_ORDENS}/ops/viabilidade?${query.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  })
+
+  const payload = await res.json().catch(() => ({ detail: res.statusText }))
+
+  if (!res.ok) {
+    throw new Error(
+      (payload as { detail?: string }).detail ||
+        `Erro ${res.status} ao carregar viabilidade das OPs.`
+    )
+  }
+
+  return payload as ResumoViabilidade
 }
 
 // ─── Hook: resize de coluna ───────────────────────────────────────────────────
@@ -1632,7 +1748,10 @@ function CardModal({ tipo, ops, onClose }: { tipo: ModalTipo; ops: OPEditavel[];
     ops.filter(op => op.status === "falta" || op.status === "quarentena").forEach(op => {
       op.alertas
         .filter(a => isComponenteGargalante(a as unknown as Record<string, unknown>))
-        .filter(a => a.status === "falta" || a.status === "quarentena")
+        .filter(a => {
+          const status = statusComponenteVisual(a as unknown as Record<string, unknown>)
+          return status === "falta" || status === "quarentena"
+        })
         .forEach(comp => {
           if (!mat[comp.codigo_comp]) mat[comp.codigo_comp] = { descricao: comp.descricao || comp.codigo_comp, count: 0 }
           mat[comp.codigo_comp].count++
@@ -2699,7 +2818,7 @@ export function OrdensPage() {
     if (!mesBusca) return
     setLoading(true); setErro(""); setSelecionados(new Set())
     try {
-      const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias)
+      const res = await getOpsViabilidadeComLeadtimeSemCache(mesBusca, leadtimeCompraDias)
       setDados(res)
       const opsTratadas = ordenarESequenciarOps(
         res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
