@@ -94,6 +94,7 @@ type BraviSeriePonto = {
   mes?: number
   estoque?: number | null
   estoque_medio?: number | null
+  estoque_projetado?: number | null
   estoque_quarentena?: number | null
   quarentena?: number | null
   saldo_quarentena?: number | null
@@ -1220,6 +1221,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         saldo_grafico: null,
         ponto_pedido: null,
         saldo_projetado: null,
+        estoque_projetado: null,
       })
     }
     return mapa.get(key)
@@ -1370,8 +1372,9 @@ function buildSerieOperacionalItemSelecionado(item: AgingEstoqueItemDetalhe | nu
       periodo_completo: p.periodo,
       ano: p.ano,
       mes: p.mes,
-      estoque: p.estoque_atual !== null && p.estoque_atual !== undefined ? Math.max(0, Number(p.estoque_atual || 0)) : (p.saldo_grafico !== null && p.saldo_grafico !== undefined ? Math.max(0, Number(p.saldo_grafico || 0)) : null),
-      estoque_medio: p.estoque_atual !== null && p.estoque_atual !== undefined ? Math.max(0, Number(p.estoque_atual || 0)) : (p.saldo_grafico !== null && p.saldo_grafico !== undefined ? Math.max(0, Number(p.saldo_grafico || 0)) : null),
+      estoque: p.estoque_atual !== null && p.estoque_atual !== undefined ? Math.max(0, Number(p.estoque_atual || 0)) : null,
+      estoque_medio: p.estoque_atual !== null && p.estoque_atual !== undefined ? Math.max(0, Number(p.estoque_atual || 0)) : null,
+      estoque_projetado: p.saldo_projetado !== null && p.saldo_projetado !== undefined ? Math.max(0, Number(p.saldo_projetado || 0)) : null,
       estoque_quarentena: p.estoque_quarentena ?? p.quarentena ?? null,
       quarentena: p.quarentena ?? p.estoque_quarentena ?? null,
       saldo_quarentena: p.quarentena ?? p.estoque_quarentena ?? null,
@@ -1386,6 +1389,7 @@ function buildSerieOperacionalItemSelecionado(item: AgingEstoqueItemDetalhe | nu
     }))
     .filter((p) =>
       p.estoque !== null ||
+      p.estoque_projetado !== null ||
       p.estoque_quarentena !== null ||
       p.entradas_previstas !== null ||
       p.faturamento_qtd !== null ||
@@ -2139,7 +2143,7 @@ function BraviSeriePanel({
     const estoqueAtual = Number(Number.isFinite(estoqueTabela) ? estoqueTabela : (resumo.estoque_atual ?? 0))
     const quarentenaAtual = Number((itemSelecionado as any).saldo_quarentena ?? (itemSelecionado as any).quarentena_98 ?? 0)
 
-    return serieOriginal.map((ponto: any) => {
+    const pontos = serieOriginal.map((ponto: any) => {
       const ordem = String(ponto?.ordem || ponto?.key || "")
       const dataInicio = String(ponto?.data_inicio || ordem || "")
       const dataFim = String(ponto?.data_fim || dataInicio || "")
@@ -2158,6 +2162,7 @@ function BraviSeriePanel({
         ...ponto,
         estoque: null,
         estoque_medio: null,
+        estoque_projetado: null,
         estoque_quarentena: null,
         quarentena: null,
         saldo_quarentena: null,
@@ -2170,21 +2175,56 @@ function BraviSeriePanel({
         pontoSaida.quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
         pontoSaida.saldo_quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
         pontoSaida.tipo_estoque = "atual"
-        return pontoSaida
-      }
-
-      if (isFuturo) {
-        // V23: por decisão de negócio, não projetamos saldo de estoque no gráfico PA/MR.
-        // Mantemos somente entradas previstas e forecast/demanda para não confundir
-        // disponibilidade real com uma projeção simplificada.
+      } else if (isFuturo) {
+        // Estoque real continua sendo apenas o PA disponível em 04/07.
+        // A linha projetada considera entradas previstas/PI Bravi e subtrai forecast futuro,
+        // sem transformar PI do armazém 10 em estoque real.
         pontoSaida.estoque = null
         pontoSaida.estoque_medio = null
-        pontoSaida.saldo_projetado = null
-        pontoSaida.tipo_estoque = "sem_projecao"
+        pontoSaida.tipo_estoque = "projetado"
       }
 
       return pontoSaida
     })
+
+    let saldoProjetado = Math.max(0, estoqueAtual)
+
+    const pontosOrdenados = [...pontos].sort((a: any, b: any) => {
+      const ordemA = String(a?.ordem || a?.key || "")
+      const ordemB = String(b?.ordem || b?.key || "")
+      return ordemA.localeCompare(ordemB)
+    })
+
+    for (const ponto of pontosOrdenados) {
+      const ordem = String(ponto?.ordem || ponto?.key || "")
+      const dataInicio = String(ponto?.data_inicio || ordem || "")
+      const isAtual = granularidade === "mensal"
+        ? ordem === ordemMensalAtual
+        : ordem === diaAtual || dataInicio === diaAtual
+      const isFuturo = granularidade === "mensal"
+        ? ordem > ordemMensalAtual
+        : dataInicio > diaAtual
+
+      const entradas = Math.max(0, Number(ponto.entradas_previstas || 0))
+      const demanda = Math.max(0, Number(ponto.demanda || ponto.forecast || 0))
+
+      if (isAtual) {
+        // Regra visual: entradas do mês atual viram base para o saldo projetado futuro.
+        // Não descontamos o forecast do mês corrente para evitar misturar realizado parcial com previsão mensal.
+        saldoProjetado = Math.max(0, saldoProjetado + entradas)
+        ponto.saldo_projetado = null
+        ponto.estoque_projetado = null
+        continue
+      }
+
+      if (isFuturo) {
+        saldoProjetado = Math.max(0, saldoProjetado + entradas - demanda)
+        ponto.saldo_projetado = saldoProjetado
+        ponto.estoque_projetado = saldoProjetado > 0 ? saldoProjetado : null
+      }
+    }
+
+    return pontos
   }, [serieOriginal, itemSelecionado, resumo.estoque_atual, granularidade])
   const tituloSerie = itemSelecionado
     ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}${loading ? " · atualizando série" : ""}`
@@ -2198,13 +2238,14 @@ function BraviSeriePanel({
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
       const estoqueDisponivel = serieOculta("estoque") ? 0 : Math.max(0, Number(ponto.estoque || 0))
+      const estoqueProjetado = serieOculta("estoque_projetado") ? 0 : Math.max(0, Number(ponto.estoque_projetado || ponto.saldo_projetado || 0))
       const entradasPrevistas = serieOculta("entradas_previstas") ? 0 : Math.max(0, Number(ponto.entradas_previstas || 0))
       const quarentena = serieOculta("estoque_quarentena") ? 0 : Math.max(0, Number(ponto.estoque_quarentena || ponto.quarentena || 0))
       const faturamento = serieOculta("faturamento_qtd") ? 0 : Math.max(0, Number(ponto.faturamento_qtd || 0))
       const forecast = serieOculta("demanda") ? 0 : Math.max(0, Number(ponto.demanda || ponto.forecast || 0))
       const disponibilidade = estoqueDisponivel + entradasPrevistas + quarentena
 
-      return Math.max(max, disponibilidade, faturamento, forecast)
+      return Math.max(max, disponibilidade, estoqueProjetado, faturamento, forecast)
     }, 0)
 
     return arredondarEixoMaximo(maiorValor)
@@ -2283,7 +2324,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V36: visão geral em cache + item selecionado com fallback rápido e eixo recalculado pelas séries visíveis. Sem projeção futura de saldo.
+                V37: visão geral em cache + item selecionado com estoque real e estoque projetado. Eixo recalculado pelas séries visíveis.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -2291,11 +2332,11 @@ function BraviSeriePanel({
             </span>
           </div>
 
-          <div className="h-[380px]">
+          <div className="h-[500px]">
             {serie.length ? (
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={serie} margin={{ top: 24, right: 26, left: 0, bottom: 54 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                <ComposedChart data={serie} margin={{ top: 30, right: 26, left: 0, bottom: 34 }}>
+                  {/* Grade removida para deixar o gráfico mais limpo. */}
                   <XAxis
                     dataKey="periodo"
                     angle={-35}
@@ -2343,6 +2384,21 @@ function BraviSeriePanel({
                   >
                     <LabelList dataKey="estoque" content={renderChartLabelAberto} />
                   </Bar>
+
+                  <Line
+                    yAxisId="estoque"
+                    type="monotone"
+                    dataKey="estoque_projetado"
+                    name="Estoque projetado"
+                    stroke="#60A5FA"
+                    strokeWidth={2.7}
+                    strokeDasharray="5 5"
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                    hide={!itemSelecionado || serieOculta("estoque_projetado")}
+                  >
+                    <LabelList dataKey="estoque_projetado" content={renderChartLabelAberto} />
+                  </Line>
 
                   <Bar
                     yAxisId="estoque"
