@@ -1081,30 +1081,52 @@ function fmtDateTime(value?: string | null) {
   if (!value) return "—"
 
   const texto = String(value).trim()
-  const horaMatch = texto.match(/T(\d{2}:\d{2})|\s(\d{2}:\d{2})/)
-  const hora = horaMatch?.[1] || horaMatch?.[2]
 
-  const isoDate = texto.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (isoDate) {
-    const [, ano, mes, dia] = isoDate
-    const data = `${dia}/${mes}/${ano}`
-    return hora ? `${data} às ${hora}` : data
+  // Data pura não deve sofrer conversão de fuso, senão pode virar o dia anterior.
+  const isoDateOnly = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (isoDateOnly) {
+    const [, ano, mes, dia] = isoDateOnly
+    return `${dia}/${mes}/${ano}`
   }
 
-  const brDate = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
-  if (brDate) {
-    const [, dia, mes, ano] = brDate
-    const data = `${dia}/${mes}/${ano}`
-    return hora ? `${data} às ${hora}` : data
+  const brDateOnly = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (brDateOnly) {
+    const [, dia, mes, ano] = brDateOnly
+    return `${dia}/${mes}/${ano}`
   }
 
-  const d = new Date(texto)
-  if (Number.isNaN(d.getTime())) return texto.slice(0, 10)
+  // Datas com hora vindas do Supabase/Fly costumam chegar em UTC.
+  // O front deve exibir sempre no horário do Brasil para não mostrar +3h.
+  let valorParse = texto
+  const pareceIsoComHora = /^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}/.test(valorParse)
+  const temTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(valorParse)
 
-  const data = d.toLocaleDateString("pt-BR")
-  const horaLocal = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  if (pareceIsoComHora) {
+    valorParse = valorParse.replace(" ", "T")
+    if (!temTimezone) valorParse = `${valorParse}Z`
+  }
 
-  return `${data} às ${horaLocal}`
+  const d = new Date(valorParse)
+  if (Number.isNaN(d.getTime())) {
+    const brDateTime = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(?:às\s*)?(\d{2}:\d{2}))?/i)
+    if (brDateTime) {
+      const [, dia, mes, ano, hora] = brDateTime
+      return hora ? `${dia}/${mes}/${ano} às ${hora}` : `${dia}/${mes}/${ano}`
+    }
+
+    return texto.slice(0, 16)
+  }
+
+  const dataHora = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d)
+
+  return dataHora.replace(",", " às")
 }
 
 function getAnyNumber(item: Record<string, unknown> | null | undefined, key: string) {
