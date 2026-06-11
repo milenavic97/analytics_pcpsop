@@ -1048,8 +1048,14 @@ function arredondarEixoMaximo(value: number) {
 
   const fator =
     normalizado <= 1 ? 1 :
+    normalizado <= 1.25 ? 1.25 :
+    normalizado <= 1.5 ? 1.5 :
     normalizado <= 2 ? 2 :
+    normalizado <= 2.5 ? 2.5 :
+    normalizado <= 3 ? 3 :
+    normalizado <= 4 ? 4 :
     normalizado <= 5 ? 5 :
+    normalizado <= 7.5 ? 7.5 :
     10
 
   return fator * potencia
@@ -1817,6 +1823,18 @@ function renderChartLabelAberto(props: any) {
   )
 }
 
+function renderChartLabelFinanceiro(props: any) {
+  const { x, y, value } = props
+  const n = Number(value || 0)
+  if (!Number.isFinite(n) || n === 0 || x == null || y == null) return null
+
+  return (
+    <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={700} fill="#6D28D9">
+      {fmtCurrency(n, 0)}
+    </text>
+  )
+}
+
 function LinhaTempoTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
 
@@ -2179,18 +2197,18 @@ function BraviSeriePanel({
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
-      const estoqueDisponivel = Math.max(0, Number(ponto.estoque || 0))
-      const entradasPrevistas = Math.max(0, Number(ponto.entradas_previstas || 0))
-      const quarentena = Math.max(0, Number(ponto.estoque_quarentena || ponto.quarentena || 0))
-      const faturamento = Math.max(0, Number(ponto.faturamento_qtd || 0))
-      const forecast = Math.max(0, Number(ponto.demanda || ponto.forecast || 0))
+      const estoqueDisponivel = serieOculta("estoque") ? 0 : Math.max(0, Number(ponto.estoque || 0))
+      const entradasPrevistas = serieOculta("entradas_previstas") ? 0 : Math.max(0, Number(ponto.entradas_previstas || 0))
+      const quarentena = serieOculta("estoque_quarentena") ? 0 : Math.max(0, Number(ponto.estoque_quarentena || ponto.quarentena || 0))
+      const faturamento = serieOculta("faturamento_qtd") ? 0 : Math.max(0, Number(ponto.faturamento_qtd || 0))
+      const forecast = serieOculta("demanda") ? 0 : Math.max(0, Number(ponto.demanda || ponto.forecast || 0))
       const disponibilidade = estoqueDisponivel + entradasPrevistas + quarentena
 
       return Math.max(max, disponibilidade, faturamento, forecast)
     }, 0)
 
     return arredondarEixoMaximo(maiorValor)
-  }, [serie])
+  }, [serie, seriesOcultas])
 
   if (!active) return null
 
@@ -2265,7 +2283,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V32: visão geral em cache + item selecionado com fallback rápido e série real em cache. Sem projeção futura de saldo.
+                V36: visão geral em cache + item selecionado com fallback rápido e eixo recalculado pelas séries visíveis. Sem projeção futura de saldo.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -2395,7 +2413,7 @@ function BraviSeriePanel({
                     connectNulls={false}
                     hide={serieOculta("faturamento_valor")}
                   >
-                    <LabelList dataKey="faturamento_valor" content={renderChartLabelAberto} />
+                    <LabelList dataKey="faturamento_valor" content={renderChartLabelFinanceiro} />
                   </Line>
                 </ComposedChart>
               </ResponsiveContainer>
