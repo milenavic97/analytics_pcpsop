@@ -145,7 +145,7 @@ type BraviSerieResponse = {
 }
 
 async function getBraviSerie(granularidade: GranularidadeSerie, codigo?: string): Promise<BraviSerieResponse> {
-  // V31: a série geral PA/MR e a série por item entram no cache local de 12h.
+  // V32: a série geral PA/MR e a série por item entram no cache local de 12h.
   // Ao selecionar item, o front mostra fallback rápido e troca pela série real quando o backend/cache responder.
   const params: Record<string, string> = { granularidade }
   if (codigo) params.codigo = codigo
@@ -325,6 +325,31 @@ function getAgingItensDireto(params: {
     classificacao_cadastro: params.classificacao_cadastro,
     semaforo: params.semaforo,
   })
+}
+
+
+async function getAgingEstoqueItemComCache(
+  codigo: string,
+  horizonteFuturo: number
+): Promise<AgingEstoqueItemDetalhe> {
+  // V32: o detalhe de insumos é pesado porque traz histórico de consumo, demanda MPS/BOM,
+  // pedidos e histórico diário. Guardamos o detalhe por 12h para sair/voltar ou trocar de item
+  // sem recalcular tudo de novo no backend.
+  const params = {
+    codigo,
+    horizonte_futuro: Math.max(1, Number(horizonteFuturo || 6)),
+  }
+
+  const cached = lerCacheGestaoEstoque<AgingEstoqueItemDetalhe>(
+    "__service__/aging-estoque/item",
+    params
+  )
+
+  if (cached) return cached
+
+  const detalhe = await getAgingEstoqueItem(codigo, params.horizonte_futuro) as AgingEstoqueItemDetalhe
+  salvarCacheGestaoEstoque("__service__/aging-estoque/item", params, detalhe)
+  return detalhe
 }
 
 type BaseGestaoEstoque = {
@@ -1775,7 +1800,6 @@ function LinhaTempoTooltip({ active, payload, label }: any) {
 
   const ponto = payload[0]?.payload || {}
   const entradas = Array.isArray(ponto.entradas_detalhe) ? ponto.entradas_detalhe : []
-  const faturamento = Array.isArray(ponto.faturamento_detalhe) ? ponto.faturamento_detalhe : []
 
   const itensValidos = payload.filter((entry: any) => entry?.value !== null && entry?.value !== undefined)
 
@@ -1797,21 +1821,6 @@ function LinhaTempoTooltip({ active, payload, label }: any) {
         })}
       </div>
 
-      {faturamento.length > 0 && (
-        <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--border)" }}>
-          <p className="mb-1 font-bold" style={{ color: "var(--text-primary)" }}>Faturamento SD2</p>
-          <div className="max-h-[160px] space-y-1 overflow-auto pr-1">
-            {faturamento.slice(0, 6).map((linha: any, idx: number) => (
-              <div key={`${linha.codigo}-${linha.data}-${idx}`} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-2 py-1.5">
-                <span style={{ color: "var(--text-secondary)" }}>{linha.codigo || "—"}</span>
-                <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmtNumber(Number(linha.quantidade || 0), 0)}</span>
-                <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{fmtCurrency(Number(linha.valor || 0), 0)}</span>
-              </div>
-            ))}
-            {faturamento.length > 6 && <p style={{ color: "var(--text-secondary)" }}>+ {fmtNumber(faturamento.length - 6)} linha(s) de faturamento</p>}
-          </div>
-        </div>
-      )}
 
       {entradas.length > 0 && (
         <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--border)" }}>
@@ -1925,7 +1934,7 @@ function BraviSeriePanel({
 
     const codigoEsperado = codigoSelecionado
 
-    // V31: mantém a troca de linha rápida, mas não abre mão da série real.
+    // V32: mantém a troca de linha rápida, mas não abre mão da série real.
     // Primeiro monta um fallback instantâneo com a linha da tabela; depois busca a série do backend em segundo plano.
     // Como getBraviSerie usa cache local de 12h, a segunda vez que o item for aberto fica praticamente imediata.
     if (granularidade !== "mensal") {
@@ -1958,8 +1967,8 @@ function BraviSeriePanel({
           criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : 0,
         },
         serie: serieLocal,
-        debug: { modo: "item_pa_mr_fallback_tabela_v31" },
-        backend_versao: "front_v31_fallback",
+        debug: { modo: "item_pa_mr_fallback_tabela_v32" },
+        backend_versao: "front_v32_fallback",
       }
 
       setData(fallbackItem)
@@ -2004,7 +2013,7 @@ function BraviSeriePanel({
               criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : Number(res.resumo?.criticos || 0),
             },
             serie: serieBackend,
-            debug: { ...(res.debug || {}), modo_front: "item_pa_mr_backend_cache_v31" },
+            debug: { ...(res.debug || {}), modo_front: "item_pa_mr_backend_cache_v32" },
           })
         })
         .catch((err: unknown) => {
@@ -2234,7 +2243,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V31: visão geral em cache + item selecionado com fallback rápido e série real em cache. Sem projeção futura de saldo.
+                V32: visão geral em cache + item selecionado com fallback rápido e série real em cache. Sem projeção futura de saldo.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -2939,7 +2948,7 @@ function TimelinePrincipal({
             {item ? `${item.codigo} · ${item.produto || "Item selecionado"}` : "Selecione um item na tabela"}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            Consumo histórico, demanda MPS/BOM, faturamento SD2, compras previstas, estoque disponível, quarentena e ponto de pedido.
+            Consumo histórico, demanda MPS/BOM, compras previstas, estoque disponível, quarentena e ponto de pedido.
           </p>
         </div>
 
@@ -3002,7 +3011,7 @@ function TimelinePrincipal({
               </div>
               {loading && (
                 <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
-                  <RefreshCw size={13} className="animate-spin" /> Atualizando
+                  <RefreshCw size={13} className="animate-spin" /> Atualizando histórico / demanda
                 </span>
               )}
             </div>
@@ -3085,10 +3094,8 @@ function TimelinePrincipal({
                     <Line yAxisId="estoque" type="monotone" dataKey="ponto_pedido" name="Ponto de pedido" stroke="#D97706" strokeWidth={2.4} strokeDasharray="3 5" dot={false} connectNulls hide={serieOculta("ponto_pedido")}>
                       <LabelList dataKey="ponto_pedido" content={renderChartLabel} />
                     </Line>
-                    <Line yAxisId="estoque" type="monotone" dataKey="faturamento_qtd" name="Faturamento SD2 (qtd)" stroke="#0F766E" strokeWidth={3} dot={{ r: 3 }} connectNulls={false} hide={serieOculta("faturamento_qtd")}>
-                      <LabelList dataKey="faturamento_qtd" content={renderChartLabel} />
-                    </Line>
-                    <Line yAxisId="valor" type="monotone" dataKey="faturamento_valor" name="Faturamento SD2 (R$)" stroke="#9333EA" strokeWidth={2.5} strokeDasharray="6 4" dot={false} connectNulls={false} hide={serieOculta("faturamento_valor")} />
+                    {/* Insumos não têm leitura operacional por faturamento.
+                        Faturamento SD2 fica apenas na visão PA/MR. */}
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
@@ -3369,11 +3376,22 @@ export default function AgingEstoquePage() {
   }
 
   const abrirDetalhe = (item: AgingEstoqueItem) => {
-    const itemSelecionado = escopoEstoque === "insumos"
-      ? item
-      : normalizarCoberturaPaMrItem(item)
+    if (escopoEstoque === "insumos") {
+      const codigo = String(item.codigo || "").trim()
+      const detalheEmCache = codigo
+        ? lerCacheGestaoEstoque<AgingEstoqueItemDetalhe>(
+            "__service__/aging-estoque/item",
+            { codigo, horizonte_futuro: Math.max(1, Number(horizonteFuturo || 6)) }
+          )
+        : null
 
-    setSelected(itemSelecionado as AgingEstoqueItemDetalhe)
+      // Se o detalhe já foi aberto antes, mostra a série completa na hora.
+      // Se ainda não tem cache, mostra a linha da tabela e carrega o detalhe completo em segundo plano.
+      setSelected((detalheEmCache || item) as AgingEstoqueItemDetalhe)
+      return
+    }
+
+    setSelected(normalizarCoberturaPaMrItem(item) as AgingEstoqueItemDetalhe)
   }
 
   useEffect(() => {
@@ -3389,7 +3407,7 @@ export default function AgingEstoquePage() {
     let mounted = true
     setLoadingDetalhe(true)
 
-    getAgingEstoqueItem(codigo, horizonteFuturo)
+    getAgingEstoqueItemComCache(codigo, horizonteFuturo)
       .then((detalhe) => {
         if (!mounted) return
         setSelected(detalhe as AgingEstoqueItemDetalhe)
@@ -4050,7 +4068,7 @@ export default function AgingEstoquePage() {
                     key={item.codigo}
                     className="cursor-pointer border-b transition hover:bg-slate-100"
                     style={{ borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "rgba(22,59,99,0.07)" : undefined }}
-                    onClick={() => setSelected(item as AgingEstoqueItemDetalhe)}
+                    onClick={() => abrirDetalhe(item)}
                   >
                     <td className="px-3 py-2 font-bold">{item.codigo}</td>
                     <td className="truncate px-3 py-2" title={item.produto || ""}>{item.produto || "—"}</td>
