@@ -145,8 +145,8 @@ type BraviSerieResponse = {
 }
 
 async function getBraviSerie(granularidade: GranularidadeSerie, codigo?: string): Promise<BraviSerieResponse> {
-  // V29: a série PA/MR também entra no cache local de 12h.
-  // Isso vale tanto para a visão geral quanto para o item selecionado.
+  // V30: a série geral PA/MR também entra no cache local de 12h.
+  // O item selecionado não chama o backend ao trocar de linha; usa a linha da tabela para responder rápido.
   const params: Record<string, string> = { granularidade }
   if (codigo) params.codigo = codigo
 
@@ -1925,35 +1925,52 @@ function BraviSeriePanel({
 
     const codigoEsperado = codigoSelecionado
 
-    // A visão geral de todos os PA/MR é propositalmente mensal.
-    // Sem isso, uma série diária/semanal consolidada pode ficar pesada demais.
-    if (!codigoEsperado && granularidade !== "mensal") {
+    // V30: para manter a troca de linha instantânea, o gráfico PA/MR fica mensal.
+    // A visão geral ainda usa o endpoint consolidado; o item selecionado usa a própria linha da tabela.
+    if (granularidade !== "mensal") {
       setGranularidade("mensal")
+      return
+    }
+
+    if (itemSelecionado) {
+      const itemNormalizado = normalizarCoberturaPaMrItem(itemSelecionado)
+      const serieLocal = buildSerieOperacionalItemSelecionado(itemNormalizado)
+      const statusItem = String((itemNormalizado as any).status || (itemNormalizado as any).status_estoque || "").toUpperCase()
+
+      setLoading(false)
+      setError("")
+      setData({
+        granularidade: "mensal",
+        total_itens_produtos: 1,
+        total_itens_bravi: 1,
+        codigos_produtos: codigoEsperado ? [codigoEsperado] : [],
+        codigos_bravi: codigoEsperado ? [codigoEsperado] : [],
+        item: {
+          codigo: codigoEsperado,
+          produto: String((itemNormalizado as any).produto || (itemNormalizado as any).descricao || "Item selecionado"),
+          tipo: String((itemNormalizado as any).tipo || ""),
+        },
+        resumo: {
+          estoque_atual: getEstoqueAtualReal(itemNormalizado),
+          pedidos_abertos: getPedidosAbertos(itemNormalizado),
+          faturamento_ytd_qtd: Number((itemNormalizado as any).faturamento_ytd_qtd || 0),
+          faturamento_ytd_valor: Number((itemNormalizado as any).faturamento_ytd_valor || 0),
+          criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : 0,
+        },
+        serie: serieLocal,
+        debug: { modo: "item_pa_mr_front_instantaneo_v30" },
+        backend_versao: "front_v30",
+      })
       return
     }
 
     let mounted = true
     setLoading(true)
     setError("")
-    setData(null)
 
-    getBraviSerie(granularidade, codigoEsperado || undefined)
+    getBraviSerie("mensal")
       .then((res) => {
         if (!mounted) return
-
-        // Quando há item selecionado, mantém a proteção para não exibir uma série consolidada por engano.
-        if (codigoEsperado) {
-          const codigoRetornado = String(res?.item?.codigo || res?.codigos_produtos?.[0] || res?.codigos_bravi?.[0] || "")
-          const modo = String(res?.debug?.modo || "")
-          const qtdCodigos = Number(res?.codigos_produtos?.length ?? res?.codigos_bravi?.length ?? 0)
-
-          if (codigoRetornado !== codigoEsperado || (qtdCodigos && qtdCodigos !== 1) || (modo && modo !== "item_pa_mr_rapido")) {
-            setData(null)
-            setError(`A série retornada não está filtrada pelo item ${codigoEsperado}. Confirme se o backend está na versão v17 ou superior.`)
-            return
-          }
-        }
-
         setData(res)
       })
       .catch((err: unknown) => {
@@ -1965,7 +1982,7 @@ function BraviSeriePanel({
       })
 
     return () => { mounted = false }
-  }, [active, granularidade, refreshTick, codigoSelecionado])
+  }, [active, granularidade, refreshTick, codigoSelecionado, itemSelecionado])
 
   const toggleSerie = (dataKey?: string) => {
     if (!dataKey) return
@@ -2070,7 +2087,7 @@ function BraviSeriePanel({
       ? "Visão geral PA / MR · carregando consolidado..."
       : "Visão geral PA / MR"
   const descricaoSerie = itemSelecionado
-    ? "Visão filtrada pelo item selecionado na tabela. Para voltar ao consolidado, clique em Ver todo."
+    ? "Visão rápida do item selecionado, montada a partir da própria linha da tabela para não recarregar ao trocar de item. Para voltar ao consolidado, clique em Ver todo."
     : "Consolidado mensal de todos os PA/MR. O primeiro carregamento pode demorar, mas depois fica salvo em cache local por 12 horas."
 
   const eixoMaxComum = useMemo(() => {
@@ -2117,14 +2134,14 @@ function BraviSeriePanel({
             ["semanal", "Semanal"],
             ["diaria", "Diária"],
           ] as [GranularidadeSerie, string][]).map(([key, label]) => {
-            const disabled = !itemSelecionado && key !== "mensal"
+            const disabled = key !== "mensal"
             return (
               <button
                 key={key}
                 type="button"
                 disabled={disabled}
                 onClick={() => !disabled && setGranularidade(key)}
-                title={disabled ? "Na visão geral, o consolidado fica mensal para manter performance." : undefined}
+                title={disabled ? "Nesta visão PA/MR, o gráfico fica mensal para manter performance e troca rápida de item." : undefined}
                 className="rounded-xl border px-3 py-2 text-sm font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
                 style={{
                   borderColor: granularidade === key ? "#163B63" : "var(--border)",
@@ -2161,7 +2178,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V29: gráfico PA/MR com visão geral mensal + item selecionado. Série salva em cache local por 12h. Sem projeção futura de saldo.
+                V30: visão geral mensal em cache + item selecionado instantâneo pela linha da tabela. Sem projeção futura de saldo.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
