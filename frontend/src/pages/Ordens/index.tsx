@@ -541,6 +541,17 @@ function isComponenteGargalante(item: Partial<Gargalo> | Record<string, unknown>
 function statusComponenteVisual(comp: Record<string, unknown>): StatusOP {
   if (!isComponenteGargalante(comp)) return "ok"
 
+  const status = String(comp.status || "ok") as StatusOP
+  const saldo98 = toNumber(comp.saldo_98 ?? comp.saldo_disponivel_98 ?? comp.saldo_chegou_98)
+  const faltanteFisico = toNumber(comp.faltante)
+
+  // Quarentena/CQ precisa continuar aparecendo na tabela inferior.
+  // Mesmo quando não há falta depois de compras, ainda existe dependência de liberação do arm. 98.
+  // Por isso a quarentena tem prioridade sobre a regra de "compra no prazo".
+  if (status === "quarentena" || (saldo98 > 0 && faltanteFisico > 0 && status !== "ok")) {
+    return "quarentena"
+  }
+
   // Backend v8/v9: quando a compra cobre no prazo, não deve aparecer como material travando.
   // Mantém compatibilidade mesmo se o front receber status antigo = falta.
   const statusOperacional = String(comp.status_operacional || "")
@@ -561,7 +572,6 @@ function statusComponenteVisual(comp: Record<string, unknown>): StatusOP {
     return "ok"
   }
 
-  const status = String(comp.status || "ok") as StatusOP
   return STATUS_CONFIG[status] ? status : "ok"
 }
 
@@ -2369,9 +2379,9 @@ function MateriaisCriticosResumoTable({
             <CheckCircle2 size={18} />
           </div>
           <div>
-            <p className="text-sm font-bold" style={{ color: "#166534" }}>Nenhum material travando as OPs filtradas</p>
+            <p className="text-sm font-bold" style={{ color: "#166534" }}>Nenhum material travando ou em quarentena nas OPs filtradas</p>
             <p className="mt-1 text-xs" style={{ color: "#15803D" }}>
-              Considerando os filtros atuais, não há componentes gargalantes com falta ou dependência de quarentena.
+              Considerando os filtros atuais, não há componentes gargalantes com falta real nem dependência de quarentena/CQ.
             </p>
           </div>
         </div>
