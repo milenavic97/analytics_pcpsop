@@ -2455,7 +2455,7 @@ function MatrizEstoqueGiroPanel({
               dataKey="x"
               name="Giro / demanda"
               domain={[0, Math.max(matriz.maxGiro, matriz.corteGiro * 1.15)]}
-              tickFormatter={(value) => fmtCompact(Number(value), 0)}
+              tickFormatter={(value) => fmtCompact(Number(value))}
               tick={{ fontSize: 11, fill: "#64748B" }}
               axisLine={{ stroke: "#CBD5E1" }}
               tickLine={false}
@@ -2466,7 +2466,7 @@ function MatrizEstoqueGiroPanel({
               dataKey="y"
               name="Cobertura"
               domain={[0, Math.max(matriz.maxCobertura, matriz.corteCobertura * 1.15)]}
-              tickFormatter={(value) => fmtCompact(Number(value), 0)}
+              tickFormatter={(value) => fmtCompact(Number(value))}
               tick={{ fontSize: 11, fill: "#64748B" }}
               axisLine={{ stroke: "#CBD5E1" }}
               tickLine={false}
