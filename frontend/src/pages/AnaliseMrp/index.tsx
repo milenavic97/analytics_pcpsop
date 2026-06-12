@@ -4886,12 +4886,9 @@ export default function AgingEstoquePage() {
       texto = String(value)
     }
 
-    texto = texto.replace(/
-?
-/g, " ").trim()
+    texto = texto.replace(/\r?\n/g, " ").trim()
 
-    if (texto.includes(";") || texto.includes('"') || texto.includes("
-")) {
+    if (texto.includes(";") || texto.includes('"') || texto.includes("\n")) {
       return `"${texto.replace(/"/g, '""')}"`
     }
 
@@ -5047,8 +5044,7 @@ export default function AgingEstoquePage() {
             })
             .join(";")
         ),
-      ].join("
-")
+      ].join("\n")
 
       const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" })
       const url = URL.createObjectURL(blob)
