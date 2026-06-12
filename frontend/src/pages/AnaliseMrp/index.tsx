@@ -185,8 +185,8 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v2"
-const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v3_saldo_historico"
+const GESTAO_ESTOQUE_CACHE_TTL_MS = 30 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
   savedAt: number
@@ -297,10 +297,12 @@ async function fetchJsonComCache<T>(
   return payload
 }
 
-function getAgingResumoDireto(params: { escopo: EscopoEstoque; classificacao_cadastro?: string }): Promise<AgingResumoResponse> {
+function getAgingResumoDireto(params: { escopo: EscopoEstoque; classificacao_cadastro?: string; force_refresh?: boolean; _t?: string | number }): Promise<AgingResumoResponse> {
   return fetchJsonComCache<AgingResumoResponse>("/aging-estoque/resumo", {
     escopo: params.escopo,
     classificacao_cadastro: params.classificacao_cadastro,
+    force_refresh: params.force_refresh,
+    _t: params._t,
   })
 }
 
@@ -317,6 +319,8 @@ function getAgingItensDireto(params: {
   transferencia_bravi?: string
   classificacao_cadastro?: string
   semaforo?: SemaforoEstoque
+  force_refresh?: boolean
+  _t?: string | number
 }): Promise<AgingItensResponse> {
   return fetchJsonComCache<AgingItensResponse>("/aging-estoque/itens", {
     escopo: params.escopo,
@@ -331,6 +335,8 @@ function getAgingItensDireto(params: {
     transferencia_bravi: params.transferencia_bravi,
     classificacao_cadastro: params.classificacao_cadastro,
     semaforo: params.semaforo,
+    force_refresh: params.force_refresh,
+    _t: params._t,
   })
 }
 
@@ -4670,6 +4676,8 @@ export default function AgingEstoquePage() {
           getAgingResumoDireto({
             escopo,
             classificacao_cadastro: classificacao,
+            force_refresh: true,
+            _t: refreshTick,
           }),
           getAgingItensDireto({
             escopo,
@@ -4677,6 +4685,8 @@ export default function AgingEstoquePage() {
             page_size: 5000,
             sort_direction: "desc",
             classificacao_cadastro: classificacao,
+            force_refresh: true,
+            _t: refreshTick,
           }),
         ])
 
@@ -4722,6 +4732,7 @@ export default function AgingEstoquePage() {
     getAgingResumoDireto({
       escopo: escopoEstoque,
       classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+      _t: refreshTick,
     })
       .then((res) => {
         if (!mounted) return
@@ -4756,6 +4767,7 @@ export default function AgingEstoquePage() {
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
         semaforo: activeFilter?.semaforo,
+        _t: refreshTick,
       })
       .then((res) => {
         if (!mounted) return
