@@ -42,6 +42,7 @@ import {
 } from "@/services/api"
 
 const PAGE_SIZE = 10
+const EXPORT_PAGE_SIZE = 5000
 
 const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
 
@@ -4304,6 +4305,7 @@ export default function AgingEstoquePage() {
   const [columnSelectorOpen, setColumnSelectorOpen] = useState(false)
   const [colunasVisiveisPorEscopo, setColunasVisiveisPorEscopo] = useState<Partial<Record<EscopoEstoque, string[]>>>({})
   const [mostrarSaudeLinhas, setMostrarSaudeLinhas] = useState(false)
+  const [exportingCsv, setExportingCsv] = useState(false)
 
   const carregarAtualizacoesBases = async () => {
     setLoadingAtualizacoesBases(true)
@@ -4871,38 +4873,197 @@ export default function AgingEstoquePage() {
   }
 
 
-  const exportCsv = () => {
-    const header = [
-      "codigo",
-      "produto",
-      ...colunasBaseTabela.filter((col) => isColunaVisivel(col.key)).map((col) => col.key),
-      ...colunasTabela.map((col) => col.key),
-    ]
-    const csv = [
-      header.join(";"),
-      ...itensOrdenados.map((r) =>
-        header
-          .map((h) => {
-            const colunaNumerica = NUMERIC_COLUMNS.find((col) => col.key === h)
-            const valor = h === "status"
-              ? SEMAFORO_LABEL[calcularSemaforoEstoque(r)]
-              : colunaNumerica
-                ? getValorNumericoTabela(r, colunaNumerica.key, isTabelaProdutos)
-                : ((r as any)[h] ?? "")
+  const csvEscape = (value: unknown) => {
+    if (value === null || value === undefined) return ""
 
-            return String(valor).replace(/;/g, ",")
-          })
-          .join(";")
-      ),
-    ].join("\n")
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `gestao_estoque_${escopoEstoque}_pagina.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    let texto = ""
+
+    if (Array.isArray(value)) {
+      texto = value.join(", ")
+    } else if (typeof value === "object") {
+      texto = JSON.stringify(value)
+    } else {
+      texto = String(value)
+    }
+
+    texto = texto.replace(/
+?
+/g, " ").trim()
+
+    if (texto.includes(";") || texto.includes('"') || texto.includes("
+")) {
+      return `"${texto.replace(/"/g, '""')}"`
+    }
+
+    return texto
   }
+
+  const exportCsv = async () => {
+    setExportingCsv(true)
+    setError("")
+
+    try {
+      const filtrosExportacao = {
+        escopo: escopoEstoque,
+        page: 1,
+        page_size: EXPORT_PAGE_SIZE,
+        sort_key: sortKey || undefined,
+        sort_direction: sortDirection,
+        busca: activeFilter?.busca,
+        status: activeFilter?.status,
+        tipo_negocio: activeFilter?.tipo_negocio,
+        status_portfolio: activeFilter?.status_portfolio,
+        transferencia_bravi: activeFilter?.transferencia_bravi,
+        classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+        semaforo: activeFilter?.semaforo,
+      }
+
+      const primeiraPagina = normalizarCoberturaPaMrResponse(
+        await getAgingItensDireto(filtrosExportacao),
+        escopoEstoque
+      )
+
+      let itensExportacao: AgingEstoqueItem[] = [...(primeiraPagina.itens || [])]
+      const totalPagesExport = Math.max(1, Number(primeiraPagina.total_pages || 1))
+
+      if (totalPagesExport > 1) {
+        const demaisPaginas = await Promise.all(
+          Array.from({ length: totalPagesExport - 1 }, (_, index) =>
+            getAgingItensDireto({
+              ...filtrosExportacao,
+              page: index + 2,
+            }).then((res) => normalizarCoberturaPaMrResponse(res, escopoEstoque))
+          )
+        )
+
+        itensExportacao = [
+          ...itensExportacao,
+          ...demaisPaginas.flatMap((paginaExport) => paginaExport.itens || []),
+        ]
+      }
+
+      const header = [
+        "codigo",
+        "produto",
+        "escopo_exportado",
+        "status_label",
+        "status",
+        "status_estoque",
+        "status_visual",
+        "tipo",
+        "tipo_produto_erp",
+        "unid",
+        "segmento",
+        "mercado",
+        "macro_negocio",
+        "tipo_negocio",
+        "familia",
+        "grupo",
+        "grupo_descricao",
+        "grupo_gerencial",
+        "modelo_fornecimento",
+        "status_portfolio",
+        "transferencia_bravi",
+        "fornecedor_terceiro",
+        "origem_classificacao",
+        "origem_linha_estoque",
+        "tem_posicao_aging",
+        "item_mapeado",
+        "ativo_analise",
+        "saldo_origem",
+        "data_saldo_origem",
+        "data_quarentena_origem",
+        "saldo",
+        "saldo_quarentena",
+        "quarentena",
+        "saldo_sb8_bruto",
+        "empenho_lote",
+        "saldo_quarentena_bruto",
+        "empenho_quarentena",
+        "qtd_pedidos_abertos",
+        "entradas_previstas",
+        "qtd_entradas_previstas",
+        "qtd_liberacoes_previstas",
+        "qtd_pedidos_compra",
+        "qtd_pi_transferencia",
+        "codigos_pi_bravi",
+        "codigo_pi_principal",
+        "fonte_entradas_previstas",
+        "label_entradas_previstas",
+        "estoque_mais_pedidos",
+        "estoque_mais_entradas",
+        "media_3m",
+        "media_6m",
+        "media_9m",
+        "maior_media",
+        "lead_time_dias",
+        "qtd_minima",
+        "consumo_durante_lt",
+        "estoque_ideal",
+        "dias_em_estoque",
+        "cobertura_dias",
+        "cobertura_meses_atual",
+        "cobertura_futura_dias",
+        "cobertura_meses_futura",
+        "cobertura_consumo_lt",
+        "gap_volume",
+        "giro_estoque",
+        "maior_media_50",
+        "saldo_menos_maior_media_50",
+        "demanda_mes_atual",
+        "demanda_direta_mes_atual",
+        "demanda_bom_mes_atual",
+        "metodo_demanda",
+        "origem_demanda_bom",
+        "consumo_mes_atual",
+        "previsao_mes_atual",
+        "previsto_vs_consumido_pct",
+        "perc_mes_decorrido",
+        "desvio_ritmo_pct",
+        "faturamento_ytd_qtd",
+        "faturamento_ytd_valor",
+        "custo_unitario",
+        "estoque_atual_valor",
+        "pedidos_abertos_valor",
+        "estoque_mais_pedidos_valor",
+        "estoque_ideal_valor",
+        "gap_valor",
+        "menor_data_entrega",
+        "eh_componente_bom",
+        "qtd_pais_bom",
+        "tipo_componente_bom",
+        "pais_bom",
+        "observacao",
+      ]
+
+      const csv = [
+        header.join(";"),
+        ...itensExportacao.map((r) =>
+          header
+            .map((h) => {
+              if (h === "escopo_exportado") return csvEscape(ESCOPO_TITULO[escopoEstoque])
+              if (h === "status_label") return csvEscape(SEMAFORO_LABEL[calcularSemaforoEstoque(r)])
+              return csvEscape((r as Record<string, unknown>)[h])
+            })
+            .join(";")
+        ),
+      ].join("
+")
+
+      const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `gestao_estoque_${escopoEstoque}_base_completa.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao exportar base completa.")
+    } finally {
+      setExportingCsv(false)
+    }
+  }
+
 
 
 
@@ -4994,10 +5155,11 @@ export default function AgingEstoquePage() {
             </button>
             <button
               onClick={exportCsv}
-              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
+              disabled={exportingCsv || !itensResp?.total}
+              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
             >
-              <Download size={16} /> Exportar CSV
+              <Download size={16} /> {exportingCsv ? "Exportando..." : "Exportar CSV"}
             </button>
           </div>
         </div>
@@ -5383,8 +5545,8 @@ export default function AgingEstoquePage() {
           >
             <RefreshCw size={16} /> Atualizar
           </button>
-          <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} disabled={!itensOrdenados.length}>
-            <Download size={16} /> Exportar CSV
+          <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} disabled={exportingCsv || !itensResp?.total}>
+            <Download size={16} /> {exportingCsv ? "Exportando..." : "Exportar CSV"}
           </button>
         </div>
       </div>
