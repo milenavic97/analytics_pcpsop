@@ -2434,10 +2434,14 @@ function DashboardEstoquePanel({
       const ehSemGiro = status === "SEM_GIRO" || status === "SEM_CONSUMO" || giro <= 0
 
       atual.total += 1
-      if (ehCritico) atual.criticos += 1
+
+      // Itens Bravi/descontinuados precisam aparecer como grupo gerencial próprio.
+      // Antes eles caíam primeiro em Críticos ou Sem giro, então a barra Bravi ficava zerada
+      // mesmo existindo itens com transferencia_bravi = Sim no cadastro.
+      if (especial) atual.especiais += 1
+      else if (ehCritico) atual.criticos += 1
       else if (ehExcesso) atual.excesso += 1
       else if (ehSemGiro) atual.semGiro += 1
-      else if (especial) atual.especiais += 1
       else atual.ok += 1
 
       grupos.set(key, atual)
@@ -2563,8 +2567,8 @@ function DashboardEstoquePanel({
         <div className="card p-5">
           <div className="mb-4">
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status por linha de negócio</p>
-            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Onde está concentrado o risco</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Consolida críticos, excesso, sem giro e itens especiais por linha.</p>
+            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Distribuição dos itens por linha de negócio</h2>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Consolida Bravi/descontinuados, críticos, excesso, sem giro e demais itens por linha.</p>
           </div>
           <div className="h-[360px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -2582,7 +2586,7 @@ function DashboardEstoquePanel({
                 <Bar dataKey="semGiro" name="Sem giro" stackId="status" fill="#94A3B8" onClick={(row) => aplicarFiltroComLinha({ label: `Sem giro · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, status: "SEM_GIRO", classificacao_cadastro: "TODOS" })}>
                   <LabelList dataKey="semGiro" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
-                <Bar dataKey="especiais" name="Bravi/desc." stackId="status" fill="#7C3AED">
+                <Bar dataKey="especiais" name="Bravi/descontinuado" stackId="status" fill="#7C3AED">
                   <LabelList dataKey="especiais" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
                 <Bar dataKey="ok" name="Ok/outros" stackId="status" fill="#15803D" radius={[0, 7, 7, 0]}>
