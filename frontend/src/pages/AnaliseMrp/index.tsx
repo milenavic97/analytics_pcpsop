@@ -5040,7 +5040,7 @@ export default function AgingEstoquePage() {
             .map((h) => {
               if (h === "escopo_exportado") return csvEscape(ESCOPO_TITULO[escopoEstoque])
               if (h === "status_label") return csvEscape(SEMAFORO_LABEL[calcularSemaforoEstoque(r)])
-              return csvEscape((r as Record<string, unknown>)[h])
+              return csvEscape((r as unknown as Record<string, unknown>)[h])
             })
             .join(";")
         ),
