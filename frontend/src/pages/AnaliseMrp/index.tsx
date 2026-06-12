@@ -2018,6 +2018,11 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
   const valores = base.map(getValorEstoqueMatriz).filter((v) => v > 0)
   const maxValor = Math.max(percentile(valores, 0.95), Math.max(...valores, 0), 1)
 
+  // Limites visuais mais estáveis para evitar eixos “explodidos” por poucos outliers.
+  // Os pontos continuam existindo, mas a visualização é truncada para leitura melhor.
+  const maxGiroVisual = Math.max(corteGiro * 1.25, percentile(giros, 0.9), 1)
+  const maxCoberturaVisual = Math.max(corteCobertura * 1.8, percentile(coberturas, 0.9), 24)
+
   const pontos: MatrixPoint[] = base.map((item) => {
     const giro = getGiroMatriz(item)
     const cobertura = getCoberturaMatriz(item)
@@ -2085,8 +2090,8 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
     resumo,
     corteGiro,
     corteCobertura,
-    maxGiro: maxGiroBruto,
-    maxCobertura: maxCoberturaBruta,
+    maxGiro: maxGiroVisual,
+    maxCobertura: maxCoberturaVisual,
   }
 }
 
@@ -2442,14 +2447,15 @@ function MatrizEstoqueGiroPanel({
         })}
       </div>
 
-      <div className="mt-5 h-[440px] rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
+      <div className="relative mt-5 h-[440px] rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 28, right: 36, left: 16, bottom: 38 }}>
             <XAxis
               type="number"
               dataKey="x"
               name="Giro / demanda"
-              domain={[0, Math.max(matriz.maxGiro, matriz.corteGiro * 1.2)]}
+              domain={[0, Math.max(matriz.maxGiro, matriz.corteGiro * 1.15)]}
+              tickFormatter={(value) => fmtCompact(Number(value), 0)}
               tick={{ fontSize: 11, fill: "#64748B" }}
               axisLine={{ stroke: "#CBD5E1" }}
               tickLine={false}
@@ -2459,15 +2465,28 @@ function MatrizEstoqueGiroPanel({
               type="number"
               dataKey="y"
               name="Cobertura"
-              domain={[0, Math.max(matriz.maxCobertura, matriz.corteCobertura * 1.2)]}
+              domain={[0, Math.max(matriz.maxCobertura, matriz.corteCobertura * 1.15)]}
+              tickFormatter={(value) => fmtCompact(Number(value), 0)}
               tick={{ fontSize: 11, fill: "#64748B" }}
               axisLine={{ stroke: "#CBD5E1" }}
               tickLine={false}
               label={{ value: "Cobertura em meses", angle: -90, position: "insideLeft", fontSize: 12, fill: "#64748B" }}
             />
             <ZAxis type="number" dataKey="z" range={[26, 520]} />
-            <ReferenceLine x={matriz.corteGiro} stroke="#CBD5E1" strokeDasharray="4 4" />
-            <ReferenceLine y={matriz.corteCobertura} stroke="#CBD5E1" strokeDasharray="4 4" />
+            <ReferenceLine
+              x={matriz.corteGiro}
+              stroke="#94A3B8"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              label={{ value: `Corte giro ${fmtNumber(matriz.corteGiro, 0)}`, position: "insideBottomRight", fill: "#64748B", fontSize: 11 }}
+            />
+            <ReferenceLine
+              y={matriz.corteCobertura}
+              stroke="#94A3B8"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              label={{ value: `Corte cobertura ${fmtNumber(matriz.corteCobertura, 0)} m`, position: "insideTopLeft", fill: "#64748B", fontSize: 11 }}
+            />
             <Tooltip content={<MatrixTooltip />} cursor={{ stroke: "#94A3B8", strokeDasharray: "3 3" }} />
             <Scatter
               name="SKUs"
@@ -2484,6 +2503,28 @@ function MatrizEstoqueGiroPanel({
             </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
+
+        <div className="pointer-events-none absolute inset-0">
+          {([
+            { key: "EXCESSO_PARADO", className: "left-4 top-4" },
+            { key: "EXCESSO_COM_GIRO", className: "right-4 top-4" },
+            { key: "BAIXO_GIRO_CONTROLADO", className: "left-4 bottom-4" },
+            { key: "RISCO_FALTA", className: "right-4 bottom-4" },
+          ] as const).map(({ key, className }) => {
+            const info = MATRIZ_QUADRANTES[key]
+            const resumo = matriz.resumo[key]
+            return (
+              <div
+                key={key}
+                className={`absolute rounded-xl border bg-white/90 px-3 py-2 text-xs shadow-sm ${className}`}
+                style={{ borderColor: info.border }}
+              >
+                <p className="font-bold" style={{ color: info.color }}>{info.titulo}</p>
+                <p style={{ color: "var(--text-secondary)" }}>{fmtNumber(resumo?.skus || 0)} SKUs</p>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       <div className="mt-4">
@@ -2530,11 +2571,27 @@ function DashboardEstoquePanel({
   const itensOriginaisDashboard = dashboardItensRespAtual?.itens || (escopoSelecionadoDashboard === "todos" ? itensMatriz : []) || []
 
   const itensBaseDashboard = useMemo(() => {
-    // Importante: o Dashboard usa exatamente o mesmo escopo que a Gestão de Estoque.
-    // Não fazemos mais uma classificação local PA/MR x Insumos aqui, porque isso fazia
-    // os totais divergirem da tabela principal. A separação vem pronta do backend.
-    return itensOriginaisDashboard || []
-  }, [itensOriginaisDashboard])
+    const itens = itensOriginaisDashboard || []
+
+    // Proteção de consistência do Dashboard:
+    // no escopo Insumos, o total precisa bater com a aba Gestão de Estoque.
+    // A regra validada é: insumo = componente da BOM dos PAs/PIs oficiais.
+    // Portanto, se alguma resposta antiga/cacheada vier com material solto do Aging,
+    // ela é descartada aqui e não polui os cards/gráficos do Dashboard.
+    if (escopoSelecionadoDashboard === "insumos") {
+      return itens.filter((item) => {
+        const raw = item as any
+        return (
+          raw.eh_componente_bom === true ||
+          Number(raw.qtd_pais_bom || 0) > 0 ||
+          String(raw.origem_linha_estoque || "").includes("bom_pa_pi") ||
+          String(raw.origem_classificacao || "").trim() === "BOM"
+        )
+      })
+    }
+
+    return itens
+  }, [itensOriginaisDashboard, escopoSelecionadoDashboard])
 
   const linhasDashboard = useMemo(() => {
     const linhas = new Set<string>()
@@ -4668,6 +4725,8 @@ export default function AgingEstoquePage() {
     setLoadingDashboard(true)
     setLoadingDashboardItens(true)
 
+    const cacheBustDashboard = `${refreshTick}-${Date.now()}`
+
     Promise.all(
       escoposDashboard.map(async (escopo) => {
         const classificacao = classificacaoPadraoPorEscopo(escopo)
@@ -4677,7 +4736,7 @@ export default function AgingEstoquePage() {
             escopo,
             classificacao_cadastro: classificacao,
             force_refresh: true,
-            _t: refreshTick,
+            _t: cacheBustDashboard,
           }),
           getAgingItensDireto({
             escopo,
@@ -4686,7 +4745,7 @@ export default function AgingEstoquePage() {
             sort_direction: "desc",
             classificacao_cadastro: classificacao,
             force_refresh: true,
-            _t: refreshTick,
+            _t: cacheBustDashboard,
           }),
         ])
 
