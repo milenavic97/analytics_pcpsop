@@ -22,6 +22,9 @@ import {
   Cell,
   CartesianGrid,
   ComposedChart,
+  ReferenceLine,
+  Scatter,
+  ScatterChart,
   LabelList,
   Legend,
   Line,
@@ -29,6 +32,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts"
 import {
   AgingEstoqueItem,
@@ -44,6 +48,7 @@ const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly
 type GranularidadeSerie = "mensal" | "semanal" | "diaria"
 type EscopoEstoque = "produtos" | "insumos" | "todos"
 type SemaforoEstoque = "VERMELHO" | "AMARELO" | "VERDE" | "CINZA"
+type VisaoEstoque = "dashboard" | "gestao"
 
 const ESCOPO_ESTOQUE_OPTIONS: { key: EscopoEstoque; label: string; helper: string }[] = [
   {
@@ -629,12 +634,25 @@ interface AgingResumoResponse {
     transferencia_bravi?: number
     saldo_total?: number
     pedidos_total?: number
+    entradas_previstas_total?: number
+    liberacoes_previstas_total?: number
+    pedidos_compra_total?: number
+    estoque_ideal_total?: number
     gap_total?: number
+    estoque_atual_valor_total?: number
+    pedidos_abertos_valor_total?: number
+    estoque_mais_pedidos_valor_total?: number
+    estoque_ideal_valor_total?: number
+    gap_valor_total?: number
+    demanda_mes_atual_total?: number
+    consumo_mes_atual_total?: number
     faturamento_ytd_qtd?: number
     faturamento_ytd_valor?: number
     cobertura_media_dias?: number
     cobertura_futura_media_dias?: number
   }
+  faixas_cobertura?: { faixa: string; itens: number }[]
+  por_tipo?: { tipo: string; itens: number; criticos: number; excesso: number; saldo: number }[]
   opcoes?: {
     tipo_negocio?: string[]
     tipo?: string[]
@@ -1745,6 +1763,634 @@ function KpiSmall({
   )
 }
 
+
+function VisaoEstoqueTabs({
+  value,
+  onChange,
+}: {
+  value: VisaoEstoque
+  onChange: (value: VisaoEstoque) => void
+}) {
+  const tabs: { key: VisaoEstoque; label: string; helper: string }[] = [
+    { key: "dashboard", label: "Dashboard", helper: "Indicadores executivos e riscos por linha" },
+    { key: "gestao", label: "Gestão de Estoque", helper: "Análise detalhada por item, PA/MR e insumos" },
+  ]
+
+  return (
+    <div className="card p-2">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {tabs.map((tab) => {
+          const active = value === tab.key
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => onChange(tab.key)}
+              className="rounded-2xl border px-4 py-3 text-left transition hover:bg-slate-50"
+              style={{
+                borderColor: active ? "#163B63" : "var(--border)",
+                background: active ? "rgba(22,59,99,0.08)" : "#FFFFFF",
+                boxShadow: active ? "0 0 0 1px #163B63" : undefined,
+              }}
+            >
+              <p className="text-sm font-bold" style={{ color: active ? "#163B63" : "var(--text-primary)" }}>{tab.label}</p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{tab.helper}</p>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function statusLabelDashboard(label: string) {
+  const texto = String(label || "A classificar").trim()
+  if (!texto) return "A classificar"
+  if (texto.length <= 26) return texto
+  return `${texto.slice(0, 24)}...`
+}
+
+function normalizarFaixaCobertura(label: string) {
+  const texto = String(label || "").trim()
+  const mapa: Record<string, string> = {
+    "0-30 dias": "0 a 1 mês",
+    "31-60 dias": "1 a 2 meses",
+    "61-90 dias": "2 a 3 meses",
+    ">90 dias": "> 3 meses",
+    "Sem consumo": "Sem giro",
+  }
+  return mapa[texto] || texto || "Sem faixa"
+}
+
+
+type QuadranteMatrizKey = "EXCESSO_PARADO" | "EXCESSO_COM_GIRO" | "BAIXO_GIRO_CONTROLADO" | "RISCO_FALTA"
+
+type MatrixPoint = {
+  codigo: string
+  produto: string
+  linha: string
+  tipo?: string | null
+  x: number
+  y: number
+  z: number
+  giro: number
+  cobertura: number
+  estoque: number
+  valor: number
+  entradas: number
+  demanda: number
+  semaforo: SemaforoEstoque
+  quadrante: QuadranteMatrizKey
+  raw: AgingEstoqueItem
+}
+
+const MATRIZ_QUADRANTES: Record<QuadranteMatrizKey, { titulo: string; subtitulo: string; acao: string; color: string; bg: string; border: string }> = {
+  EXCESSO_PARADO: {
+    titulo: "Excesso parado",
+    subtitulo: "Baixo giro e cobertura alta",
+    acao: "Evitar compra, avaliar validade, troca, devolução ou descontinuação.",
+    color: "#B91C1C",
+    bg: "rgba(220,38,38,0.06)",
+    border: "rgba(220,38,38,0.22)",
+  },
+  EXCESSO_COM_GIRO: {
+    titulo: "Excesso com giro",
+    subtitulo: "Vende/consome, mas tem estoque demais",
+    acao: "Reduzir próxima compra, revisar MOQ e negociar entrega parcelada.",
+    color: "#D97706",
+    bg: "rgba(245,158,11,0.08)",
+    border: "rgba(245,158,11,0.28)",
+  },
+  BAIXO_GIRO_CONTROLADO: {
+    titulo: "Baixo giro controlado",
+    subtitulo: "Baixa demanda e cobertura controlada",
+    acao: "Monitorar e evitar reposição automática sem demanda confirmada.",
+    color: "#64748B",
+    bg: "rgba(100,116,139,0.08)",
+    border: "rgba(100,116,139,0.22)",
+  },
+  RISCO_FALTA: {
+    titulo: "Risco de falta",
+    subtitulo: "Alto giro e baixa cobertura",
+    acao: "Priorizar compra, liberação, transferência ou acompanhamento de lead time.",
+    color: "#0F5E7C",
+    bg: "rgba(14,116,144,0.08)",
+    border: "rgba(14,116,144,0.24)",
+  },
+}
+
+function percentile(values: number[], p: number) {
+  const nums = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b)
+  if (!nums.length) return 0
+  const idx = Math.min(nums.length - 1, Math.max(0, Math.floor((nums.length - 1) * p)))
+  return nums[idx]
+}
+
+function getGiroMatriz(item: AgingEstoqueItem) {
+  const tipo = String((item as any).tipo || (item as any).tipo_produto_erp || "").toUpperCase()
+  const vendaQtd = getNum(item, "faturamento_ytd_qtd")
+  const consumo = getNum(item, "consumo_mes_atual")
+  const demanda = getNum(item, "demanda_mes_atual")
+  const media = getNum(item, "maior_media")
+
+  if (tipo === "PA" || tipo === "MR" || tipo === "PPS" || tipo === "PV") {
+    return Math.max(vendaQtd, demanda)
+  }
+
+  return Math.max(consumo, demanda, media)
+}
+
+function getCoberturaMatriz(item: AgingEstoqueItem) {
+  const candidatos = [
+    getNum(item, "cobertura_meses_futura"),
+    getNum(item, "cobertura_meses_atual"),
+    getNum(item, "cobertura_futura_dias") / 30,
+    getNum(item, "cobertura_dias") / 30,
+    getNum(item, "dias_em_estoque") / 30,
+  ]
+
+  for (const valor of candidatos) {
+    if (Number.isFinite(valor) && valor > 0) return valor
+  }
+
+  const estoqueComEntradas = getEstoqueAtualReal(item) + getPedidosAbertos(item)
+  const giro = getGiroMatriz(item)
+  if (giro > 0) return estoqueComEntradas / giro
+
+  return estoqueComEntradas > 0 ? 24 : 0
+}
+
+function getValorEstoqueMatriz(item: AgingEstoqueItem) {
+  return Math.max(
+    getNum(item, "estoque_atual_valor"),
+    getNum(item, "estoque_mais_pedidos_valor"),
+    getEstoqueAtualReal(item) * getNum(item, "custo_unitario"),
+  )
+}
+
+function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
+  const base = (itens || []).filter((item) => String(item?.codigo || "").trim())
+  const giros = base.map(getGiroMatriz).filter((v) => v > 0)
+  const corteGiro = Math.max(1, percentile(giros, 0.65))
+  const corteCobertura = 12
+
+  const maxGiroBruto = Math.max(corteGiro * 1.8, percentile(giros, 0.95), 1)
+  const coberturas = base.map(getCoberturaMatriz).filter((v) => v > 0)
+  const maxCoberturaBruta = Math.max(corteCobertura * 1.5, percentile(coberturas, 0.95), 1)
+  const valores = base.map(getValorEstoqueMatriz).filter((v) => v > 0)
+  const maxValor = Math.max(percentile(valores, 0.95), Math.max(...valores, 0), 1)
+
+  const pontos: MatrixPoint[] = base.map((item) => {
+    const giro = getGiroMatriz(item)
+    const cobertura = getCoberturaMatriz(item)
+    const valor = getValorEstoqueMatriz(item)
+    const estoque = getEstoqueAtualReal(item)
+    const entradas = getPedidosAbertos(item)
+    const demanda = getNum(item, "demanda_mes_atual")
+    const linha = String((item as any).tipo_negocio || (item as any).grupo_gerencial || "A classificar")
+    const semaforo = calcularSemaforoEstoque(item)
+
+    let quadrante: QuadranteMatrizKey = "BAIXO_GIRO_CONTROLADO"
+    if (cobertura >= corteCobertura && giro >= corteGiro) quadrante = "EXCESSO_COM_GIRO"
+    else if (cobertura >= corteCobertura && giro < corteGiro) quadrante = "EXCESSO_PARADO"
+    else if (cobertura < corteCobertura && giro >= corteGiro) quadrante = "RISCO_FALTA"
+
+    const x = Math.min(giro, maxGiroBruto)
+    const y = Math.min(cobertura, maxCoberturaBruta)
+    const z = Math.max(20, Math.min(520, 24 + (valor / maxValor) * 496))
+
+    return {
+      codigo: String(item.codigo || ""),
+      produto: String((item as any).produto || (item as any).descricao || ""),
+      linha,
+      tipo: String((item as any).tipo || (item as any).tipo_produto_erp || ""),
+      x,
+      y,
+      z,
+      giro,
+      cobertura,
+      estoque,
+      valor,
+      entradas,
+      demanda,
+      semaforo,
+      quadrante,
+      raw: item,
+    }
+  })
+
+  const resumo = (Object.keys(MATRIZ_QUADRANTES) as QuadranteMatrizKey[]).reduce((acc, key) => {
+    const subset = pontos.filter((ponto) => ponto.quadrante === key)
+    acc[key] = {
+      skus: subset.length,
+      estoque: subset.reduce((sum, ponto) => sum + ponto.estoque, 0),
+      valor: subset.reduce((sum, ponto) => sum + ponto.valor, 0),
+      entradas: subset.reduce((sum, ponto) => sum + ponto.entradas, 0),
+      demanda: subset.reduce((sum, ponto) => sum + ponto.demanda, 0),
+    }
+    return acc
+  }, {} as Record<QuadranteMatrizKey, { skus: number; estoque: number; valor: number; entradas: number; demanda: number }>)
+
+  return {
+    pontos,
+    resumo,
+    corteGiro,
+    corteCobertura,
+    maxGiro: maxGiroBruto,
+    maxCobertura: maxCoberturaBruta,
+  }
+}
+
+function MatrixTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null
+  const ponto = payload[0]?.payload as MatrixPoint | undefined
+  if (!ponto) return null
+  const quadrante = MATRIZ_QUADRANTES[ponto.quadrante]
+
+  return (
+    <div className="max-w-[360px] rounded-2xl border bg-white p-3 text-xs shadow-xl" style={{ borderColor: "var(--border)" }}>
+      <p className="font-bold" style={{ color: "var(--text-primary)" }}>{ponto.codigo} · {ponto.produto || "Item"}</p>
+      <p className="mt-1" style={{ color: "var(--text-secondary)" }}>{ponto.linha} · {quadrante.titulo}</p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div><span style={{ color: "var(--text-secondary)" }}>Giro/demanda</span><p className="font-bold">{fmtNumber(ponto.giro, 0)}</p></div>
+        <div><span style={{ color: "var(--text-secondary)" }}>Cobertura</span><p className="font-bold">{fmtNumber(ponto.cobertura, 1)} m</p></div>
+        <div><span style={{ color: "var(--text-secondary)" }}>Estoque</span><p className="font-bold">{fmtNumber(ponto.estoque, 0)}</p></div>
+        <div><span style={{ color: "var(--text-secondary)" }}>Valor</span><p className="font-bold">{fmtCurrency(ponto.valor, 0)}</p></div>
+      </div>
+      <p className="mt-3 rounded-xl px-2 py-1.5 font-semibold" style={{ background: quadrante.bg, color: quadrante.color }}>{quadrante.acao}</p>
+    </div>
+  )
+}
+
+function MatrizEstoqueGiroPanel({
+  itens,
+  loading,
+  onApplyFilter,
+}: {
+  itens: AgingEstoqueItem[]
+  loading?: boolean
+  onApplyFilter: (filtro: FiltroTabelaEstoque | null, escopo?: EscopoEstoque) => void
+}) {
+  const matriz = useMemo(() => montarPontosMatrizEstoque(itens || []), [itens])
+  const [quadranteSelecionado, setQuadranteSelecionado] = useState<QuadranteMatrizKey>("RISCO_FALTA")
+
+  const pontosQuadrante = useMemo(() => {
+    return matriz.pontos
+      .filter((ponto) => ponto.quadrante === quadranteSelecionado)
+      .sort((a, b) => b.valor - a.valor || b.giro - a.giro)
+      .slice(0, 12)
+  }, [matriz.pontos, quadranteSelecionado])
+
+  const quadranteAtual = MATRIZ_QUADRANTES[quadranteSelecionado]
+
+  if (!itens?.length && loading) {
+    return (
+      <div className="card p-5">
+        <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Carregando matriz Estoque x Giro...</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Matriz Estoque x Giro</p>
+          <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Prioridade de ação por SKU</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            O eixo horizontal mostra giro/demanda; o vertical mostra cobertura em meses. O tamanho da bolha representa valor em estoque.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte giro: {fmtNumber(matriz.corteGiro, 0)}</span>
+          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte cobertura: {fmtNumber(matriz.corteCobertura, 0)} meses</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {(Object.keys(MATRIZ_QUADRANTES) as QuadranteMatrizKey[]).map((key) => {
+          const info = MATRIZ_QUADRANTES[key]
+          const resumo = matriz.resumo[key]
+          const active = quadranteSelecionado === key
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setQuadranteSelecionado(key)}
+              className="rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+              style={{
+                borderColor: active ? info.color : "var(--border)",
+                background: active ? info.bg : "#FFFFFF",
+                boxShadow: active ? `0 0 0 1px ${info.color}` : undefined,
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{info.titulo}</p>
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{info.subtitulo}</p>
+                </div>
+                <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: info.color }} />
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>SKUs</p><p className="text-lg font-bold">{fmtNumber(resumo?.skus || 0)}</p></div>
+                <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Estoque</p><p className="text-lg font-bold">{fmtCompact(resumo?.estoque || 0)}</p></div>
+                <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Valor</p><p className="text-lg font-bold">{fmtCurrency(resumo?.valor || 0, 0)}</p></div>
+              </div>
+              <p className="mt-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>{info.acao}</p>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-5 h-[440px] rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart margin={{ top: 28, right: 36, left: 16, bottom: 38 }}>
+            <XAxis
+              type="number"
+              dataKey="x"
+              name="Giro / demanda"
+              domain={[0, Math.max(matriz.maxGiro, matriz.corteGiro * 1.2)]}
+              tick={{ fontSize: 11, fill: "#64748B" }}
+              axisLine={{ stroke: "#CBD5E1" }}
+              tickLine={false}
+              label={{ value: "Giro / demanda", position: "bottom", offset: 18, fontSize: 12, fill: "#64748B" }}
+            />
+            <YAxis
+              type="number"
+              dataKey="y"
+              name="Cobertura"
+              domain={[0, Math.max(matriz.maxCobertura, matriz.corteCobertura * 1.2)]}
+              tick={{ fontSize: 11, fill: "#64748B" }}
+              axisLine={{ stroke: "#CBD5E1" }}
+              tickLine={false}
+              label={{ value: "Cobertura em meses", angle: -90, position: "insideLeft", fontSize: 12, fill: "#64748B" }}
+            />
+            <ZAxis type="number" dataKey="z" range={[26, 520]} />
+            <ReferenceLine x={matriz.corteGiro} stroke="#CBD5E1" strokeDasharray="4 4" />
+            <ReferenceLine y={matriz.corteCobertura} stroke="#CBD5E1" strokeDasharray="4 4" />
+            <Tooltip content={<MatrixTooltip />} cursor={{ stroke: "#94A3B8", strokeDasharray: "3 3" }} />
+            <Scatter
+              name="SKUs"
+              data={matriz.pontos}
+              onClick={(entry: any) => {
+                const ponto = entry as MatrixPoint
+                if (!ponto?.codigo) return
+                onApplyFilter({ label: `${ponto.codigo} · ${ponto.produto || "Item"}`, busca: ponto.codigo, classificacao_cadastro: "TODOS" }, "todos")
+              }}
+            >
+              {matriz.pontos.map((ponto) => (
+                <Cell key={`${ponto.codigo}-${ponto.quadrante}`} fill={MATRIZ_QUADRANTES[ponto.quadrante].color} fillOpacity={0.82} stroke="#FFFFFF" strokeWidth={1} />
+              ))}
+            </Scatter>
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="mt-4 rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+        <div className="flex flex-col justify-between gap-3 border-b p-4 md:flex-row md:items-center" style={{ borderColor: "var(--border)", background: quadranteAtual.bg }}>
+          <div>
+            <p className="text-sm font-bold" style={{ color: quadranteAtual.color }}>{quadranteAtual.titulo}</p>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{quadranteAtual.acao}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const filtro: FiltroTabelaEstoque = quadranteSelecionado === "RISCO_FALTA"
+                ? { label: "Matriz · risco de falta", semaforo: "VERMELHO", classificacao_cadastro: "TODOS" }
+                : quadranteSelecionado === "EXCESSO_PARADO" || quadranteSelecionado === "EXCESSO_COM_GIRO"
+                  ? { label: "Matriz · excesso", status: "EXCESSO", classificacao_cadastro: "TODOS" }
+                  : { label: "Matriz · baixo giro", status: "SEM_GIRO", classificacao_cadastro: "TODOS" }
+              onApplyFilter(filtro, "todos")
+            }}
+            className="rounded-xl border bg-white px-3 py-2 text-xs font-bold transition hover:bg-slate-50"
+            style={{ borderColor: quadranteAtual.border, color: quadranteAtual.color }}
+          >
+            Ver na Gestão
+          </button>
+        </div>
+        <div className="overflow-auto">
+          <table className="w-full min-w-[920px] text-xs">
+            <thead style={{ background: "#163B63", color: "#FFFFFF" }}>
+              <tr className="text-left uppercase tracking-wide">
+                <th className="px-3 py-2">Código</th>
+                <th className="px-3 py-2">Descrição</th>
+                <th className="px-3 py-2">Linha</th>
+                <th className="px-3 py-2 text-right">Giro/demanda</th>
+                <th className="px-3 py-2 text-right">Cobertura</th>
+                <th className="px-3 py-2 text-right">Estoque</th>
+                <th className="px-3 py-2 text-right">Entradas</th>
+                <th className="px-3 py-2 text-right">Valor estoque</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pontosQuadrante.map((ponto) => (
+                <tr
+                  key={`${ponto.quadrante}-${ponto.codigo}`}
+                  className="cursor-pointer border-b transition hover:bg-slate-50 last:border-0"
+                  style={{ borderColor: "var(--border)" }}
+                  onClick={() => onApplyFilter({ label: `${ponto.codigo} · ${ponto.produto || "Item"}`, busca: ponto.codigo, classificacao_cadastro: "TODOS" }, "todos")}
+                >
+                  <td className="px-3 py-2 font-bold" style={{ color: "var(--text-primary)" }}>{ponto.codigo}</td>
+                  <td className="px-3 py-2" style={{ color: "var(--text-primary)" }}>{ponto.produto || "—"}</td>
+                  <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{ponto.linha}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(ponto.giro, 0)}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(ponto.cobertura, 1)} m</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(ponto.estoque, 0)}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(ponto.entradas, 0)}</td>
+                  <td className="px-3 py-2 text-right font-bold">{fmtCurrency(ponto.valor, 0)}</td>
+                </tr>
+              ))}
+              {!pontosQuadrante.length && (
+                <tr><td colSpan={8} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item neste quadrante com a base carregada.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DashboardEstoquePanel({
+  data,
+  itensMatriz,
+  loading,
+  loadingMatriz,
+  onApplyFilter,
+  onOpenGestao,
+}: {
+  data: AgingResumoResponse | null
+  itensMatriz: AgingEstoqueItem[]
+  loading?: boolean
+  loadingMatriz?: boolean
+  onApplyFilter: (filtro: FiltroTabelaEstoque | null, escopo?: EscopoEstoque) => void
+  onOpenGestao: (escopo?: EscopoEstoque) => void
+}) {
+  const resumo = data?.resumo || {}
+  const saude = data?.saude_negocios || []
+  const faixas = data?.faixas_cobertura || []
+  const topCriticos = data?.top_criticos || []
+  const topExcesso = data?.top_excesso || []
+
+  const statusPorLinha = saude
+    .filter((item) => Number(item.itens || 0) > 0)
+    .map((item) => {
+      const criticos = Number(item.criticos || 0)
+      const excesso = Number(item.excesso || 0)
+      const semGiro = Number(item.sem_giro || 0)
+      const especiais = Number(item.descontinuado_com_saldo || 0) + Number(item.transferencia_bravi || 0)
+      const ok = Math.max(0, Number(item.itens || 0) - criticos - excesso - semGiro - especiais)
+      return {
+        linha: statusLabelDashboard(item.tipo_negocio),
+        linhaOriginal: item.tipo_negocio,
+        criticos,
+        excesso,
+        semGiro,
+        especiais,
+        ok,
+        total: Number(item.itens || 0),
+      }
+    })
+    .sort((a, b) => b.criticos - a.criticos || b.total - a.total)
+
+  const coberturaData = faixas.map((item) => ({
+    faixa: normalizarFaixaCobertura(item.faixa),
+    itens: Number(item.itens || 0),
+  }))
+
+  const totalCriticos = Number(resumo.ruptura || 0) + Number(resumo.critico || 0)
+  const totalItens = Number(resumo.total_itens || 0)
+  const pctCritico = totalItens > 0 ? (totalCriticos / totalItens) * 100 : 0
+
+  return (
+    <div className="space-y-5">
+      {loading && (
+        <div className="rounded-2xl border px-4 py-3 text-sm font-bold" style={{ borderColor: "#BFDBFE", background: "#EFF6FF", color: "#1D4ED8" }}>
+          Carregando indicadores do dashboard...
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" onClick={() => onApplyFilter({ label: "Críticos", semaforo: "VERMELHO" }, "todos")} />
+        <KpiCard label="Sem estoque" value={fmtNumber(resumo.ruptura || 0)} helper="ruptura ou saldo zerado" icon={<ArrowDownRight size={20} />} tone="danger" onClick={() => onApplyFilter({ label: "Ruptura", status: "RUPTURA" }, "todos")} />
+        <KpiCard label="Atenção" value={fmtNumber(resumo.atencao || 0)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" onClick={() => onApplyFilter({ label: "Atenção", status: "ATENCAO" }, "todos")} />
+        <KpiCard label="Excesso" value={fmtNumber(resumo.excesso || 0)} helper="acima da política" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => onApplyFilter({ label: "Excesso", status: "EXCESSO" }, "todos")} />
+        <KpiCard label="Sem giro" value={fmtNumber(resumo.sem_giro || 0)} helper="sem referência de consumo" icon={<PackageSearch size={20} />} tone="default" onClick={() => onApplyFilter({ label: "Sem giro", status: "SEM_GIRO" }, "todos")} />
+        <KpiCard label="Valor estoque" value={fmtCurrency(resumo.estoque_atual_valor_total || 0, 0)} helper={`${fmtCompact(resumo.saldo_total || 0)} un. em estoque`} icon={<Boxes size={20} />} tone="success" onClick={() => onOpenGestao("todos")} />
+      </div>
+
+      <MatrizEstoqueGiroPanel itens={itensMatriz} loading={loadingMatriz} onApplyFilter={onApplyFilter} />
+
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="card p-5">
+          <div className="mb-4">
+            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status por linha de negócio</p>
+            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Onde está concentrado o risco</h2>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Consolida críticos, excesso, sem giro e itens especiais por linha.</p>
+          </div>
+          <div className="h-[360px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={statusPorLinha} layout="vertical" margin={{ top: 10, right: 28, left: 18, bottom: 10 }}>
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
+                <YAxis dataKey="linha" type="category" width={132} tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} />
+                <Tooltip formatter={(value: number, name: string) => [fmtNumber(Number(value || 0)), name]} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="criticos" name="Críticos" stackId="status" fill="#DC2626" radius={[7, 0, 0, 7]} onClick={(row) => onApplyFilter({ label: `Críticos · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, semaforo: "VERMELHO" }, "todos")}>
+                  <LabelList dataKey="criticos" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                </Bar>
+                <Bar dataKey="excesso" name="Excesso" stackId="status" fill="#2563EB" onClick={(row) => onApplyFilter({ label: `Excesso · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, status: "EXCESSO" }, "todos")}>
+                  <LabelList dataKey="excesso" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                </Bar>
+                <Bar dataKey="semGiro" name="Sem giro" stackId="status" fill="#94A3B8" onClick={(row) => onApplyFilter({ label: `Sem giro · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, status: "SEM_GIRO" }, "todos")}>
+                  <LabelList dataKey="semGiro" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                </Bar>
+                <Bar dataKey="especiais" name="Bravi/desc." stackId="status" fill="#7C3AED">
+                  <LabelList dataKey="especiais" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                </Bar>
+                <Bar dataKey="ok" name="Ok/outros" stackId="status" fill="#15803D" radius={[0, 7, 7, 0]}>
+                  <LabelList dataKey="ok" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="card p-5">
+          <div className="mb-4">
+            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Cobertura por faixa</p>
+            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Distribuição dos itens por cobertura</h2>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Ajuda a separar risco de falta, excesso e itens sem giro.</p>
+          </div>
+          <div className="h-[360px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={coberturaData} margin={{ top: 18, right: 18, left: 4, bottom: 32 }}>
+                <XAxis dataKey="faixa" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} interval={0} angle={-18} textAnchor="end" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
+                <Tooltip formatter={(value: number) => [fmtNumber(Number(value || 0)), "Itens"]} />
+                <Bar dataKey="itens" name="Itens" fill="#163B63" radius={[8, 8, 0, 0]}>
+                  <LabelList dataKey="itens" position="top" fontSize={12} fill="#163B63" formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+        <div className="card p-5 xl:col-span-2">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Itens críticos</p>
+              <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Fila de ação</h2>
+            </div>
+            <button type="button" onClick={() => onApplyFilter({ label: "Críticos", semaforo: "VERMELHO" }, "todos")} className="rounded-xl border px-3 py-2 text-xs font-bold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Ver todos</button>
+          </div>
+          <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+            <table className="w-full text-sm">
+              <thead style={{ background: "#163B63", color: "#FFFFFF" }}>
+                <tr className="text-left text-[11px] uppercase tracking-wide">
+                  <th className="px-3 py-2">Código</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2">Linha</th><th className="px-3 py-2 text-right">Estoque</th><th className="px-3 py-2 text-right">Entradas</th><th className="px-3 py-2 text-right">Demanda</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topCriticos.slice(0, 8).map((item) => (
+                  <tr key={`${item.codigo}-${item.produto}`} className="border-b last:border-0" style={{ borderColor: "var(--border)" }}>
+                    <td className="px-3 py-2 font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo}</td>
+                    <td className="px-3 py-2" style={{ color: "var(--text-primary)" }}>{item.produto || "—"}</td>
+                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{item.tipo_negocio || item.grupo_gerencial || "—"}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(getEstoqueAtualReal(item), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(getPedidosAbertos(item), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(getNum(item, "demanda_mes_atual"), 0)}</td>
+                  </tr>
+                ))}
+                {!topCriticos.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item crítico no escopo atual.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="card p-5">
+          <div className="mb-4">
+            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Excesso e capital parado</p>
+            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Top excesso</h2>
+          </div>
+          <div className="space-y-3">
+            {topExcesso.slice(0, 6).map((item) => (
+              <button key={`${item.codigo}-excesso`} type="button" onClick={() => onApplyFilter({ label: String(item.produto || item.codigo), busca: String(item.codigo || "") }, "todos")} className="w-full rounded-2xl border p-3 text-left transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><p className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo} · {item.produto}</p><p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>{item.tipo_negocio || item.grupo_gerencial || "Sem linha"}</p></div>
+                  <span className="shrink-0 rounded-full px-2 py-1 text-[11px] font-bold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>{fmtCompact(getNum(item, "gap_volume"))}</span>
+                </div>
+              </button>
+            ))}
+            {!topExcesso.length && <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Sem ranking de excesso para exibir.</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ChartBox({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
     <div className="card p-4">
@@ -2324,7 +2970,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V37: visão geral em cache + item selecionado com estoque real e estoque projetado. Eixo recalculado pelas séries visíveis.
+                V38: estoque real e estoque projetado em barras. Eixo recalculado pelas séries visíveis.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -2385,20 +3031,20 @@ function BraviSeriePanel({
                     <LabelList dataKey="estoque" content={renderChartLabelAberto} />
                   </Bar>
 
-                  <Line
+                  <Bar
                     yAxisId="estoque"
-                    type="monotone"
                     dataKey="estoque_projetado"
                     name="Estoque projetado"
+                    fill="#BFDBFE"
+                    fillOpacity={0.45}
                     stroke="#60A5FA"
-                    strokeWidth={2.7}
-                    strokeDasharray="5 5"
-                    dot={{ r: 3 }}
-                    connectNulls={false}
+                    strokeWidth={2}
+                    strokeDasharray="5 4"
+                    radius={[6, 6, 0, 0]}
                     hide={!itemSelecionado || serieOculta("estoque_projetado")}
                   >
                     <LabelList dataKey="estoque_projetado" content={renderChartLabelAberto} />
-                  </Line>
+                  </Bar>
 
                   <Bar
                     yAxisId="estoque"
@@ -3303,6 +3949,11 @@ export default function AgingEstoquePage() {
   const [refreshTick, setRefreshTick] = useState(0)
   const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(null)
   const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>("produtos")
+  const [visaoEstoque, setVisaoEstoque] = useState<VisaoEstoque>("dashboard")
+  const [dashboardResp, setDashboardResp] = useState<AgingResumoResponse | null>(null)
+  const [dashboardItensResp, setDashboardItensResp] = useState<AgingItensResponse | null>(null)
+  const [loadingDashboard, setLoadingDashboard] = useState(false)
+  const [loadingDashboardItens, setLoadingDashboardItens] = useState(false)
   const [tableFilterOpen, setTableFilterOpen] = useState<keyof FiltroTabelaEstoque | null>(null)
   const [tableSearchDraft, setTableSearchDraft] = useState("")
   const [columnSelectorOpen, setColumnSelectorOpen] = useState(false)
@@ -3377,6 +4028,56 @@ export default function AgingEstoquePage() {
     setItensResp(null)
     setMostrarSaudeLinhas(false)
   }
+
+  const abrirGestaoPeloDashboard = (escopo: EscopoEstoque = "todos") => {
+    setVisaoEstoque("gestao")
+    setEscopoEstoque(escopo)
+    setPage(1)
+    setSelected(null)
+    setActiveFilter(null)
+  }
+
+  const aplicarFiltroDashboard = (filtro: FiltroTabelaEstoque | null, escopo: EscopoEstoque = "todos") => {
+    setVisaoEstoque("gestao")
+    setEscopoEstoque(escopo)
+    setPage(1)
+    setSelected(null)
+    setActiveFilter(filtro)
+  }
+
+  useEffect(() => {
+    let mounted = true
+    setLoadingDashboard(true)
+    setLoadingDashboardItens(true)
+    Promise.all([
+      getAgingResumoDireto({
+        escopo: "todos",
+        classificacao_cadastro: "TODOS",
+      }),
+      getAgingItensDireto({
+        escopo: "todos",
+        page: 1,
+        page_size: 5000,
+        sort_direction: "desc",
+        classificacao_cadastro: "TODOS",
+      }),
+    ])
+      .then(([resumoDashboard, itensDashboard]) => {
+        if (!mounted) return
+        setDashboardResp(resumoDashboard)
+        setDashboardItensResp(normalizarCoberturaPaMrResponse(itensDashboard, "todos"))
+      })
+      .catch((err: unknown) => {
+        if (!mounted) return
+        setError(err instanceof Error ? err.message : "Erro ao carregar dashboard")
+      })
+      .finally(() => {
+        if (!mounted) return
+        setLoadingDashboard(false)
+        setLoadingDashboardItens(false)
+      })
+    return () => { mounted = false }
+  }, [refreshTick])
 
   useEffect(() => {
     let mounted = true
@@ -3474,7 +4175,7 @@ export default function AgingEstoquePage() {
   }
 
   const abrirDetalhe = (item: AgingEstoqueItem) => {
-    if (escopoEstoque === "insumos") {
+    if (visaoEstoque === "gestao" && escopoEstoque === "insumos") {
       const codigo = String(item.codigo || "").trim()
       const detalheEmCache = codigo
         ? lerCacheGestaoEstoque<AgingEstoqueItemDetalhe>(
@@ -3833,6 +4534,66 @@ export default function AgingEstoquePage() {
   }
 
 
+
+  if (visaoEstoque === "dashboard") {
+    return (
+      <div className="min-h-screen p-6 space-y-5">
+        <div className="fade-in flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-widest mb-1" style={{ color: "var(--text-secondary)" }}>Suprimentos · Estoque</p>
+            <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Dashboard de Estoque</h1>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Indicadores executivos, matriz estoque x giro e prioridades por linha de negócio.</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setBasesModalOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95"
+              style={{ background: "#163B63" }}
+            >
+              <Database size={16} /> Bases
+            </button>
+            <button
+              onClick={() => { limparCacheGestaoEstoqueLocal(); setRefreshTick((x) => x + 1) }}
+              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              <RefreshCw size={16} /> Atualizar
+            </button>
+          </div>
+        </div>
+
+        <VisaoEstoqueTabs value={visaoEstoque} onChange={setVisaoEstoque} />
+
+        {error && (
+          <div className="rounded-2xl border px-4 py-3 text-sm font-semibold" style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)", color: "#B91C1C" }}>
+            {error}
+          </div>
+        )}
+
+        <DashboardEstoquePanel
+          data={dashboardResp}
+          itensMatriz={dashboardItensResp?.itens || []}
+          loading={loadingDashboard}
+          loadingMatriz={loadingDashboardItens}
+          onApplyFilter={aplicarFiltroDashboard}
+          onOpenGestao={abrirGestaoPeloDashboard}
+        />
+
+        <BasesModal
+          open={basesModalOpen}
+          onClose={() => setBasesModalOpen(false)}
+          ultimasAtualizacoes={ultimasAtualizacoesBases}
+          loadingAtualizacoes={loadingAtualizacoesBases}
+          uploadingBaseId={uploadingBaseId}
+          uploadMessage={uploadMessage}
+          onUpload={handleUploadBase}
+          onRefresh={carregarAtualizacoesBases}
+        />
+      </div>
+    )
+  }
+
   if (escopoEstoque === "insumos") {
     return (
       <div className="min-h-screen p-6 space-y-5">
@@ -3867,6 +4628,8 @@ export default function AgingEstoquePage() {
             </button>
           </div>
         </div>
+
+        <VisaoEstoqueTabs value={visaoEstoque} onChange={setVisaoEstoque} />
 
         <div className="card p-4">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
@@ -4252,6 +5015,8 @@ export default function AgingEstoquePage() {
           </button>
         </div>
       </div>
+
+      <VisaoEstoqueTabs value={visaoEstoque} onChange={setVisaoEstoque} />
 
       <div className="card p-4">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
