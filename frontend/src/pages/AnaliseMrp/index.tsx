@@ -2149,6 +2149,124 @@ function getCategoriaStatusDashboard(item: AgingEstoqueItem | null | undefined):
   return "ok"
 }
 
+
+const STATUS_DASHBOARD_META: Record<CategoriaStatusDashboard, { label: string; color: string; bg: string }> = {
+  criticos: { label: "Críticos", color: "#DC2626", bg: "rgba(220,38,38,0.10)" },
+  excesso: { label: "Excesso", color: "#2563EB", bg: "rgba(37,99,235,0.10)" },
+  semGiro: { label: "Sem giro", color: "#64748B", bg: "rgba(148,163,184,0.18)" },
+  bravi: { label: "Bravi", color: "#7C3AED", bg: "rgba(124,58,237,0.10)" },
+  descontinuado: { label: "Descontinuado", color: "#D97706", bg: "rgba(217,119,6,0.10)" },
+  ok: { label: "Ok/outros", color: "#15803D", bg: "rgba(21,128,61,0.10)" },
+}
+
+function StatusLinhaDashboardTooltip({
+  active,
+  payload,
+  itensBase,
+}: {
+  active?: boolean
+  payload?: any[]
+  itensBase: AgingEstoqueItem[]
+}) {
+  if (!active || !payload?.length) return null
+
+  const ponto = payload[0]?.payload as any
+  if (!ponto) return null
+
+  const linhaOriginal = String(ponto.linhaOriginal || ponto.linha || "A classificar")
+  const categoriaHover = String(payload[0]?.dataKey || "").trim() as CategoriaStatusDashboard | ""
+  const categoriaValida = ["criticos", "excesso", "semGiro", "bravi", "descontinuado", "ok"].includes(categoriaHover)
+    ? (categoriaHover as CategoriaStatusDashboard)
+    : null
+
+  const itensLinha = (itensBase || []).filter((item) => getLinhaDashboardItem(item) === linhaOriginal)
+  const itensTooltip = categoriaValida
+    ? itensLinha.filter((item) => getCategoriaStatusDashboard(item) === categoriaValida)
+    : itensLinha
+
+  const meta = categoriaValida ? STATUS_DASHBOARD_META[categoriaValida] : null
+  const itensOrdenados = [...itensTooltip].sort((a, b) => {
+    const estoqueDiff = getEstoqueAtualReal(b) - getEstoqueAtualReal(a)
+    if (Math.abs(estoqueDiff) > 0.0001) return estoqueDiff
+    return String((a as any).produto || "").localeCompare(String((b as any).produto || ""), "pt-BR")
+  })
+  const preview = itensOrdenados.slice(0, 8)
+
+  return (
+    <div className="w-[440px] max-w-[440px] rounded-2xl border bg-white p-4 shadow-2xl" style={{ borderColor: 'var(--border)' }}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+            {categoriaValida ? `${linhaOriginal} · ${meta?.label}` : linhaOriginal}
+          </p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+            {fmtNumber(itensTooltip.length)} item(ns) no recorte atual
+          </p>
+        </div>
+        {meta && (
+          <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>
+            {meta.label}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="rounded-xl border px-3 py-2" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Total linha</p>
+          <p className="mt-1 text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{fmtNumber(itensLinha.length)}</p>
+        </div>
+        <div className="rounded-xl border px-3 py-2" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Com estoque</p>
+          <p className="mt-1 text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{fmtNumber(itensTooltip.filter((item) => getEstoqueAtualReal(item) > 0).length)}</p>
+        </div>
+        <div className="rounded-xl border px-3 py-2" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Sem estoque</p>
+          <p className="mt-1 text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{fmtNumber(itensTooltip.filter((item) => getEstoqueAtualReal(item) <= 0).length)}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--border)', background: 'rgba(248,250,252,0.85)' }}>
+        <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+          Itens do tooltip
+        </p>
+        {preview.length ? (
+          <div className="mt-2 space-y-2">
+            {preview.map((item) => {
+              const categoriaItem = getCategoriaStatusDashboard(item)
+              const metaItem = STATUS_DASHBOARD_META[categoriaItem]
+              return (
+                <div key={`${item.codigo}-${String((item as any).produto || '')}`} className="rounded-xl border bg-white px-3 py-2" style={{ borderColor: 'var(--border)' }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                        {String(item.codigo || '').trim() || '—'} · {String((item as any).produto || (item as any).descricao || 'Item').trim()}
+                      </p>
+                      <p className="mt-0.5 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                        Estoque: {fmtNumber(getEstoqueAtualReal(item), 0)} · Cob.: {getGiroMatriz(item) > 0 ? `${fmtNumber(getCoberturaMatriz(item), 1)} m` : 'Sem giro'}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold" style={{ background: metaItem.bg, color: metaItem.color }}>
+                      {metaItem.label}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>Nenhum item encontrado para este ponto do gráfico.</p>
+        )}
+
+        {itensOrdenados.length > preview.length && (
+          <p className="mt-2 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+            +{fmtNumber(itensOrdenados.length - preview.length)} item(ns) além dos exibidos.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function getUltimosMesesDashboard(qtdMeses = 6) {
   const hoje = new Date()
   const base = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
@@ -2884,7 +3002,7 @@ function DashboardEstoquePanel({
               <BarChart data={statusPorLinha} layout="vertical" margin={{ top: 10, right: 28, left: 18, bottom: 10 }}>
                 <XAxis type="number" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
                 <YAxis dataKey="linha" type="category" width={132} tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(value: number, name: string) => [fmtNumber(Number(value || 0)), name]} />
+                <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} shared={false} content={<StatusLinhaDashboardTooltip itensBase={itensFiltradosDashboard} />} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="criticos" name="Críticos" stackId="status" fill="#DC2626" radius={[7, 0, 0, 7]} onClick={(row) => abrirListaDashboard(`Críticos · ${row.linhaOriginal}`, "Itens críticos nesta linha de negócio.", itensPorCategoriaDashboard("criticos", row.linhaOriginal), "#DC2626")}>
                   <LabelList dataKey="criticos" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
