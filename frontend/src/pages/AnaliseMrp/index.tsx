@@ -1923,6 +1923,81 @@ function getValorEstoqueMatriz(item: AgingEstoqueItem) {
     getEstoqueAtualReal(item) * getNum(item, "custo_unitario"),
   )
 }
+function getTipoDashboardItem(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return ""
+  return String((item as any).tipo || (item as any).tipo_produto_erp || "").trim().toUpperCase()
+}
+
+function getLinhaDashboardItem(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return "A classificar"
+  return String((item as any).tipo_negocio || (item as any).grupo_gerencial || "A classificar").trim() || "A classificar"
+}
+
+function itemEhProdutoDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return false
+
+  const raw = item as any
+  const tipo = getTipoDashboardItem(item)
+
+  // Se o código aparece como componente da BOM, ele deve cair como insumo,
+  // mesmo quando herda uma linha gerencial de PA pela classificação.
+  if (raw.eh_componente_bom === true) return false
+
+  if (["PA", "MR", "PPS", "PV", "PA/MR"].includes(tipo)) return true
+  if (["MP", "ME", "MI", "PI", "MP/ME"].includes(tipo)) return false
+
+  const origemLinha = String(raw.origem_linha_estoque || "").trim()
+  const origemClassificacao = String(raw.origem_classificacao || "").trim()
+  const transferenciaBravi = String(raw.transferencia_bravi || "").trim() === "Sim"
+
+  if (origemLinha === "d_produtos_sem_snapshot_aging") return true
+  if (transferenciaBravi) return true
+
+  const tipoNegocio = String(raw.tipo_negocio || "").trim()
+  const macroNegocio = String(raw.macro_negocio || "").trim()
+  const grupoGerencial = String(raw.grupo_gerencial || "").trim()
+  const linhasComerciais = new Set(["Anestésicos Injetáveis", "Benzotop", "PPS"])
+
+  if (origemClassificacao === "DIMENSAO") {
+    if (linhasComerciais.has(tipoNegocio) || linhasComerciais.has(macroNegocio)) return true
+    if ([
+      "Anestésicos Injetáveis",
+      "Benzotop",
+      "PPS - Ativo terceirizado/revenda",
+      "PPS - Descontinuado",
+      "PPS - Transferência Bravi",
+    ].includes(grupoGerencial)) return true
+    if (getNum(item, "demanda_direta_mes_atual") > 0) return true
+    if (getNum(item, "faturamento_ytd_qtd") > 0) return true
+  }
+
+  return false
+}
+
+function itemEhInsumoDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return false
+
+  const raw = item as any
+  const tipo = getTipoDashboardItem(item)
+
+  if (raw.eh_componente_bom === true) return true
+  if (itemEhProdutoDashboard(item)) return false
+  if (["MP", "ME", "MI", "PI", "MP/ME"].includes(tipo)) return true
+  if (String(raw.origem_classificacao || "").trim() === "BOM") return true
+  if (getNum(item, "demanda_bom_mes_atual") > 0) return true
+
+  // Fallback conservador para linha real do Aging sem sinal comercial direto.
+  if (raw.tem_posicao_aging && String(raw.origem_classificacao || "").trim() !== "DIMENSAO") return true
+
+  return false
+}
+
+function filtrarItensPorEscopoDashboard(itens: AgingEstoqueItem[], escopo: EscopoEstoque) {
+  if (escopo === "produtos") return (itens || []).filter(itemEhProdutoDashboard)
+  if (escopo === "insumos") return (itens || []).filter(itemEhInsumoDashboard)
+  return itens || []
+}
+
 
 function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
   const base = (itens || []).filter((item) => String(item?.codigo || "").trim())
@@ -2222,41 +2297,199 @@ function DashboardEstoquePanel({
   onApplyFilter: (filtro: FiltroTabelaEstoque | null, escopo?: EscopoEstoque) => void
   onOpenGestao: (escopo?: EscopoEstoque) => void
 }) {
-  const resumo = data?.resumo || {}
-  const saude = data?.saude_negocios || []
-  const faixas = data?.faixas_cobertura || []
-  const topCriticos = data?.top_criticos || []
-  const topExcesso = data?.top_excesso || []
+  const resumoBackend = data?.resumo || {}
+  const itensOriginaisDashboard = itensMatriz || []
+  const [escopoSelecionadoDashboard, setEscopoSelecionadoDashboard] = useState<EscopoEstoque>("produtos")
+  const [linhaSelecionadaDashboard, setLinhaSelecionadaDashboard] = useState<string>("TODAS")
 
-  const statusPorLinha = saude
-    .filter((item) => Number(item.itens || 0) > 0)
-    .map((item) => {
-      const criticos = Number(item.criticos || 0)
-      const excesso = Number(item.excesso || 0)
-      const semGiro = Number(item.sem_giro || 0)
-      const especiais = Number(item.descontinuado_com_saldo || 0) + Number(item.transferencia_bravi || 0)
-      const ok = Math.max(0, Number(item.itens || 0) - criticos - excesso - semGiro - especiais)
-      return {
-        linha: statusLabelDashboard(item.tipo_negocio),
-        linhaOriginal: item.tipo_negocio,
-        criticos,
-        excesso,
-        semGiro,
-        especiais,
-        ok,
-        total: Number(item.itens || 0),
+  const itensBaseDashboard = useMemo(() => {
+    return filtrarItensPorEscopoDashboard(itensOriginaisDashboard, escopoSelecionadoDashboard)
+  }, [itensOriginaisDashboard, escopoSelecionadoDashboard])
+
+  const linhasDashboard = useMemo(() => {
+    const linhas = new Set<string>()
+    for (const item of itensBaseDashboard) {
+      linhas.add(getLinhaDashboardItem(item))
+    }
+    return Array.from(linhas).sort((a, b) => a.localeCompare(b, "pt-BR"))
+  }, [itensBaseDashboard])
+
+  useEffect(() => {
+    if (linhaSelecionadaDashboard === "TODAS") return
+    if (!linhasDashboard.includes(linhaSelecionadaDashboard)) {
+      setLinhaSelecionadaDashboard("TODAS")
+    }
+  }, [linhaSelecionadaDashboard, linhasDashboard])
+
+  const itensFiltradosDashboard = useMemo(() => {
+    if (linhaSelecionadaDashboard === "TODAS") return itensBaseDashboard
+    return itensBaseDashboard.filter((item) => getLinhaDashboardItem(item) === linhaSelecionadaDashboard)
+  }, [itensBaseDashboard, linhaSelecionadaDashboard])
+
+  const filtroLinhaAtual = linhaSelecionadaDashboard === "TODAS"
+    ? null
+    : { label: `Linha · ${linhaSelecionadaDashboard}`, tipo_negocio: linhaSelecionadaDashboard, classificacao_cadastro: "TODOS" }
+
+  const aplicarFiltroComLinha = (filtro: FiltroTabelaEstoque | null, escopo: EscopoEstoque = escopoSelecionadoDashboard) => {
+    if (linhaSelecionadaDashboard === "TODAS") {
+      onApplyFilter(filtro, escopo)
+      return
+    }
+
+    onApplyFilter({
+      ...(filtro || { label: `Linha · ${linhaSelecionadaDashboard}` }),
+      label: filtro?.label ? `${filtro.label} · ${linhaSelecionadaDashboard}` : `Linha · ${linhaSelecionadaDashboard}`,
+      tipo_negocio: linhaSelecionadaDashboard,
+      classificacao_cadastro: filtro?.classificacao_cadastro || "TODOS",
+    }, escopo)
+  }
+
+  const abrirGestaoComLinha = () => {
+    if (filtroLinhaAtual) {
+      onApplyFilter(filtroLinhaAtual, escopoSelecionadoDashboard)
+      return
+    }
+    onOpenGestao(escopoSelecionadoDashboard)
+  }
+
+  const metricasDashboard = useMemo(() => {
+    const itens = itensFiltradosDashboard
+    const total = itens.length
+    let criticos = 0
+    let semEstoque = 0
+    let atencao = 0
+    let excesso = 0
+    let semGiro = 0
+    let saldoTotal = 0
+    let valorEstoque = 0
+    let entradas = 0
+    let demanda = 0
+
+    for (const item of itens) {
+      const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
+      const semaforo = calcularSemaforoEstoque(item)
+      const saldo = getEstoqueAtualReal(item)
+      const giro = getGiroMatriz(item)
+
+      if (saldo <= 0) semEstoque += 1
+      if (semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO") criticos += 1
+      if (semaforo === "AMARELO" || status === "ATENCAO") atencao += 1
+      if (status === "EXCESSO") excesso += 1
+      if (status === "SEM_GIRO" || status === "SEM_CONSUMO" || giro <= 0) semGiro += 1
+
+      saldoTotal += saldo
+      valorEstoque += getValorEstoqueMatriz(item)
+      entradas += getPedidosAbertos(item)
+      demanda += getNum(item, "demanda_mes_atual")
+    }
+
+    return {
+      total,
+      criticos,
+      semEstoque,
+      atencao,
+      excesso,
+      semGiro,
+      saldoTotal,
+      valorEstoque,
+      entradas,
+      demanda,
+    }
+  }, [itensFiltradosDashboard])
+
+  const statusPorLinha = useMemo(() => {
+    const grupos = new Map<string, { linha: string; linhaOriginal: string; criticos: number; excesso: number; semGiro: number; especiais: number; ok: number; total: number }>()
+
+    for (const item of itensFiltradosDashboard) {
+      const linhaOriginal = String((item as any).tipo_negocio || (item as any).grupo_gerencial || "A classificar").trim() || "A classificar"
+      const key = linhaOriginal
+      const atual = grupos.get(key) || {
+        linha: statusLabelDashboard(linhaOriginal),
+        linhaOriginal,
+        criticos: 0,
+        excesso: 0,
+        semGiro: 0,
+        especiais: 0,
+        ok: 0,
+        total: 0,
       }
-    })
-    .sort((a, b) => b.criticos - a.criticos || b.total - a.total)
 
-  const coberturaData = faixas.map((item) => ({
-    faixa: normalizarFaixaCobertura(item.faixa),
-    itens: Number(item.itens || 0),
-  }))
+      const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
+      const semaforo = calcularSemaforoEstoque(item)
+      const especial = String((item as any).transferencia_bravi || "").trim() === "Sim" || status === "DESCONTINUADO_COM_SALDO" || status === "TRANSFERENCIA_BRAVI"
+      const giro = getGiroMatriz(item)
+      const ehCritico = semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO"
+      const ehExcesso = status === "EXCESSO"
+      const ehSemGiro = status === "SEM_GIRO" || status === "SEM_CONSUMO" || giro <= 0
 
-  const totalCriticos = Number(resumo.ruptura || 0) + Number(resumo.critico || 0)
-  const totalItens = Number(resumo.total_itens || 0)
+      atual.total += 1
+      if (ehCritico) atual.criticos += 1
+      else if (ehExcesso) atual.excesso += 1
+      else if (ehSemGiro) atual.semGiro += 1
+      else if (especial) atual.especiais += 1
+      else atual.ok += 1
+
+      grupos.set(key, atual)
+    }
+
+    return Array.from(grupos.values()).sort((a, b) => b.criticos - a.criticos || b.total - a.total)
+  }, [itensFiltradosDashboard])
+
+  const coberturaData = useMemo(() => {
+    const ordem = ["0 a 1 mês", "1 a 2 meses", "2 a 3 meses", "> 3 meses", "Sem giro"]
+    const mapa = new Map<string, number>(ordem.map((faixa) => [faixa, 0]))
+
+    for (const item of itensFiltradosDashboard) {
+      const giro = getGiroMatriz(item)
+      const cobertura = getCoberturaMatriz(item)
+      let faixa = "Sem giro"
+
+      if (giro > 0) {
+        if (cobertura <= 1) faixa = "0 a 1 mês"
+        else if (cobertura <= 2) faixa = "1 a 2 meses"
+        else if (cobertura <= 3) faixa = "2 a 3 meses"
+        else faixa = "> 3 meses"
+      }
+
+      mapa.set(faixa, (mapa.get(faixa) || 0) + 1)
+    }
+
+    if (!itensFiltradosDashboard.length && data?.faixas_cobertura?.length) {
+      return data.faixas_cobertura.map((item) => ({
+        faixa: normalizarFaixaCobertura(item.faixa),
+        itens: Number(item.itens || 0),
+      }))
+    }
+
+    return ordem.map((faixa) => ({ faixa, itens: mapa.get(faixa) || 0 }))
+  }, [itensFiltradosDashboard, data?.faixas_cobertura])
+
+  const topCriticos = useMemo(() => {
+    return itensFiltradosDashboard
+      .filter((item) => {
+        const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
+        return calcularSemaforoEstoque(item) === "VERMELHO" || status === "RUPTURA" || status === "CRITICO"
+      })
+      .sort((a, b) => {
+        const faltaA = Math.max(0, getNum(a, "demanda_mes_atual") - getEstoqueAtualReal(a) - getPedidosAbertos(a))
+        const faltaB = Math.max(0, getNum(b, "demanda_mes_atual") - getEstoqueAtualReal(b) - getPedidosAbertos(b))
+        return faltaB - faltaA || getNum(b, "demanda_mes_atual") - getNum(a, "demanda_mes_atual")
+      })
+  }, [itensFiltradosDashboard])
+
+  const topExcesso = useMemo(() => {
+    return itensFiltradosDashboard
+      .filter((item) => {
+        const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
+        return status === "EXCESSO" || getCoberturaMatriz(item) >= 12
+      })
+      .sort((a, b) => getEstoqueAtualReal(b) - getEstoqueAtualReal(a) || getValorEstoqueMatriz(b) - getValorEstoqueMatriz(a))
+  }, [itensFiltradosDashboard])
+
+  const totalCriticos = metricasDashboard.criticos
+  const totalItens = metricasDashboard.total
   const pctCritico = totalItens > 0 ? (totalCriticos / totalItens) * 100 : 0
+  const pctSemEstoque = totalItens > 0 ? (metricasDashboard.semEstoque / totalItens) * 100 : 0
 
   return (
     <div className="space-y-5">
@@ -2266,13 +2499,53 @@ function DashboardEstoquePanel({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" onClick={() => onApplyFilter({ label: "Críticos", semaforo: "VERMELHO" }, "todos")} />
-        <KpiCard label="Sem estoque" value={fmtNumber(resumo.ruptura || 0)} helper="ruptura ou saldo zerado" icon={<ArrowDownRight size={20} />} tone="danger" onClick={() => onApplyFilter({ label: "Ruptura", status: "RUPTURA" }, "todos")} />
-        <KpiCard label="Atenção" value={fmtNumber(resumo.atencao || 0)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" onClick={() => onApplyFilter({ label: "Atenção", status: "ATENCAO" }, "todos")} />
-        <KpiCard label="Excesso" value={fmtNumber(resumo.excesso || 0)} helper="acima da política" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => onApplyFilter({ label: "Excesso", status: "EXCESSO" }, "todos")} />
-        <KpiCard label="Sem giro" value={fmtNumber(resumo.sem_giro || 0)} helper="sem referência de consumo" icon={<PackageSearch size={20} />} tone="default" onClick={() => onApplyFilter({ label: "Sem giro", status: "SEM_GIRO" }, "todos")} />
-        <KpiCard label="Valor estoque" value={fmtCurrency(resumo.estoque_atual_valor_total || 0, 0)} helper={`${fmtCompact(resumo.saldo_total || 0)} un. em estoque`} icon={<Boxes size={20} />} tone="success" onClick={() => onOpenGestao("todos")} />
+      <div className="card px-4 py-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "rgba(22,59,99,0.08)", color: "#163B63" }}><Filter size={16} /></span>
+            <div>
+              <p className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>Filtro do dashboard</p>
+              <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Filtra cards, gráficos, matriz e rankings por escopo e linha de negócio.</p>
+            </div>
+          </div>
+          <div className="grid w-full gap-3 sm:w-auto sm:min-w-[520px] sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Escopo</label>
+              <select
+                value={escopoSelecionadoDashboard}
+                onChange={(event) => setEscopoSelecionadoDashboard(event.target.value as EscopoEstoque)}
+                className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold outline-none"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="produtos">PA/MR</option>
+                <option value="insumos">Insumos</option>
+                <option value="todos">Todos</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Linha</label>
+              <select
+                value={linhaSelecionadaDashboard}
+                onChange={(event) => setLinhaSelecionadaDashboard(event.target.value)}
+                className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold outline-none"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="TODAS">Todas as linhas</option>
+                {linhasDashboard.map((linha) => <option key={linha} value={linha}>{linha}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-7">
+        <KpiCard label="Total itens" value={fmtNumber(totalItens)} helper={`${escopoSelecionadoDashboard === "produtos" ? "PA/MR" : escopoSelecionadoDashboard === "insumos" ? "Insumos" : "Todos"}${linhaSelecionadaDashboard === "TODAS" ? "" : ` · ${linhaSelecionadaDashboard}`}`} icon={<Boxes size={20} />} tone="default" onClick={abrirGestaoComLinha} />
+        <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" onClick={() => aplicarFiltroComLinha({ label: "Críticos", semaforo: "VERMELHO", classificacao_cadastro: "TODOS" })} />
+        <KpiCard label="Sem estoque" value={fmtNumber(metricasDashboard.semEstoque)} helper={`${fmtNumber(pctSemEstoque, 1)}% com saldo atual zerado`} icon={<ArrowDownRight size={20} />} tone="danger" onClick={abrirGestaoComLinha} />
+        <KpiCard label="Atenção" value={fmtNumber(metricasDashboard.atencao)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" onClick={() => aplicarFiltroComLinha({ label: "Atenção", semaforo: "AMARELO", classificacao_cadastro: "TODOS" })} />
+        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="acima da política" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => aplicarFiltroComLinha({ label: "Excesso", status: "EXCESSO", classificacao_cadastro: "TODOS" })} />
+        <KpiCard label="Sem giro" value={fmtNumber(metricasDashboard.semGiro)} helper="sem referência de consumo/giro" icon={<PackageSearch size={20} />} tone="default" onClick={() => aplicarFiltroComLinha({ label: "Sem giro", status: "SEM_GIRO", classificacao_cadastro: "TODOS" })} />
+        <KpiCard label="Estoque total" value={fmtCompact(metricasDashboard.saldoTotal)} helper={`Valor: ${fmtCurrency(metricasDashboard.valorEstoque, 0)}`} icon={<Boxes size={20} />} tone="success" onClick={abrirGestaoComLinha} />
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
@@ -2289,13 +2562,13 @@ function DashboardEstoquePanel({
                 <YAxis dataKey="linha" type="category" width={132} tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} />
                 <Tooltip formatter={(value: number, name: string) => [fmtNumber(Number(value || 0)), name]} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="criticos" name="Críticos" stackId="status" fill="#DC2626" radius={[7, 0, 0, 7]} onClick={(row) => onApplyFilter({ label: `Críticos · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, semaforo: "VERMELHO" }, "todos")}>
+                <Bar dataKey="criticos" name="Críticos" stackId="status" fill="#DC2626" radius={[7, 0, 0, 7]} onClick={(row) => aplicarFiltroComLinha({ label: `Críticos · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, semaforo: "VERMELHO", classificacao_cadastro: "TODOS" })}>
                   <LabelList dataKey="criticos" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
-                <Bar dataKey="excesso" name="Excesso" stackId="status" fill="#2563EB" onClick={(row) => onApplyFilter({ label: `Excesso · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, status: "EXCESSO" }, "todos")}>
+                <Bar dataKey="excesso" name="Excesso" stackId="status" fill="#2563EB" onClick={(row) => aplicarFiltroComLinha({ label: `Excesso · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, status: "EXCESSO", classificacao_cadastro: "TODOS" })}>
                   <LabelList dataKey="excesso" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
-                <Bar dataKey="semGiro" name="Sem giro" stackId="status" fill="#94A3B8" onClick={(row) => onApplyFilter({ label: `Sem giro · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, status: "SEM_GIRO" }, "todos")}>
+                <Bar dataKey="semGiro" name="Sem giro" stackId="status" fill="#94A3B8" onClick={(row) => aplicarFiltroComLinha({ label: `Sem giro · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, status: "SEM_GIRO", classificacao_cadastro: "TODOS" })}>
                   <LabelList dataKey="semGiro" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
                 <Bar dataKey="especiais" name="Bravi/desc." stackId="status" fill="#7C3AED">
@@ -2330,7 +2603,7 @@ function DashboardEstoquePanel({
         </div>
       </div>
 
-      <MatrizEstoqueGiroPanel itens={itensMatriz} loading={loadingMatriz} onApplyFilter={onApplyFilter} />
+      <MatrizEstoqueGiroPanel itens={itensFiltradosDashboard} loading={loadingMatriz} onApplyFilter={(filtro) => aplicarFiltroComLinha(filtro)} />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="card p-5 xl:col-span-2">
@@ -2339,7 +2612,7 @@ function DashboardEstoquePanel({
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Itens críticos</p>
               <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Fila de ação</h2>
             </div>
-            <button type="button" onClick={() => onApplyFilter({ label: "Críticos", semaforo: "VERMELHO" }, "todos")} className="rounded-xl border px-3 py-2 text-xs font-bold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Ver todos</button>
+            <button type="button" onClick={() => aplicarFiltroComLinha({ label: "Críticos", semaforo: "VERMELHO", classificacao_cadastro: "TODOS" })} className="rounded-xl border px-3 py-2 text-xs font-bold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Ver todos</button>
           </div>
           <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
             <table className="w-full text-sm">
@@ -2352,14 +2625,14 @@ function DashboardEstoquePanel({
                 {topCriticos.slice(0, 8).map((item) => (
                   <tr key={`${item.codigo}-${item.produto}`} className="border-b last:border-0" style={{ borderColor: "var(--border)" }}>
                     <td className="px-3 py-2 font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo}</td>
-                    <td className="px-3 py-2" style={{ color: "var(--text-primary)" }}>{item.produto || "—"}</td>
-                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{item.tipo_negocio || item.grupo_gerencial || "—"}</td>
+                    <td className="px-3 py-2" style={{ color: "var(--text-primary)" }}>{(item as any).produto || "—"}</td>
+                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{(item as any).tipo_negocio || (item as any).grupo_gerencial || "—"}</td>
                     <td className="px-3 py-2 text-right">{fmtNumber(getEstoqueAtualReal(item), 0)}</td>
                     <td className="px-3 py-2 text-right">{fmtNumber(getPedidosAbertos(item), 0)}</td>
                     <td className="px-3 py-2 text-right">{fmtNumber(getNum(item, "demanda_mes_atual"), 0)}</td>
                   </tr>
                 ))}
-                {!topCriticos.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum item crítico no escopo atual.</td></tr>}
+                {!topCriticos.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Sem itens críticos para o filtro selecionado.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -2372,14 +2645,14 @@ function DashboardEstoquePanel({
           </div>
           <div className="space-y-3">
             {topExcesso.slice(0, 6).map((item) => (
-              <button key={`${item.codigo}-excesso`} type="button" onClick={() => onApplyFilter({ label: String(item.produto || item.codigo), busca: String(item.codigo || "") }, "todos")} className="w-full rounded-2xl border p-3 text-left transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }}>
+              <button key={`${item.codigo}-excesso`} type="button" onClick={() => aplicarFiltroComLinha({ label: String((item as any).produto || item.codigo), busca: String(item.codigo || ""), classificacao_cadastro: "TODOS" })} className="w-full rounded-2xl border p-3 text-left transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }}>
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0"><p className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo} · {item.produto}</p><p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>{item.tipo_negocio || item.grupo_gerencial || "Sem linha"}</p></div>
-                  <span className="shrink-0 rounded-full px-2 py-1 text-[11px] font-bold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>{fmtCompact(getNum(item, "gap_volume"))}</span>
+                  <div className="min-w-0"><p className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo} · {(item as any).produto}</p><p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>{(item as any).tipo_negocio || (item as any).grupo_gerencial || "Sem linha"}</p></div>
+                  <span className="shrink-0 rounded-full px-2 py-1 text-[11px] font-bold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>{fmtCompact(getEstoqueAtualReal(item))}</span>
                 </div>
               </button>
             ))}
-            {!topExcesso.length && <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Sem ranking de excesso para exibir.</p>}
+            {!topExcesso.length && <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Sem ranking de excesso para o filtro selecionado.</p>}
           </div>
         </div>
       </div>
