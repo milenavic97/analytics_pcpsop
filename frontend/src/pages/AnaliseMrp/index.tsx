@@ -1844,7 +1844,7 @@ type MatrixPoint = {
 const MATRIZ_QUADRANTES: Record<QuadranteMatrizKey, { titulo: string; subtitulo: string; acao: string; color: string; bg: string; border: string }> = {
   EXCESSO_PARADO: {
     titulo: "Excesso parado",
-    subtitulo: "Baixo giro e cobertura alta",
+    subtitulo: "Estoque real alto com baixo giro",
     acao: "Evitar compra, avaliar validade, troca, devolução ou descontinuação.",
     color: "#B91C1C",
     bg: "rgba(220,38,38,0.06)",
@@ -1852,7 +1852,7 @@ const MATRIZ_QUADRANTES: Record<QuadranteMatrizKey, { titulo: string; subtitulo:
   },
   EXCESSO_COM_GIRO: {
     titulo: "Excesso com giro",
-    subtitulo: "Vende/consome, mas tem estoque demais",
+    subtitulo: "Estoque real alto, apesar de venda/consumo",
     acao: "Reduzir próxima compra, revisar MOQ e negociar entrega parcelada.",
     color: "#D97706",
     bg: "rgba(245,158,11,0.08)",
@@ -2022,10 +2022,21 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
     const linha = String((item as any).tipo_negocio || (item as any).grupo_gerencial || "A classificar")
     const semaforo = calcularSemaforoEstoque(item)
 
+    const temEstoqueReal = estoque > 0.0001 || valor > 0.0001
+
     let quadrante: QuadranteMatrizKey = "BAIXO_GIRO_CONTROLADO"
-    if (cobertura >= corteCobertura && giro >= corteGiro) quadrante = "EXCESSO_COM_GIRO"
-    else if (cobertura >= corteCobertura && giro < corteGiro) quadrante = "EXCESSO_PARADO"
-    else if (cobertura < corteCobertura && giro >= corteGiro) quadrante = "RISCO_FALTA"
+
+    // Excesso/capital parado só pode existir quando há estoque físico ou valor parado.
+    // Se a cobertura estiver alta apenas por entradas futuras, não é excesso em estoque.
+    if (!temEstoqueReal) {
+      quadrante = giro >= corteGiro ? "RISCO_FALTA" : "BAIXO_GIRO_CONTROLADO"
+    } else if (cobertura >= corteCobertura && giro >= corteGiro) {
+      quadrante = "EXCESSO_COM_GIRO"
+    } else if (cobertura >= corteCobertura && giro < corteGiro) {
+      quadrante = "EXCESSO_PARADO"
+    } else if (cobertura < corteCobertura && giro >= corteGiro) {
+      quadrante = "RISCO_FALTA"
+    }
 
     const x = Math.min(giro, maxGiroBruto)
     const y = Math.min(cobertura, maxCoberturaBruta)
