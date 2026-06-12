@@ -2409,7 +2409,7 @@ function DashboardEstoquePanel({
   }, [itensFiltradosDashboard])
 
   const statusPorLinha = useMemo(() => {
-    const grupos = new Map<string, { linha: string; linhaOriginal: string; criticos: number; excesso: number; semGiro: number; especiais: number; ok: number; total: number }>()
+    const grupos = new Map<string, { linha: string; linhaOriginal: string; criticos: number; excesso: number; semGiro: number; bravi: number; descontinuado: number; ok: number; total: number }>()
 
     for (const item of itensFiltradosDashboard) {
       const linhaOriginal = String((item as any).tipo_negocio || (item as any).grupo_gerencial || "A classificar").trim() || "A classificar"
@@ -2420,14 +2420,17 @@ function DashboardEstoquePanel({
         criticos: 0,
         excesso: 0,
         semGiro: 0,
-        especiais: 0,
+        bravi: 0,
+        descontinuado: 0,
         ok: 0,
         total: 0,
       }
 
       const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
+      const statusPortfolio = String((item as any).status_portfolio || "").trim().toUpperCase()
       const semaforo = calcularSemaforoEstoque(item)
-      const especial = String((item as any).transferencia_bravi || "").trim() === "Sim" || status === "DESCONTINUADO_COM_SALDO" || status === "TRANSFERENCIA_BRAVI"
+      const ehBravi = String((item as any).transferencia_bravi || "").trim() === "Sim" || status === "TRANSFERENCIA_BRAVI"
+      const ehDescontinuado = !ehBravi && (status === "DESCONTINUADO_COM_SALDO" || statusPortfolio.includes("DESCONT"))
       const giro = getGiroMatriz(item)
       const ehCritico = semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO"
       const ehExcesso = status === "EXCESSO"
@@ -2435,10 +2438,11 @@ function DashboardEstoquePanel({
 
       atual.total += 1
 
-      // Itens Bravi/descontinuados precisam aparecer como grupo gerencial próprio.
-      // Antes eles caíam primeiro em Críticos ou Sem giro, então a barra Bravi ficava zerada
-      // mesmo existindo itens com transferencia_bravi = Sim no cadastro.
-      if (especial) atual.especiais += 1
+      // Bravi e descontinuado são categorias diferentes de portfólio.
+      // Bravi não deve entrar como descontinuado; por isso a classificação fica separada
+      // antes das categorias operacionais de crítico, excesso e sem giro.
+      if (ehBravi) atual.bravi += 1
+      else if (ehDescontinuado) atual.descontinuado += 1
       else if (ehCritico) atual.criticos += 1
       else if (ehExcesso) atual.excesso += 1
       else if (ehSemGiro) atual.semGiro += 1
@@ -2447,7 +2451,7 @@ function DashboardEstoquePanel({
       grupos.set(key, atual)
     }
 
-    return Array.from(grupos.values()).sort((a, b) => b.criticos - a.criticos || b.total - a.total)
+    return Array.from(grupos.values()).sort((a, b) => b.criticos - a.criticos || b.bravi - a.bravi || b.descontinuado - a.descontinuado || b.total - a.total)
   }, [itensFiltradosDashboard])
 
   const coberturaData = useMemo(() => {
@@ -2568,7 +2572,7 @@ function DashboardEstoquePanel({
           <div className="mb-4">
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status por linha de negócio</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Distribuição dos itens por linha de negócio</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Consolida Bravi/descontinuados, críticos, excesso, sem giro e demais itens por linha.</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Consolida Bravi, descontinuados, críticos, excesso, sem giro e demais itens por linha.</p>
           </div>
           <div className="h-[360px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -2586,8 +2590,11 @@ function DashboardEstoquePanel({
                 <Bar dataKey="semGiro" name="Sem giro" stackId="status" fill="#94A3B8" onClick={(row) => aplicarFiltroComLinha({ label: `Sem giro · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, status: "SEM_GIRO", classificacao_cadastro: "TODOS" })}>
                   <LabelList dataKey="semGiro" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
-                <Bar dataKey="especiais" name="Bravi/descontinuado" stackId="status" fill="#7C3AED">
-                  <LabelList dataKey="especiais" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                <Bar dataKey="bravi" name="Bravi" stackId="status" fill="#7C3AED" onClick={(row) => aplicarFiltroComLinha({ label: `Bravi · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, transferencia_bravi: "Sim", classificacao_cadastro: "TODOS" })}>
+                  <LabelList dataKey="bravi" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                </Bar>
+                <Bar dataKey="descontinuado" name="Descontinuado" stackId="status" fill="#D97706" onClick={(row) => aplicarFiltroComLinha({ label: `Descontinuado · ${row.linhaOriginal}`, tipo_negocio: row.linhaOriginal, status: "DESCONTINUADO_COM_SALDO", classificacao_cadastro: "TODOS" })}>
+                  <LabelList dataKey="descontinuado" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
                 <Bar dataKey="ok" name="Ok/outros" stackId="status" fill="#15803D" radius={[0, 7, 7, 0]}>
                   <LabelList dataKey="ok" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
