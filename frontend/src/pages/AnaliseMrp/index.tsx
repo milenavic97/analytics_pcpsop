@@ -1208,7 +1208,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   if (!item) return []
 
   const hoje = new Date()
-  const inicio = new Date(2025, 0, 1)
+  const inicio = new Date(2025, 5, 1)
   const fimInfo = addMonths(hoje.getFullYear(), hoje.getMonth() + 1, Math.max(1, horizonteFuturo || 6))
   const fim = new Date(fimInfo.ano, fimInfo.mes - 1, 1)
   const chaveAtual = monthKey(hoje.getFullYear(), hoje.getMonth() + 1)
@@ -2876,6 +2876,60 @@ function BraviSerieTooltip({ active, payload, label }: any) {
   )
 }
 
+function seriePontoKey(ponto: any) {
+  const ano = Number(ponto?.ano || 0)
+  const mes = Number(ponto?.mes || 0)
+  if (ano > 0 && mes > 0) return monthKey(ano, mes)
+  return String(ponto?.ordem || ponto?.key || ponto?.periodo || "")
+}
+
+function periodoSerieEhDepoisInicio(ponto: any, inicioKey = "2025-06") {
+  const key = seriePontoKey(ponto)
+  if (!key) return false
+  if (/^\d{4}-\d{2}/.test(key)) return key >= inicioKey
+
+  const ano = Number(ponto?.ano || 0)
+  const mes = Number(ponto?.mes || 0)
+  if (ano > 0 && mes > 0) return monthKey(ano, mes) >= inicioKey
+
+  return true
+}
+
+function filtrarSerieInicioGraficoPaMr(serie: any[], inicioKey = "2025-06") {
+  return (serie || []).filter((ponto) => periodoSerieEhDepoisInicio(ponto, inicioKey))
+}
+
+function mesclarSerieBackendComFallback(serieBackend: any[], serieFallback: any[]) {
+  const mapa = new Map<string, any>()
+
+  for (const ponto of serieFallback || []) {
+    const key = seriePontoKey(ponto)
+    if (!key) continue
+    mapa.set(key, { ...ponto })
+  }
+
+  for (const ponto of serieBackend || []) {
+    const key = seriePontoKey(ponto)
+    if (!key) continue
+    const base = mapa.get(key) || {}
+    const mesclado: any = { ...base, ...ponto }
+
+    // Mantém forecast/demanda futuro do fallback quando a série real do backend
+    // veio só com estoque/entrada/faturamento. Isso evita o gráfico perder a
+    // visão futura após o cache real carregar.
+    for (const campo of ["demanda", "forecast", "entradas_previstas", "estoque_projetado", "saldo_projetado"]) {
+      if ((mesclado[campo] === null || mesclado[campo] === undefined || mesclado[campo] === 0) && base[campo] !== null && base[campo] !== undefined) {
+        mesclado[campo] = base[campo]
+      }
+    }
+
+    mapa.set(key, mesclado)
+  }
+
+  return Array.from(mapa.values()).sort((a, b) => String(seriePontoKey(a)).localeCompare(String(seriePontoKey(b))))
+}
+
+
 function BraviSeriePanel({
   active,
   refreshTick,
@@ -3054,7 +3108,17 @@ function BraviSeriePanel({
     : resumoBase
 
   const serie = useMemo(() => {
-    if (!itemSelecionado) return serieOriginal
+    const serieInicioKey = "2025-06"
+
+    if (!itemSelecionado) {
+      return filtrarSerieInicioGraficoPaMr(serieOriginal, serieInicioKey)
+    }
+
+    const fallbackSelecionado = buildSerieOperacionalItemSelecionado(normalizarCoberturaPaMrItem(itemSelecionado))
+    const serieEntrada = filtrarSerieInicioGraficoPaMr(
+      mesclarSerieBackendComFallback(serieOriginal, fallbackSelecionado),
+      serieInicioKey,
+    )
 
     const hoje = new Date()
     const anoAtual = hoje.getFullYear()
@@ -3068,7 +3132,7 @@ function BraviSeriePanel({
     const estoqueAtual = Number(Number.isFinite(estoqueTabela) ? estoqueTabela : (resumo.estoque_atual ?? 0))
     const quarentenaAtual = Number((itemSelecionado as any).saldo_quarentena ?? (itemSelecionado as any).quarentena_98 ?? 0)
 
-    const pontos = serieOriginal.map((ponto: any) => {
+    const pontos = serieEntrada.map((ponto: any) => {
       const ordem = String(ponto?.ordem || ponto?.key || "")
       const dataInicio = String(ponto?.data_inicio || ordem || "")
       const dataFim = String(ponto?.data_fim || dataInicio || "")
@@ -3249,7 +3313,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V38: estoque real e estoque projetado em barras. Eixo recalculado pelas séries visíveis.
+                V45: histórico a partir de Jun/25, forecast futuro e estoque projetado em barras.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
