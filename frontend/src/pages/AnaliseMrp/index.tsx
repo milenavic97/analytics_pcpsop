@@ -2285,6 +2285,8 @@ function MatrizEstoqueGiroPanel({
 function DashboardEstoquePanel({
   data,
   itensMatriz,
+  dataPorEscopo,
+  itensPorEscopo,
   loading,
   loadingMatriz,
   onApplyFilter,
@@ -2292,19 +2294,27 @@ function DashboardEstoquePanel({
 }: {
   data: AgingResumoResponse | null
   itensMatriz: AgingEstoqueItem[]
+  dataPorEscopo?: Partial<Record<EscopoEstoque, AgingResumoResponse>>
+  itensPorEscopo?: Partial<Record<EscopoEstoque, AgingItensResponse>>
   loading?: boolean
   loadingMatriz?: boolean
   onApplyFilter: (filtro: FiltroTabelaEstoque | null, escopo?: EscopoEstoque) => void
   onOpenGestao: (escopo?: EscopoEstoque) => void
 }) {
-  const resumoBackend = data?.resumo || {}
-  const itensOriginaisDashboard = itensMatriz || []
   const [escopoSelecionadoDashboard, setEscopoSelecionadoDashboard] = useState<EscopoEstoque>("produtos")
   const [linhaSelecionadaDashboard, setLinhaSelecionadaDashboard] = useState<string>("TODAS")
 
+  const dashboardRespAtual = dataPorEscopo?.[escopoSelecionadoDashboard] || data
+  const dashboardItensRespAtual = itensPorEscopo?.[escopoSelecionadoDashboard]
+  const resumoBackend = dashboardRespAtual?.resumo || {}
+  const itensOriginaisDashboard = dashboardItensRespAtual?.itens || (escopoSelecionadoDashboard === "todos" ? itensMatriz : []) || []
+
   const itensBaseDashboard = useMemo(() => {
-    return filtrarItensPorEscopoDashboard(itensOriginaisDashboard, escopoSelecionadoDashboard)
-  }, [itensOriginaisDashboard, escopoSelecionadoDashboard])
+    // Importante: o Dashboard usa exatamente o mesmo escopo que a Gestão de Estoque.
+    // Não fazemos mais uma classificação local PA/MR x Insumos aqui, porque isso fazia
+    // os totais divergirem da tabela principal. A separação vem pronta do backend.
+    return itensOriginaisDashboard || []
+  }, [itensOriginaisDashboard])
 
   const linhasDashboard = useMemo(() => {
     const linhas = new Set<string>()
@@ -4221,6 +4231,8 @@ export default function AgingEstoquePage() {
   const [visaoEstoque, setVisaoEstoque] = useState<VisaoEstoque>("dashboard")
   const [dashboardResp, setDashboardResp] = useState<AgingResumoResponse | null>(null)
   const [dashboardItensResp, setDashboardItensResp] = useState<AgingItensResponse | null>(null)
+  const [dashboardResumoPorEscopo, setDashboardResumoPorEscopo] = useState<Partial<Record<EscopoEstoque, AgingResumoResponse>>>({})
+  const [dashboardItensPorEscopo, setDashboardItensPorEscopo] = useState<Partial<Record<EscopoEstoque, AgingItensResponse>>>({})
   const [loadingDashboard, setLoadingDashboard] = useState(false)
   const [loadingDashboardItens, setLoadingDashboardItens] = useState(false)
   const [tableFilterOpen, setTableFilterOpen] = useState<keyof FiltroTabelaEstoque | null>(null)
@@ -4316,25 +4328,51 @@ export default function AgingEstoquePage() {
 
   useEffect(() => {
     let mounted = true
+    const escoposDashboard: EscopoEstoque[] = ["todos", "insumos", "produtos"]
+
     setLoadingDashboard(true)
     setLoadingDashboardItens(true)
-    Promise.all([
-      getAgingResumoDireto({
-        escopo: "todos",
-        classificacao_cadastro: "TODOS",
-      }),
-      getAgingItensDireto({
-        escopo: "todos",
-        page: 1,
-        page_size: 5000,
-        sort_direction: "desc",
-        classificacao_cadastro: "TODOS",
-      }),
-    ])
-      .then(([resumoDashboard, itensDashboard]) => {
+
+    Promise.all(
+      escoposDashboard.map(async (escopo) => {
+        const classificacao = classificacaoPadraoPorEscopo(escopo)
+
+        const [resumo, itens] = await Promise.all([
+          getAgingResumoDireto({
+            escopo,
+            classificacao_cadastro: classificacao,
+          }),
+          getAgingItensDireto({
+            escopo,
+            page: 1,
+            page_size: 5000,
+            sort_direction: "desc",
+            classificacao_cadastro: classificacao,
+          }),
+        ])
+
+        return {
+          escopo,
+          resumo,
+          itens: normalizarCoberturaPaMrResponse(itens, escopo),
+        }
+      })
+    )
+      .then((resultados) => {
         if (!mounted) return
-        setDashboardResp(resumoDashboard)
-        setDashboardItensResp(normalizarCoberturaPaMrResponse(itensDashboard, "todos"))
+
+        const resumos: Partial<Record<EscopoEstoque, AgingResumoResponse>> = {}
+        const itensPorEscopo: Partial<Record<EscopoEstoque, AgingItensResponse>> = {}
+
+        for (const resultado of resultados) {
+          resumos[resultado.escopo] = resultado.resumo
+          itensPorEscopo[resultado.escopo] = resultado.itens
+        }
+
+        setDashboardResumoPorEscopo(resumos)
+        setDashboardItensPorEscopo(itensPorEscopo)
+        setDashboardResp(resumos.todos || null)
+        setDashboardItensResp(itensPorEscopo.todos || null)
       })
       .catch((err: unknown) => {
         if (!mounted) return
@@ -4843,6 +4881,8 @@ export default function AgingEstoquePage() {
         <DashboardEstoquePanel
           data={dashboardResp}
           itensMatriz={dashboardItensResp?.itens || []}
+          dataPorEscopo={dashboardResumoPorEscopo}
+          itensPorEscopo={dashboardItensPorEscopo}
           loading={loadingDashboard}
           loadingMatriz={loadingDashboardItens}
           onApplyFilter={aplicarFiltroDashboard}
