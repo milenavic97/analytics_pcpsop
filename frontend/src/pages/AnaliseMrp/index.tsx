@@ -1771,34 +1771,30 @@ function VisaoEstoqueTabs({
   value: VisaoEstoque
   onChange: (value: VisaoEstoque) => void
 }) {
-  const tabs: { key: VisaoEstoque; label: string; helper: string }[] = [
-    { key: "dashboard", label: "Dashboard", helper: "Indicadores executivos e riscos por linha" },
-    { key: "gestao", label: "Gestão de Estoque", helper: "Análise detalhada por item, PA/MR e insumos" },
+  const tabs: { key: VisaoEstoque; label: string }[] = [
+    { key: "dashboard", label: "Dashboard" },
+    { key: "gestao", label: "Gestão de Estoque" },
   ]
 
   return (
-    <div className="card p-2">
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-        {tabs.map((tab) => {
-          const active = value === tab.key
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => onChange(tab.key)}
-              className="rounded-2xl border px-4 py-3 text-left transition hover:bg-slate-50"
-              style={{
-                borderColor: active ? "#163B63" : "var(--border)",
-                background: active ? "rgba(22,59,99,0.08)" : "#FFFFFF",
-                boxShadow: active ? "0 0 0 1px #163B63" : undefined,
-              }}
-            >
-              <p className="text-sm font-bold" style={{ color: active ? "#163B63" : "var(--text-primary)" }}>{tab.label}</p>
-              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{tab.helper}</p>
-            </button>
-          )
-        })}
-      </div>
+    <div className="flex w-fit items-center gap-1 rounded-2xl border bg-white p-1 shadow-sm" style={{ borderColor: "var(--border)" }}>
+      {tabs.map((tab) => {
+        const active = value === tab.key
+        return (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => onChange(tab.key)}
+            className="rounded-xl px-4 py-2 text-sm font-bold transition"
+            style={{
+              background: active ? "#163B63" : "transparent",
+              color: active ? "#FFFFFF" : "var(--text-secondary)",
+            }}
+          >
+            {tab.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -2279,8 +2275,6 @@ function DashboardEstoquePanel({
         <KpiCard label="Valor estoque" value={fmtCurrency(resumo.estoque_atual_valor_total || 0, 0)} helper={`${fmtCompact(resumo.saldo_total || 0)} un. em estoque`} icon={<Boxes size={20} />} tone="success" onClick={() => onOpenGestao("todos")} />
       </div>
 
-      <MatrizEstoqueGiroPanel itens={itensMatriz} loading={loadingMatriz} onApplyFilter={onApplyFilter} />
-
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <div className="card p-5">
           <div className="mb-4">
@@ -2335,6 +2329,8 @@ function DashboardEstoquePanel({
           </div>
         </div>
       </div>
+
+      <MatrizEstoqueGiroPanel itens={itensMatriz} loading={loadingMatriz} onApplyFilter={onApplyFilter} />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="card p-5 xl:col-span-2">
