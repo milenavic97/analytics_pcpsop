@@ -2404,6 +2404,342 @@ function MiniHistoricoDashboard({ item }: { item: AgingEstoqueItem }) {
   )
 }
 
+
+function getProximosMesesDashboard(qtdMeses = 6) {
+  const hoje = new Date()
+  const base = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+  const meses: { ano: number; mes: number; label: string; key: string }[] = []
+
+  for (let i = 0; i < qtdMeses; i += 1) {
+    const data = new Date(base.getFullYear(), base.getMonth() + i, 1)
+    const ano = data.getFullYear()
+    const mes = data.getMonth() + 1
+    meses.push({ ano, mes, label: monthLabel(ano, mes).split("/")[0].toUpperCase(), key: monthKey(ano, mes) })
+  }
+
+  return meses
+}
+
+function getForecastSeisMesesDashboard(item: AgingEstoqueItem | null | undefined) {
+  const meses = getProximosMesesDashboard(6)
+  const mapa = new Map<string, number>(meses.map((mes) => [mes.key, 0]))
+  const raw = (item || {}) as any
+  let achouSerie = false
+
+  const aplicarPontos = (pontos: any[], camposValor: string[]) => {
+    for (const ponto of pontos || []) {
+      const ano = Number(ponto?.ano || 0)
+      const mes = Number(ponto?.mes || 0)
+      if (!ano || !mes) continue
+      const key = monthKey(ano, mes)
+      if (!mapa.has(key)) continue
+
+      let valor = 0
+      for (const campo of camposValor) {
+        valor = toNumberSafe(ponto?.[campo], 0)
+        if (valor > 0) break
+      }
+
+      if (valor > 0) achouSerie = true
+      mapa.set(key, (mapa.get(key) || 0) + valor)
+    }
+  }
+
+  if (Array.isArray(raw.forecast)) aplicarPontos(raw.forecast, ["forecast", "demanda", "qtd_forecast"])
+  if (Array.isArray(raw.linha_tempo_estoque)) aplicarPontos(raw.linha_tempo_estoque, ["demanda", "forecast"])
+  if (Array.isArray(raw.comparativo_mensal)) aplicarPontos(raw.comparativo_mensal, ["forecast", "demanda"])
+
+  // Fallback: a lista do dashboard quase sempre já traz a previsão/demanda do mês atual.
+  // Enquanto o backend não mandar a curva futura completa por SKU no endpoint de lista,
+  // mostramos o mês atual como referência visual principal.
+  const itemBase = (item || {}) as AgingEstoqueItem
+  const demandaAtual = Math.max(
+    getNum(itemBase, "demanda_mes_atual"),
+    getNum(itemBase, "previsao_mes_atual"),
+    getNum(itemBase, "demanda_bom_mes_atual"),
+    getNum(itemBase, "demanda_direta_mes_atual"),
+  )
+
+  if (!achouSerie && demandaAtual > 0 && meses[0]) {
+    mapa.set(meses[0].key, demandaAtual)
+  }
+
+  return meses.map((mes) => ({ ...mes, valor: mapa.get(mes.key) || 0 }))
+}
+
+function getTotalForecastDashboard(item: AgingEstoqueItem | null | undefined) {
+  return getForecastSeisMesesDashboard(item).reduce((sum, ponto) => sum + Number(ponto.valor || 0), 0)
+}
+
+function getMotivoStatusDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return "Sem item para análise."
+
+  const categoria = getCategoriaStatusDashboard(item)
+  const estoque = getEstoqueAtualReal(item)
+  const entradas = getPedidosAbertos(item)
+  const demanda = Math.max(
+    getNum(item, "demanda_mes_atual"),
+    getNum(item, "previsao_mes_atual"),
+    getNum(item, "demanda_bom_mes_atual"),
+    getNum(item, "demanda_direta_mes_atual"),
+  )
+  const consumoMes = getConsumoMesAtual(item)
+  const total6m = getTotalSeisMesesDashboard(item)
+  const cobertura = getCoberturaMatriz(item)
+  const estoqueComEntradas = estoque + entradas
+  const desvioRitmo = getDesvioRitmoPct(item)
+
+  if (categoria === "criticos") {
+    if (demanda > 0 && estoqueComEntradas < demanda) {
+      return `Estoque + entradas (${fmtNumber(estoqueComEntradas, 0)}) não cobre a necessidade do mês (${fmtNumber(demanda, 0)}).`
+    }
+    if (demanda > 0 && cobertura > 0 && cobertura < 1) {
+      return `Cobertura baixa: ${fmtNumber(cobertura, 1)} mês para uma necessidade de ${fmtNumber(demanda, 0)}.`
+    }
+    if (consumoMes > 0 && desvioRitmo > 25) {
+      return `Consumo acima do ritmo esperado: ${fmtNumber(desvioRitmo, 0)} p.p. acima do mês decorrido.`
+    }
+    return "Semáforo vermelho ou status crítico/ruptura no recorte atual."
+  }
+
+  if (categoria === "excesso") {
+    if (cobertura >= 12) return `Cobertura muito alta: ${fmtNumber(cobertura, 1)} meses.`
+    return "Estoque acima da política/estoque ideal calculado."
+  }
+
+  if (categoria === "semGiro") {
+    if (total6m <= 0 && demanda <= 0) return "Sem venda/consumo nos últimos 6 meses e sem necessidade clara no plano atual."
+    if (total6m <= 0) return "Sem venda/consumo nos últimos 6 meses."
+    return "Sem giro operacional calculado para o recorte atual."
+  }
+
+  if (categoria === "atencao") {
+    if (consumoMes > 0 && desvioRitmo > 10) return `Consumo acima do ritmo esperado: ${fmtNumber(desvioRitmo, 0)} p.p. acima do mês decorrido.`
+    return "Item em acompanhamento: ainda não é crítico, mas merece monitoramento de consumo/cobertura."
+  }
+
+  return "Sem alerta operacional aparente neste recorte."
+}
+
+function MiniSerieBarrasDashboard({
+  titulo,
+  serie,
+  color,
+}: {
+  titulo: string
+  serie: { key: string; label: string; valor: number }[]
+  color: string
+}) {
+  const max = Math.max(...(serie || []).map((ponto) => Number(ponto.valor || 0)), 1)
+
+  return (
+    <div className="rounded-2xl border bg-slate-50 px-3 py-2" style={{ borderColor: "var(--border)" }}>
+      <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{titulo}</p>
+      <div className="mt-2 flex h-[92px] items-end gap-2">
+        {(serie || []).map((ponto) => {
+          const valor = Number(ponto.valor || 0)
+          const altura = valor > 0 ? Math.max(10, (valor / max) * 48) : 3
+          return (
+            <div key={ponto.key} className="flex flex-1 flex-col items-center justify-end gap-1">
+              <span className="text-[10px] font-bold" style={{ color: "var(--text-primary)" }}>{valor > 0 ? fmtCompact(valor) : "0"}</span>
+              <span className="w-full max-w-[24px] rounded-t-md" style={{ height: `${altura}px`, background: valor > 0 ? color : "#CBD5E1" }} />
+              <span className="text-[9px] font-semibold" style={{ color: "var(--text-secondary)" }}>{ponto.label}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function DashboardSkuDetailModal({
+  state,
+  onClose,
+}: {
+  state: DashboardDrilldownState | null
+  onClose: () => void
+}) {
+  const [mostrarTodos, setMostrarTodos] = useState(false)
+
+  useEffect(() => {
+    if (state) setMostrarTodos(false)
+  }, [state?.titulo, state?.itens?.length])
+
+  const itensOrdenados = useMemo(() => {
+    const ordemStatus: Record<CategoriaStatusDashboard, number> = {
+      criticos: 0,
+      atencao: 1,
+      excesso: 2,
+      semGiro: 3,
+      ok: 4,
+    }
+
+    return [...(state?.itens || [])].sort((a, b) => {
+      const statusDiff = ordemStatus[getCategoriaStatusDashboard(a)] - ordemStatus[getCategoriaStatusDashboard(b)]
+      if (statusDiff !== 0) return statusDiff
+      const demandaDiff = getTotalForecastDashboard(b) - getTotalForecastDashboard(a)
+      if (demandaDiff !== 0) return demandaDiff
+      const estoqueDiff = getEstoqueAtualReal(b) - getEstoqueAtualReal(a)
+      if (estoqueDiff !== 0) return estoqueDiff
+      return String((a as any).produto || "").localeCompare(String((b as any).produto || ""), "pt-BR")
+    })
+  }, [state])
+
+  if (!state) return null
+
+  const itensVisiveis = mostrarTodos ? itensOrdenados : itensOrdenados.slice(0, 18)
+  const totalEstoque = itensOrdenados.reduce((sum, item) => sum + getEstoqueAtualReal(item), 0)
+  const totalEntradas = itensOrdenados.reduce((sum, item) => sum + getPedidosAbertos(item), 0)
+  const total6m = itensOrdenados.reduce((sum, item) => sum + getTotalSeisMesesDashboard(item), 0)
+  const totalForecast = itensOrdenados.reduce((sum, item) => sum + Math.max(getPrevisaoMesAtual(item), getTotalForecastDashboard(item)), 0)
+  const coberturaAgregada = totalForecast > 0 ? (totalEstoque + totalEntradas) / totalForecast : 0
+  const qtdBravi = itensOrdenados.filter(itemEhBraviDashboard).length
+  const qtdDescontinuados = itensOrdenados.filter(itemEhDescontinuadoDashboard).length
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[88vh] w-[min(1500px,96vw)] flex-col overflow-hidden rounded-3xl border bg-white shadow-2xl" style={{ borderColor: "var(--border)" }}>
+        <div className="flex flex-col gap-4 border-b p-5 lg:flex-row lg:items-start lg:justify-between" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Análise dos SKUs do recorte</p>
+            <h3 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{state.titulo}</h3>
+            {state.subtitulo && <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{state.subtitulo}</p>}
+            {state.acao && <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>{state.acao}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border bg-white transition hover:bg-slate-50"
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            aria-label="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="overflow-auto p-5">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>SKUs</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(itensOrdenados.length)}</p>
+            </div>
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Estoque</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(totalEstoque)}</p>
+            </div>
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Entradas</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(totalEntradas)}</p>
+            </div>
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Venda/cons. 6M</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(total6m)}</p>
+            </div>
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Forecast/demanda</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(totalForecast)}</p>
+            </div>
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Cobertura</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{totalForecast > 0 ? `${fmtNumber(coberturaAgregada, 1)} m` : "Sem giro"}</p>
+            </div>
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Bravi</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "#6D28D9" }}>{fmtNumber(qtdBravi)}</p>
+            </div>
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Descontinuados</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "#B45309" }}>{fmtNumber(qtdDescontinuados)}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {itensVisiveis.map((item) => {
+              const raw = item as any
+              const codigo = String(raw.codigo || raw.cod_produto || "")
+              const descricao = String(raw.produto || raw.descricao || raw.desc_produto || "Item")
+              const categoria = getCategoriaStatusDashboard(item)
+              const meta = STATUS_DASHBOARD_META[categoria]
+              const estoque = getEstoqueAtualReal(item)
+              const entradas = getPedidosAbertos(item)
+              const quarentena = Math.max(getNum(item, "saldo_quarentena"), getNum(item, "quarentena"))
+              const demandaAtual = Math.max(getPrevisaoMesAtual(item), getNum(item, "demanda_mes_atual"), getNum(item, "demanda_bom_mes_atual"), getNum(item, "demanda_direta_mes_atual"))
+              const cobertura = getCoberturaMatriz(item)
+              const historico = getHistoricoSeisMesesDashboard(item)
+              const forecast = getForecastSeisMesesDashboard(item)
+
+              return (
+                <div key={`${codigo}-${descricao}`} className="rounded-3xl border bg-white p-4 shadow-sm" style={{ borderColor: "var(--border)" }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{codigo || "—"} · {descricao}</p>
+                      <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{getLinhaDashboardItem(item)} · {String(raw.tipo || raw.tipo_produto_erp || "")}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-5">
+                    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
+                      <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Estoque</p>
+                      <p className="mt-1 text-base font-bold">{fmtNumber(estoque, 0)}</p>
+                    </div>
+                    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
+                      <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Entradas</p>
+                      <p className="mt-1 text-base font-bold">{fmtNumber(entradas, 0)}</p>
+                    </div>
+                    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
+                      <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Quarentena</p>
+                      <p className="mt-1 text-base font-bold">{fmtNumber(quarentena, 0)}</p>
+                    </div>
+                    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
+                      <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Forecast mês</p>
+                      <p className="mt-1 text-base font-bold">{fmtNumber(demandaAtual, 0)}</p>
+                    </div>
+                    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
+                      <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Cobertura</p>
+                      <p className="mt-1 text-base font-bold">{cobertura > 0 ? `${fmtNumber(cobertura, 1)} m` : "Sem giro"}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <MiniSerieBarrasDashboard titulo="Venda/consumo 6M" serie={historico} color="#1F5C7A" />
+                    <MiniSerieBarrasDashboard titulo="Forecast/demanda" serie={forecast} color="#16A34A" />
+                  </div>
+
+                  <div className="mt-3 rounded-2xl border px-3 py-2" style={{ borderColor: meta.color, background: meta.bg }}>
+                    <p className="text-xs font-bold" style={{ color: meta.color }}>Motivo do status</p>
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-primary)" }}>{getMotivoStatusDashboard(item)}</p>
+                  </div>
+
+                  {(itemEhBraviDashboard(item) || itemEhDescontinuadoDashboard(item)) && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {itemEhBraviDashboard(item) && <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: "rgba(124,58,237,0.10)", color: "#6D28D9" }}>Bravi</span>}
+                      {itemEhDescontinuadoDashboard(item) && <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: "rgba(217,119,6,0.10)", color: "#B45309" }}>Descontinuado</span>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {itensOrdenados.length > itensVisiveis.length && (
+            <div className="mt-5 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setMostrarTodos(true)}
+                className="rounded-xl border bg-white px-4 py-2 text-sm font-bold transition hover:bg-slate-50"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                Ver todos os {fmtNumber(itensOrdenados.length)} SKUs
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ItensDrilldownDashboardTable({
   titulo,
   subtitulo,
@@ -3096,15 +3432,7 @@ function DashboardEstoquePanel({
         </div>
       </div>
 
-      {drilldownDashboard && (
-        <ItensDrilldownDashboardTable
-          titulo={drilldownDashboard.titulo}
-          subtitulo={drilldownDashboard.subtitulo}
-          acao={drilldownDashboard.acao}
-          itens={drilldownDashboard.itens}
-          accentColor={drilldownDashboard.accentColor}
-        />
-      )}
+      <DashboardSkuDetailModal state={drilldownDashboard} onClose={() => setDrilldownDashboard(null)} />
 
       <MatrizEstoqueGiroPanel itens={itensFiltradosDashboard} loading={loadingMatriz} onApplyFilter={(filtro) => aplicarFiltroComLinha(filtro)} />
 
