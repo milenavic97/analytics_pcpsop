@@ -2792,10 +2792,11 @@ function MiniSerieEstoqueConsumoForecastDashboard({ item }: { item: AgingEstoque
     <div className="rounded-2xl border bg-slate-50 px-3 py-3" style={{ borderColor: "var(--border)" }}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
-          Estoque, entradas, venda/consumo e forecast
+          Estoque, quarentena, entradas, venda/consumo e forecast
         </p>
         <div className="flex flex-wrap items-center gap-3 text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-[#163B63]" /> Estoque</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-[#A855F7] opacity-70" /> Quarentena 98</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm border border-dashed border-[#0F5E7C] bg-white" /> Entradas</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#16A34A]" /> Venda/consumo</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#F97316]" /> Forecast</span>
@@ -2812,6 +2813,9 @@ function MiniSerieEstoqueConsumoForecastDashboard({ item }: { item: AgingEstoque
               <Tooltip content={<SerieCompostaSkuTooltip />} />
               <Bar dataKey="estoque" name="Estoque disponível" fill="#163B63" radius={[5, 5, 0, 0]} barSize={18}>
                 <LabelList dataKey="estoque" position="top" fontSize={10} fill="#163B63" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdEstoque(Number(value || 0)) : ""} />
+              </Bar>
+              <Bar dataKey="quarentena" name="Quarentena 98" fill="rgba(168,85,247,0.42)" stroke="#7C3AED" radius={[5, 5, 0, 0]} barSize={18}>
+                <LabelList dataKey="quarentena" position="top" fontSize={10} fill="#6D28D9" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdEstoque(Number(value || 0)) : ""} />
               </Bar>
               <Bar dataKey="entradas" name="Entradas previstas" fill="rgba(15,94,124,0.10)" stroke="#0F5E7C" strokeDasharray="4 3" radius={[5, 5, 0, 0]} barSize={18}>
                 <LabelList dataKey="entradas" position="top" fontSize={10} fill="#0F5E7C" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdEstoque(Number(value || 0)) : ""} />
