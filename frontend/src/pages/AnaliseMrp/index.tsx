@@ -185,7 +185,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v3_saldo_historico"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v4_saldo_sb8_forecast_rotulos"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 30 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -2470,18 +2470,21 @@ function getProximosMesesDashboard(qtdMeses = 6) {
 }
 
 function getForecastSeisMesesDashboard(item: AgingEstoqueItem | null | undefined) {
-  const meses = getProximosMesesDashboard(6)
-  const mapa = new Map<string, number>(meses.map((mes) => [mes.key, 0]))
   const raw = (item || {}) as any
-  let achouSerie = false
+  const hoje = new Date()
+  const anoAtual = hoje.getFullYear()
+  const mesAtual = hoje.getMonth() + 1
+  const keyAtual = monthKey(anoAtual, mesAtual)
+  const valoresPorMes = new Map<string, { ano: number; mes: number; valor: number }>()
 
   const aplicarPontos = (pontos: any[], camposValor: string[]) => {
     for (const ponto of pontos || []) {
       const ano = Number(ponto?.ano || 0)
       const mes = Number(ponto?.mes || 0)
       if (!ano || !mes) continue
+
       const key = monthKey(ano, mes)
-      if (!mapa.has(key)) continue
+      if (key < keyAtual) continue
 
       let valor = 0
       for (const campo of camposValor) {
@@ -2489,8 +2492,14 @@ function getForecastSeisMesesDashboard(item: AgingEstoqueItem | null | undefined
         if (valor > 0) break
       }
 
-      if (valor > 0) achouSerie = true
-      mapa.set(key, (mapa.get(key) || 0) + valor)
+      if (valor <= 0) {
+        valoresPorMes.set(key, valoresPorMes.get(key) || { ano, mes, valor: 0 })
+        continue
+      }
+
+      const atual = valoresPorMes.get(key) || { ano, mes, valor: 0 }
+      atual.valor += valor
+      valoresPorMes.set(key, atual)
     }
   }
 
@@ -2498,24 +2507,38 @@ function getForecastSeisMesesDashboard(item: AgingEstoqueItem | null | undefined
   if (Array.isArray(raw.linha_tempo_estoque)) aplicarPontos(raw.linha_tempo_estoque, ["demanda", "forecast"])
   if (Array.isArray(raw.comparativo_mensal)) aplicarPontos(raw.comparativo_mensal, ["forecast", "demanda"])
 
-  // Fallback: a lista do dashboard quase sempre já traz a previsão/demanda do mês atual.
-  // Enquanto o backend não mandar a curva futura completa por SKU no endpoint de lista,
-  // mostramos o mês atual como referência visual principal.
-  const itemBase = (item || {}) as AgingEstoqueItem
   const demandaAtual = Math.max(
-    getNum(itemBase, "demanda_mes_atual"),
-    getNum(itemBase, "previsao_mes_atual"),
-    getNum(itemBase, "demanda_bom_mes_atual"),
-    getNum(itemBase, "demanda_direta_mes_atual"),
+    getNum((item || {}) as AgingEstoqueItem, "demanda_mes_atual"),
+    getNum((item || {}) as AgingEstoqueItem, "previsao_mes_atual"),
+    getNum((item || {}) as AgingEstoqueItem, "demanda_bom_mes_atual"),
+    getNum((item || {}) as AgingEstoqueItem, "demanda_direta_mes_atual"),
   )
 
-  if (!achouSerie && demandaAtual > 0 && meses[0]) {
-    mapa.set(meses[0].key, demandaAtual)
+  if (demandaAtual > 0) {
+    const atual = valoresPorMes.get(keyAtual) || { ano: anoAtual, mes: mesAtual, valor: 0 }
+    if (atual.valor <= 0) atual.valor = demandaAtual
+    valoresPorMes.set(keyAtual, atual)
   }
 
-  return meses.map((mes) => ({ ...mes, valor: mapa.get(mes.key) || 0 }))
-}
+  const keysComDados = Array.from(valoresPorMes.keys()).sort()
+  const ultimoKey = keysComDados.length ? keysComDados[keysComDados.length - 1] : monthKey(new Date(anoAtual, mesAtual - 1 + 6, 1).getFullYear(), new Date(anoAtual, mesAtual - 1 + 6, 1).getMonth() + 1)
 
+  const meses: { ano: number; mes: number; label: string; key: string }[] = []
+  const cursor = new Date(anoAtual, mesAtual - 1, 1)
+  let guard = 0
+
+  while (guard < 18) {
+    const ano = cursor.getFullYear()
+    const mes = cursor.getMonth() + 1
+    const key = monthKey(ano, mes)
+    meses.push({ ano, mes, label: monthLabel(ano, mes).split("/")[0].toUpperCase(), key })
+    if (key >= ultimoKey) break
+    cursor.setMonth(cursor.getMonth() + 1)
+    guard += 1
+  }
+
+  return meses.map((mes) => ({ ...mes, valor: valoresPorMes.get(mes.key)?.valor || 0 }))
+}
 function getTotalForecastDashboard(item: AgingEstoqueItem | null | undefined) {
   return getForecastSeisMesesDashboard(item).reduce((sum, ponto) => sum + Number(ponto.valor || 0), 0)
 }
@@ -2669,10 +2692,10 @@ function getEntradasProximosMesesDashboard(item: AgingEstoqueItem | null | undef
 
 function getSerieCompostaSkuDashboard(item: AgingEstoqueItem | null | undefined): SerieCompostaSkuDashboardPonto[] {
   const historico = getMesesHistoricoAteAnteriorDashboard(6)
-  const futuro = getProximosMesesDashboard(6)
+  const forecastBase = getForecastSeisMesesDashboard(item)
+  const futuro = forecastBase.map((ponto) => ({ ano: ponto.ano, mes: ponto.mes, label: ponto.label, key: ponto.key }))
   const meses = [...historico, ...futuro]
   const historicoBase = getHistoricoSeisMesesDashboard(item)
-  const forecastBase = getForecastSeisMesesDashboard(item)
   const entradasBase = getEntradasProximosMesesDashboard(item)
   const mapaHistorico = new Map(historicoBase.map((ponto) => [ponto.key, Number(ponto.valor || 0)]))
   const mapaForecast = new Map(forecastBase.map((ponto) => [ponto.key, Number(ponto.valor || 0)]))
@@ -2746,15 +2769,23 @@ function MiniSerieEstoqueConsumoForecastDashboard({ item }: { item: AgingEstoque
       {temDados ? (
         <div className="h-[190px]">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={serie} margin={{ top: 14, right: 12, left: 0, bottom: 4 }}>
+            <ComposedChart data={serie} margin={{ top: 26, right: 18, left: 0, bottom: 4 }}>
               <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
               <XAxis dataKey="label" interval={0} tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
               <YAxis hide domain={[0, "dataMax"]} />
               <Tooltip content={<SerieCompostaSkuTooltip />} />
-              <Bar dataKey="estoque" name="Estoque disponível" fill="#163B63" radius={[5, 5, 0, 0]} barSize={18} />
-              <Bar dataKey="entradas" name="Entradas previstas" fill="rgba(15,94,124,0.10)" stroke="#0F5E7C" strokeDasharray="4 3" radius={[5, 5, 0, 0]} barSize={18} />
-              <Line type="monotone" dataKey="consumo" name="Venda/consumo" stroke="#0F5E7C" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false} />
-              <Line type="monotone" dataKey="forecast" name="Forecast/demanda" stroke="#16A34A" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false} />
+              <Bar dataKey="estoque" name="Estoque disponível" fill="#163B63" radius={[5, 5, 0, 0]} barSize={18}>
+                <LabelList dataKey="estoque" position="top" fontSize={10} fill="#163B63" formatter={(value: number) => Number(value || 0) > 0 ? fmtCompact(Number(value || 0)) : ""} />
+              </Bar>
+              <Bar dataKey="entradas" name="Entradas previstas" fill="rgba(15,94,124,0.10)" stroke="#0F5E7C" strokeDasharray="4 3" radius={[5, 5, 0, 0]} barSize={18}>
+                <LabelList dataKey="entradas" position="top" fontSize={10} fill="#0F5E7C" formatter={(value: number) => Number(value || 0) > 0 ? fmtCompact(Number(value || 0)) : ""} />
+              </Bar>
+              <Line type="monotone" dataKey="consumo" name="Venda/consumo" stroke="#0F5E7C" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false}>
+                <LabelList dataKey="consumo" position="top" fontSize={10} fill="#0F5E7C" formatter={(value: number) => Number(value || 0) > 0 ? fmtCompact(Number(value || 0)) : ""} />
+              </Line>
+              <Line type="monotone" dataKey="forecast" name="Forecast/demanda" stroke="#16A34A" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false}>
+                <LabelList dataKey="forecast" position="top" fontSize={10} fill="#16A34A" formatter={(value: number) => Number(value || 0) > 0 ? fmtCompact(Number(value || 0)) : ""} />
+              </Line>
             </ComposedChart>
           </ResponsiveContainer>
         </div>
