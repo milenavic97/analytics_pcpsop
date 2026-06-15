@@ -471,6 +471,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [loading, setLoading] = useState(true);
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
+  const [filtroEmbalado, setFiltroEmbalado] = useState("");
   const [apenasAtrasados, setApenasAtrasados] = useState(true);
   const [modalAuditoria, setModalAuditoria] = useState(false);
   const [retemPorLote, setRetemPorLote] = useState(0.7);
@@ -518,6 +519,8 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const lotesFiltradosBase = (data?.lotes ?? []).filter((l) => {
     if (apenasAtrasados && (!l.data_lib || l.data_lib > hoje)) return false;
     if (filtroGrupo && l.grupo !== filtroGrupo) return false;
+    if (filtroEmbalado === "SIM" && !l.check_embalagem) return false;
+    if (filtroEmbalado === "NAO" && l.check_embalagem) return false;
     if (filtroEtapa === "LIBERADO" && !l.check_liberado) return false;
     if (filtroEtapa === "DESVIO" && !l.em_desvio) return false;
     if (
@@ -969,6 +972,31 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             <option value="LAVAGEM">Em Lavagem</option>
             <option value="NAO_INICIADO">Gap Rendimento</option>
             <option value="ATRASADO">Atrasados</option>
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label
+            className="text-[10px] font-semibold uppercase tracking-wider"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Embalado?
+          </label>
+
+          <select
+            value={filtroEmbalado}
+            onChange={(e) => setFiltroEmbalado(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm outline-none"
+            style={{
+              background: "var(--bg-secondary)",
+              borderColor: "var(--border)",
+              color: "var(--text-primary)",
+              minWidth: 130,
+            }}
+          >
+            <option value="">Todos</option>
+            <option value="SIM">Sim</option>
+            <option value="NAO">Não</option>
           </select>
         </div>
 
