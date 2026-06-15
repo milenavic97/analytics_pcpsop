@@ -2735,7 +2735,6 @@ function getSerieCompostaSkuDashboard(item: AgingEstoqueItem | null | undefined)
   const mapaForecast = new Map(forecastBase.map((ponto) => [ponto.key, Number(ponto.valor || 0)]))
   const mapaEntradas = new Map(entradasBase.map((ponto) => [ponto.key, Number(ponto.valor || 0)]))
   const estoqueAtual = getEstoqueAtualReal((item || {}) as AgingEstoqueItem)
-  const quarentenaAtual = getQuarentenaAtualReal((item || {}) as AgingEstoqueItem)
   const keyAtual = futuro[0]?.key
 
   return meses.map((mes) => {
@@ -2751,7 +2750,7 @@ function getSerieCompostaSkuDashboard(item: AgingEstoqueItem | null | undefined)
       forecast: forecast !== null && forecast > 0 ? forecast : null,
       entradas: entradas !== null && entradas > 0 ? entradas : null,
       estoque: mes.key === keyAtual && estoqueAtual > 0 ? estoqueAtual : null,
-      quarentena: mes.key === keyAtual && quarentenaAtual > 0 ? quarentenaAtual : null,
+      quarentena: null,
       atual: mes.key === keyAtual,
     }
   })
@@ -2786,17 +2785,16 @@ function SerieCompostaSkuTooltip({ active, payload, label }: any) {
 
 function MiniSerieEstoqueConsumoForecastDashboard({ item }: { item: AgingEstoqueItem }) {
   const serie = getSerieCompostaSkuDashboard(item)
-  const temDados = serie.some((ponto) => Number(ponto.consumo || 0) > 0 || Number(ponto.forecast || 0) > 0 || Number(ponto.estoque || 0) > 0 || Number(ponto.entradas || 0) > 0 || Number(ponto.quarentena || 0) > 0)
+  const temDados = serie.some((ponto) => Number(ponto.consumo || 0) > 0 || Number(ponto.forecast || 0) > 0 || Number(ponto.estoque || 0) > 0 || Number(ponto.entradas || 0) > 0)
 
   return (
     <div className="rounded-2xl border bg-slate-50 px-3 py-3" style={{ borderColor: "var(--border)" }}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
-          Estoque, quarentena, entradas, venda/consumo e forecast
+          Estoque disponível, entradas previstas, venda/consumo e forecast
         </p>
         <div className="flex flex-wrap items-center gap-3 text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-[#163B63]" /> Estoque</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-[#A855F7] opacity-70" /> Quarentena 98</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm border border-dashed border-[#0F5E7C] bg-white" /> Entradas</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#16A34A]" /> Venda/consumo</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#F97316]" /> Forecast</span>
@@ -2813,9 +2811,6 @@ function MiniSerieEstoqueConsumoForecastDashboard({ item }: { item: AgingEstoque
               <Tooltip content={<SerieCompostaSkuTooltip />} />
               <Bar dataKey="estoque" name="Estoque disponível" fill="#163B63" radius={[5, 5, 0, 0]} barSize={18}>
                 <LabelList dataKey="estoque" position="top" fontSize={10} fill="#163B63" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdEstoque(Number(value || 0)) : ""} />
-              </Bar>
-              <Bar dataKey="quarentena" name="Quarentena 98" fill="rgba(168,85,247,0.42)" stroke="#7C3AED" radius={[5, 5, 0, 0]} barSize={18}>
-                <LabelList dataKey="quarentena" position="top" fontSize={10} fill="#6D28D9" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdEstoque(Number(value || 0)) : ""} />
               </Bar>
               <Bar dataKey="entradas" name="Entradas previstas" fill="rgba(15,94,124,0.10)" stroke="#0F5E7C" strokeDasharray="4 3" radius={[5, 5, 0, 0]} barSize={18}>
                 <LabelList dataKey="entradas" position="top" fontSize={10} fill="#0F5E7C" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdEstoque(Number(value || 0)) : ""} />
@@ -4235,8 +4230,6 @@ function BraviSeriePanel({
     // O resumo do endpoint de série pode trazer valor de série/posição diferente e estava gerando 1.052 no SUGCLEAN.
     const estoqueTabela = getEstoqueAtualReal(itemSelecionado)
     const estoqueAtual = Number(Number.isFinite(estoqueTabela) ? estoqueTabela : (resumo.estoque_atual ?? 0))
-    const quarentenaAtual = Number((itemSelecionado as any).saldo_quarentena ?? (itemSelecionado as any).quarentena_98 ?? 0)
-
     const pontos = serieEntrada.map((ponto: any) => {
       const ordem = String(ponto?.ordem || ponto?.key || "")
       const dataInicio = String(ponto?.data_inicio || ordem || "")
@@ -4265,9 +4258,9 @@ function BraviSeriePanel({
       if (isAtual) {
         pontoSaida.estoque = estoqueAtual > 0 ? estoqueAtual : null
         pontoSaida.estoque_medio = estoqueAtual > 0 ? estoqueAtual : null
-        pontoSaida.estoque_quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
-        pontoSaida.quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
-        pontoSaida.saldo_quarentena = quarentenaAtual > 0 ? quarentenaAtual : null
+        pontoSaida.estoque_quarentena = null
+        pontoSaida.quarentena = null
+        pontoSaida.saldo_quarentena = null
         pontoSaida.tipo_estoque = "atual"
       } else if (isFuturo) {
         // Estoque real continua sendo apenas o PA disponível em 04/07.
@@ -4334,10 +4327,9 @@ function BraviSeriePanel({
       const estoqueDisponivel = serieOculta("estoque") ? 0 : Math.max(0, Number(ponto.estoque || 0))
       const estoqueProjetado = serieOculta("estoque_projetado") ? 0 : Math.max(0, Number(ponto.estoque_projetado || ponto.saldo_projetado || 0))
       const entradasPrevistas = serieOculta("entradas_previstas") ? 0 : Math.max(0, Number(ponto.entradas_previstas || 0))
-      const quarentena = serieOculta("estoque_quarentena") ? 0 : Math.max(0, Number(ponto.estoque_quarentena || ponto.quarentena || 0))
       const faturamento = serieOculta("faturamento_qtd") ? 0 : Math.max(0, Number(ponto.faturamento_qtd || 0))
       const forecast = serieOculta("demanda") ? 0 : Math.max(0, Number(ponto.demanda || ponto.forecast || 0))
-      const disponibilidade = estoqueDisponivel + entradasPrevistas + quarentena
+      const disponibilidade = estoqueDisponivel + entradasPrevistas
 
       return Math.max(max, disponibilidade, estoqueProjetado, faturamento, forecast)
     }, 0)
@@ -4418,7 +4410,7 @@ function BraviSeriePanel({
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                V45: histórico a partir de Jun/25, forecast futuro e estoque projetado em barras.
+                Histórico a partir de Jun/25, forecast futuro e entradas previstas por MPS/compras.
               </p>
             </div>
             <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
@@ -4537,19 +4529,6 @@ function BraviSeriePanel({
                   >
                     <LabelList dataKey="demanda" content={renderChartLabelAberto} />
                   </Line>
-
-                  <Line
-                    yAxisId="estoque"
-                    type="monotone"
-                    dataKey="estoque_quarentena"
-                    name="Quarentena 98"
-                    stroke="#F59E0B"
-                    strokeWidth={2.5}
-                    strokeDasharray="4 3"
-                    dot={{ r: 2 }}
-                    connectNulls={false}
-                    hide={serieOculta("estoque_quarentena")}
-                  />
 
                   <Line
                     yAxisId="valor"
@@ -4929,7 +4908,6 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
 
             <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
               <KpiSmall label="Saldo disponível" value={fmtCompact(item.saldo)} />
-              <KpiSmall label="Quarentena 98" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_quarentena") || getAnyNumber(item as unknown as Record<string, unknown>, "quarentena"))} />
               <KpiSmall label="Saldo bruto SB8" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_sb8_bruto"))} />
               <KpiSmall label="Empenho lote" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "empenho_lote"))} />
               <KpiSmall label="Origem saldo" value={getSaldoOrigemLabel(item as unknown as Record<string, unknown>)} />
@@ -4947,7 +4925,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-5">
-              <ChartBox title="SB8 diário do mês atual" subtitle="Saldo disponível considera somente armazéns 04/07 descontando empenho. Quarentena do armazém 98 aparece separada.">
+              <ChartBox title="SB8 diário do mês atual" subtitle="Saldo disponível considera somente armazéns 04/07 descontando empenho.">
                 <div className="h-[260px]">
                   {sb8Diario.length ? (
                     <ResponsiveContainer width="100%" height="100%">
@@ -4969,9 +4947,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                             fmtNumber(Number(value), 0),
                             name === "saldo_normal"
                               ? "Saldo disponível 04/07"
-                              : name === "saldo_quarentena"
-                                ? "Quarentena 98"
-                                : name === "saldo_bruto"
+                              : name === "saldo_bruto"
                                   ? "Saldo bruto SB8"
                                   : name === "empenho_lote"
                                     ? "Empenho lote"
@@ -4992,21 +4968,6 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                             position="insideTop"
                             formatter={(value: any) => fmtCompact(Number(value))}
                             style={{ fontSize: 11, fontWeight: 700, fill: "#FFFFFF" }}
-                          />
-                        </Bar>
-                        <Bar
-                          dataKey="saldo_quarentena"
-                          name="Quarentena 98"
-                          stackId="sb8"
-                          fill="#F59E0B"
-                          barSize={46}
-                          radius={[6, 6, 0, 0]}
-                        >
-                          <LabelList
-                            dataKey="saldo_quarentena"
-                            position="top"
-                            formatter={(value: any) => Number(value || 0) > 0 ? fmtCompact(Number(value)) : ""}
-                            style={{ fontSize: 11, fontWeight: 700, fill: "#92400E" }}
                           />
                         </Bar>
                       </BarChart>
@@ -5140,7 +5101,7 @@ function TimelinePrincipal({
             {item ? `${item.codigo} · ${item.produto || "Item selecionado"}` : "Selecione um item na tabela"}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            Consumo histórico, demanda MPS/BOM, compras previstas, estoque disponível, quarentena e ponto de pedido.
+            Consumo histórico, demanda MPS/BOM, entradas previstas, estoque disponível e ponto de pedido.
           </p>
         </div>
 
@@ -5181,9 +5142,8 @@ function TimelinePrincipal({
         </div>
       ) : (
         <div className="space-y-4 p-5">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-8">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
             <KpiSmall label="Saldo atual" value={fmtCompact(item.saldo)} />
-            <KpiSmall label="Quarentena 98" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_quarentena") || getAnyNumber(item as unknown as Record<string, unknown>, "quarentena"))} />
             <KpiSmall label="Empenho lote" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "empenho_lote"))} />
             <KpiSmall label="Pedidos" value={fmtCompact(item.qtd_pedidos_abertos)} />
             <KpiSmall label="Estoque + pedidos" value={fmtCompact(item.estoque_mais_pedidos)} />
@@ -5250,18 +5210,6 @@ function TimelinePrincipal({
                       })}
                       <LabelList dataKey="saldo_grafico" content={renderChartLabel} />
                     </Bar>
-                    <Bar
-                      yAxisId="estoque"
-                      dataKey="estoque_quarentena"
-                      name="Quarentena 98"
-                      stackId="estoque"
-                      fill="#F59E0B"
-                      fillOpacity={0.12}
-                      stroke="#B45309"
-                      strokeDasharray="4 3"
-                      radius={[6, 6, 0, 0]}
-                      hide={serieOculta("estoque_quarentena")}
-                    />
                     <Bar
                       yAxisId="estoque"
                       dataKey="entradas_previstas"
