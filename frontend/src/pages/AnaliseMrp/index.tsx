@@ -827,6 +827,29 @@ function getEstoqueAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | 
   return 0
 }
 
+function getQuarentenaAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+
+  const raw = item as unknown as Record<string, unknown>
+  const candidatos = [
+    raw.saldo_quarentena,
+    raw.quarentena,
+    raw.quarentena_98,
+    raw.saldo_quarentena_98,
+    raw.saldo_quarentena_bruto,
+    raw.quarentena_bruta,
+    raw.estoque_quarentena,
+  ]
+
+  let maior = 0
+  for (const candidato of candidatos) {
+    const valor = toNumberSafe(candidato, Number.NaN)
+    if (Number.isFinite(valor) && valor > maior) maior = valor
+  }
+
+  return Math.max(0, maior)
+}
+
 function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
 
@@ -1063,6 +1086,16 @@ function fmtCompact(value: number | null | undefined) {
   if (Math.abs(n) >= 1_000_000) return `${fmtNumber(n / 1_000_000, 1)} mi`
   if (Math.abs(n) >= 1_000) return `${fmtNumber(n / 1_000, 1)} mil`
   return fmtNumber(n, 0)
+}
+
+function fmtQtdEstoque(value: number | null | undefined) {
+  const n = Number(value || 0)
+  const digits = Math.abs(n - Math.round(n)) > 0.0001 ? 1 : 0
+  return fmtNumber(n, digits)
+}
+
+function fmtQtdInteira(value: number | null | undefined) {
+  return fmtNumber(value, 0)
 }
 
 function arredondarEixoMaximo(value: number) {
@@ -2259,19 +2292,19 @@ function StatusLinhaDashboardTooltip({
         </div>
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
           <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Estoque</p>
-          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtCompact(totalEstoque)}</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtQtdEstoque(totalEstoque)}</p>
         </div>
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
           <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Entradas</p>
-          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtCompact(totalEntradas)}</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtQtdEstoque(totalEntradas)}</p>
         </div>
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
           <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Venda/cons. 6M</p>
-          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtCompact(total6m)}</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtQtdInteira(total6m)}</p>
         </div>
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
           <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Forecast/demanda</p>
-          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtCompact(totalForecast)}</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtQtdInteira(totalForecast)}</p>
         </div>
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
           <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Cobertura</p>
@@ -2296,7 +2329,7 @@ function StatusLinhaDashboardTooltip({
           const metaItem = STATUS_DASHBOARD_META[categoriaItem]
           const estoque = getEstoqueAtualReal(item)
           const entradas = getPedidosAbertos(item)
-          const quarentena = Math.max(getNum(item, 'saldo_quarentena'), getNum(item, 'quarentena'))
+          const quarentena = getQuarentenaAtualReal(item)
           const demandaAtual = Math.max(getPrevisaoMesAtual(item), getNum(item, 'demanda_mes_atual'), getNum(item, 'demanda_bom_mes_atual'), getNum(item, 'demanda_direta_mes_atual'))
           const cobertura = getCoberturaMatriz(item)
           const historico = getHistoricoSeisMesesDashboard(item)
@@ -2315,19 +2348,19 @@ function StatusLinhaDashboardTooltip({
               <div className="mt-3 grid grid-cols-5 gap-2">
                 <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Estoque</p>
-                  <p className="mt-1 text-xs font-bold">{fmtNumber(estoque, 0)}</p>
+                  <p className="mt-1 text-xs font-bold">{fmtQtdEstoque(estoque)}</p>
                 </div>
                 <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Entradas</p>
-                  <p className="mt-1 text-xs font-bold">{fmtNumber(entradas, 0)}</p>
+                  <p className="mt-1 text-xs font-bold">{fmtQtdEstoque(entradas)}</p>
                 </div>
                 <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Quar.</p>
-                  <p className="mt-1 text-xs font-bold">{fmtNumber(quarentena, 0)}</p>
+                  <p className="mt-1 text-xs font-bold">{fmtQtdEstoque(quarentena)}</p>
                 </div>
                 <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Demanda</p>
-                  <p className="mt-1 text-xs font-bold">{fmtNumber(demandaAtual, 0)}</p>
+                  <p className="mt-1 text-xs font-bold">{fmtQtdInteira(demandaAtual)}</p>
                 </div>
                 <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Cob.</p>
@@ -2563,10 +2596,10 @@ function getMotivoStatusDashboard(item: AgingEstoqueItem | null | undefined) {
 
   if (categoria === "criticos") {
     if (demanda > 0 && estoqueComEntradas < demanda) {
-      return `Estoque + entradas (${fmtNumber(estoqueComEntradas, 0)}) não cobre a necessidade do mês (${fmtNumber(demanda, 0)}).`
+      return `Estoque + entradas (${fmtQtdEstoque(estoqueComEntradas)}) não cobre a necessidade do mês (${fmtQtdInteira(demanda)}).`
     }
     if (demanda > 0 && cobertura > 0 && cobertura < 1) {
-      return `Cobertura baixa: ${fmtNumber(cobertura, 1)} mês para uma necessidade de ${fmtNumber(demanda, 0)}.`
+      return `Cobertura baixa: ${fmtNumber(cobertura, 1)} mês para uma necessidade de ${fmtQtdInteira(demanda)}.`
     }
     if (consumoMes > 0 && desvioRitmo > 25) {
       return `Consumo acima do ritmo esperado: ${fmtNumber(desvioRitmo, 0)} p.p. acima do mês decorrido.`
@@ -2633,6 +2666,7 @@ type SerieCompostaSkuDashboardPonto = {
   forecast: number | null
   estoque: number | null
   entradas: number | null
+  quarentena: number | null
   atual?: boolean
 }
 
@@ -2701,6 +2735,7 @@ function getSerieCompostaSkuDashboard(item: AgingEstoqueItem | null | undefined)
   const mapaForecast = new Map(forecastBase.map((ponto) => [ponto.key, Number(ponto.valor || 0)]))
   const mapaEntradas = new Map(entradasBase.map((ponto) => [ponto.key, Number(ponto.valor || 0)]))
   const estoqueAtual = getEstoqueAtualReal((item || {}) as AgingEstoqueItem)
+  const quarentenaAtual = getQuarentenaAtualReal((item || {}) as AgingEstoqueItem)
   const keyAtual = futuro[0]?.key
 
   return meses.map((mes) => {
@@ -2716,6 +2751,7 @@ function getSerieCompostaSkuDashboard(item: AgingEstoqueItem | null | undefined)
       forecast: forecast !== null && forecast > 0 ? forecast : null,
       entradas: entradas !== null && entradas > 0 ? entradas : null,
       estoque: mes.key === keyAtual && estoqueAtual > 0 ? estoqueAtual : null,
+      quarentena: mes.key === keyAtual && quarentenaAtual > 0 ? quarentenaAtual : null,
       atual: mes.key === keyAtual,
     }
   })
@@ -2740,7 +2776,7 @@ function SerieCompostaSkuTooltip({ active, payload, label }: any) {
               <span className="h-2 w-2 rounded-full" style={{ background: item.color }} />
               {item.nome}
             </span>
-            <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(item.valor)}</span>
+            <span className="font-bold" style={{ color: "var(--text-primary)" }}>{String(item.nome || "").includes("Venda") || String(item.nome || "").includes("Forecast") ? fmtQtdInteira(item.valor) : fmtQtdEstoque(item.valor)}</span>
           </div>
         ))}
       </div>
@@ -2750,7 +2786,7 @@ function SerieCompostaSkuTooltip({ active, payload, label }: any) {
 
 function MiniSerieEstoqueConsumoForecastDashboard({ item }: { item: AgingEstoqueItem }) {
   const serie = getSerieCompostaSkuDashboard(item)
-  const temDados = serie.some((ponto) => Number(ponto.consumo || 0) > 0 || Number(ponto.forecast || 0) > 0 || Number(ponto.estoque || 0) > 0 || Number(ponto.entradas || 0) > 0)
+  const temDados = serie.some((ponto) => Number(ponto.consumo || 0) > 0 || Number(ponto.forecast || 0) > 0 || Number(ponto.estoque || 0) > 0 || Number(ponto.entradas || 0) > 0 || Number(ponto.quarentena || 0) > 0)
 
   return (
     <div className="rounded-2xl border bg-slate-50 px-3 py-3" style={{ borderColor: "var(--border)" }}>
@@ -2761,8 +2797,8 @@ function MiniSerieEstoqueConsumoForecastDashboard({ item }: { item: AgingEstoque
         <div className="flex flex-wrap items-center gap-3 text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-[#163B63]" /> Estoque</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm border border-dashed border-[#0F5E7C] bg-white" /> Entradas</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#0F5E7C]" /> Venda/consumo</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#16A34A]" /> Forecast</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#16A34A]" /> Venda/consumo</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#F97316]" /> Forecast</span>
         </div>
       </div>
 
@@ -2775,16 +2811,16 @@ function MiniSerieEstoqueConsumoForecastDashboard({ item }: { item: AgingEstoque
               <YAxis hide domain={[0, "dataMax"]} />
               <Tooltip content={<SerieCompostaSkuTooltip />} />
               <Bar dataKey="estoque" name="Estoque disponível" fill="#163B63" radius={[5, 5, 0, 0]} barSize={18}>
-                <LabelList dataKey="estoque" position="top" fontSize={10} fill="#163B63" formatter={(value: number) => Number(value || 0) > 0 ? fmtCompact(Number(value || 0)) : ""} />
+                <LabelList dataKey="estoque" position="top" fontSize={10} fill="#163B63" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdEstoque(Number(value || 0)) : ""} />
               </Bar>
               <Bar dataKey="entradas" name="Entradas previstas" fill="rgba(15,94,124,0.10)" stroke="#0F5E7C" strokeDasharray="4 3" radius={[5, 5, 0, 0]} barSize={18}>
-                <LabelList dataKey="entradas" position="top" fontSize={10} fill="#0F5E7C" formatter={(value: number) => Number(value || 0) > 0 ? fmtCompact(Number(value || 0)) : ""} />
+                <LabelList dataKey="entradas" position="top" fontSize={10} fill="#0F5E7C" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdEstoque(Number(value || 0)) : ""} />
               </Bar>
-              <Line type="monotone" dataKey="consumo" name="Venda/consumo" stroke="#0F5E7C" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false}>
-                <LabelList dataKey="consumo" position="top" fontSize={10} fill="#0F5E7C" formatter={(value: number) => Number(value || 0) > 0 ? fmtCompact(Number(value || 0)) : ""} />
+              <Line type="monotone" dataKey="consumo" name="Venda/consumo" stroke="#16A34A" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false}>
+                <LabelList dataKey="consumo" position="top" fontSize={10} fill="#16A34A" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdInteira(Number(value || 0)) : ""} />
               </Line>
-              <Line type="monotone" dataKey="forecast" name="Forecast/demanda" stroke="#16A34A" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false}>
-                <LabelList dataKey="forecast" position="top" fontSize={10} fill="#16A34A" formatter={(value: number) => Number(value || 0) > 0 ? fmtCompact(Number(value || 0)) : ""} />
+              <Line type="monotone" dataKey="forecast" name="Forecast/demanda" stroke="#F97316" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false}>
+                <LabelList dataKey="forecast" position="top" fontSize={10} fill="#EA580C" formatter={(value: number) => Number(value || 0) > 0 ? fmtQtdInteira(Number(value || 0)) : ""} />
               </Line>
             </ComposedChart>
           </ResponsiveContainer>
@@ -2870,19 +2906,19 @@ function DashboardSkuDetailModal({
             </div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
               <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Estoque</p>
-              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(totalEstoque)}</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(totalEstoque)}</p>
             </div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
               <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Entradas</p>
-              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(totalEntradas)}</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(totalEntradas)}</p>
             </div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
               <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Venda/cons. 6M</p>
-              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(total6m)}</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdInteira(total6m)}</p>
             </div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
               <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Forecast/demanda</p>
-              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(totalForecast)}</p>
+              <p className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdInteira(totalForecast)}</p>
             </div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}>
               <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Cobertura</p>
@@ -2907,7 +2943,7 @@ function DashboardSkuDetailModal({
               const meta = STATUS_DASHBOARD_META[categoria]
               const estoque = getEstoqueAtualReal(item)
               const entradas = getPedidosAbertos(item)
-              const quarentena = Math.max(getNum(item, "saldo_quarentena"), getNum(item, "quarentena"))
+              const quarentena = getQuarentenaAtualReal(item)
               const demandaAtual = Math.max(getPrevisaoMesAtual(item), getNum(item, "demanda_mes_atual"), getNum(item, "demanda_bom_mes_atual"), getNum(item, "demanda_direta_mes_atual"))
               const cobertura = getCoberturaMatriz(item)
               const historico = getHistoricoSeisMesesDashboard(item)
@@ -2926,19 +2962,19 @@ function DashboardSkuDetailModal({
                   <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-5">
                     <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
                       <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Estoque</p>
-                      <p className="mt-1 text-base font-bold">{fmtNumber(estoque, 0)}</p>
+                      <p className="mt-1 text-base font-bold">{fmtQtdEstoque(estoque)}</p>
                     </div>
                     <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
                       <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Entradas</p>
-                      <p className="mt-1 text-base font-bold">{fmtNumber(entradas, 0)}</p>
+                      <p className="mt-1 text-base font-bold">{fmtQtdEstoque(entradas)}</p>
                     </div>
                     <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
                       <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Quarentena</p>
-                      <p className="mt-1 text-base font-bold">{fmtNumber(quarentena, 0)}</p>
+                      <p className="mt-1 text-base font-bold">{fmtQtdEstoque(quarentena)}</p>
                     </div>
                     <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
                       <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Forecast mês</p>
-                      <p className="mt-1 text-base font-bold">{fmtNumber(demandaAtual, 0)}</p>
+                      <p className="mt-1 text-base font-bold">{fmtQtdInteira(demandaAtual)}</p>
                     </div>
                     <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)" }}>
                       <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Cobertura</p>
@@ -3081,11 +3117,11 @@ function ItensDrilldownDashboardTable({
                     <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>{String(raw.status_portfolio || raw.tipo || raw.tipo_produto_erp || "")}</p>
                   </td>
                   <td className="px-3 py-3 align-middle" style={{ color: "var(--text-secondary)" }}>{linha}</td>
-                  <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(estoque, 0)}</td>
+                  <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(estoque)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(total6m, 0)}</td>
                   <td className="px-3 py-3 align-middle"><MiniHistoricoDashboard item={item} /></td>
                   <td className="px-3 py-3 text-right align-middle">{cobertura > 0 ? `${fmtNumber(cobertura, 1)} m` : "Sem giro"}</td>
-                  <td className="px-3 py-3 text-right align-middle">{fmtNumber(entradas, 0)}</td>
+                  <td className="px-3 py-3 text-right align-middle">{fmtQtdEstoque(entradas)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold">{fmtCurrency(valor, 0)}</td>
                 </tr>
               )
