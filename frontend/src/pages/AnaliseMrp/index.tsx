@@ -2117,7 +2117,7 @@ function MatrixTooltip({ active, payload }: any) {
 }
 
 
-type CategoriaStatusDashboard = "criticos" | "excesso" | "semGiro" | "bravi" | "descontinuado" | "ok"
+type CategoriaStatusDashboard = "criticos" | "excesso" | "semGiro" | "atencao" | "ok"
 
 type DashboardDrilldownState = {
   titulo: string
@@ -2127,25 +2127,58 @@ type DashboardDrilldownState = {
   accentColor?: string
 }
 
+function itemEhBraviDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return false
+  const raw = item as any
+  const status = String(raw.status_estoque || raw.status || "").trim().toUpperCase()
+  return String(raw.transferencia_bravi || "").trim() === "Sim" || status === "TRANSFERENCIA_BRAVI"
+}
+
+function itemEhDescontinuadoDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return false
+  const raw = item as any
+  const status = String(raw.status_estoque || raw.status || "").trim().toUpperCase()
+  const statusPortfolio = String(raw.status_portfolio || "").trim().toUpperCase()
+  return status === "DESCONTINUADO_COM_SALDO" || statusPortfolio.includes("DESCONT")
+}
+
+function itemPertenceLinhaDashboard(item: AgingEstoqueItem | null | undefined, linhaOriginal?: string) {
+  if (!item || !linhaOriginal || linhaOriginal === "TODAS") return true
+  if (linhaOriginal === "Bravi") return itemEhBraviDashboard(item)
+  return getLinhaDashboardItem(item) === linhaOriginal
+}
+
+function itemSemGiroOperacionalDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return false
+
+  const total6m = getTotalSeisMesesDashboard(item)
+  const demandaAtual = Math.max(
+    getNum(item, "demanda_mes_atual"),
+    getNum(item, "previsao_mes_atual"),
+    getNum(item, "demanda_bom_mes_atual"),
+    getNum(item, "demanda_direta_mes_atual"),
+  )
+
+  // Conceito validado: sem giro = sem venda/consumo nos últimos 6 meses
+  // e sem necessidade clara no plano atual. Produto usa venda; insumo usa consumo.
+  return total6m <= 0.0001 && demandaAtual <= 0.0001
+}
+
 function getCategoriaStatusDashboard(item: AgingEstoqueItem | null | undefined): CategoriaStatusDashboard {
   if (!item) return "ok"
 
   const raw = item as any
   const status = String(raw.status_estoque || raw.status || "").trim().toUpperCase()
-  const statusPortfolio = String(raw.status_portfolio || "").trim().toUpperCase()
   const semaforo = calcularSemaforoEstoque(item)
-  const ehBravi = String(raw.transferencia_bravi || "").trim() === "Sim" || status === "TRANSFERENCIA_BRAVI"
-  const ehDescontinuado = !ehBravi && (status === "DESCONTINUADO_COM_SALDO" || statusPortfolio.includes("DESCONT"))
-  const giro = getGiroMatriz(item)
-  const ehCritico = semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO"
+  const ehSemGiro = itemSemGiroOperacionalDashboard(item)
+  const ehCritico = !ehSemGiro && (semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO")
   const ehExcesso = status === "EXCESSO"
-  const ehSemGiro = status === "SEM_GIRO" || status === "SEM_CONSUMO" || giro <= 0
+  const ehAtencao = !ehSemGiro && !ehCritico && (semaforo === "AMARELO" || status === "ATENCAO")
 
-  if (ehBravi) return "bravi"
-  if (ehDescontinuado) return "descontinuado"
   if (ehCritico) return "criticos"
   if (ehExcesso) return "excesso"
   if (ehSemGiro) return "semGiro"
+  if (ehAtencao) return "atencao"
   return "ok"
 }
 
@@ -2154,8 +2187,7 @@ const STATUS_DASHBOARD_META: Record<CategoriaStatusDashboard, { label: string; c
   criticos: { label: "Críticos", color: "#DC2626", bg: "rgba(220,38,38,0.10)" },
   excesso: { label: "Excesso", color: "#2563EB", bg: "rgba(37,99,235,0.10)" },
   semGiro: { label: "Sem giro", color: "#64748B", bg: "rgba(148,163,184,0.18)" },
-  bravi: { label: "Bravi", color: "#7C3AED", bg: "rgba(124,58,237,0.10)" },
-  descontinuado: { label: "Descontinuado", color: "#D97706", bg: "rgba(217,119,6,0.10)" },
+  atencao: { label: "Atenção", color: "#D97706", bg: "rgba(217,119,6,0.10)" },
   ok: { label: "Ok/outros", color: "#15803D", bg: "rgba(21,128,61,0.10)" },
 }
 
@@ -2175,11 +2207,11 @@ function StatusLinhaDashboardTooltip({
 
   const linhaOriginal = String(ponto.linhaOriginal || ponto.linha || "A classificar")
   const categoriaHover = String(payload[0]?.dataKey || "").trim() as CategoriaStatusDashboard | ""
-  const categoriaValida = ["criticos", "excesso", "semGiro", "bravi", "descontinuado", "ok"].includes(categoriaHover)
+  const categoriaValida = ["criticos", "excesso", "semGiro", "atencao", "ok"].includes(categoriaHover)
     ? (categoriaHover as CategoriaStatusDashboard)
     : null
 
-  const itensLinha = (itensBase || []).filter((item) => getLinhaDashboardItem(item) === linhaOriginal)
+  const itensLinha = (itensBase || []).filter((item) => itemPertenceLinhaDashboard(item, linhaOriginal))
   const itensTooltip = categoriaValida
     ? itensLinha.filter((item) => getCategoriaStatusDashboard(item) === categoriaValida)
     : itensLinha
@@ -2225,9 +2257,18 @@ function StatusLinhaDashboardTooltip({
         </div>
       </div>
 
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className="rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: 'rgba(124,58,237,0.24)', color: '#6D28D9', background: 'rgba(124,58,237,0.08)' }}>
+          Bravi: {fmtNumber(itensTooltip.filter(itemEhBraviDashboard).length)}
+        </span>
+        <span className="rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: 'rgba(217,119,6,0.24)', color: '#B45309', background: 'rgba(217,119,6,0.08)' }}>
+          Descontinuados: {fmtNumber(itensTooltip.filter(itemEhDescontinuadoDashboard).length)}
+        </span>
+      </div>
+
       <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--border)', background: 'rgba(248,250,252,0.85)' }}>
         <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-          Itens do tooltip
+          SKUs deste recorte
         </p>
         {preview.length ? (
           <div className="mt-2 space-y-2">
@@ -2715,6 +2756,7 @@ function DashboardEstoquePanel({
     const linhas = new Set<string>()
     for (const item of itensBaseDashboard) {
       linhas.add(getLinhaDashboardItem(item))
+      if (itemEhBraviDashboard(item)) linhas.add("Bravi")
     }
     return Array.from(linhas).sort((a, b) => a.localeCompare(b, "pt-BR"))
   }, [itensBaseDashboard])
@@ -2728,7 +2770,7 @@ function DashboardEstoquePanel({
 
   const itensFiltradosDashboard = useMemo(() => {
     if (linhaSelecionadaDashboard === "TODAS") return itensBaseDashboard
-    return itensBaseDashboard.filter((item) => getLinhaDashboardItem(item) === linhaSelecionadaDashboard)
+    return itensBaseDashboard.filter((item) => itemPertenceLinhaDashboard(item, linhaSelecionadaDashboard))
   }, [itensBaseDashboard, linhaSelecionadaDashboard])
 
   useEffect(() => {
@@ -2767,7 +2809,7 @@ function DashboardEstoquePanel({
 
   const itensPorCategoriaDashboard = (categoria: CategoriaStatusDashboard, linhaOriginal?: string) => {
     return itensFiltradosDashboard.filter((item) => {
-      if (linhaOriginal && getLinhaDashboardItem(item) !== linhaOriginal) return false
+      if (linhaOriginal && !itemPertenceLinhaDashboard(item, linhaOriginal)) return false
       return getCategoriaStatusDashboard(item) === categoria
     })
   }
@@ -2777,10 +2819,7 @@ function DashboardEstoquePanel({
     const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
     return calcularSemaforoEstoque(item) === "AMARELO" || status === "ATENCAO"
   })
-  const itensSemGiroDashboard = itensFiltradosDashboard.filter((item) => {
-    const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
-    return status === "SEM_GIRO" || status === "SEM_CONSUMO" || getGiroMatriz(item) <= 0
-  })
+  const itensSemGiroDashboard = itensFiltradosDashboard.filter((item) => getCategoriaStatusDashboard(item) === "semGiro")
   const itensExcessoDashboard = itensFiltradosDashboard.filter((item) => {
     const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
     return status === "EXCESSO"
@@ -2800,16 +2839,14 @@ function DashboardEstoquePanel({
     let demanda = 0
 
     for (const item of itens) {
-      const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
-      const semaforo = calcularSemaforoEstoque(item)
       const saldo = getEstoqueAtualReal(item)
-      const giro = getGiroMatriz(item)
+      const categoria = getCategoriaStatusDashboard(item)
 
       if (saldo <= 0) semEstoque += 1
-      if (semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO") criticos += 1
-      if (semaforo === "AMARELO" || status === "ATENCAO") atencao += 1
-      if (status === "EXCESSO") excesso += 1
-      if (status === "SEM_GIRO" || status === "SEM_CONSUMO" || giro <= 0) semGiro += 1
+      if (categoria === "criticos") criticos += 1
+      if (categoria === "atencao") atencao += 1
+      if (categoria === "excesso") excesso += 1
+      if (categoria === "semGiro") semGiro += 1
 
       saldoTotal += saldo
       valorEstoque += getValorEstoqueMatriz(item)
@@ -2832,10 +2869,22 @@ function DashboardEstoquePanel({
   }, [itensFiltradosDashboard])
 
   const statusPorLinha = useMemo(() => {
-    const grupos = new Map<string, { linha: string; linhaOriginal: string; criticos: number; excesso: number; semGiro: number; bravi: number; descontinuado: number; ok: number; total: number }>()
+    type LinhaStatusDashboard = {
+      linha: string
+      linhaOriginal: string
+      criticos: number
+      excesso: number
+      semGiro: number
+      atencao: number
+      ok: number
+      total: number
+      bravi: number
+      descontinuado: number
+    }
 
-    for (const item of itensFiltradosDashboard) {
-      const linhaOriginal = String((item as any).tipo_negocio || (item as any).grupo_gerencial || "A classificar").trim() || "A classificar"
+    const grupos = new Map<string, LinhaStatusDashboard>()
+
+    const adicionarItemNaLinha = (linhaOriginal: string, item: AgingEstoqueItem) => {
       const key = linhaOriginal
       const atual = grupos.get(key) || {
         linha: statusLabelDashboard(linhaOriginal),
@@ -2843,38 +2892,39 @@ function DashboardEstoquePanel({
         criticos: 0,
         excesso: 0,
         semGiro: 0,
-        bravi: 0,
-        descontinuado: 0,
+        atencao: 0,
         ok: 0,
         total: 0,
+        bravi: 0,
+        descontinuado: 0,
       }
 
-      const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
-      const statusPortfolio = String((item as any).status_portfolio || "").trim().toUpperCase()
-      const semaforo = calcularSemaforoEstoque(item)
-      const ehBravi = String((item as any).transferencia_bravi || "").trim() === "Sim" || status === "TRANSFERENCIA_BRAVI"
-      const ehDescontinuado = !ehBravi && (status === "DESCONTINUADO_COM_SALDO" || statusPortfolio.includes("DESCONT"))
-      const giro = getGiroMatriz(item)
-      const ehCritico = semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO"
-      const ehExcesso = status === "EXCESSO"
-      const ehSemGiro = status === "SEM_GIRO" || status === "SEM_CONSUMO" || giro <= 0
-
+      const categoria = getCategoriaStatusDashboard(item)
       atual.total += 1
+      atual.bravi += itemEhBraviDashboard(item) ? 1 : 0
+      atual.descontinuado += itemEhDescontinuadoDashboard(item) ? 1 : 0
 
-      // Bravi e descontinuado são categorias diferentes de portfólio.
-      // Bravi não deve entrar como descontinuado; por isso a classificação fica separada
-      // antes das categorias operacionais de crítico, excesso e sem giro.
-      if (ehBravi) atual.bravi += 1
-      else if (ehDescontinuado) atual.descontinuado += 1
-      else if (ehCritico) atual.criticos += 1
-      else if (ehExcesso) atual.excesso += 1
-      else if (ehSemGiro) atual.semGiro += 1
+      if (categoria === "criticos") atual.criticos += 1
+      else if (categoria === "excesso") atual.excesso += 1
+      else if (categoria === "semGiro") atual.semGiro += 1
+      else if (categoria === "atencao") atual.atencao += 1
       else atual.ok += 1
 
       grupos.set(key, atual)
     }
 
-    return Array.from(grupos.values()).sort((a, b) => b.criticos - a.criticos || b.bravi - a.bravi || b.descontinuado - a.descontinuado || b.total - a.total)
+    for (const item of itensFiltradosDashboard) {
+      adicionarItemNaLinha(getLinhaDashboardItem(item), item)
+
+      // Bravi é uma classificação especial, não um status.
+      // Por isso aparece como uma linha própria, mantendo seus SKUs distribuídos
+      // entre crítico, excesso, sem giro, atenção e ok.
+      if (itemEhBraviDashboard(item)) {
+        adicionarItemNaLinha("Bravi", item)
+      }
+    }
+
+    return Array.from(grupos.values()).sort((a, b) => b.total - a.total || a.linha.localeCompare(b.linha, "pt-BR"))
   }, [itensFiltradosDashboard])
 
   const coberturaData = useMemo(() => {
@@ -2995,32 +3045,30 @@ function DashboardEstoquePanel({
           <div className="mb-4">
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status por linha de negócio</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Distribuição dos itens por linha de negócio</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Consolida Bravi, descontinuados, críticos, excesso, sem giro e demais itens por linha.</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Mostra o status operacional por linha. Bravi aparece como classificação especial, sem deixar de ser crítico, excesso, sem giro, atenção ou ok.</p>
           </div>
           <div className="h-[360px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={statusPorLinha} layout="vertical" margin={{ top: 10, right: 28, left: 18, bottom: 10 }}>
+              <BarChart data={statusPorLinha} layout="vertical" margin={{ top: 10, right: 70, left: 18, bottom: 10 }}>
                 <XAxis type="number" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
                 <YAxis dataKey="linha" type="category" width={132} tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} />
                 <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} shared={false} content={<StatusLinhaDashboardTooltip itensBase={itensFiltradosDashboard} />} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="criticos" name="Críticos" stackId="status" fill="#DC2626" radius={[7, 0, 0, 7]} onClick={(row) => abrirListaDashboard(`Críticos · ${row.linhaOriginal}`, "Itens críticos nesta linha de negócio.", itensPorCategoriaDashboard("criticos", row.linhaOriginal), "#DC2626")}>
+                <Bar dataKey="criticos" name="Críticos" stackId="status" fill="#DC2626" radius={[7, 0, 0, 7]} onClick={(row) => abrirListaDashboard(`Críticos · ${row.linhaOriginal}`, "Itens críticos nesta linha/classificação.", itensPorCategoriaDashboard("criticos", row.linhaOriginal), "#DC2626")}>
                   <LabelList dataKey="criticos" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
-                <Bar dataKey="excesso" name="Excesso" stackId="status" fill="#2563EB" onClick={(row) => abrirListaDashboard(`Excesso · ${row.linhaOriginal}`, "Itens em excesso nesta linha de negócio.", itensPorCategoriaDashboard("excesso", row.linhaOriginal), "#2563EB")}>
+                <Bar dataKey="excesso" name="Excesso" stackId="status" fill="#2563EB" onClick={(row) => abrirListaDashboard(`Excesso · ${row.linhaOriginal}`, "Itens em excesso nesta linha/classificação.", itensPorCategoriaDashboard("excesso", row.linhaOriginal), "#2563EB")}>
                   <LabelList dataKey="excesso" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
-                <Bar dataKey="semGiro" name="Sem giro" stackId="status" fill="#94A3B8" onClick={(row) => abrirListaDashboard(`Sem giro · ${row.linhaOriginal}`, "Itens sem giro nesta linha de negócio.", itensPorCategoriaDashboard("semGiro", row.linhaOriginal), "#94A3B8")}>
+                <Bar dataKey="semGiro" name="Sem giro" stackId="status" fill="#94A3B8" onClick={(row) => abrirListaDashboard(`Sem giro · ${row.linhaOriginal}`, "Itens sem venda/consumo nos últimos 6 meses e sem necessidade clara no plano atual.", itensPorCategoriaDashboard("semGiro", row.linhaOriginal), "#94A3B8")}>
                   <LabelList dataKey="semGiro" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
-                <Bar dataKey="bravi" name="Bravi" stackId="status" fill="#7C3AED" onClick={(row) => abrirListaDashboard(`Bravi · ${row.linhaOriginal}`, "Itens marcados como transferência Bravi nesta linha.", itensPorCategoriaDashboard("bravi", row.linhaOriginal), "#7C3AED")}>
-                  <LabelList dataKey="bravi" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                <Bar dataKey="atencao" name="Atenção" stackId="status" fill="#D97706" onClick={(row) => abrirListaDashboard(`Atenção · ${row.linhaOriginal}`, "Itens em atenção nesta linha/classificação.", itensPorCategoriaDashboard("atencao", row.linhaOriginal), "#D97706")}>
+                  <LabelList dataKey="atencao" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
-                <Bar dataKey="descontinuado" name="Descontinuado" stackId="status" fill="#D97706" onClick={(row) => abrirListaDashboard(`Descontinuado · ${row.linhaOriginal}`, "Itens descontinuados nesta linha de negócio.", itensPorCategoriaDashboard("descontinuado", row.linhaOriginal), "#D97706")}>
-                  <LabelList dataKey="descontinuado" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
-                </Bar>
-                <Bar dataKey="ok" name="Ok/outros" stackId="status" fill="#15803D" radius={[0, 7, 7, 0]}>
+                <Bar dataKey="ok" name="Ok/outros" stackId="status" fill="#15803D" radius={[0, 7, 7, 0]} onClick={(row) => abrirListaDashboard(`Ok/outros · ${row.linhaOriginal}`, "Itens sem prioridade operacional aparente nesta linha/classificação.", itensPorCategoriaDashboard("ok", row.linhaOriginal), "#15803D")}>
                   <LabelList dataKey="ok" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
+                  <LabelList dataKey="total" position="right" fill="#0F172A" fontSize={12} fontWeight={700} formatter={(value: number) => value > 0 ? `${fmtNumber(value)} SKUs` : ""} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
