@@ -15,7 +15,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
-import { clearApiCache, getRastreamentoLotes, buscarUltimaAtualizacao } from "@/services/api";
+import { clearApiCache, getRastreamentoLotes } from "@/services/api";
 
 interface DesvioInfo {
   serial?: string | null;
@@ -95,6 +95,31 @@ interface LoteForaGantt {
 interface UltimaAtualizacaoResponse {
   base_id: string;
   ultima_atualizacao: string | null;
+}
+
+const API_URL =
+  (import.meta as unknown as { env: Record<string, string> }).env
+    .VITE_API_URL || "https://dfl-sop-api.fly.dev";
+
+const BASE_APONTAMENTO_PRODUCAO = "producao_real";
+
+async function buscarUltimaAtualizacaoProducaoNoCache(): Promise<string | null> {
+  const url = `${API_URL}/upload/ultima-atualizacao/${BASE_APONTAMENTO_PRODUCAO}?_t=${Date.now()}`;
+
+  const res = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  });
+
+  if (!res.ok) return null;
+
+  const payload = (await res.json().catch(() => null)) as UltimaAtualizacaoResponse | null;
+
+  return payload?.ultima_atualizacao || null;
 }
 
 interface RastreamentoCacheEntry {
@@ -578,8 +603,9 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
   const buscarAtualizacaoProducao = async () => {
     try {
-      const atualizacao = await buscarUltimaAtualizacao("producao_real") as UltimaAtualizacaoResponse;
-      return atualizacao?.ultima_atualizacao || null;
+      // Importante: esta checagem não pode usar o cache global de 12h do api.ts.
+      // Ela é o gatilho que faz outras pessoas receberem a base nova quando você sobe apontamento.
+      return await buscarUltimaAtualizacaoProducaoNoCache();
     } catch (_) {
       return null;
     }
@@ -909,7 +935,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
               className="text-xs font-medium"
               style={{ color: "var(--text-secondary)" }}
             >
-              Dados de produção atualizado em
+              Dados de produção atualizados em
             </span>
             <span
               className="text-xs font-semibold"
