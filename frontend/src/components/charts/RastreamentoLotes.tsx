@@ -15,7 +15,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
-import { getRastreamentoLotes } from "@/services/api";
+import { clearApiCache, getRastreamentoLotes } from "@/services/api";
 
 interface DesvioInfo {
   serial?: string | null;
@@ -487,10 +487,17 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     setLoading(true);
 
     try {
+      // Rastreamento precisa refletir upload/apontamento na hora.
+      // O api.ts mantém cache de GET por 12h; por isso limpamos o cache local
+      // dessa rota e adicionamos _t + force_refresh para não reutilizar resposta antiga.
+      clearApiCache("/overview/rastreamento-lotes");
+
       const json = await getRastreamentoLotes({
         mes: mesSelecionado,
         ano: anoSelecionado,
-      }) as RastreamentoData;
+        force_refresh: true,
+        _t: Date.now(),
+      } as any) as RastreamentoData;
 
       setData(json);
       if (onMtdLoad) {
