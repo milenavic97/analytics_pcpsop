@@ -2218,92 +2218,141 @@ function StatusLinhaDashboardTooltip({
 
   const meta = categoriaValida ? STATUS_DASHBOARD_META[categoriaValida] : null
   const itensOrdenados = [...itensTooltip].sort((a, b) => {
+    const statusDiff = getCategoriaStatusDashboard(a).localeCompare(getCategoriaStatusDashboard(b))
+    if (statusDiff !== 0 && categoriaValida === null) return statusDiff
+    const demandaDiff = getTotalForecastDashboard(b) - getTotalForecastDashboard(a)
+    if (Math.abs(demandaDiff) > 0.0001) return demandaDiff
     const estoqueDiff = getEstoqueAtualReal(b) - getEstoqueAtualReal(a)
     if (Math.abs(estoqueDiff) > 0.0001) return estoqueDiff
     return String((a as any).produto || "").localeCompare(String((b as any).produto || ""), "pt-BR")
   })
-  const preview = itensOrdenados.slice(0, 8)
+  const preview = itensOrdenados.slice(0, 3)
+  const totalEstoque = itensTooltip.reduce((sum, item) => sum + getEstoqueAtualReal(item), 0)
+  const totalEntradas = itensTooltip.reduce((sum, item) => sum + getPedidosAbertos(item), 0)
+  const total6m = itensTooltip.reduce((sum, item) => sum + getTotalSeisMesesDashboard(item), 0)
+  const totalForecast = itensTooltip.reduce((sum, item) => sum + Math.max(getPrevisaoMesAtual(item), getTotalForecastDashboard(item)), 0)
+  const coberturaAgregada = totalForecast > 0 ? (totalEstoque + totalEntradas) / totalForecast : 0
 
   return (
-    <div className="w-[440px] max-w-[440px] rounded-2xl border bg-white p-4 shadow-2xl" style={{ borderColor: 'var(--border)' }}>
-      <div className="flex items-start justify-between gap-3">
+    <div className="max-h-[78vh] w-[min(1040px,92vw)] overflow-y-auto rounded-3xl border bg-white p-5 shadow-2xl" style={{ borderColor: 'var(--border)' }}>
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Prévia do recorte</p>
+          <p className="mt-1 text-base font-bold" style={{ color: 'var(--text-primary)' }}>
             {categoriaValida ? `${linhaOriginal} · ${meta?.label}` : linhaOriginal}
           </p>
           <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            {fmtNumber(itensTooltip.length)} item(ns) no recorte atual
+            {fmtNumber(itensTooltip.length)} SKU(s). Clique na barra para abrir a análise completa em tela grande.
           </p>
         </div>
         {meta && (
-          <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>
+          <span className="rounded-full px-3 py-1.5 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>
             {meta.label}
           </span>
         )}
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <div className="rounded-xl border px-3 py-2" style={{ borderColor: 'var(--border)' }}>
-          <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Total linha</p>
-          <p className="mt-1 text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{fmtNumber(itensLinha.length)}</p>
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+        <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>SKUs</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtNumber(itensTooltip.length)}</p>
         </div>
-        <div className="rounded-xl border px-3 py-2" style={{ borderColor: 'var(--border)' }}>
-          <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Com estoque</p>
-          <p className="mt-1 text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{fmtNumber(itensTooltip.filter((item) => getEstoqueAtualReal(item) > 0).length)}</p>
+        <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Estoque</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtCompact(totalEstoque)}</p>
         </div>
-        <div className="rounded-xl border px-3 py-2" style={{ borderColor: 'var(--border)' }}>
-          <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Sem estoque</p>
-          <p className="mt-1 text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{fmtNumber(itensTooltip.filter((item) => getEstoqueAtualReal(item) <= 0).length)}</p>
+        <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Entradas</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtCompact(totalEntradas)}</p>
+        </div>
+        <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Venda/cons. 6M</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtCompact(total6m)}</p>
+        </div>
+        <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Forecast/demanda</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtCompact(totalForecast)}</p>
+        </div>
+        <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Cobertura</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{totalForecast > 0 ? `${fmtNumber(coberturaAgregada, 1)} m` : 'Sem giro'}</p>
+        </div>
+        <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'rgba(124,58,237,0.24)' }}>
+          <p className="text-[10px] font-bold uppercase" style={{ color: '#6D28D9' }}>Bravi</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: '#6D28D9' }}>{fmtNumber(itensTooltip.filter(itemEhBraviDashboard).length)}</p>
+        </div>
+        <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'rgba(217,119,6,0.24)' }}>
+          <p className="text-[10px] font-bold uppercase" style={{ color: '#B45309' }}>Descont.</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: '#B45309' }}>{fmtNumber(itensTooltip.filter(itemEhDescontinuadoDashboard).length)}</p>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <span className="rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: 'rgba(124,58,237,0.24)', color: '#6D28D9', background: 'rgba(124,58,237,0.08)' }}>
-          Bravi: {fmtNumber(itensTooltip.filter(itemEhBraviDashboard).length)}
-        </span>
-        <span className="rounded-full border px-2.5 py-1 text-[11px] font-bold" style={{ borderColor: 'rgba(217,119,6,0.24)', color: '#B45309', background: 'rgba(217,119,6,0.08)' }}>
-          Descontinuados: {fmtNumber(itensTooltip.filter(itemEhDescontinuadoDashboard).length)}
-        </span>
-      </div>
+      <div className="mt-4 grid grid-cols-1 gap-3">
+        {preview.map((item) => {
+          const raw = item as any
+          const codigo = String(raw.codigo || raw.cod_produto || '')
+          const descricao = String(raw.produto || raw.descricao || raw.desc_produto || 'Item')
+          const categoriaItem = getCategoriaStatusDashboard(item)
+          const metaItem = STATUS_DASHBOARD_META[categoriaItem]
+          const estoque = getEstoqueAtualReal(item)
+          const entradas = getPedidosAbertos(item)
+          const quarentena = Math.max(getNum(item, 'saldo_quarentena'), getNum(item, 'quarentena'))
+          const demandaAtual = Math.max(getPrevisaoMesAtual(item), getNum(item, 'demanda_mes_atual'), getNum(item, 'demanda_bom_mes_atual'), getNum(item, 'demanda_direta_mes_atual'))
+          const cobertura = getCoberturaMatriz(item)
+          const historico = getHistoricoSeisMesesDashboard(item)
+          const forecast = getForecastSeisMesesDashboard(item)
 
-      <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--border)', background: 'rgba(248,250,252,0.85)' }}>
-        <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-          SKUs deste recorte
-        </p>
-        {preview.length ? (
-          <div className="mt-2 space-y-2">
-            {preview.map((item) => {
-              const categoriaItem = getCategoriaStatusDashboard(item)
-              const metaItem = STATUS_DASHBOARD_META[categoriaItem]
-              return (
-                <div key={`${item.codigo}-${String((item as any).produto || '')}`} className="rounded-xl border bg-white px-3 py-2" style={{ borderColor: 'var(--border)' }}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-                        {String(item.codigo || '').trim() || '—'} · {String((item as any).produto || (item as any).descricao || 'Item').trim()}
-                      </p>
-                      <p className="mt-0.5 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                        Estoque: {fmtNumber(getEstoqueAtualReal(item), 0)} · Cob.: {getGiroMatriz(item) > 0 ? `${fmtNumber(getCoberturaMatriz(item), 1)} m` : 'Sem giro'}
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold" style={{ background: metaItem.bg, color: metaItem.color }}>
-                      {metaItem.label}
-                    </span>
-                  </div>
+          return (
+            <div key={`${codigo}-${descricao}`} className="rounded-3xl border bg-white p-4 shadow-sm" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{codigo || '—'} · {descricao}</p>
+                  <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{getLinhaDashboardItem(item)} · {String(raw.tipo || raw.tipo_produto_erp || '')}</p>
                 </div>
-              )
-            })}
-          </div>
-        ) : (
-          <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>Nenhum item encontrado para este ponto do gráfico.</p>
-        )}
+                <span className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: metaItem.bg, color: metaItem.color }}>{metaItem.label}</span>
+              </div>
 
-        {itensOrdenados.length > preview.length && (
-          <p className="mt-2 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-            +{fmtNumber(itensOrdenados.length - preview.length)} item(ns) além dos exibidos.
-          </p>
-        )}
+              <div className="mt-3 grid grid-cols-5 gap-2">
+                <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Estoque</p>
+                  <p className="mt-1 text-xs font-bold">{fmtNumber(estoque, 0)}</p>
+                </div>
+                <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Entradas</p>
+                  <p className="mt-1 text-xs font-bold">{fmtNumber(entradas, 0)}</p>
+                </div>
+                <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Quar.</p>
+                  <p className="mt-1 text-xs font-bold">{fmtNumber(quarentena, 0)}</p>
+                </div>
+                <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Demanda</p>
+                  <p className="mt-1 text-xs font-bold">{fmtNumber(demandaAtual, 0)}</p>
+                </div>
+                <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Cob.</p>
+                  <p className="mt-1 text-xs font-bold">{cobertura > 0 ? `${fmtNumber(cobertura, 1)} m` : 'Sem giro'}</p>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <MiniSerieEstoqueConsumoForecastDashboard item={item} />
+              </div>
+
+              <div className="mt-3 rounded-2xl border px-3 py-2" style={{ borderColor: metaItem.color, background: metaItem.bg }}>
+                <p className="text-[11px] font-bold" style={{ color: metaItem.color }}>Motivo</p>
+                <p className="mt-1 text-[11px]" style={{ color: 'var(--text-primary)' }}>{getMotivoStatusDashboard(item)}</p>
+              </div>
+            </div>
+          )
+        })}
       </div>
+
+      {itensOrdenados.length > preview.length && (
+        <p className="mt-3 rounded-2xl border px-3 py-2 text-xs" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)', background: 'rgba(248,250,252,0.9)' }}>
+          Mostrando os 3 primeiros SKUs. Clique na barra para abrir todos os {fmtNumber(itensOrdenados.length)} SKUs em tela grande.
+        </p>
+      )}
     </div>
   )
 }
@@ -2552,6 +2601,171 @@ function MiniSerieBarrasDashboard({
   )
 }
 
+
+
+type SerieCompostaSkuDashboardPonto = {
+  key: string
+  label: string
+  consumo: number | null
+  forecast: number | null
+  estoque: number | null
+  entradas: number | null
+  atual?: boolean
+}
+
+function getMesesHistoricoAteAnteriorDashboard(qtdMeses = 6) {
+  const hoje = new Date()
+  const base = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+  const meses: { ano: number; mes: number; label: string; key: string }[] = []
+
+  for (let i = qtdMeses; i >= 1; i -= 1) {
+    const data = new Date(base.getFullYear(), base.getMonth() - i, 1)
+    const ano = data.getFullYear()
+    const mes = data.getMonth() + 1
+    meses.push({ ano, mes, label: monthLabel(ano, mes).split("/")[0].toUpperCase(), key: monthKey(ano, mes) })
+  }
+
+  return meses
+}
+
+function getEntradasProximosMesesDashboard(item: AgingEstoqueItem | null | undefined) {
+  const meses = getProximosMesesDashboard(6)
+  const mapa = new Map<string, number>(meses.map((mes) => [mes.key, 0]))
+  const raw = (item || {}) as any
+  let achouSerie = false
+
+  const aplicarPontos = (pontos: any[]) => {
+    for (const ponto of pontos || []) {
+      const ano = Number(ponto?.ano || 0)
+      const mes = Number(ponto?.mes || 0)
+      if (!ano || !mes) continue
+      const key = monthKey(ano, mes)
+      if (!mapa.has(key)) continue
+
+      const valor = Math.max(
+        toNumberSafe(ponto?.entradas_previstas, 0),
+        toNumberSafe(ponto?.entradas, 0),
+        toNumberSafe(ponto?.qtd_pedidos_abertos, 0),
+        toNumberSafe(ponto?.qtd_entradas_previstas, 0),
+        toNumberSafe(ponto?.pedidos, 0),
+      )
+
+      if (valor > 0) achouSerie = true
+      mapa.set(key, (mapa.get(key) || 0) + valor)
+    }
+  }
+
+  if (Array.isArray(raw.linha_tempo_estoque)) aplicarPontos(raw.linha_tempo_estoque)
+  if (Array.isArray(raw.comparativo_mensal)) aplicarPontos(raw.comparativo_mensal)
+  if (Array.isArray(raw.serie_operacional)) aplicarPontos(raw.serie_operacional)
+
+  const entradasTotal = getPedidosAbertos((item || {}) as AgingEstoqueItem)
+  if (!achouSerie && entradasTotal > 0 && meses[0]) {
+    mapa.set(meses[0].key, entradasTotal)
+  }
+
+  return meses.map((mes) => ({ ...mes, valor: mapa.get(mes.key) || 0 }))
+}
+
+function getSerieCompostaSkuDashboard(item: AgingEstoqueItem | null | undefined): SerieCompostaSkuDashboardPonto[] {
+  const historico = getMesesHistoricoAteAnteriorDashboard(6)
+  const futuro = getProximosMesesDashboard(6)
+  const meses = [...historico, ...futuro]
+  const historicoBase = getHistoricoSeisMesesDashboard(item)
+  const forecastBase = getForecastSeisMesesDashboard(item)
+  const entradasBase = getEntradasProximosMesesDashboard(item)
+  const mapaHistorico = new Map(historicoBase.map((ponto) => [ponto.key, Number(ponto.valor || 0)]))
+  const mapaForecast = new Map(forecastBase.map((ponto) => [ponto.key, Number(ponto.valor || 0)]))
+  const mapaEntradas = new Map(entradasBase.map((ponto) => [ponto.key, Number(ponto.valor || 0)]))
+  const estoqueAtual = getEstoqueAtualReal((item || {}) as AgingEstoqueItem)
+  const keyAtual = futuro[0]?.key
+
+  return meses.map((mes) => {
+    const isHistorico = historico.some((h) => h.key === mes.key)
+    const isFuturo = futuro.some((f) => f.key === mes.key)
+    const consumo = isHistorico ? (mapaHistorico.get(mes.key) || 0) : null
+    const forecast = isFuturo ? (mapaForecast.get(mes.key) || 0) : null
+    const entradas = isFuturo ? (mapaEntradas.get(mes.key) || 0) : null
+
+    return {
+      ...mes,
+      consumo: consumo !== null && consumo > 0 ? consumo : null,
+      forecast: forecast !== null && forecast > 0 ? forecast : null,
+      entradas: entradas !== null && entradas > 0 ? entradas : null,
+      estoque: mes.key === keyAtual && estoqueAtual > 0 ? estoqueAtual : null,
+      atual: mes.key === keyAtual,
+    }
+  })
+}
+
+function SerieCompostaSkuTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+
+  const valores = payload
+    .filter((p: any) => p?.value !== null && p?.value !== undefined)
+    .map((p: any) => ({ nome: p.name, valor: Number(p.value || 0), color: p.color }))
+
+  if (!valores.length) return null
+
+  return (
+    <div className="rounded-2xl border bg-white p-3 text-xs shadow-xl" style={{ borderColor: "var(--border)" }}>
+      <p className="mb-2 font-bold" style={{ color: "var(--text-primary)" }}>{label}</p>
+      <div className="space-y-1.5">
+        {valores.map((item: any) => (
+          <div key={item.nome} className="flex items-center justify-between gap-4">
+            <span className="inline-flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+              <span className="h-2 w-2 rounded-full" style={{ background: item.color }} />
+              {item.nome}
+            </span>
+            <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtCompact(item.valor)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MiniSerieEstoqueConsumoForecastDashboard({ item }: { item: AgingEstoqueItem }) {
+  const serie = getSerieCompostaSkuDashboard(item)
+  const temDados = serie.some((ponto) => Number(ponto.consumo || 0) > 0 || Number(ponto.forecast || 0) > 0 || Number(ponto.estoque || 0) > 0 || Number(ponto.entradas || 0) > 0)
+
+  return (
+    <div className="rounded-2xl border bg-slate-50 px-3 py-3" style={{ borderColor: "var(--border)" }}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+          Estoque, entradas, venda/consumo e forecast
+        </p>
+        <div className="flex flex-wrap items-center gap-3 text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-[#163B63]" /> Estoque</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm border border-dashed border-[#0F5E7C] bg-white" /> Entradas</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#0F5E7C]" /> Venda/consumo</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded-full bg-[#16A34A]" /> Forecast</span>
+        </div>
+      </div>
+
+      {temDados ? (
+        <div className="h-[190px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={serie} margin={{ top: 14, right: 12, left: 0, bottom: 4 }}>
+              <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
+              <XAxis dataKey="label" interval={0} tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
+              <YAxis hide domain={[0, "dataMax"]} />
+              <Tooltip content={<SerieCompostaSkuTooltip />} />
+              <Bar dataKey="estoque" name="Estoque disponível" fill="#163B63" radius={[5, 5, 0, 0]} barSize={18} />
+              <Bar dataKey="entradas" name="Entradas previstas" fill="rgba(15,94,124,0.10)" stroke="#0F5E7C" strokeDasharray="4 3" radius={[5, 5, 0, 0]} barSize={18} />
+              <Line type="monotone" dataKey="consumo" name="Venda/consumo" stroke="#0F5E7C" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false} />
+              <Line type="monotone" dataKey="forecast" name="Forecast/demanda" stroke="#16A34A" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <div className="flex h-[120px] items-center justify-center rounded-xl border border-dashed" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+          <p className="text-xs">Sem série disponível para este SKU.</p>
+        </div>
+      )}
+    </div>
+  )
+}
 function DashboardSkuDetailModal({
   state,
   onClose,
@@ -2653,7 +2867,7 @@ function DashboardSkuDetailModal({
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="mt-5 grid grid-cols-1 gap-4">
             {itensVisiveis.map((item) => {
               const raw = item as any
               const codigo = String(raw.codigo || raw.cod_produto || "")
@@ -2701,9 +2915,8 @@ function DashboardSkuDetailModal({
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                    <MiniSerieBarrasDashboard titulo="Venda/consumo 6M" serie={historico} color="#1F5C7A" />
-                    <MiniSerieBarrasDashboard titulo="Forecast/demanda" serie={forecast} color="#16A34A" />
+                  <div className="mt-3">
+                    <MiniSerieEstoqueConsumoForecastDashboard item={item} />
                   </div>
 
                   <div className="mt-3 rounded-2xl border px-3 py-2" style={{ borderColor: meta.color, background: meta.bg }}>
