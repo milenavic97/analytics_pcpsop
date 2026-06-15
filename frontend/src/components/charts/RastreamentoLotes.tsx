@@ -101,7 +101,7 @@ const API_URL =
   (import.meta as unknown as { env: Record<string, string> }).env
     .VITE_API_URL || "https://dfl-sop-api.fly.dev";
 
-const BASE_APONTAMENTO_PRODUCAO = "producao_real";
+const BASE_APONTAMENTO_PRODUCAO = "apontamentos";
 
 async function buscarUltimaAtualizacaoProducaoNoCache(): Promise<string | null> {
   const url = `${API_URL}/upload/ultima-atualizacao/${BASE_APONTAMENTO_PRODUCAO}?_t=${Date.now()}`;
