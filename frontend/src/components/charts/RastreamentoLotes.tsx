@@ -466,9 +466,56 @@ const MES_LABELS = [
   "Dez",
 ];
 
+
+const RASTREAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+function getRastreamentoCacheKey(mes: number, ano: number) {
+  return `rastreamento-lotes:${ano}-${String(mes).padStart(2, "0")}`;
+}
+
+function lerRastreamentoCache(mes: number, ano: number): RastreamentoData | null {
+  try {
+    const raw = window.localStorage.getItem(getRastreamentoCacheKey(mes, ano));
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    const createdAt = Number(parsed?.createdAt || 0);
+    const isValid = createdAt > 0 && Date.now() - createdAt <= RASTREAMENTO_CACHE_TTL_MS;
+
+    if (!isValid || !parsed?.data) {
+      window.localStorage.removeItem(getRastreamentoCacheKey(mes, ano));
+      return null;
+    }
+
+    return parsed.data as RastreamentoData;
+  } catch (_) {
+    return null;
+  }
+}
+
+function salvarRastreamentoCache(mes: number, ano: number, data: RastreamentoData) {
+  try {
+    window.localStorage.setItem(
+      getRastreamentoCacheKey(mes, ano),
+      JSON.stringify({ createdAt: Date.now(), data })
+    );
+  } catch (_) {
+    // localStorage pode estar indisponível em modo privado; nesse caso só ignora.
+  }
+}
+
+function limparRastreamentoCache(mes: number, ano: number) {
+  try {
+    window.localStorage.removeItem(getRastreamentoCacheKey(mes, ano));
+  } catch (_) {
+    // noop
+  }
+}
+
 export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto: number, mtd_cx_liberado: number) => void } = {}) {
   const [data, setData] = useState<RastreamentoData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
   const [filtroEmbalado, setFiltroEmbalado] = useState("");
@@ -483,36 +530,66 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [mesSelecionado, setMesSelecionado] = useState(hojeBase.getMonth() + 1);
   const [anoSelecionado, setAnoSelecionado] = useState(hojeBase.getFullYear());
 
-  const carregar = async () => {
-    setLoading(true);
+  const carregar = async (forceRefresh = false, manterTabelaDuranteRefresh = false) => {
+    // Fluxo normal: usa cache local de 12h para voltar de outra página sem recarregar.
+    // Fluxo manual: botão Atualizar ignora cache, força API e salva o resultado novo.
+    if (!forceRefresh) {
+      const cached = lerRastreamentoCache(mesSelecionado, anoSelecionado);
+      if (cached) {
+        setData(cached);
+        setLoading(false);
+        setRefreshing(false);
+        if (onMtdLoad) {
+          onMtdLoad(cached.mtd_cx_previsto ?? 0, cached.mtd_cx_liberado ?? 0);
+        }
+        return;
+      }
+    }
+
+    if (manterTabelaDuranteRefresh || data) {
+      setRefreshing(true);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
 
     try {
-      // Rastreamento precisa refletir upload/apontamento na hora.
-      // O api.ts mantém cache de GET por 12h; por isso limpamos o cache local
-      // dessa rota e adicionamos _t + force_refresh para não reutilizar resposta antiga.
-      clearApiCache("/overview/rastreamento-lotes");
+      if (forceRefresh) {
+        limparRastreamentoCache(mesSelecionado, anoSelecionado);
+        clearApiCache("/overview/rastreamento-lotes");
+      }
 
-      const json = await getRastreamentoLotes({
+      const params: any = {
         mes: mesSelecionado,
         ano: anoSelecionado,
-        force_refresh: true,
-        _t: Date.now(),
-      } as any) as RastreamentoData;
+      };
+
+      if (forceRefresh) {
+        params.force_refresh = true;
+        params._t = Date.now();
+      }
+
+      const json = await getRastreamentoLotes(params) as RastreamentoData;
 
       setData(json);
+      salvarRastreamentoCache(mesSelecionado, anoSelecionado, json);
       if (onMtdLoad) {
         onMtdLoad(json.mtd_cx_previsto ?? 0, json.mtd_cx_liberado ?? 0);
       }
     } catch (_) {
-      setData(null);
+      // Se for atualização manual, preserva a tabela antiga para não sumir tudo.
+      if (!manterTabelaDuranteRefresh && !data) {
+        setData(null);
+      }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
     setSelecionados(new Set());
-    carregar();
+    carregar(false, false);
   }, [mesSelecionado, anoSelecionado]);
 
   const mesLabel = data ? MES_LABELS[(data.mes ?? 1) - 1] : "";
@@ -769,16 +846,17 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           </div>
 
           <button
-            onClick={carregar}
-            disabled={loading}
+            onClick={() => carregar(true, true)}
+            disabled={loading || refreshing}
             className="flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-semibold"
             style={{
               borderColor: "var(--border)",
               color: "var(--text-secondary)",
+              opacity: loading || refreshing ? 0.75 : 1,
             }}
           >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            Atualizar
+            <RefreshCw size={14} className={loading || refreshing ? "animate-spin" : ""} />
+            {refreshing ? "Atualizando..." : "Atualizar"}
           </button>
         </div>
       </div>
@@ -1069,7 +1147,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         </p>
       </div>
 
-      {loading ? (
+      {loading && !data ? (
         <div
           className="card p-10 text-center text-sm"
           style={{ color: "var(--text-secondary)" }}
@@ -1083,6 +1161,15 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         </div>
       ) : (
         <div className="card overflow-hidden p-0">
+          {refreshing && (
+            <div
+              className="flex items-center gap-2 border-b px-4 py-2 text-xs font-semibold"
+              style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)" }}
+            >
+              <RefreshCw size={13} className="animate-spin" />
+              Atualizando com a última base carregada, sem esconder a tabela atual...
+            </div>
+          )}
           <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
             <table className="w-full min-w-[1180px] border-separate border-spacing-0">
               <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
