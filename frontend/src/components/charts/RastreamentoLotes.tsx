@@ -1326,7 +1326,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)" }}
             >
               <RefreshCw size={13} className="animate-spin" />
-              Nova base de produção detectada. Atualizando sem esconder a tabela atual...
+              Nova base de produção detectada. Atualizando...
             </div>
           )}
           <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
