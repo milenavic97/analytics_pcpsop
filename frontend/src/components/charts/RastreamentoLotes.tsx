@@ -15,7 +15,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
-import { clearApiCache, getRastreamentoLotes } from "@/services/api";
+import { clearApiCache, getRastreamentoLotes, buscarUltimaAtualizacao } from "@/services/api";
 
 interface DesvioInfo {
   serial?: string | null;
@@ -92,6 +92,17 @@ interface LoteForaGantt {
   motivo?: string | null;
 }
 
+interface UltimaAtualizacaoResponse {
+  base_id: string;
+  ultima_atualizacao: string | null;
+}
+
+interface RastreamentoCacheEntry {
+  createdAt: number;
+  apontamentoAtualizadoEm: string | null;
+  data: RastreamentoData;
+}
+
 interface RastreamentoData {
   mes: number;
   ano: number;
@@ -132,6 +143,27 @@ function fmtData(iso?: string | null) {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
   return `${d}/${m}`;
+}
+
+function formatarDataHoraAtualizacao(value?: string | null) {
+  if (!value) return null;
+
+  const data = new Date(value);
+
+  if (Number.isNaN(data.getTime())) return null;
+
+  const dataFmt = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(data);
+
+  const horaFmt = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(data);
+
+  return `${dataFmt} às ${horaFmt}`;
 }
 
 function Check({
@@ -473,7 +505,7 @@ function getRastreamentoCacheKey(mes: number, ano: number) {
   return `rastreamento-lotes:${ano}-${String(mes).padStart(2, "0")}`;
 }
 
-function lerRastreamentoCache(mes: number, ano: number): RastreamentoData | null {
+function lerRastreamentoCache(mes: number, ano: number): RastreamentoCacheEntry | null {
   try {
     const raw = window.localStorage.getItem(getRastreamentoCacheKey(mes, ano));
     if (!raw) return null;
@@ -487,17 +519,30 @@ function lerRastreamentoCache(mes: number, ano: number): RastreamentoData | null
       return null;
     }
 
-    return parsed.data as RastreamentoData;
+    return {
+      createdAt,
+      apontamentoAtualizadoEm: parsed?.apontamentoAtualizadoEm || null,
+      data: parsed.data as RastreamentoData,
+    };
   } catch (_) {
     return null;
   }
 }
 
-function salvarRastreamentoCache(mes: number, ano: number, data: RastreamentoData) {
+function salvarRastreamentoCache(
+  mes: number,
+  ano: number,
+  data: RastreamentoData,
+  apontamentoAtualizadoEm: string | null
+) {
   try {
     window.localStorage.setItem(
       getRastreamentoCacheKey(mes, ano),
-      JSON.stringify({ createdAt: Date.now(), data })
+      JSON.stringify({
+        createdAt: Date.now(),
+        apontamentoAtualizadoEm,
+        data,
+      })
     );
   } catch (_) {
     // localStorage pode estar indisponível em modo privado; nesse caso só ignora.
@@ -514,6 +559,7 @@ function limparRastreamentoCache(mes: number, ano: number) {
 
 export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto: number, mtd_cx_liberado: number) => void } = {}) {
   const [data, setData] = useState<RastreamentoData | null>(null);
+  const [ultimaAtualizacaoProducao, setUltimaAtualizacaoProducao] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filtroGrupo, setFiltroGrupo] = useState("");
@@ -530,18 +576,42 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [mesSelecionado, setMesSelecionado] = useState(hojeBase.getMonth() + 1);
   const [anoSelecionado, setAnoSelecionado] = useState(hojeBase.getFullYear());
 
-  const carregar = async (forceRefresh = false, manterTabelaDuranteRefresh = false) => {
+  const buscarAtualizacaoProducao = async () => {
+    try {
+      const atualizacao = await buscarUltimaAtualizacao("producao_real") as UltimaAtualizacaoResponse;
+      return atualizacao?.ultima_atualizacao || null;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const carregar = async (
+    forceRefresh = false,
+    manterTabelaDuranteRefresh = false,
+    apontamentoAtualizadoEmRef?: string | null
+  ) => {
     // Fluxo normal: usa cache local de 12h para voltar de outra página sem recarregar.
-    // Fluxo manual: botão Atualizar ignora cache, força API e salva o resultado novo.
+    // Mas antes/assim que possível valida a versão da base de produção no backend.
+    // Se você subir uma base nova, qualquer usuário detecta a nova atualização e recarrega sozinho.
     if (!forceRefresh) {
       const cached = lerRastreamentoCache(mesSelecionado, anoSelecionado);
       if (cached) {
-        setData(cached);
+        setData(cached.data);
+        setUltimaAtualizacaoProducao(cached.apontamentoAtualizadoEm || null);
         setLoading(false);
         setRefreshing(false);
         if (onMtdLoad) {
-          onMtdLoad(cached.mtd_cx_previsto ?? 0, cached.mtd_cx_liberado ?? 0);
+          onMtdLoad(cached.data.mtd_cx_previsto ?? 0, cached.data.mtd_cx_liberado ?? 0);
         }
+
+        // Checagem leve em segundo plano: só consulta a data da última base.
+        // Se mudou, força recarga e grava o cache novo para as próximas entradas.
+        buscarAtualizacaoProducao().then((ultimaServidor) => {
+          if (ultimaServidor && ultimaServidor !== cached.apontamentoAtualizadoEm) {
+            carregar(true, true, ultimaServidor);
+          }
+        });
+
         return;
       }
     }
@@ -569,17 +639,24 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         params._t = Date.now();
       }
 
-      const json = await getRastreamentoLotes(params) as RastreamentoData;
+      const [json, atualizacaoServidor] = await Promise.all([
+        getRastreamentoLotes(params) as Promise<RastreamentoData>,
+        apontamentoAtualizadoEmRef !== undefined
+          ? Promise.resolve(apontamentoAtualizadoEmRef)
+          : buscarAtualizacaoProducao(),
+      ]);
 
       setData(json);
-      salvarRastreamentoCache(mesSelecionado, anoSelecionado, json);
+      setUltimaAtualizacaoProducao(atualizacaoServidor || null);
+      salvarRastreamentoCache(mesSelecionado, anoSelecionado, json, atualizacaoServidor || null);
       if (onMtdLoad) {
         onMtdLoad(json.mtd_cx_previsto ?? 0, json.mtd_cx_liberado ?? 0);
       }
     } catch (_) {
-      // Se for atualização manual, preserva a tabela antiga para não sumir tudo.
+      // Se for atualização automática/manual, preserva a tabela antiga para não sumir tudo.
       if (!manterTabelaDuranteRefresh && !data) {
         setData(null);
+        setUltimaAtualizacaoProducao(null);
       }
     } finally {
       setLoading(false);
@@ -587,10 +664,47 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     }
   };
 
+  const verificarBaseNovaEAtualizar = async () => {
+    const ultimaServidor = await buscarAtualizacaoProducao();
+    if (!ultimaServidor) return;
+
+    setUltimaAtualizacaoProducao(ultimaServidor);
+
+    const cached = lerRastreamentoCache(mesSelecionado, anoSelecionado);
+    const ultimaLocal = cached?.apontamentoAtualizadoEm || ultimaAtualizacaoProducao;
+
+    if (ultimaLocal && ultimaServidor === ultimaLocal) return;
+
+    await carregar(true, true, ultimaServidor);
+  };
+
   useEffect(() => {
     setSelecionados(new Set());
     carregar(false, false);
   }, [mesSelecionado, anoSelecionado]);
+
+  useEffect(() => {
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === "visible") {
+        verificarBaseNovaEAtualizar();
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        verificarBaseNovaEAtualizar();
+      }
+    }, 30000);
+
+    window.addEventListener("focus", onFocusOrVisible);
+    document.addEventListener("visibilitychange", onFocusOrVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocusOrVisible);
+      document.removeEventListener("visibilitychange", onFocusOrVisible);
+    };
+  }, [mesSelecionado, anoSelecionado, ultimaAtualizacaoProducao]);
 
   const mesLabel = data ? MES_LABELS[(data.mes ?? 1) - 1] : "";
 
@@ -785,6 +899,25 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           >
             Lotes de {mesLabel}/{data?.ano ?? ""}
           </h2>
+
+          <div
+            className="mt-2 inline-flex items-center gap-2 rounded-2xl border bg-white px-3 py-1.5 shadow-sm"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <Clock size={13} style={{ color: "var(--text-secondary)" }} />
+            <span
+              className="text-xs font-medium"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Dados de produção atualizado em
+            </span>
+            <span
+              className="text-xs font-semibold"
+              style={{ color: "var(--text-primary)" }}
+            >
+              {formatarDataHoraAtualizacao(ultimaAtualizacaoProducao) ?? "--"}
+            </span>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-end justify-end gap-3">
@@ -1167,7 +1300,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)" }}
             >
               <RefreshCw size={13} className="animate-spin" />
-              Atualizando com a última base carregada, sem esconder a tabela atual...
+              Nova base de produção detectada. Atualizando sem esconder a tabela atual...
             </div>
           )}
           <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
