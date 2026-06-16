@@ -388,14 +388,14 @@ function formatarHorarioParada(p: ParadaCogtive) {
   return `${hIni} → ${hFim}`
 }
 
-function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
+function ParadasCogtiveCell({ mudanca, contextoCascata = false }: { mudanca: MudancaRealizado; contextoCascata?: boolean }) {
   const paradas = mudanca.paradas_dia_fim_anterior || []
   const { total, horas } = resumoParadasCogtive(mudanca)
   const [modalAberto, setModalAberto] = useState(false)
   const [equipamentoSelecionado, setEquipamentoSelecionado] = useState<string>("TODOS")
   const [eventoAberto, setEventoAberto] = useState<string | null>(null)
 
-  if (!total) {
+  if (!total && !contextoCascata) {
     return <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>Sem paradas</span>
   }
 
@@ -533,7 +533,11 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
     boxShadow: ativo ? "0 8px 18px rgba(234,88,12,0.10)" : "0 1px 2px rgba(15,23,42,0.03)",
   })
 
-  const badgeValor = `${total} parada${total !== 1 ? "s" : ""} · ${formatarDuracaoParada(coberturaLinha.linhaHoras || horas)}`
+  const badgeValor = contextoCascata
+    ? total
+      ? `Arraste · ${total} parada${total !== 1 ? "s" : ""}`
+      : "Arraste da fila"
+    : `${total} parada${total !== 1 ? "s" : ""} · ${formatarDuracaoParada(coberturaLinha.linhaHoras || horas)}`
 
   return (
     <>
@@ -549,13 +553,14 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
           padding: "4px 10px",
           fontSize: 11,
           fontWeight: 800,
-          color: "#B45309",
-          background: "rgba(245,158,11,0.10)",
-          border: "1px solid rgba(245,158,11,0.28)",
+          color: contextoCascata ? "#B45309" : "#B45309",
+          background: contextoCascata ? "rgba(217,119,6,0.08)" : "rgba(245,158,11,0.10)",
+          border: contextoCascata ? "1px solid rgba(217,119,6,0.26)" : "1px solid rgba(245,158,11,0.28)",
           whiteSpace: "nowrap",
         }}
-        title="Paradas registradas no Cogtive no dia de referência. Não é causa automática do atraso."
+        title={contextoCascata ? "Abrir contexto do arraste da fila." : "Paradas registradas no Cogtive no dia de referência. Não é causa automática do atraso."}
       >
+        {contextoCascata && <RefreshCw size={11} />}
         {badgeValor}
       </button>
 
@@ -625,10 +630,12 @@ function ParadasCogtiveCell({ mudanca }: { mudanca: MudancaRealizado }) {
                       letterSpacing: "-0.02em",
                     }}
                   >
-                    Paradas do dia {dataRef}
+                    {contextoCascata ? "Contexto do arraste da fila" : `Paradas do dia ${dataRef}`}
                   </div>
                   <div style={{ marginTop: 3, fontSize: 12, color: "var(--text-secondary)" }}>
-                    Eventos do Cogtive, exceto produção. Referência usada: fim anterior do lote.
+                    {contextoCascata
+                      ? "Este lote ainda não tem apontamento produtivo próprio; foi recalculado pela fila da linha. Se houver paradas no dia de referência, elas aparecem abaixo."
+                      : "Eventos do Cogtive, exceto produção. Referência usada: fim anterior do lote."}
                   </div>
                 </div>
               </div>
@@ -1649,11 +1656,7 @@ function PainelRealizado({ mudancasRealizado, divisor, labelUnidade }: {
                     </span>
                   </td>
                   <td style={{ padding: "9px 12px", textAlign: "center", verticalAlign: "top" }}>
-                    {cascata ? (
-                      <span style={{ color: "#B45309", fontSize: 11, fontWeight: 700 }}>Arraste da fila</span>
-                    ) : (
-                      <ParadasCogtiveCell mudanca={m} />
-                    )}
+                    <ParadasCogtiveCell mudanca={m} contextoCascata={cascata} />
                   </td>
                   <td style={{ padding: "9px 12px", textAlign: "center", color: "var(--text-secondary)" }}>{valorUnHoraMudanca(m, "anterior")}</td>
                   <td style={{ padding: "9px 12px", textAlign: "center", fontWeight: 700, color: "var(--text-primary)" }}>{valorUnHoraMudanca(m, "nova")}</td>
@@ -3897,11 +3900,7 @@ export default function Mrp() {
                           </span>
                         </td>
                         <td style={{ padding: "10px 14px", textAlign: "center", verticalAlign: "top" }}>
-                          {cascata ? (
-                            <span style={{ color: "#B45309", fontSize: 11, fontWeight: 700 }}>Arraste da fila</span>
-                          ) : (
-                            <ParadasCogtiveCell mudanca={m} />
-                          )}
+                          <ParadasCogtiveCell mudanca={m} contextoCascata={cascata} />
                         </td>
                         <td style={{ padding: "10px 14px", textAlign: "center", color: "var(--text-secondary)" }}>{valorUnHoraMudanca(m, "anterior")}</td>
                         <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>{valorUnHoraMudanca(m, "nova")}</td>
