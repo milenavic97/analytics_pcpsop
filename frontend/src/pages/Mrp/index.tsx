@@ -102,8 +102,10 @@ type MudancaRealizado = {
   descricao_produto?: string | null
   recurso?: string | null
   data_inicio?: string | null
+  data_inicio_anterior?: string | null
   data_fim_anterior?: string | null
   data_fim_nova?: string | null
+  hora_fim_real?: string | null
   data_lib_nova?: string | null
   mes_liberacao_novo?: number | null
   ano_liberacao_novo?: number | null
@@ -112,6 +114,8 @@ type MudancaRealizado = {
   duracao_horas_nova?: number | null
   qtd_planejada?: number | null
   motivo_provavel?: string | null
+  metodo_casamento?: string | null
+  tipo_realizacao?: "concluido" | "parcial_em_producao" | "cascata" | string | null
   impacto_dias?: number | null
   tipo_impacto?: "atrasou" | "antecipou" | "sem_mudanca_data" | "sem_comparativo" | string
   delta_un_hora?: number | null
@@ -1044,6 +1048,65 @@ function identificarRecursoMudanca(m: MudancaRealizado) {
   return identificarRecursoPorLote(m.lote || "")
 }
 
+function tipoRealizacaoMudanca(m: MudancaRealizado) {
+  const bruto = `${m.tipo_realizacao || ""} ${m.metodo_casamento || ""} ${m.motivo_provavel || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+
+  if (bruto.includes("cascata") || bruto.includes("arrastado")) return "cascata"
+  if (bruto.includes("parcial")) return "parcial"
+  return "real"
+}
+
+function ehMudancaCascata(m: MudancaRealizado) {
+  return tipoRealizacaoMudanca(m) === "cascata"
+}
+
+function labelTipoRealizacao(m: MudancaRealizado) {
+  const tipo = tipoRealizacaoMudanca(m)
+  if (tipo === "cascata") return "Arrastado pela fila"
+  if (tipo === "parcial") return "Em produção"
+  return "Real Cogtive"
+}
+
+function classeTipoRealizacao(m: MudancaRealizado) {
+  const tipo = tipoRealizacaoMudanca(m)
+  if (tipo === "cascata") return "bg-amber-50 text-amber-700 border-amber-200"
+  if (tipo === "parcial") return "bg-blue-50 text-blue-700 border-blue-200"
+  return "bg-emerald-50 text-emerald-700 border-emerald-200"
+}
+
+function textoImpactoOperacional(m: MudancaRealizado) {
+  const dias = Number(m.impacto_dias || 0)
+  const abs = Math.abs(dias)
+
+  if (ehMudancaCascata(m)) {
+    if (dias > 0) return `Arrastado +${abs}d`
+    if (dias < 0) return `Reprogramado -${abs}d`
+    return "Reprogramado"
+  }
+
+  return textoImpacto(m.tipo_impacto, m.impacto_dias)
+}
+
+function classeImpactoOperacional(m: MudancaRealizado) {
+  if (ehMudancaCascata(m)) return "bg-amber-50 text-amber-700 border-amber-200"
+  return classeImpacto(m.tipo_impacto)
+}
+
+function iconeImpactoOperacional(m: MudancaRealizado) {
+  if (ehMudancaCascata(m)) return <RefreshCw size={11} />
+  if (m.tipo_impacto === "atrasou") return <ArrowDown size={11} />
+  if (m.tipo_impacto === "antecipou") return <ArrowUp size={11} />
+  return <Minus size={11} />
+}
+
+function valorUnHoraMudanca(m: MudancaRealizado, campo: "anterior" | "nova") {
+  if (ehMudancaCascata(m)) return "—"
+  return campo === "anterior" ? fmt(m.un_hora_anterior) : fmt(m.un_hora_nova)
+}
+
 function uniqueSorted(values: (string | number | null | undefined)[]) {
   return Array.from(new Set(
     values.filter((v) => v !== null && v !== undefined && String(v).trim() !== "").map((v) => String(v))
@@ -1515,11 +1578,12 @@ function PainelRealizado({ mudancasRealizado, divisor, labelUnidade }: {
   mudancasRealizado: MudancaRealizado[]; divisor: number; labelUnidade: string
 }) {
   const resumo = useMemo(() => {
-    const atrasados = mudancasRealizado.filter((m) => m.tipo_impacto === "atrasou")
-    const antecipados = mudancasRealizado.filter((m) => m.tipo_impacto === "antecipou")
-    const maiorAtraso = Math.max(0, ...atrasados.map((m) => Number(m.impacto_dias || 0)))
-    const volumeImpactado = atrasados.reduce((acc, m) => acc + Number(m.qtd_planejada || 0), 0) / divisor
-    return { atrasados, antecipados, maiorAtraso, volumeImpactado }
+    const reaisCogtive = mudancasRealizado.filter((m) => !ehMudancaCascata(m))
+    const arrastadosFila = mudancasRealizado.filter((m) => ehMudancaCascata(m))
+    const impactados = mudancasRealizado.filter((m) => ehMudancaCascata(m) || m.tipo_impacto === "atrasou" || Number(m.impacto_dias || 0) > 0)
+    const maiorAtraso = Math.max(0, ...mudancasRealizado.map((m) => Number(m.impacto_dias || 0)).filter((v) => v > 0))
+    const volumeImpactado = impactados.reduce((acc, m) => acc + Number(m.qtd_planejada || 0), 0) / divisor
+    return { reaisCogtive, arrastadosFila, impactados, maiorAtraso, volumeImpactado }
   }, [mudancasRealizado, divisor])
 
   if (!mudancasRealizado.length) return null
@@ -1527,13 +1591,13 @@ function PainelRealizado({ mudancasRealizado, divisor, labelUnidade }: {
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden", background: "var(--bg-secondary)" }}>
       <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
-        <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Realizado Cogtive</p>
+        <p style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-secondary)" }}>Realizado + cascata</p>
         <h3 style={{ margin: "4px 0 0", fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>Impacto operacional da semana</h3>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", borderBottom: "1px solid var(--border)" }}>
         {[
-          { label: "Lotes atrasados", value: String(resumo.atrasados.length), cor: resumo.atrasados.length > 0 ? "#B91C1C" : "var(--text-primary)", bg: resumo.atrasados.length > 0 ? "rgba(220,38,38,0.04)" : undefined },
-          { label: "Lotes antecipados", value: String(resumo.antecipados.length), cor: resumo.antecipados.length > 0 ? "#15803D" : "var(--text-primary)", bg: resumo.antecipados.length > 0 ? "rgba(22,163,74,0.04)" : undefined },
+          { label: "Lotes Cogtive", value: String(resumo.reaisCogtive.length), cor: resumo.reaisCogtive.length > 0 ? "#15803D" : "var(--text-primary)", bg: resumo.reaisCogtive.length > 0 ? "rgba(22,163,74,0.04)" : undefined },
+          { label: "Arrastados na fila", value: String(resumo.arrastadosFila.length), cor: resumo.arrastadosFila.length > 0 ? "#B45309" : "var(--text-primary)", bg: resumo.arrastadosFila.length > 0 ? "rgba(217,119,6,0.04)" : undefined },
           { label: "Maior atraso", value: `${resumo.maiorAtraso}d`, cor: resumo.maiorAtraso > 2 ? "#B91C1C" : "var(--text-primary)", bg: undefined },
           { label: `Vol. em risco (${labelUnidade})`, value: fmt(resumo.volumeImpactado), cor: resumo.volumeImpactado > 0 ? "#B45309" : "var(--text-primary)", bg: resumo.volumeImpactado > 0 ? "rgba(217,119,6,0.04)" : undefined },
         ].map((kpi, i) => (
@@ -1547,17 +1611,20 @@ function PainelRealizado({ mudancasRealizado, divisor, labelUnidade }: {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: "var(--bg-primary)" }}>
-              {["Lote", "Produto", "Recurso", "Fim planejado", "Fim real", "Impacto", "Paradas dia", "UN/H ant.", "UN/H nova", "Δ UN/H"].map((h, i) => (
+              {["Lote", "Produto", "Recurso", "Fim planejado", "Fim novo", "Status", "Impacto", "Paradas dia", "UN/H ant.", "UN/H nova", "Δ UN/H"].map((h, i) => (
                 <th key={h} style={{ padding: "9px 12px", textAlign: i >= 3 ? "center" : "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-secondary)", borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {mudancasRealizado.map((m, idx) => {
-              const atrasou = m.tipo_impacto === "atrasou"
-              const antecipou = m.tipo_impacto === "antecipou"
+              const cascata = ehMudancaCascata(m)
+              const atrasou = !cascata && m.tipo_impacto === "atrasou"
+              const antecipou = !cascata && m.tipo_impacto === "antecipou"
+              const bgLinha = cascata ? "rgba(217,119,6,0.03)" : atrasou ? "rgba(220,38,38,0.02)" : antecipou ? "rgba(22,163,74,0.02)" : undefined
+
               return (
-                <tr key={idx} style={{ borderBottom: "1px solid var(--border)", background: atrasou ? "rgba(220,38,38,0.02)" : antecipou ? "rgba(22,163,74,0.02)" : undefined }}>
+                <tr key={idx} style={{ borderBottom: "1px solid var(--border)", background: bgLinha }}>
                   <td style={{ padding: "9px 12px", fontWeight: 700, color: "var(--text-primary)" }}>{m.lote || m.lote_real_cogtive || "-"}</td>
                   <td style={{ padding: "9px 12px" }}>
                     <div style={{ color: "var(--text-primary)", fontWeight: 500 }}>{m.descricao_produto || "-"}</div>
@@ -1565,20 +1632,33 @@ function PainelRealizado({ mudancasRealizado, divisor, labelUnidade }: {
                   </td>
                   <td style={{ padding: "9px 12px", color: "var(--text-secondary)", fontWeight: 600 }}>{m.recurso || "-"}</td>
                   <td style={{ padding: "9px 12px", textAlign: "center", color: "var(--text-secondary)" }}>{fmtData(m.data_fim_anterior)}</td>
-                  <td style={{ padding: "9px 12px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>{fmtData(m.data_fim_nova)}</td>
+                  <td style={{ padding: "9px 12px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>
+                    <div>{fmtData(m.data_fim_nova)}</div>
+                    {cascata && <div style={{ marginTop: 2, fontSize: 10, color: "#B45309", fontWeight: 700 }}>Recalculado</div>}
+                  </td>
                   <td style={{ padding: "9px 12px", textAlign: "center" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 99, fontSize: 11, fontWeight: 700, border: "1px solid", background: atrasou ? "rgba(220,38,38,0.08)" : antecipou ? "rgba(22,163,74,0.08)" : "rgba(0,0,0,0.04)", borderColor: atrasou ? "rgba(220,38,38,0.25)" : antecipou ? "rgba(22,163,74,0.25)" : "var(--border)", color: atrasou ? "#B91C1C" : antecipou ? "#15803D" : "var(--text-secondary)" }}>
-                      {atrasou ? <ArrowDown size={10} /> : antecipou ? <ArrowUp size={10} /> : <Minus size={10} />}
-                      {atrasou ? `+${Math.abs(Number(m.impacto_dias || 0))}d` : antecipou ? `-${Math.abs(Number(m.impacto_dias || 0))}d` : "="}
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${classeTipoRealizacao(m)}`}>
+                      {cascata ? <RefreshCw size={11} /> : <CheckCircle2 size={11} />}
+                      {labelTipoRealizacao(m)}
+                    </span>
+                  </td>
+                  <td style={{ padding: "9px 12px", textAlign: "center" }}>
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${classeImpactoOperacional(m)}`}>
+                      {iconeImpactoOperacional(m)}
+                      {textoImpactoOperacional(m)}
                     </span>
                   </td>
                   <td style={{ padding: "9px 12px", textAlign: "center", verticalAlign: "top" }}>
-                    <ParadasCogtiveCell mudanca={m} />
+                    {cascata ? (
+                      <span style={{ color: "#B45309", fontSize: 11, fontWeight: 700 }}>Arraste da fila</span>
+                    ) : (
+                      <ParadasCogtiveCell mudanca={m} />
+                    )}
                   </td>
-                  <td style={{ padding: "9px 12px", textAlign: "center", color: "var(--text-secondary)" }}>{fmt(m.un_hora_anterior)}</td>
-                  <td style={{ padding: "9px 12px", textAlign: "center", fontWeight: 700, color: "var(--text-primary)" }}>{fmt(m.un_hora_nova)}</td>
+                  <td style={{ padding: "9px 12px", textAlign: "center", color: "var(--text-secondary)" }}>{valorUnHoraMudanca(m, "anterior")}</td>
+                  <td style={{ padding: "9px 12px", textAlign: "center", fontWeight: 700, color: "var(--text-primary)" }}>{valorUnHoraMudanca(m, "nova")}</td>
                   <td style={{ padding: "9px 12px", textAlign: "center" }}>
-                    {m.delta_un_hora_pct != null
+                    {!cascata && m.delta_un_hora_pct != null
                       ? <span style={{ fontSize: 11, fontWeight: 700, color: Number(m.delta_un_hora_pct) < 0 ? "#B91C1C" : "#15803D" }}>{fmtPct(m.delta_un_hora_pct)}</span>
                       : "—"}
                   </td>
@@ -2712,7 +2792,7 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
   const deltaOrcadoMes = orcadoMesValor != null ? valorAtual - orcadoMesValor : null
   const deltaAnterior = anterior ? valorAtual - (anterior.totalMesTubetes / divisor) : null
   const deltaPrimeira = primeira && primeira !== atual ? valorAtual - (primeira.totalMesTubetes / divisor) : null
-  const lotesAtrasados = mudancasRealizado.filter((m) => m.tipo_impacto === "atrasou").length
+  const lotesImpactados = mudancasRealizado.filter((m) => ehMudancaCascata(m) || m.tipo_impacto === "atrasou").length
   const maiorAtraso = Math.max(0, ...mudancasRealizado.map((m) => Number(m.impacto_dias || 0)).filter((v) => v > 0))
 
   const sectionTitle = (label: string, sub: string) => (
@@ -2768,8 +2848,8 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
           <KpiCard label="Δ vs orçado" value={deltaOrcadoMes != null ? fmtSinal(deltaOrcadoMes) : "—"} sub="Atual vs orçamento mensal" delta={deltaOrcadoMes} />
           <KpiCard label="Δ vs versão anterior" value={deltaAnterior != null ? fmtSinal(deltaAnterior) : "—"} sub={anterior ? `V${anterior.rodada.versao} → V${atual?.rodada?.versao}` : "Primeira versão"} delta={deltaAnterior} />
           <KpiCard label={`Δ vs V${primeira?.rodada?.versao || 1} (base)`} value={deltaPrimeira != null ? fmtSinal(deltaPrimeira) : "—"} sub="Acumulado desde o início do mês" delta={deltaPrimeira} />
-          <KpiCard label="Lotes atrasados" value={String(lotesAtrasados)} sub="Cogtive na versão atual" cor={lotesAtrasados > 0 ? "red" : "neutral"} />
-          <KpiCard label="Maior atraso" value={`${maiorAtraso}d`} sub="Entre lotes atualizados" cor={maiorAtraso > 2 ? "red" : "neutral"} />
+          <KpiCard label="Lotes impactados" value={String(lotesImpactados)} sub="Real + cascata da fila" cor={lotesImpactados > 0 ? "red" : "neutral"} />
+          <KpiCard label="Maior atraso" value={`${maiorAtraso}d`} sub="Entre real e reprogramação" cor={maiorAtraso > 2 ? "red" : "neutral"} />
         </div>
       </div>
 
@@ -3771,9 +3851,9 @@ export default function Mrp() {
             <div className="card overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
                 <div>
-                  <p className="card-label mb-0.5">Realizado Cogtive</p>
+                  <p className="card-label mb-0.5">Realizado + cascata</p>
                   <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>Mudanças aplicadas — {recursoSelecionado}</h3>
-                  <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>Comparação entre data fim planejada e data fim real Cogtive.</p>
+                  <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>Real aplicado somente no lote produtivo; os próximos são recalculados pela fila da linha.</p>
                 </div>
                 <span className="rounded-xl px-3 py-2 text-xs font-semibold" style={{ background: "var(--bg-primary)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
                   {mudancasDoRecurso.length} lote(s)
@@ -3783,34 +3863,49 @@ export default function Mrp() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: "var(--bg-primary)" }}>
-                      {["Lote", "Produto", "Fim anterior", "Fim Cogtive", "Impacto", "Paradas no dia", "UN/H ant.", "UN/H nova", "Δ UN/H %", "Mês Lib.", "Motivo", "Ações"].map((h, i) => (
+                      {["Lote", "Produto", "Fim anterior", "Fim novo", "Status", "Impacto", "Paradas no dia", "UN/H ant.", "UN/H nova", "Δ UN/H %", "Mês Lib.", "Motivo", "Ações"].map((h, i) => (
                         <th key={h} style={{ padding: "10px 14px", textAlign: i >= 2 && i <= 8 ? "center" : "left", fontWeight: 600, fontSize: 11, color: "var(--text-secondary)", borderBottom: "2px solid var(--border)", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {mudancasDoRecurso.map((m, idx) => (
-                      <tr key={idx} style={{ borderBottom: "1px solid var(--border)" }} className="hover:bg-slate-50">
+                    {mudancasDoRecurso.map((m, idx) => {
+                      const cascata = ehMudancaCascata(m)
+
+                      return (
+                      <tr key={idx} style={{ borderBottom: "1px solid var(--border)", background: cascata ? "rgba(217,119,6,0.03)" : undefined }} className="hover:bg-slate-50">
                         <td style={{ padding: "10px 14px", fontWeight: 600, color: "var(--text-primary)" }}>{m.lote || m.lote_real_cogtive || "-"}</td>
                         <td style={{ padding: "10px 14px" }}>
                           <div style={{ fontWeight: 500, color: "var(--text-primary)" }}>{m.descricao_produto || "-"}</div>
                           <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>{m.codigo_produto}</div>
                         </td>
                         <td style={{ padding: "10px 14px", textAlign: "center", color: "var(--text-secondary)" }}>{fmtData(m.data_fim_anterior)}</td>
-                        <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>{fmtData(m.data_fim_nova)}</td>
+                        <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>
+                          <div>{fmtData(m.data_fim_nova)}</div>
+                          {cascata && <div style={{ marginTop: 2, fontSize: 10, color: "#B45309", fontWeight: 700 }}>Recalculado</div>}
+                        </td>
                         <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${classeImpacto(m.tipo_impacto)}`}>
-                            {m.tipo_impacto === "atrasou" && <ArrowDown size={11} />}
-                            {m.tipo_impacto === "antecipou" && <ArrowUp size={11} />}
-                            {textoImpacto(m.tipo_impacto, m.impacto_dias)}
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${classeTipoRealizacao(m)}`}>
+                            {cascata ? <RefreshCw size={11} /> : <CheckCircle2 size={11} />}
+                            {labelTipoRealizacao(m)}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${classeImpactoOperacional(m)}`}>
+                            {iconeImpactoOperacional(m)}
+                            {textoImpactoOperacional(m)}
                           </span>
                         </td>
                         <td style={{ padding: "10px 14px", textAlign: "center", verticalAlign: "top" }}>
-                          <ParadasCogtiveCell mudanca={m} />
+                          {cascata ? (
+                            <span style={{ color: "#B45309", fontSize: 11, fontWeight: 700 }}>Arraste da fila</span>
+                          ) : (
+                            <ParadasCogtiveCell mudanca={m} />
+                          )}
                         </td>
-                        <td style={{ padding: "10px 14px", textAlign: "center", color: "var(--text-secondary)" }}>{fmt(m.un_hora_anterior)}</td>
-                        <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>{fmt(m.un_hora_nova)}</td>
-                        <td style={{ padding: "10px 14px", textAlign: "center" }} className={classeDiferenca(m.delta_un_hora_pct)}>{fmtPct(m.delta_un_hora_pct)}</td>
+                        <td style={{ padding: "10px 14px", textAlign: "center", color: "var(--text-secondary)" }}>{valorUnHoraMudanca(m, "anterior")}</td>
+                        <td style={{ padding: "10px 14px", textAlign: "center", fontWeight: 600, color: "var(--text-primary)" }}>{valorUnHoraMudanca(m, "nova")}</td>
+                        <td style={{ padding: "10px 14px", textAlign: "center" }} className={!cascata ? classeDiferenca(m.delta_un_hora_pct) : undefined}>{!cascata ? fmtPct(m.delta_un_hora_pct) : "—"}</td>
                         {/* Mês Lib. editável */}
                         <td style={{ padding: "10px 14px", textAlign: "center" }}>
                           <select
@@ -3842,15 +3937,17 @@ export default function Mrp() {
                                 {salvandoMudanca === idx ? "..." : "Salvar"}
                               </button>
                             )}
-                            <button type="button" onClick={() => reverterMudancaRealizado(m)} disabled={salvando}
+                            <button type="button" onClick={() => reverterMudancaRealizado(m)} disabled={salvando || cascata}
                               className="rounded-lg border px-2 py-1 text-[11px] font-semibold transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
-                              style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)", whiteSpace: "nowrap" }}>
-                              Manter planejado
+                              style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)", whiteSpace: "nowrap" }}
+                              title={cascata ? "Linha recalculada por cascata. Para desfazer, reimporte ou ajuste a rodada." : "Voltar este lote para o fim planejado anterior."}>
+                              {cascata ? "Fila" : "Manter planejado"}
                             </button>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
