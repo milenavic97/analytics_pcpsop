@@ -395,12 +395,13 @@ function ParadasCogtiveCell({ mudanca, contextoCascata = false }: { mudanca: Mud
   const [equipamentoSelecionado, setEquipamentoSelecionado] = useState<string>("TODOS")
   const [eventoAberto, setEventoAberto] = useState<string | null>(null)
 
-  if (!total && !contextoCascata) {
-    return <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>Sem paradas</span>
-  }
-
   const dataRefIso = mudanca.data_referencia_operacional || mudanca.data_fim_anterior || null
   const dataRef = fmtData(dataRefIso)
+  const dataFimNovoRef = fmtData(mudanca.data_fim_nova)
+  const janelaAnalise =
+    dataRef !== "-" && dataFimNovoRef !== "-" && dataRef !== dataFimNovoRef
+      ? `${dataRef} a ${dataFimNovoRef}`
+      : dataRef
   const coberturaLinha = calcularCoberturaParalela(paradas)
 
   const horasPlanejadasGantt = Number(mudanca.horas_produtivas_planejadas_dia || 0)
@@ -537,7 +538,9 @@ function ParadasCogtiveCell({ mudanca, contextoCascata = false }: { mudanca: Mud
     ? total
       ? `Arraste · ${total} parada${total !== 1 ? "s" : ""}`
       : "Arraste da fila"
-    : `${total} parada${total !== 1 ? "s" : ""} · ${formatarDuracaoParada(coberturaLinha.linhaHoras || horas)}`
+    : total
+      ? `${total} parada${total !== 1 ? "s" : ""} · ${formatarDuracaoParada(coberturaLinha.linhaHoras || horas)}`
+      : "Sem paradas · abrir"
 
   return (
     <>
@@ -630,12 +633,12 @@ function ParadasCogtiveCell({ mudanca, contextoCascata = false }: { mudanca: Mud
                       letterSpacing: "-0.02em",
                     }}
                   >
-                    {contextoCascata ? "Contexto do arraste da fila" : `Paradas do dia ${dataRef}`}
+                    {contextoCascata ? "Contexto do arraste da fila" : "Contexto operacional do lote"}
                   </div>
                   <div style={{ marginTop: 3, fontSize: 12, color: "var(--text-secondary)" }}>
                     {contextoCascata
-                      ? "Este lote ainda não tem apontamento produtivo próprio; foi recalculado pela fila da linha. Se houver paradas no dia de referência, elas aparecem abaixo."
-                      : "Eventos do Cogtive, exceto produção. Referência usada: fim anterior do lote."}
+                      ? `Este lote ainda não tem apontamento produtivo próprio; foi recalculado pela fila da linha. Janela considerada: ${janelaAnalise}.`
+                      : `Eventos do Cogtive, exceto produção. Janela considerada: ${janelaAnalise}.`}
                   </div>
                 </div>
               </div>
@@ -883,6 +886,24 @@ function ParadasCogtiveCell({ mudanca, contextoCascata = false }: { mudanca: Mud
                 </div>
 
                 <div style={{ overflowY: "auto", minHeight: 0, flex: 1 }}>
+                  {!eventosOrdenados.length && (
+                    <div
+                      style={{
+                        margin: 16,
+                        border: "1px dashed var(--border)",
+                        borderRadius: 16,
+                        padding: "22px 18px",
+                        background: "var(--bg-primary)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      <div style={{ fontSize: 14, fontWeight: 900, color: "var(--text-primary)" }}>Nenhuma parada encontrada nessa janela</div>
+                      <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
+                        A consulta está olhando a janela <strong>{janelaAnalise}</strong> para a linha <strong>{mudanca.recurso || "-"}</strong>.
+                        Se havia parada nesse período, o ajuste precisa estar no retorno do backend, não no clique do front.
+                      </div>
+                    </div>
+                  )}
                   {eventosOrdenados.map(([evento, dados]) => {
                     const pct = Math.max(4, (dados.totalHoras / maxHoras) * 100)
                     const aberto = eventoAberto === evento
