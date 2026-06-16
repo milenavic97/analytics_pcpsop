@@ -1588,14 +1588,14 @@ function calcularSemaforoEstoque(item: AgingEstoqueItem | null | undefined): Sem
 
   const status = String(raw.status_estoque || item.status || "").toUpperCase()
   const saldoReal = getEstoqueAtualReal(item)
-  const estoqueComEntradas = saldoReal + getPedidosAbertos(item)
-  const demanda = getNum(item, "demanda_mes_atual")
+  const entradasMes = getEntradasMesAtualDashboard(item)
+  const estoqueComEntradas = saldoReal + entradasMes
+  const demanda = getDemandaStatusDashboard(item)
 
-  if (demanda <= 0) return "CINZA"
-  if (status === "RUPTURA" || status === "CRITICO") return "VERMELHO"
-  if (saldoReal <= 0) return "VERMELHO"
-  if (demanda > 0 && estoqueComEntradas < demanda) return "VERMELHO"
-
+  if (demanda <= 0 || status === "SEM_CONSUMO" || status === "SEM_GIRO") return "CINZA"
+  if (estoqueComEntradas <= 0 || status === "RUPTURA" || status === "CRITICO") return "VERMELHO"
+  if (estoqueComEntradas < demanda) return "VERMELHO"
+  if (status === "ATENCAO") return "AMARELO"
   if (status === "EXCESSO" || status === "SAUDAVEL") return "VERDE"
 
   return "VERDE"
@@ -1605,13 +1605,13 @@ function SemaforoBadge({ item }: { item: AgingEstoqueItem }) {
   const semaforo = calcularSemaforoEstoque(item)
   const style = SEMAFORO_STYLE[semaforo]
   const saldoReal = getEstoqueAtualReal(item)
-  const estoqueComEntradas = saldoReal + getPedidosAbertos(item)
+  const estoqueComEntradas = saldoReal + getEntradasMesAtualDashboard(item)
   const previsaoMes = getPrevisaoMesAtual(item)
   const consumoMes = getConsumoMesAtual(item)
   const tipo = String(item.tipo || (item as AgingEstoqueItem & Record<string, unknown>).tipo_produto_erp || "").toUpperCase()
   const title = tipo !== "PA" && tipo !== "MR"
     ? `Status: ${SEMAFORO_LABEL[semaforo]} | Consumo mês: ${fmtNumber(consumoMes, 0)} | Previsão mês: ${fmtNumber(previsaoMes, 0)} | Consumo previsto: ${fmtNumber(getPercentualConsumoPrevisto(item), 0)}% | Mês decorrido: ${fmtNumber(getPercentualMesDecorrido(), 0)}%`
-    : `Status: ${SEMAFORO_LABEL[semaforo]} | Estoque real: ${fmtNumber(saldoReal, 0)} | Estoque + entradas: ${fmtNumber(estoqueComEntradas, 0)} | Demanda ref.: ${fmtNumber(previsaoMes, 0)}`
+    : `Status: ${SEMAFORO_LABEL[semaforo]} | Estoque real: ${fmtNumber(saldoReal, 0)} | Estoque + entradas mês: ${fmtNumber(estoqueComEntradas, 0)} | Demanda ref.: ${fmtNumber(previsaoMes, 0)}`
 
   return (
     <span
@@ -1948,8 +1948,10 @@ function normalizarFaixaCobertura(label: string) {
   const texto = String(label || "").trim()
   const mapa: Record<string, string> = {
     "0-30 dias": "0 a 1 mês",
-    "31-60 dias": "1 a 2 meses",
-    "61-90 dias": "2 a 3 meses",
+    "31-45 dias": "1 a 1,5 mês",
+    "31-60 dias": "1 a 1,5 mês",
+    "46-90 dias": "1,5 a 3 meses",
+    "61-90 dias": "1,5 a 3 meses",
     ">90 dias": "Excesso > 3 meses",
     "> 3 meses": "Excesso > 3 meses",
     "Sem consumo": "Sem consumo",
@@ -2062,9 +2064,9 @@ function getFaixaCoberturaOperacionalDashboard(item: AgingEstoqueItem | null | u
   if (!item || !itemTemConsumoOuDemandaDashboard(item)) return "Sem consumo"
 
   const cobertura = getCoberturaMatriz(item)
-  if (cobertura <= 1) return "0 a 1 mês"
-  if (cobertura <= 2) return "1 a 2 meses"
-  if (cobertura <= 3) return "2 a 3 meses"
+  if (cobertura < 1) return "0 a 1 mês"
+  if (cobertura < 1.5) return "1 a 1,5 mês"
+  if (cobertura <= 3) return "1,5 a 3 meses"
   return "Excesso > 3 meses"
 }
 
@@ -2456,7 +2458,7 @@ function StatusLinhaDashboardTooltip({
                 </div>
                 <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Cob.</p>
-                  <p className="mt-1 text-xs font-bold">{cobertura > 0 ? `${fmtNumber(cobertura, 1)} m` : 'Sem consumo'}</p>
+                  <p className="mt-1 text-xs font-bold">{itemTemConsumoOuDemandaDashboard(item) ? `${fmtNumber(cobertura, 1)} m` : 'Sem consumo'}</p>
                 </div>
               </div>
 
@@ -2768,13 +2770,8 @@ function getMotivoStatusDashboard(item: AgingEstoqueItem | null | undefined) {
 
   const categoria = getCategoriaStatusDashboard(item)
   const estoque = getEstoqueAtualReal(item)
-  const entradas = getPedidosAbertos(item)
-  const demanda = Math.max(
-    getNum(item, "demanda_mes_atual"),
-    getNum(item, "previsao_mes_atual"),
-    getNum(item, "demanda_bom_mes_atual"),
-    getNum(item, "demanda_direta_mes_atual"),
-  )
+  const entradas = getEntradasMesAtualDashboard(item)
+  const demanda = getDemandaStatusDashboard(item)
   const consumoMes = getConsumoMesAtual(item)
   const total6m = getTotalSeisMesesDashboard(item)
   const cobertura = getCoberturaMatriz(item)
@@ -2782,8 +2779,11 @@ function getMotivoStatusDashboard(item: AgingEstoqueItem | null | undefined) {
   const desvioRitmo = getDesvioRitmoPct(item)
 
   if (categoria === "criticos") {
+    if (demanda > 0 && estoqueComEntradas <= 0) {
+      return `Ruptura: não há estoque nem entrada prevista no mês para uma necessidade de ${fmtQtdInteira(demanda)}.`
+    }
     if (demanda > 0 && estoqueComEntradas < demanda) {
-      return `Estoque + entradas (${fmtQtdEstoque(estoqueComEntradas)}) não cobre a necessidade do mês (${fmtQtdInteira(demanda)}).`
+      return `Estoque + entradas do mês (${fmtQtdEstoque(estoqueComEntradas)}) não cobre a necessidade do mês (${fmtQtdInteira(demanda)}).`
     }
     if (demanda > 0 && cobertura > 0 && cobertura < 1) {
       return `Cobertura baixa: ${fmtNumber(cobertura, 1)} mês para uma necessidade de ${fmtQtdInteira(demanda)}.`
@@ -2806,6 +2806,7 @@ function getMotivoStatusDashboard(item: AgingEstoqueItem | null | undefined) {
   }
 
   if (categoria === "atencao") {
+    if (demanda > 0 && cobertura >= 1 && cobertura < 1.5) return `Cobre o mês atual, mas com pouca folga: ${fmtNumber(cobertura, 1)} mês de cobertura.`
     if (consumoMes > 0 && desvioRitmo > 10) return `Consumo acima do ritmo esperado: ${fmtNumber(desvioRitmo, 0)} p.p. acima do mês decorrido.`
     return "Item em acompanhamento: ainda não é crítico, mas merece monitoramento de consumo/cobertura."
   }
@@ -3345,7 +3346,7 @@ function ItensDrilldownDashboardTable({
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(estoque)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(total6m, 0)}</td>
                   <td className="px-3 py-3 align-middle"><MiniHistoricoDashboard item={item} /></td>
-                  <td className="px-3 py-3 text-right align-middle">{cobertura > 0 ? `${fmtNumber(cobertura, 1)} m` : "Sem consumo"}</td>
+                  <td className="px-3 py-3 text-right align-middle">{itemTemConsumoOuDemandaDashboard(item) ? `${fmtNumber(cobertura, 1)} m` : "Sem consumo"}</td>
                   <td className="px-3 py-3 text-right align-middle">{fmtQtdEstoque(entradas)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold">{fmtCurrency(valor, 0)}</td>
                 </tr>
@@ -3769,7 +3770,7 @@ function DashboardEstoquePanel({
   }, [itensFiltradosDashboard])
 
   const coberturaData = useMemo(() => {
-    const ordem = ["0 a 1 mês", "1 a 2 meses", "2 a 3 meses", "Excesso > 3 meses", "Sem consumo"]
+    const ordem = ["0 a 1 mês", "1 a 1,5 mês", "1,5 a 3 meses", "Excesso > 3 meses", "Sem consumo"]
     const mapa = new Map<string, AgingEstoqueItem[]>(ordem.map((faixa) => [faixa, []]))
 
     for (const item of itensFiltradosDashboard) {
