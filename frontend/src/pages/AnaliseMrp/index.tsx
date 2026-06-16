@@ -869,6 +869,90 @@ function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
   )
 }
 
+
+function getEntradasMesAtualDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+
+  const raw = item as unknown as Record<string, any>
+  const backend = toNumberSafe(raw.entradas_mes_atual ?? raw.qtd_entradas_mes_atual ?? raw.entradas_previstas_mes_atual, Number.NaN)
+  if (Number.isFinite(backend)) return Math.max(0, backend)
+
+  const hoje = new Date()
+  const anoAtual = hoje.getFullYear()
+  const mesAtual = hoje.getMonth() + 1
+  const series = [raw.entradas_previstas_serie, raw.pedidos_futuros_por_mes, raw.entradas_previstas_periodo]
+
+  let total = 0
+  for (const serie of series) {
+    if (!Array.isArray(serie)) continue
+
+    for (const ponto of serie) {
+      let ano = Number(ponto?.ano || 0)
+      let mes = Number(ponto?.mes || 0)
+
+      if ((!ano || !mes) && ponto?.data_inicio) {
+        const data = new Date(String(ponto.data_inicio))
+        if (!Number.isNaN(data.getTime())) {
+          ano = data.getFullYear()
+          mes = data.getMonth() + 1
+        }
+      }
+
+      if (ano === anoAtual && mes === mesAtual) {
+        total += Math.max(0, toNumberSafe(ponto?.entradas_previstas ?? ponto?.qtd_entradas_previstas ?? ponto?.quantidade_pendente ?? ponto?.quantidade ?? 0, 0))
+      }
+    }
+
+    if (total > 0) return total
+  }
+
+  return 0
+}
+
+function getDemandaMesAtualStatusDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+  const raw = item as unknown as Record<string, unknown>
+  return Math.max(
+    0,
+    toNumberSafe(raw.demanda_mes_atual, 0),
+    toNumberSafe(raw.previsao_mes_atual, 0),
+    toNumberSafe(raw.demanda_bom_mes_atual, 0),
+    toNumberSafe(raw.demanda_direta_mes_atual, 0),
+    toNumberSafe(raw.forecast_mes, 0),
+  )
+}
+
+function getMovimentoSeisMesesStatusDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return 0
+  const raw = item as unknown as Record<string, unknown>
+  const backend = toNumberSafe(raw.movimento_6m_status ?? raw.total_6m ?? raw.venda_consumo_6m, Number.NaN)
+  if (Number.isFinite(backend)) return Math.max(0, backend)
+  return getTotalSeisMesesDashboard(item)
+}
+
+function getDemandaStatusDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const demandaMes = getDemandaMesAtualStatusDashboard(item)
+  if (demandaMes > 0) return demandaMes
+
+  const movimento6m = getMovimentoSeisMesesStatusDashboard(item as AgingEstoqueItem)
+  if (movimento6m > 0) return movimento6m / 6
+
+  return 0
+}
+
+function getCoberturaStatusDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+
+  const raw = item as unknown as Record<string, unknown>
+  const backend = toNumberSafe(raw.cobertura_meses_status ?? raw.cobertura_status_meses, Number.NaN)
+  if (Number.isFinite(backend)) return Math.max(0, backend)
+
+  const demanda = getDemandaStatusDashboard(item)
+  if (demanda <= 0) return 0
+
+  return (getEstoqueAtualReal(item) + getEntradasMesAtualDashboard(item)) / demanda
+}
+
 function getCampoNumericoSeExiste(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined, key: string) {
   if (!item) return null
   const raw = item as unknown as Record<string, unknown>
@@ -900,12 +984,13 @@ function getCoberturaBaseProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalh
 }
 
 function getCoberturaAtualProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const backendStatus = getCampoNumericoSeExiste(item, "cobertura_meses_status")
+  if (backendStatus !== null) return backendStatus
+
   const backend = getCampoNumericoSeExiste(item, "cobertura_meses_atual")
   if (backend !== null) return backend
 
-  const base = getCoberturaBaseProduto(item)
-  if (base <= 0) return 0
-  return getEstoqueAtualReal(item) / base
+  return getCoberturaStatusDashboard(item)
 }
 
 function getCoberturaFuturaProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -1937,24 +2022,16 @@ function percentile(values: number[], p: number) {
 }
 
 function getGiroMatriz(item: AgingEstoqueItem) {
-  const tipo = String((item as any).tipo || (item as any).tipo_produto_erp || "").toUpperCase()
-  const vendaQtd = getNum(item, "faturamento_ytd_qtd")
-  const consumo = getNum(item, "consumo_mes_atual")
-  const demanda = getNum(item, "demanda_mes_atual")
-  const media = getNum(item, "maior_media")
-
-  if (tipo === "PA" || tipo === "MR" || tipo === "PPS" || tipo === "PV") {
-    return Math.max(vendaQtd, demanda)
-  }
-
-  return Math.max(consumo, demanda, media)
+  // Giro/demanda da matriz precisa seguir a mesma régua do status:
+  // demanda do mês atual; se zerada, média de venda/consumo real dos últimos 6 meses.
+  return Math.max(0, getDemandaStatusDashboard(item))
 }
 
 function getCoberturaMatriz(item: AgingEstoqueItem) {
   const candidatos = [
-    getNum(item, "cobertura_meses_futura"),
+    getNum(item, "cobertura_meses_status"),
     getNum(item, "cobertura_meses_atual"),
-    getNum(item, "cobertura_futura_dias") / 30,
+    getNum(item, "cobertura_status_dias") / 30,
     getNum(item, "cobertura_dias") / 30,
     getNum(item, "dias_em_estoque") / 30,
   ]
@@ -1963,44 +2040,22 @@ function getCoberturaMatriz(item: AgingEstoqueItem) {
     if (Number.isFinite(valor) && valor > 0) return valor
   }
 
-  const estoqueComEntradas = getEstoqueAtualReal(item) + getPedidosAbertos(item)
-  const giro = getGiroMatriz(item)
-  if (giro > 0) return estoqueComEntradas / giro
-
-  return 0
+  return getCoberturaStatusDashboard(item)
 }
 
 function getDemandaTotalOperacionalDashboard(item: AgingEstoqueItem | null | undefined) {
   if (!item) return 0
 
-  const raw = item as any
-  const serie = Array.isArray(raw.forecast_futuro)
-    ? raw.forecast_futuro
-    : Array.isArray(raw.forecast)
-      ? raw.forecast
-      : []
-
-  const totalSerieFutura = serie.reduce((sum: number, ponto: any) => {
-    return sum + toNumberSafe(ponto?.forecast ?? ponto?.demanda ?? ponto?.qtd_forecast ?? ponto?.quantidade ?? 0, 0)
-  }, 0)
-
-  return Math.max(
-    getNum(item, "demanda_cobertura_futura_total"),
-    totalSerieFutura,
-    getNum(item, "demanda_mes_atual"),
-    getNum(item, "previsao_mes_atual"),
-    getNum(item, "demanda_bom_mes_atual"),
-    getNum(item, "demanda_direta_mes_atual"),
-    getTotalSeisMesesDashboard(item),
-    getNum(item, "maior_media"),
-    getNum(item, "media_3m"),
-    getNum(item, "media_6m"),
-    getNum(item, "media_9m"),
-  )
+  // Para status, matriz e faixas, a referência é operacional do mês atual:
+  // demanda/forecast do mês; se zerado, média de venda/consumo real dos últimos 6 meses.
+  return getDemandaStatusDashboard(item)
 }
 
 function itemTemConsumoOuDemandaDashboard(item: AgingEstoqueItem | null | undefined) {
-  return getDemandaTotalOperacionalDashboard(item) > 0.0001
+  if (!item) return false
+
+  // Sem consumo só quando demanda do mês atual = 0 E venda/consumo dos últimos 6 meses = 0.
+  return getDemandaMesAtualStatusDashboard(item) > 0.0001 || getMovimentoSeisMesesStatusDashboard(item) > 0.0001
 }
 
 function getFaixaCoberturaOperacionalDashboard(item: AgingEstoqueItem | null | undefined) {
@@ -2116,8 +2171,8 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
     const cobertura = getCoberturaMatriz(item)
     const valor = getValorEstoqueMatriz(item)
     const estoque = getEstoqueAtualReal(item)
-    const entradas = getPedidosAbertos(item)
-    const demanda = Math.max(getNum(item, "demanda_mes_atual"), getDemandaTotalOperacionalDashboard(item))
+    const entradas = getEntradasMesAtualDashboard(item)
+    const demanda = getDemandaTotalOperacionalDashboard(item)
     const linha = String((item as any).tipo_negocio || (item as any).grupo_gerencial || "A classificar")
     const semaforo = calcularSemaforoEstoque(item)
     const faixaCobertura = getFaixaCoberturaOperacionalDashboard(item)
@@ -2298,9 +2353,9 @@ function StatusLinhaDashboardTooltip({
   })
   const preview = itensOrdenados.slice(0, 3)
   const totalEstoque = itensTooltip.reduce((sum, item) => sum + getEstoqueAtualReal(item), 0)
-  const totalEntradas = itensTooltip.reduce((sum, item) => sum + getPedidosAbertos(item), 0)
+  const totalEntradas = itensTooltip.reduce((sum, item) => sum + getEntradasMesAtualDashboard(item), 0)
   const total6m = itensTooltip.reduce((sum, item) => sum + getTotalSeisMesesDashboard(item), 0)
-  const totalForecast = itensTooltip.reduce((sum, item) => sum + Math.max(getPrevisaoMesAtual(item), getTotalForecastDashboard(item)), 0)
+  const totalForecast = itensTooltip.reduce((sum, item) => sum + getDemandaTotalOperacionalDashboard(item), 0)
   const coberturaAgregada = totalForecast > 0 ? (totalEstoque + totalEntradas) / totalForecast : 0
 
   return (
@@ -2332,7 +2387,7 @@ function StatusLinhaDashboardTooltip({
           <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtQtdEstoque(totalEstoque)}</p>
         </div>
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
-          <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Entradas</p>
+          <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Entradas mês</p>
           <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtQtdEstoque(totalEntradas)}</p>
         </div>
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
@@ -2365,9 +2420,9 @@ function StatusLinhaDashboardTooltip({
           const categoriaItem = getCategoriaStatusDashboard(item)
           const metaItem = STATUS_DASHBOARD_META[categoriaItem]
           const estoque = getEstoqueAtualReal(item)
-          const entradas = getPedidosAbertos(item)
+          const entradas = getEntradasMesAtualDashboard(item)
           const quarentena = getQuarentenaAtualReal(item)
-          const demandaAtual = Math.max(getPrevisaoMesAtual(item), getNum(item, 'demanda_mes_atual'), getNum(item, 'demanda_bom_mes_atual'), getNum(item, 'demanda_direta_mes_atual'))
+          const demandaAtual = getDemandaTotalOperacionalDashboard(item)
           const cobertura = getCoberturaMatriz(item)
           const historico = getHistoricoSeisMesesDashboard(item)
           const forecast = getForecastSeisMesesDashboard(item)
@@ -2388,7 +2443,7 @@ function StatusLinhaDashboardTooltip({
                   <p className="mt-1 text-xs font-bold">{fmtQtdEstoque(estoque)}</p>
                 </div>
                 <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
-                  <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Entradas</p>
+                  <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Entr. mês</p>
                   <p className="mt-1 text-xs font-bold">{fmtQtdEstoque(entradas)}</p>
                 </div>
                 <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
@@ -3052,7 +3107,7 @@ function DashboardSkuDetailModal({
 
   const itensVisiveis = mostrarTodos ? itensOrdenados : itensOrdenados.slice(0, 80)
   const totalEstoque = itensOrdenados.reduce((sum, item) => sum + getEstoqueAtualReal(item), 0)
-  const totalEntradas = itensOrdenados.reduce((sum, item) => sum + getPedidosAbertos(item), 0)
+  const totalEntradas = itensOrdenados.reduce((sum, item) => sum + getEntradasMesAtualDashboard(item), 0)
   const total6m = itensOrdenados.reduce((sum, item) => sum + getTotalSeisMesesDashboard(item), 0)
   const totalForecast = itensOrdenados.reduce((sum, item) => sum + getDemandaTotalOperacionalDashboard(item), 0)
   const coberturaAgregada = totalForecast > 0 ? (totalEstoque + totalEntradas) / totalForecast : 0
@@ -3076,7 +3131,7 @@ function DashboardSkuDetailModal({
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>SKUs</p><p className="mt-1 text-lg font-bold">{fmtNumber(itensOrdenados.length)}</p></div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Estoque</p><p className="mt-1 text-lg font-bold">{fmtQtdEstoque(totalEstoque)}</p></div>
-            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Entradas</p><p className="mt-1 text-lg font-bold">{fmtQtdEstoque(totalEntradas)}</p></div>
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Entradas mês</p><p className="mt-1 text-lg font-bold">{fmtQtdEstoque(totalEntradas)}</p></div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Venda/cons. 6M</p><p className="mt-1 text-lg font-bold">{fmtQtdInteira(total6m)}</p></div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Forecast/demanda</p><p className="mt-1 text-lg font-bold">{fmtQtdInteira(totalForecast)}</p></div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Cobertura</p><p className="mt-1 text-lg font-bold">{totalForecast > 0 ? `${fmtNumber(coberturaAgregada, 1)} m` : "Sem consumo"}</p></div>
@@ -3117,7 +3172,7 @@ function DashboardSkuDetailModal({
                     <th className="px-3 py-3">Linha</th>
                     <th className="px-3 py-3">Status</th>
                     <th className="px-3 py-3 text-right">Estoque</th>
-                    <th className="px-3 py-3 text-right">Entradas</th>
+                    <th className="px-3 py-3 text-right">Entradas mês</th>
                     <th className="px-3 py-3 text-right">Forecast/demanda</th>
                     <th className="px-3 py-3 text-right">Cobertura</th>
                     <th className="px-3 py-3 text-right">Venda/cons. 6M</th>
@@ -3140,7 +3195,7 @@ function DashboardSkuDetailModal({
                         <td className="px-3 py-3 align-middle" style={{ color: "var(--text-secondary)" }}>{getLinhaDashboardItem(item)}</td>
                         <td className="px-3 py-3 align-middle"><span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span></td>
                         <td className="px-3 py-3 text-right align-middle font-bold">{fmtQtdEstoque(getEstoqueAtualReal(item))}</td>
-                        <td className="px-3 py-3 text-right align-middle">{fmtQtdEstoque(getPedidosAbertos(item))}</td>
+                        <td className="px-3 py-3 text-right align-middle">{fmtQtdEstoque(getEntradasMesAtualDashboard(item))}</td>
                         <td className="px-3 py-3 text-right align-middle">{fmtQtdInteira(getDemandaTotalOperacionalDashboard(item))}</td>
                         <td className="px-3 py-3 text-right align-middle font-bold">{getFaixaCoberturaOperacionalDashboard(item) === "Sem consumo" ? "Sem consumo" : `${fmtNumber(getCoberturaMatriz(item), 1)} m`}</td>
                         <td className="px-3 py-3 text-right align-middle">{fmtQtdInteira(getTotalSeisMesesDashboard(item))}</td>
@@ -3261,7 +3316,7 @@ function ItensDrilldownDashboardTable({
               <th className="px-3 py-3 text-right">Total 6M</th>
               <th className="px-3 py-3">Histórico 6M</th>
               <th className="px-3 py-3 text-right">Cobertura</th>
-              <th className="px-3 py-3 text-right">Entradas</th>
+              <th className="px-3 py-3 text-right">Entradas mês</th>
               <th className="px-3 py-3 text-right">Valor estoque</th>
             </tr>
           </thead>
@@ -3272,7 +3327,7 @@ function ItensDrilldownDashboardTable({
               const descricao = String(raw.produto || raw.descricao || raw.desc_produto || "—")
               const linha = getLinhaDashboardItem(item)
               const estoque = getEstoqueAtualReal(item)
-              const entradas = getPedidosAbertos(item)
+              const entradas = getEntradasMesAtualDashboard(item)
               const total6m = getTotalSeisMesesDashboard(item)
               const cobertura = getCoberturaMatriz(item)
               const valor = getValorEstoqueMatriz(item)
@@ -3636,8 +3691,8 @@ function DashboardEstoquePanel({
 
       saldoTotal += saldo
       valorEstoque += getValorEstoqueMatriz(item)
-      entradas += getPedidosAbertos(item)
-      demanda += getNum(item, "demanda_mes_atual")
+      entradas += getEntradasMesAtualDashboard(item)
+      demanda += getDemandaTotalOperacionalDashboard(item)
     }
 
     return {
@@ -3829,7 +3884,7 @@ function DashboardEstoquePanel({
         <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens críticos", "Itens com ruptura, criticidade ou semáforo vermelho no recorte atual.", itensPorCategoriaDashboard("criticos"), "#DC2626")} />
         <KpiCard label="Sem estoque" value={fmtNumber(metricasDashboard.semEstoque)} helper={`${fmtNumber(pctSemEstoque, 1)}% com saldo atual zerado`} icon={<ArrowDownRight size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens sem estoque", "Itens com saldo atual igual a zero no recorte selecionado.", itensSemEstoqueDashboard, "#DC2626")} />
         <KpiCard label="Atenção" value={fmtNumber(metricasDashboard.atencao)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" onClick={() => abrirListaDashboard("Itens em atenção", "Itens com semáforo amarelo ou status de atenção.", itensAtencaoDashboard, "#D97706")} />
-        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="acima da política" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => abrirListaDashboard("Itens em excesso", "Itens classificados pelo backend como excesso pela política atual.", itensExcessoDashboard, "#2563EB")} />
+        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="cobertura do mês > 3m" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => abrirListaDashboard("Itens em excesso", "Itens classificados pelo backend como excesso pela política atual.", itensExcessoDashboard, "#2563EB")} />
         <KpiCard label="Sem consumo" value={fmtNumber(metricasDashboard.semGiro)} helper="sem referência de venda/consumo" icon={<PackageSearch size={20} />} tone="default" onClick={() => abrirListaDashboard("Itens sem consumo", "Itens sem venda, consumo ou demanda.", itensSemGiroDashboard, "#94A3B8")} />
         <KpiCard label="Estoque total" value={fmtCompact(metricasDashboard.saldoTotal)} helper={`Valor: ${fmtCurrency(metricasDashboard.valorEstoque, 0)}`} icon={<Boxes size={20} />} tone="success" onClick={() => abrirListaDashboard("Itens com estoque no recorte", "Lista do recorte atual ordenada por valor e volume em estoque.", itensFiltradosDashboard.filter((item) => getEstoqueAtualReal(item) > 0), "#15803D")} />
       </div>
@@ -3873,7 +3928,7 @@ function DashboardEstoquePanel({
           <div className="mb-4">
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Cobertura por faixa</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Distribuição dos itens por cobertura</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Ajuda a separar risco de falta, excesso e itens sem consumo.</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Ajuda a separar risco de falta, excesso e itens sem consumo pela cobertura do mês atual.</p>
           </div>
           <div className="h-[360px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -3881,7 +3936,7 @@ function DashboardEstoquePanel({
                 <XAxis dataKey="faixa" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} interval={0} angle={-18} textAnchor="end" />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
                 <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} content={<CoberturaFaixaTooltip />} />
-                <Bar dataKey="itens" name="Itens" fill="#163B63" radius={[8, 8, 0, 0]} onClick={(row) => abrirListaDashboard(`Cobertura · ${row.faixa}`, "Itens agrupados pela cobertura calculada por forecast/demanda futura acumulada.", row.itens_lista || [], "#163B63")}>
+                <Bar dataKey="itens" name="Itens" fill="#163B63" radius={[8, 8, 0, 0]} onClick={(row) => abrirListaDashboard(`Cobertura · ${row.faixa}`, "Itens agrupados pela cobertura do mês atual: estoque disponível + entradas do mês atual sobre demanda/forecast atual.", row.itens_lista || [], "#163B63")}>
                   <LabelList dataKey="itens" position="top" fontSize={12} fill="#163B63" formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
               </BarChart>
@@ -3907,7 +3962,7 @@ function DashboardEstoquePanel({
             <table className="w-full text-sm">
               <thead style={{ background: "#163B63", color: "#FFFFFF" }}>
                 <tr className="text-left text-[11px] uppercase tracking-wide">
-                  <th className="px-3 py-2">Código</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2">Linha</th><th className="px-3 py-2 text-right">Estoque</th><th className="px-3 py-2 text-right">Entradas</th><th className="px-3 py-2 text-right">Demanda</th>
+                  <th className="px-3 py-2">Código</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2">Linha</th><th className="px-3 py-2 text-right">Estoque</th><th className="px-3 py-2 text-right">Entradas mês</th><th className="px-3 py-2 text-right">Demanda</th>
                 </tr>
               </thead>
               <tbody>
@@ -3917,8 +3972,8 @@ function DashboardEstoquePanel({
                     <td className="px-3 py-2" style={{ color: "var(--text-primary)" }}>{(item as any).produto || "—"}</td>
                     <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{(item as any).tipo_negocio || (item as any).grupo_gerencial || "—"}</td>
                     <td className="px-3 py-2 text-right">{fmtNumber(getEstoqueAtualReal(item), 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(getPedidosAbertos(item), 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(getNum(item, "demanda_mes_atual"), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(getEntradasMesAtualDashboard(item), 0)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(getDemandaTotalOperacionalDashboard(item), 0)}</td>
                   </tr>
                 ))}
                 {!topCriticos.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Sem itens críticos para o filtro selecionado.</td></tr>}
