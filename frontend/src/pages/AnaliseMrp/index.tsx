@@ -168,8 +168,12 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
     searchParams.set(key, String(value))
   })
 
-  // Evita que o navegador reutilize um resumo antigo quando muda o escopo ou sobe base nova.
-  searchParams.set("_t", String(Date.now()))
+  // Não adiciona _t automaticamente. O cache local + no-store já evitam cache do navegador.
+  // _t/force_refresh só entram em refresh manual/upload para não forçar rebuild pesado no backend.
+  const forceRefreshParam = params.force_refresh === true || String(params.force_refresh || "").toLowerCase() === "true"
+  if (forceRefreshParam && !searchParams.has("_t")) {
+    searchParams.set("_t", String(Date.now()))
+  }
 
   const query = searchParams.toString()
   const response = await fetch(`${API_BASE}${path}${query ? `?${query}` : ""}`, {
@@ -185,8 +189,8 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v4_saldo_sb8_forecast_rotulos"
-const GESTAO_ESTOQUE_CACHE_TTL_MS = 30 * 60 * 1000
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v5_12h_sem_refresh_automatico"
+const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
   savedAt: number
@@ -865,11 +869,18 @@ function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
   )
 }
 
+function getCampoNumericoSeExiste(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined, key: string) {
+  if (!item) return null
+  const raw = item as unknown as Record<string, unknown>
+  if (!(key in raw)) return null
+  const valor = toNumberSafe(raw[key], Number.NaN)
+  return Number.isFinite(valor) ? Math.max(0, valor) : null
+}
+
 function getCoberturaBaseProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
 
-  // Para PA/MR, a melhor base de cobertura é a demanda/previsão do mês.
-  // Se não existir, cai para maior média para manter compatibilidade com itens sem forecast.
+  // Fallback usado só quando o backend ainda não devolveu a cobertura por forecast acumulado.
   const chavesBase = [
     "demanda_mes_atual",
     "demanda_mes",
@@ -889,18 +900,26 @@ function getCoberturaBaseProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalh
 }
 
 function getCoberturaAtualProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const backend = getCampoNumericoSeExiste(item, "cobertura_meses_atual")
+  if (backend !== null) return backend
+
   const base = getCoberturaBaseProduto(item)
   if (base <= 0) return 0
   return getEstoqueAtualReal(item) / base
 }
 
 function getCoberturaFuturaProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const backend = getCampoNumericoSeExiste(item, "cobertura_meses_futura")
+  if (backend !== null) return backend
+
   const base = getCoberturaBaseProduto(item)
   if (base <= 0) return 0
   return (getEstoqueAtualReal(item) + getPedidosAbertos(item)) / base
 }
 
 function getDiasEstoqueProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  const backend = getCampoNumericoSeExiste(item, "cobertura_dias")
+  if (backend !== null) return backend
   return getCoberturaAtualProduto(item) * 30
 }
 
@@ -909,25 +928,18 @@ function getEstoqueMaisEntradasProduto(item: AgingEstoqueItem | AgingEstoqueItem
 }
 
 function normalizarCoberturaPaMrItem<T extends AgingEstoqueItem | AgingEstoqueItemDetalhe>(item: T): T {
-  const demandaMes = getCoberturaBaseProduto(item)
   const estoqueAtual = getEstoqueAtualReal(item)
   const estoqueMaisEntradas = getEstoqueMaisEntradasProduto(item)
 
-  const coberturaAtual = demandaMes > 0 ? estoqueAtual / demandaMes : 0
-  const coberturaFutura = demandaMes > 0 ? estoqueMaisEntradas / demandaMes : 0
-  const diasEstoque = coberturaAtual * 30
-
+  // A partir da correção de regra, a cobertura oficial vem do backend,
+  // calculada por forecast/demanda futura acumulada mês a mês.
+  // O front não deve mais sobrescrever esses campos com demanda de um único mês.
   return {
     ...(item as Record<string, unknown>),
     saldo: estoqueAtual,
     estoque_mais_pedidos: estoqueMaisEntradas,
     estoque_mais_entradas: estoqueMaisEntradas,
-    dias_em_estoque: diasEstoque,
-    cobertura_dias: diasEstoque,
-    cobertura_meses_atual: coberturaAtual,
-    cobertura_meses_futura: coberturaFutura,
-    cobertura_futura_dias: coberturaFutura * 30,
-    __cobertura_pa_mr_recalculada_front: true,
+    __cobertura_pa_mr_preservada_backend: true,
   } as unknown as T
 }
 
@@ -938,18 +950,6 @@ function normalizarCoberturaPaMrResponse(res: AgingItensResponse, escopo: Escopo
     ...res,
     itens: (res.itens || []).map((item) => normalizarCoberturaPaMrItem(item)),
   }
-}
-
-function getValorNumericoTabela(item: AgingEstoqueItem, key: SortKey, isTabelaProdutos = false) {
-  if (isTabelaProdutos) {
-    if (key === "saldo") return getEstoqueAtualReal(item)
-    if (key === "estoque_mais_pedidos") return getEstoqueMaisEntradasProduto(item)
-    if (key === "dias_em_estoque") return getDiasEstoqueProduto(item)
-    if (key === "cobertura_meses_atual") return getCoberturaAtualProduto(item)
-    if (key === "cobertura_meses_futura") return getCoberturaFuturaProduto(item)
-  }
-
-  return getNum(item, key)
 }
 
 function getPrevisaoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -1852,7 +1852,8 @@ function normalizarFaixaCobertura(label: string) {
     "0-30 dias": "0 a 1 mês",
     "31-60 dias": "1 a 2 meses",
     "61-90 dias": "2 a 3 meses",
-    ">90 dias": "> 3 meses",
+    ">90 dias": "Excesso > 3 meses",
+    "> 3 meses": "Excesso > 3 meses",
     "Sem consumo": "Sem giro",
   }
   return mapa[texto] || texto || "Sem faixa"
@@ -2043,7 +2044,7 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
   const base = (itens || []).filter((item) => String(item?.codigo || "").trim())
   const giros = base.map(getGiroMatriz).filter((v) => v > 0)
   const corteGiro = Math.max(1, percentile(giros, 0.65))
-  const corteCobertura = 12
+  const corteCobertura = 3
 
   const maxGiroBruto = Math.max(corteGiro * 1.8, percentile(giros, 0.95), 1)
   const coberturas = base.map(getCoberturaMatriz).filter((v) => v > 0)
@@ -2054,7 +2055,7 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
   // Limites visuais mais estáveis para evitar eixos “explodidos” por poucos outliers.
   // Os pontos continuam existindo, mas a visualização é truncada para leitura melhor.
   const maxGiroVisual = Math.max(corteGiro * 1.25, percentile(giros, 0.9), 1)
-  const maxCoberturaVisual = Math.max(corteCobertura * 1.8, percentile(coberturas, 0.9), 24)
+  const maxCoberturaVisual = Math.max(corteCobertura * 2.5, percentile(coberturas, 0.9), 6)
 
   const pontos: MatrixPoint[] = base.map((item) => {
     const giro = getGiroMatriz(item)
@@ -2191,10 +2192,15 @@ function itemSemGiroOperacionalDashboard(item: AgingEstoqueItem | null | undefin
     getNum(item, "demanda_bom_mes_atual"),
     getNum(item, "demanda_direta_mes_atual"),
   )
+  const demandaFutura = Math.max(
+    getNum(item, "demanda_cobertura_futura_total"),
+    getDemandaReferenciaCobertura(item),
+  )
 
   // Conceito validado: sem giro = sem venda/consumo nos últimos 6 meses
-  // e sem necessidade clara no plano atual. Produto usa venda; insumo usa consumo.
-  return total6m <= 0.0001 && demandaAtual <= 0.0001
+  // e sem necessidade clara no plano atual/futuro. Produto usa venda/forecast;
+  // insumo usa consumo/demanda explodida.
+  return total6m <= 0.0001 && demandaAtual <= 0.0001 && demandaFutura <= 0.0001
 }
 
 function getCategoriaStatusDashboard(item: AgingEstoqueItem | null | undefined): CategoriaStatusDashboard {
@@ -2203,10 +2209,12 @@ function getCategoriaStatusDashboard(item: AgingEstoqueItem | null | undefined):
   const raw = item as any
   const status = String(raw.status_estoque || raw.status || "").trim().toUpperCase()
   const semaforo = calcularSemaforoEstoque(item)
+  const cobertura = getCoberturaMatriz(item)
+  const demandaCobertura = Math.max(getNum(item, "demanda_cobertura_futura_total"), getDemandaReferenciaCobertura(item))
   const ehSemGiro = itemSemGiroOperacionalDashboard(item)
   const ehCritico = !ehSemGiro && (semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO")
-  const ehExcesso = status === "EXCESSO"
-  const ehAtencao = !ehSemGiro && !ehCritico && (semaforo === "AMARELO" || status === "ATENCAO")
+  const ehExcesso = !ehSemGiro && demandaCobertura > 0 && (status === "EXCESSO" || cobertura > 3)
+  const ehAtencao = !ehSemGiro && !ehCritico && !ehExcesso && (semaforo === "AMARELO" || status === "ATENCAO")
 
   if (ehCritico) return "criticos"
   if (ehExcesso) return "excesso"
@@ -2384,6 +2392,101 @@ function StatusLinhaDashboardTooltip({
       {itensOrdenados.length > preview.length && (
         <p className="mt-3 rounded-2xl border px-3 py-2 text-xs" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)', background: 'rgba(248,250,252,0.9)' }}>
           Mostrando os 3 primeiros SKUs. Clique na barra para abrir todos os {fmtNumber(itensOrdenados.length)} SKUs em tela grande.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function getDemandaReferenciaCobertura(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return 0
+  const raw = item as any
+
+  const serie = Array.isArray(raw.forecast_futuro)
+    ? raw.forecast_futuro
+    : Array.isArray(raw.forecast)
+      ? raw.forecast
+      : []
+
+  const pontos = serie
+    .map((ponto: any) => ({
+      ano: Number(ponto?.ano || 0),
+      mes: Number(ponto?.mes || 0),
+      valor: toNumberSafe(ponto?.forecast ?? ponto?.demanda ?? ponto?.qtd_forecast ?? 0, 0),
+    }))
+    .filter((ponto: { ano: number; mes: number; valor: number }) => ponto.ano > 0 && ponto.mes > 0 && ponto.valor > 0)
+    .sort((a: { ano: number; mes: number }, b: { ano: number; mes: number }) => a.ano - b.ano || a.mes - b.mes)
+
+  if (pontos.length) return pontos[0].valor
+
+  return Math.max(
+    getNum(item, "demanda_mes_atual"),
+    getNum(item, "previsao_mes_atual"),
+    getNum(item, "demanda_bom_mes_atual"),
+    getNum(item, "demanda_direta_mes_atual"),
+    getNum(item, "maior_media"),
+  )
+}
+
+function CoberturaFaixaTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
+  if (!active || !payload?.length) return null
+
+  const ponto = payload[0]?.payload as any
+  if (!ponto) return null
+
+  const itens = Array.isArray(ponto.itens_lista) ? ponto.itens_lista as AgingEstoqueItem[] : []
+  const preview = itens.slice(0, 8)
+
+  return (
+    <div className="w-[min(560px,92vw)] rounded-2xl border bg-white p-4 shadow-2xl" style={{ borderColor: "var(--border)" }}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Faixa de cobertura</p>
+          <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>{ponto.faixa || "Sem faixa"}</p>
+        </div>
+        <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: "rgba(22,59,99,0.08)", color: "#163B63" }}>
+          {fmtNumber(Number(ponto.itens || 0))} SKU(s)
+        </span>
+      </div>
+
+      {preview.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {preview.map((item) => {
+            const raw = item as any
+            const codigo = String(raw.codigo || raw.cod_produto || "")
+            const produto = String(raw.produto || raw.desc_produto || raw.descricao || "Item")
+            const estoque = getEstoqueAtualReal(item)
+            const entradas = getPedidosAbertos(item)
+            const demanda = getDemandaReferenciaCobertura(item)
+            const cobertura = getCoberturaMatriz(item)
+            const metodo = String(raw.metodo_cobertura || "").replace(/_/g, " ")
+
+            return (
+              <div key={`${codigo}-${produto}`} className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "rgba(248,250,252,0.9)" }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-bold" style={{ color: "var(--text-primary)" }}>{codigo || "—"} · {produto}</p>
+                    <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>{metodo || "forecast acumulado"}</p>
+                  </div>
+                  <span className="shrink-0 text-xs font-bold" style={{ color: "#163B63" }}>{cobertura > 0 ? `${fmtNumber(cobertura, 1)} m` : "0 m"}</span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
+                  <div><span style={{ color: "var(--text-secondary)" }}>Estoque</span><p className="font-bold">{fmtQtdEstoque(estoque)}</p></div>
+                  <div><span style={{ color: "var(--text-secondary)" }}>Entradas</span><p className="font-bold">{fmtQtdEstoque(entradas)}</p></div>
+                  <div><span style={{ color: "var(--text-secondary)" }}>Forecast base</span><p className="font-bold">{fmtQtdInteira(demanda)}</p></div>
+                </div>
+              </div>
+            )
+          })}
+          {itens.length > preview.length && (
+            <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+              Mostrando 8 de {fmtNumber(itens.length)} SKU(s). Clique na barra para abrir a lista completa.
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 rounded-xl border px-3 py-2 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "rgba(248,250,252,0.9)" }}>
+          Sem itens carregados para detalhar nesta faixa.
         </p>
       )}
     </div>
@@ -3543,32 +3646,45 @@ function DashboardEstoquePanel({
   }, [itensFiltradosDashboard])
 
   const coberturaData = useMemo(() => {
-    const ordem = ["0 a 1 mês", "1 a 2 meses", "2 a 3 meses", "> 3 meses", "Sem giro"]
-    const mapa = new Map<string, number>(ordem.map((faixa) => [faixa, 0]))
+    const ordem = ["0 a 1 mês", "1 a 2 meses", "2 a 3 meses", "Excesso > 3 meses", "Sem giro"]
+    const mapa = new Map<string, AgingEstoqueItem[]>(ordem.map((faixa) => [faixa, []]))
 
     for (const item of itensFiltradosDashboard) {
-      const giro = getGiroMatriz(item)
+      const demandaCobertura = Math.max(getNum(item, "demanda_cobertura_futura_total"), getDemandaReferenciaCobertura(item))
       const cobertura = getCoberturaMatriz(item)
       let faixa = "Sem giro"
 
-      if (giro > 0) {
+      if (demandaCobertura > 0) {
         if (cobertura <= 1) faixa = "0 a 1 mês"
         else if (cobertura <= 2) faixa = "1 a 2 meses"
         else if (cobertura <= 3) faixa = "2 a 3 meses"
-        else faixa = "> 3 meses"
+        else faixa = "Excesso > 3 meses"
       }
 
-      mapa.set(faixa, (mapa.get(faixa) || 0) + 1)
+      mapa.set(faixa, [...(mapa.get(faixa) || []), item])
     }
 
     if (!itensFiltradosDashboard.length && data?.faixas_cobertura?.length) {
-      return data.faixas_cobertura.map((item) => ({
+      return data.faixas_cobertura.map((item: any) => ({
         faixa: normalizarFaixaCobertura(item.faixa),
         itens: Number(item.itens || 0),
+        itens_lista: Array.isArray(item.amostra_itens) ? item.amostra_itens : [],
       }))
     }
 
-    return ordem.map((faixa) => ({ faixa, itens: mapa.get(faixa) || 0 }))
+    return ordem.map((faixa) => {
+      const itensLista = [...(mapa.get(faixa) || [])].sort((a, b) => {
+        const coberturaDiff = getCoberturaMatriz(a) - getCoberturaMatriz(b)
+        if (Math.abs(coberturaDiff) > 0.0001) return coberturaDiff
+        return getDemandaReferenciaCobertura(b) - getDemandaReferenciaCobertura(a)
+      })
+
+      return {
+        faixa,
+        itens: itensLista.length,
+        itens_lista: itensLista,
+      }
+    })
   }, [itensFiltradosDashboard, data?.faixas_cobertura])
 
   const topCriticos = useMemo(() => {
@@ -3588,7 +3704,7 @@ function DashboardEstoquePanel({
     return itensFiltradosDashboard
       .filter((item) => {
         const status = String((item as any).status_estoque || (item as any).status || "").toUpperCase()
-        return status === "EXCESSO" || getCoberturaMatriz(item) >= 12
+        return status === "EXCESSO" || (getDemandaReferenciaCobertura(item) > 0 && getCoberturaMatriz(item) > 3)
       })
       .sort((a, b) => getEstoqueAtualReal(b) - getEstoqueAtualReal(a) || getValorEstoqueMatriz(b) - getValorEstoqueMatriz(a))
   }, [itensFiltradosDashboard])
@@ -3701,8 +3817,8 @@ function DashboardEstoquePanel({
               <BarChart data={coberturaData} margin={{ top: 18, right: 18, left: 4, bottom: 32 }}>
                 <XAxis dataKey="faixa" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} interval={0} angle={-18} textAnchor="end" />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(value: number) => [fmtNumber(Number(value || 0)), "Itens"]} />
-                <Bar dataKey="itens" name="Itens" fill="#163B63" radius={[8, 8, 0, 0]}>
+                <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} content={<CoberturaFaixaTooltip />} />
+                <Bar dataKey="itens" name="Itens" fill="#163B63" radius={[8, 8, 0, 0]} onClick={(row) => abrirListaDashboard(`Cobertura · ${row.faixa}`, "Itens agrupados pela cobertura calculada por forecast/demanda futura acumulada.", row.itens_lista || [], "#163B63")}>
                   <LabelList dataKey="itens" position="top" fontSize={12} fill="#163B63" formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
               </BarChart>
@@ -5451,7 +5567,8 @@ export default function AgingEstoquePage() {
     setLoadingDashboard(true)
     setLoadingDashboardItens(true)
 
-    const cacheBustDashboard = `${refreshTick}-${Date.now()}`
+    const forceRefreshDashboard = refreshTick > 0
+    const cacheBustDashboard = forceRefreshDashboard ? `${refreshTick}-${Date.now()}` : undefined
 
     Promise.all(
       escoposDashboard.map(async (escopo) => {
@@ -5461,7 +5578,7 @@ export default function AgingEstoquePage() {
           getAgingResumoDireto({
             escopo,
             classificacao_cadastro: classificacao,
-            force_refresh: true,
+            force_refresh: forceRefreshDashboard || undefined,
             _t: cacheBustDashboard,
           }),
           getAgingItensDireto({
@@ -5470,7 +5587,7 @@ export default function AgingEstoquePage() {
             page_size: 5000,
             sort_direction: "desc",
             classificacao_cadastro: classificacao,
-            force_refresh: true,
+            force_refresh: forceRefreshDashboard || undefined,
             _t: cacheBustDashboard,
           }),
         ])
@@ -5517,7 +5634,7 @@ export default function AgingEstoquePage() {
     getAgingResumoDireto({
       escopo: escopoEstoque,
       classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
-      _t: refreshTick,
+      _t: refreshTick ? refreshTick : undefined,
     })
       .then((res) => {
         if (!mounted) return
@@ -5552,7 +5669,7 @@ export default function AgingEstoquePage() {
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
         semaforo: activeFilter?.semaforo,
-        _t: refreshTick,
+        _t: refreshTick ? refreshTick : undefined,
       })
       .then((res) => {
         if (!mounted) return
@@ -6283,7 +6400,7 @@ export default function AgingEstoquePage() {
           <KpiCard
             label="Excesso"
             value={fmtNumber(resumo?.resumo?.excesso || 0)}
-            helper="Acima da política"
+            helper="cobertura > 3 meses"
             icon={<ArrowUpRight size={20} />}
             tone="blue"
             onClick={() => aplicarFiltro({ label: "Excesso", status: "EXCESSO" })}
@@ -6690,7 +6807,7 @@ export default function AgingEstoquePage() {
         <KpiCard
           label="Excesso"
           value={fmtNumber(resumo?.resumo?.excesso || 0)}
-          helper="Acima da política"
+          helper="cobertura > 3 meses"
           icon={<ArrowUpRight size={20} />}
           tone="blue"
           onClick={() => aplicarFiltro({ label: "Excesso", status: "EXCESSO" })}
