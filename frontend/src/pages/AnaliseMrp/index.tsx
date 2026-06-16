@@ -952,6 +952,19 @@ function normalizarCoberturaPaMrResponse(res: AgingItensResponse, escopo: Escopo
   }
 }
 
+
+function getValorNumericoTabela(item: AgingEstoqueItem, key: SortKey, isTabelaProdutos = false) {
+  if (isTabelaProdutos) {
+    if (key === "saldo") return getEstoqueAtualReal(item)
+    if (key === "estoque_mais_pedidos") return getEstoqueMaisEntradasProduto(item)
+    if (key === "dias_em_estoque") return getDiasEstoqueProduto(item)
+    if (key === "cobertura_meses_atual") return getCoberturaAtualProduto(item)
+    if (key === "cobertura_meses_futura") return getCoberturaFuturaProduto(item)
+  }
+
+  return getNum(item, key)
+}
+
 function getPrevisaoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
   const raw = item as unknown as Record<string, unknown>
