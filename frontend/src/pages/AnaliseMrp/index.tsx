@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v11_matriz_cobertura_estoque_sem_entrada"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v12_status_ok_sem_outros"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -2412,7 +2412,7 @@ const STATUS_DASHBOARD_META: Record<CategoriaStatusDashboard, { label: string; c
   excesso: { label: "Excesso", color: "#2563EB", bg: "rgba(37,99,235,0.10)" },
   semGiro: { label: "Sem consumo", color: "#64748B", bg: "rgba(148,163,184,0.18)" },
   atencao: { label: "Atenção", color: "#D97706", bg: "rgba(217,119,6,0.10)" },
-  ok: { label: "Ok/outros", color: "#15803D", bg: "rgba(21,128,61,0.10)" },
+  ok: { label: "OK", color: "#15803D", bg: "rgba(21,128,61,0.10)" },
 }
 
 function StatusLinhaDashboardTooltip({
@@ -4096,7 +4096,7 @@ function DashboardEstoquePanel({
           <div className="mb-4">
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status por linha de negócio</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Distribuição dos itens por linha de negócio</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Mostra o status operacional por linha. Bravi aparece como classificação especial, sem deixar de ser crítico, excesso, sem consumo, atenção ou ok.</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Mostra o status operacional por linha. Bravi aparece como classificação especial, sem deixar de ser crítico, excesso, sem consumo, atenção ou OK.</p>
           </div>
           <div className="h-[360px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -4117,7 +4117,7 @@ function DashboardEstoquePanel({
                 <Bar dataKey="atencao" name="Atenção" stackId="status" fill="#D97706" onClick={(row) => abrirListaDashboard(`Atenção · ${row.linhaOriginal}`, "Itens em atenção nesta linha/classificação.", itensPorCategoriaDashboard("atencao", row.linhaOriginal), "#D97706")}>
                   <LabelList dataKey="atencao" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
-                <Bar dataKey="ok" name="Ok/outros" stackId="status" fill="#15803D" radius={[0, 7, 7, 0]} onClick={(row) => abrirListaDashboard(`Ok/outros · ${row.linhaOriginal}`, "Itens sem prioridade operacional aparente nesta linha/classificação.", itensPorCategoriaDashboard("ok", row.linhaOriginal), "#15803D")}>
+                <Bar dataKey="ok" name="OK" stackId="status" fill="#15803D" radius={[0, 7, 7, 0]} onClick={(row) => abrirListaDashboard(`OK · ${row.linhaOriginal}`, "Itens saudáveis, sem criticidade, excesso ou ausência de consumo no recorte atual.", itensPorCategoriaDashboard("ok", row.linhaOriginal), "#15803D")}>
                   <LabelList dataKey="ok" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                   <LabelList dataKey="total" position="right" fill="#0F172A" fontSize={12} fontWeight={700} formatter={(value: number) => value > 0 ? `${fmtNumber(value)} SKUs` : ""} />
                 </Bar>
