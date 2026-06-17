@@ -62,6 +62,15 @@ interface LoteRastreamento {
   desvio_destino_produto_insumo?: string | null;
   qtd_desvios?: number | null;
   desvios?: DesvioInfo[] | null;
+  desvio_reprovacao?: boolean;
+  reprogramado?: boolean;
+  atraso_producao?: boolean;
+  perda_rendimento?: boolean;
+  status_gap?: string | null;
+  motivo_gap?: string | null;
+  data_lib_atual?: string | null;
+  mes_previsto_atual?: number | null;
+  ano_previsto_atual?: number | null;
 }
 
 interface ResumoLiberacao {
@@ -148,6 +157,10 @@ interface RastreamentoData {
   mtd_cx_desvio?: number;
   mtd_gap_por_etapa: {
     desvio?: number;
+    reprovacao_desvio?: number;
+    desvio_aberto?: number;
+    atraso_producao?: number;
+    rendimento?: number;
     embalagem: number;
     envase: number;
     lavagem: number;
@@ -746,23 +759,26 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     if (filtroEmbalado === "SIM" && !l.check_embalagem) return false;
     if (filtroEmbalado === "NAO" && l.check_embalagem) return false;
     if (filtroEtapa === "LIBERADO" && !l.check_liberado) return false;
+    if (filtroEtapa === "REPROVACAO_DESVIO" && !l.desvio_reprovacao) return false;
     if (filtroEtapa === "DESVIO" && !l.em_desvio) return false;
+    if (filtroEtapa === "ATRASO_PRODUCAO" && !l.atraso_producao) return false;
+    if (filtroEtapa === "RENDIMENTO" && !l.perda_rendimento) return false;
     if (
       filtroEtapa === "EMBALAGEM" &&
-      (!l.check_embalagem || l.check_liberado || l.em_desvio)
+      (!l.check_embalagem || l.check_liberado || l.em_desvio || l.atraso_producao)
     )
       return false;
     if (
       filtroEtapa === "ENVASE" &&
-      (!l.check_envase || l.check_embalagem || l.em_desvio)
+      (!l.check_envase || l.check_embalagem || l.em_desvio || l.atraso_producao)
     )
       return false;
     if (
       filtroEtapa === "LAVAGEM" &&
-      (!l.check_lavagem || l.check_envase || l.em_desvio)
+      (!l.check_lavagem || l.check_envase || l.em_desvio || l.atraso_producao)
     )
       return false;
-    if (filtroEtapa === "NAO_INICIADO" && (l.check_lavagem || l.em_desvio))
+    if (filtroEtapa === "NAO_INICIADO" && (l.check_lavagem || l.em_desvio || l.atraso_producao))
       return false;
     if (filtroEtapa === "ATRASADO" && (!l.atrasado || l.check_liberado))
       return false;
@@ -826,15 +842,17 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       ? lotesFiltrados.filter((l) => selecionados.has(l.lote))
       : lotesFiltrados;
 
-    const headers = ["Lote","OP","Grupo","Destino","Data Lib.","Lavagem","Envase","Embalagem","Liberado","Tubetes","Caixas","Liberado (cx)","Rendimento (%)","Em Desvio"];
+    const headers = ["Lote","OP","Grupo","Status gap","Destino/Motivo","Data Lib. V1","Data Lib. atual","Lavagem","Envase","Embalagem","Liberado","Tubetes","Caixas","Liberado (cx)","Rendimento (%)","Em Desvio"];
     const rows = alvo.map((l) => {
       const r = calcularRendimento(l);
       return [
         l.lote,
         l.ordem_op || "",
         l.grupo,
-        getDesvioDestino(l) || "",
+        l.status_gap || "",
+        getDesvioDestino(l) || l.motivo_gap || "",
         l.data_lib || "",
+        l.data_lib_atual || "",
         l.check_lavagem ? "Sim" : "Não",
         l.check_envase ? "Sim" : "Não",
         l.check_embalagem ? "Sim" : "Não",
@@ -1079,44 +1097,55 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           </button>
 
           <div
-            className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-5"
+            className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-6"
             style={{ background: "var(--border)" }}
           >
             {[
               {
-                label: "Em Desvio",
-                value: data.mtd_gap_por_etapa.desvio ?? data.mtd_cx_desvio ?? 0,
+                label: "Reprovação/desvio",
+                value:
+                  data.mtd_gap_por_etapa.reprovacao_desvio ??
+                  data.mtd_gap_por_etapa.desvio ??
+                  data.mtd_cx_desvio ??
+                  0,
                 color: "#92400E",
                 icon: AlertTriangle,
-                filtro: "DESVIO",
+                filtro: "REPROVACAO_DESVIO",
               },
               {
-                label: "Em Embalagem",
+                label: "Atraso produção",
+                value: data.mtd_gap_por_etapa.atraso_producao ?? 0,
+                color: "#DC2626",
+                icon: Clock,
+                filtro: "ATRASO_PRODUCAO",
+              },
+              {
+                label: "Perda rendimento",
+                value: data.mtd_gap_por_etapa.rendimento ?? 0,
+                color: "#6B7280",
+                icon: TrendingDown,
+                filtro: "RENDIMENTO",
+              },
+              {
+                label: "Em embalagem",
                 value: data.mtd_gap_por_etapa.embalagem,
                 color: "#EA580C",
                 icon: Package,
                 filtro: "EMBALAGEM",
               },
               {
-                label: "Em Envase",
+                label: "Em envase",
                 value: data.mtd_gap_por_etapa.envase,
                 color: "#2563EB",
                 icon: Waves,
                 filtro: "ENVASE",
               },
               {
-                label: "Em Lavagem",
+                label: "Em lavagem",
                 value: data.mtd_gap_por_etapa.lavagem,
                 color: "#CA8A04",
                 icon: Droplets,
                 filtro: "LAVAGEM",
-              },
-              {
-                label: "Gap Rendimento",
-                value: data.mtd_gap_por_etapa.nao_iniciado,
-                color: "#6B7280",
-                icon: TrendingDown,
-                filtro: "NAO_INICIADO",
               },
             ].map((k) => (
               <button
@@ -1210,11 +1239,14 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           >
             <option value="">Todas as etapas</option>
             <option value="LIBERADO">Liberado</option>
-            <option value="DESVIO">Em Desvio</option>
-            <option value="EMBALAGEM">Em Embalagem</option>
-            <option value="ENVASE">Em Envase</option>
-            <option value="LAVAGEM">Em Lavagem</option>
-            <option value="NAO_INICIADO">Gap Rendimento</option>
+            <option value="REPROVACAO_DESVIO">Reprovação/desvio</option>
+            <option value="DESVIO">Em desvio</option>
+            <option value="ATRASO_PRODUCAO">Atraso de produção</option>
+            <option value="RENDIMENTO">Perda por rendimento</option>
+            <option value="EMBALAGEM">Em embalagem</option>
+            <option value="ENVASE">Em envase</option>
+            <option value="LAVAGEM">Em lavagem</option>
+            <option value="NAO_INICIADO">Não iniciado</option>
             <option value="ATRASADO">Atrasados</option>
           </select>
         </div>
@@ -1395,7 +1427,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                         background:
                           l.em_desvio && !l.check_liberado
                             ? "rgba(245,158,11,0.05)"
-                            : l.atrasado && !l.check_liberado
+                            : (l.atraso_producao || l.atrasado) && !l.check_liberado
                               ? "rgba(220,38,38,0.03)"
                               : i % 2 === 0
                                 ? "var(--bg-secondary)"
@@ -1413,12 +1445,12 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1.5">
                           {(l.em_desvio ||
-                            (l.atrasado && !l.check_liberado)) && (
+                            ((l.atraso_producao || l.atrasado) && !l.check_liberado)) && (
                             <span
                               title={
                                 l.em_desvio
                                   ? getDesvioTooltip(l)
-                                  : "Lote atrasado"
+                                  : l.motivo_gap || "Lote atrasado"
                               }
                               className="inline-flex items-center"
                               style={{ flexShrink: 0 }}
@@ -1487,33 +1519,33 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                         className="px-3 py-3 text-sm"
                         style={{ color: "var(--text-primary)" }}
                       >
-                        {getDesvioDestino(l) ? (
+                        {(getDesvioDestino(l) || l.motivo_gap || l.status_gap) ? (
                           <span
                             className="inline-flex max-w-[260px] items-center rounded-full px-2 py-1 text-[11px] font-semibold"
-                            title={getDesvioDestino(l) || undefined}
+                            title={(getDesvioDestino(l) || l.motivo_gap || l.status_gap) || undefined}
                             style={{
                               background:
-                                String(getDesvioDestino(l))
+                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
                                   .toUpperCase()
                                   .includes("REPROV") ||
-                                String(getDesvioDestino(l))
+                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
                                   .toUpperCase()
                                   .includes("DESCARTE")
                                   ? "#FEE2E2"
-                                  : String(getDesvioDestino(l))
+                                  : String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
                                         .toUpperCase()
                                         .includes("APROV")
                                     ? "#DCFCE7"
                                     : "#F3F4F6",
                               color:
-                                String(getDesvioDestino(l))
+                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
                                   .toUpperCase()
                                   .includes("REPROV") ||
-                                String(getDesvioDestino(l))
+                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
                                   .toUpperCase()
                                   .includes("DESCARTE")
                                   ? "#991B1B"
-                                  : String(getDesvioDestino(l))
+                                  : String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
                                         .toUpperCase()
                                         .includes("APROV")
                                     ? "#166534"
@@ -1521,7 +1553,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                             }}
                           >
                             <span className="truncate">
-                              {getDesvioDestino(l)}
+                              {getDesvioDestino(l) || l.motivo_gap || l.status_gap}
                             </span>
                           </span>
                         ) : (
