@@ -1989,6 +1989,7 @@ function KpiCard({
   tone = "default",
   onClick,
   active = false,
+  tooltip,
 }: {
   label: string
   value: string
@@ -1998,6 +1999,7 @@ function KpiCard({
   tone?: "default" | "danger" | "warning" | "success" | "blue"
   onClick?: () => void
   active?: boolean
+  tooltip?: string
 }) {
   const tones = {
     default: { bg: "rgba(15,23,42,0.04)", color: "var(--text-primary)" },
@@ -2039,6 +2041,7 @@ function KpiCard({
       <button
         type="button"
         onClick={onClick}
+        title={tooltip}
         className={`card p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${active ? "ring-2" : ""}`}
         style={{ boxShadow: active ? "0 0 0 2px #163B63" : undefined }}
       >
@@ -2047,7 +2050,7 @@ function KpiCard({
     )
   }
 
-  return <div className="card p-4">{content}</div>
+  return <div className="card p-4" title={tooltip}>{content}</div>
 }
 
 function KpiSmall({
@@ -2667,12 +2670,37 @@ function getCategoriaStatusDashboard(item: AgingEstoqueItem | null | undefined):
 }
 
 
-const STATUS_DASHBOARD_META: Record<CategoriaStatusDashboard, { label: string; color: string; bg: string }> = {
-  criticos: { label: "Críticos", color: "#DC2626", bg: "rgba(220,38,38,0.10)" },
-  excesso: { label: "Excesso", color: "#2563EB", bg: "rgba(37,99,235,0.10)" },
-  semGiro: { label: "Sem consumo", color: "#64748B", bg: "rgba(148,163,184,0.18)" },
-  atencao: { label: "Atenção", color: "#D97706", bg: "rgba(217,119,6,0.10)" },
-  ok: { label: "OK", color: "#15803D", bg: "rgba(21,128,61,0.10)" },
+const STATUS_DASHBOARD_META: Record<CategoriaStatusDashboard, { label: string; color: string; bg: string; tooltip: string }> = {
+  criticos: {
+    label: "Críticos",
+    color: "#DC2626",
+    bg: "rgba(220,38,38,0.10)",
+    tooltip: "Itens com risco de ruptura ou cobertura insuficiente, considerando estoque atual, entradas previstas e demanda/consumo futuro.",
+  },
+  excesso: {
+    label: "Excesso",
+    color: "#2563EB",
+    bg: "rgba(37,99,235,0.10)",
+    tooltip: "Itens com cobertura acima do limite saudável, normalmente acima de 3 meses de demanda/consumo.",
+  },
+  semGiro: {
+    label: "Sem consumo",
+    color: "#64748B",
+    bg: "rgba(148,163,184,0.18)",
+    tooltip: "Itens com estoque ou cadastro ativo, mas sem venda/consumo recente e sem demanda clara no plano atual.",
+  },
+  atencao: {
+    label: "Atenção",
+    color: "#D97706",
+    bg: "rgba(217,119,6,0.10)",
+    tooltip: "Itens que ainda não romperam, mas estão com cobertura baixa, semáforo amarelo ou próximos do limite de risco.",
+  },
+  ok: {
+    label: "OK",
+    color: "#15803D",
+    bg: "rgba(21,128,61,0.10)",
+    tooltip: "Itens com cobertura dentro da faixa considerada saudável para o recorte analisado.",
+  },
 }
 
 function StatusLinhaDashboardTooltip({
@@ -2871,6 +2899,38 @@ function getDemandaReferenciaCobertura(item: AgingEstoqueItem | null | undefined
     getNum(item, "demanda_bom_mes_atual"),
     getNum(item, "demanda_direta_mes_atual"),
     getNum(item, "maior_media"),
+  )
+}
+
+
+function StatusDashboardLegend({ payload }: { payload?: any[] }) {
+  const ordem: CategoriaStatusDashboard[] = ["criticos", "excesso", "semGiro", "atencao", "ok"]
+  const payloadPorChave = new Map<string, any>()
+
+  ;(payload || []).forEach((entry) => {
+    const key = String(entry?.dataKey || "").trim()
+    if (key) payloadPorChave.set(key, entry)
+  })
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+      {ordem.map((key) => {
+        const meta = STATUS_DASHBOARD_META[key]
+        const entry = payloadPorChave.get(key)
+        const color = String(entry?.color || meta.color)
+
+        return (
+          <span
+            key={key}
+            title={meta.tooltip}
+            className="inline-flex cursor-help items-center gap-1.5 rounded-full px-1.5 py-1 font-semibold transition hover:bg-slate-100"
+          >
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: color }} />
+            <span>{meta.label}</span>
+          </span>
+        )
+      })}
+    </div>
   )
 }
 
@@ -4428,11 +4488,11 @@ function DashboardEstoquePanel({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-7">
         <KpiCard label="Total itens" value={fmtNumber(totalItens)} helper={`${escopoSelecionadoDashboard === "produtos" ? "PA/MR" : escopoSelecionadoDashboard === "insumos" ? "Insumos" : "Todos"}${linhaSelecionadaDashboard === "TODAS" ? "" : ` · ${linhaSelecionadaDashboard}`}${descontinuadoSelecionadoDashboard === "TODOS" ? "" : ` · Descont.: ${descontinuadoSelecionadoDashboard === "SIM" ? "Sim" : "Não"}`}`} icon={<Boxes size={20} />} tone="default" onClick={() => abrirListaDashboard("Total de itens", "Lista completa do recorte selecionado no dashboard.", itensFiltradosDashboard, "#163B63")} />
-        <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens críticos", "Itens com ruptura, criticidade ou semáforo vermelho no recorte atual.", itensPorCategoriaDashboard("criticos"), "#DC2626")} />
-        <KpiCard label="Sem estoque" value={fmtNumber(metricasDashboard.semEstoque)} helper={`${fmtNumber(pctSemEstoque, 1)}% com saldo atual zerado`} icon={<ArrowDownRight size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens sem estoque", "Itens com saldo atual igual a zero no recorte selecionado.", itensSemEstoqueDashboard, "#DC2626")} />
-        <KpiCard label="Atenção" value={fmtNumber(metricasDashboard.atencao)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" onClick={() => abrirListaDashboard("Itens em atenção", "Itens com semáforo amarelo ou status de atenção.", itensAtencaoDashboard, "#D97706")} />
-        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="estoque atual > 3m" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => abrirListaDashboard("Itens em excesso", "Itens classificados pelo backend como excesso pela política atual.", itensExcessoDashboard, "#2563EB")} />
-        <KpiCard label="Sem consumo" value={fmtNumber(metricasDashboard.semGiro)} helper="sem referência de venda/consumo" icon={<PackageSearch size={20} />} tone="default" onClick={() => abrirListaDashboard("Itens sem consumo", "Itens sem venda, consumo ou demanda.", itensSemGiroDashboard, "#94A3B8")} />
+        <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" tooltip={STATUS_DASHBOARD_META.criticos.tooltip} onClick={() => abrirListaDashboard("Itens críticos", "Itens com ruptura, criticidade ou semáforo vermelho no recorte atual.", itensPorCategoriaDashboard("criticos"), "#DC2626")} />
+        <KpiCard label="Sem estoque" value={fmtNumber(metricasDashboard.semEstoque)} helper={`${fmtNumber(pctSemEstoque, 1)}% com saldo atual zerado`} icon={<ArrowDownRight size={20} />} tone="danger" tooltip="Itens com saldo atual igual a zero no recorte selecionado, independentemente de cobertura futura ou entradas previstas." onClick={() => abrirListaDashboard("Itens sem estoque", "Itens com saldo atual igual a zero no recorte selecionado.", itensSemEstoqueDashboard, "#DC2626")} />
+        <KpiCard label="Atenção" value={fmtNumber(metricasDashboard.atencao)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" tooltip={STATUS_DASHBOARD_META.atencao.tooltip} onClick={() => abrirListaDashboard("Itens em atenção", "Itens com semáforo amarelo ou status de atenção.", itensAtencaoDashboard, "#D97706")} />
+        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="estoque atual > 3m" icon={<ArrowUpRight size={20} />} tone="blue" tooltip={STATUS_DASHBOARD_META.excesso.tooltip} onClick={() => abrirListaDashboard("Itens em excesso", "Itens classificados pelo backend como excesso pela política atual.", itensExcessoDashboard, "#2563EB")} />
+        <KpiCard label="Sem consumo" value={fmtNumber(metricasDashboard.semGiro)} helper="sem referência de venda/consumo" icon={<PackageSearch size={20} />} tone="default" tooltip={STATUS_DASHBOARD_META.semGiro.tooltip} onClick={() => abrirListaDashboard("Itens sem consumo", "Itens sem venda, consumo ou demanda.", itensSemGiroDashboard, "#94A3B8")} />
         <KpiCard label="Estoque total" value={fmtCompact(metricasDashboard.saldoTotal)} helper={`Valor: ${fmtCurrency(metricasDashboard.valorEstoque, 0)}`} icon={<Boxes size={20} />} tone="success" onClick={() => abrirListaDashboard("Itens com estoque no recorte", "Lista do recorte atual ordenada por valor e volume em estoque.", itensFiltradosDashboard.filter((item) => getEstoqueAtualReal(item) > 0), "#15803D")} />
       </div>
 
@@ -4449,7 +4509,7 @@ function DashboardEstoquePanel({
                 <XAxis type="number" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
                 <YAxis dataKey="linha" type="category" width={132} tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} />
                 <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} shared={false} content={<StatusLinhaDashboardTooltip itensBase={itensFiltradosDashboard} />} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend content={<StatusDashboardLegend />} />
                 <Bar dataKey="criticos" name="Críticos" stackId="status" fill="#DC2626" radius={[7, 0, 0, 7]} onClick={(row) => abrirListaDashboard(`Críticos · ${row.linhaOriginal}`, "Itens críticos nesta linha/classificação.", itensPorCategoriaDashboard("criticos", row.linhaOriginal), "#DC2626")}>
                   <LabelList dataKey="criticos" position="inside" fill="#FFFFFF" fontSize={11} formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
