@@ -787,6 +787,69 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     return true;
   });
 
+  const gapPorStatusTela = useMemo(() => {
+    const totais = {
+      reprovacao_desvio: 0,
+      desvio_aberto: 0,
+      atraso_producao: 0,
+      rendimento: 0,
+      embalagem: 0,
+      envase: 0,
+      lavagem: 0,
+      nao_iniciado: 0,
+      total: 0,
+    };
+
+    for (const lote of data?.lotes ?? []) {
+      if (!lote.considerar_previsto_ate_hoje) continue;
+
+      const gap = Math.max(
+        Number(lote.qtd_prevista_cx || 0) - Number(lote.qtd_liberada_cx || 0),
+        0,
+      );
+
+      if (gap <= 0) continue;
+
+      const status = statusPrincipalLote(lote);
+      const valor = status === "RENDIMENTO"
+        ? Math.max(Number(lote.qtd_perda_rendimento_cx ?? gap), 0)
+        : gap;
+
+      if (valor <= 0) continue;
+
+      if (status === "REPROVACAO_DESVIO") totais.reprovacao_desvio += valor;
+      else if (status === "DESVIO") totais.desvio_aberto += valor;
+      else if (status === "ATRASO_PRODUCAO") totais.atraso_producao += valor;
+      else if (status === "RENDIMENTO") totais.rendimento += valor;
+      else if (status === "EMBALAGEM") totais.embalagem += valor;
+      else if (status === "ENVASE") totais.envase += valor;
+      else if (status === "LAVAGEM") totais.lavagem += valor;
+      else if (status === "NAO_INICIADO") totais.nao_iniciado += valor;
+    }
+
+    totais.reprovacao_desvio = Math.round(totais.reprovacao_desvio);
+    totais.desvio_aberto = Math.round(totais.desvio_aberto);
+    totais.atraso_producao = Math.round(totais.atraso_producao);
+    totais.rendimento = Math.round(totais.rendimento);
+    totais.embalagem = Math.round(totais.embalagem);
+    totais.envase = Math.round(totais.envase);
+    totais.lavagem = Math.round(totais.lavagem);
+    totais.nao_iniciado = Math.round(totais.nao_iniciado);
+    totais.total =
+      totais.reprovacao_desvio +
+      totais.desvio_aberto +
+      totais.atraso_producao +
+      totais.rendimento +
+      totais.embalagem +
+      totais.envase +
+      totais.lavagem +
+      totais.nao_iniciado;
+
+    return totais;
+  }, [data?.lotes]);
+
+  const gapAlertaTela = gapPorStatusTela.total || data?.mtd_cx_gap || 0;
+
   const lotesFiltrados = useMemo(() => {
     let lista = [...lotesFiltradosBase];
     if (sortDataLib) {
@@ -1048,7 +1111,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             style={{
               borderColor: "var(--border)",
               background:
-                data.mtd_cx_gap > 0
+                gapAlertaTela > 0
                   ? "rgba(220,38,38,0.04)"
                   : "rgba(22,163,74,0.04)",
             }}
@@ -1058,7 +1121,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 size={16}
                 className="mt-0.5 flex-shrink-0"
                 style={{
-                  color: data.mtd_cx_gap > 0 ? "#DC2626" : "#16A34A",
+                  color: gapAlertaTela > 0 ? "#DC2626" : "#16A34A",
                 }}
               />
 
@@ -1067,7 +1130,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   className="text-sm font-bold"
                   style={{ color: "var(--text-primary)" }}
                 >
-                  {data.mtd_cx_gap > 0
+                  {gapAlertaTela > 0
                     ? `Deveriam ter liberado ${fmt(
                         data.mtd_cx_previsto,
                       )} cx até hoje — só liberou ${fmt(
@@ -1078,12 +1141,12 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                       )} cx previstas até hoje foram liberadas!`}
                 </p>
 
-                {data.mtd_cx_gap > 0 && (
+                {gapAlertaTela > 0 && (
                   <p
                     className="mt-0.5 text-sm"
                     style={{ color: "#DC2626", fontWeight: 700 }}
                   >
-                    Faltam {fmt(data.mtd_cx_gap)} cx — veja onde estão:
+                    Faltam {fmt(gapAlertaTela)} cx — veja onde estão:
                   </p>
                 )}
 
@@ -1104,53 +1167,49 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             {[
               {
                 label: "Reprovação/desvio",
-                value:
-                  data.mtd_gap_por_etapa.reprovacao_desvio ??
-                  data.mtd_gap_por_etapa.desvio ??
-                  data.mtd_cx_desvio ??
-                  0,
+                value: gapPorStatusTela.reprovacao_desvio,
                 color: "#92400E",
                 icon: AlertTriangle,
                 filtro: "REPROVACAO_DESVIO",
               },
               {
                 label: "Em desvio aberto",
-                value: data.mtd_gap_por_etapa.desvio_aberto ?? 0,
+                value: gapPorStatusTela.desvio_aberto,
                 color: "#B45309",
                 icon: AlertTriangle,
                 filtro: "DESVIO",
               },
               {
                 label: "Atraso produção",
-                value: data.mtd_gap_por_etapa.atraso_producao ?? 0,
+                value: gapPorStatusTela.atraso_producao,
                 color: "#DC2626",
                 icon: Clock,
                 filtro: "ATRASO_PRODUCAO",
               },
               {
                 label: "Perda rendimento",
-                value: data.mtd_gap_por_etapa.rendimento ?? 0,
+                value: gapPorStatusTela.rendimento,
                 color: "#6B7280",
                 icon: TrendingDown,
                 filtro: "RENDIMENTO",
               },
               {
                 label: "Em embalagem",
-                value: data.mtd_gap_por_etapa.embalagem,
+                value: gapPorStatusTela.embalagem,
                 color: "#EA580C",
                 icon: Package,
                 filtro: "EMBALAGEM",
               },
               {
                 label: "Em envase",
-                value: data.mtd_gap_por_etapa.envase,
+                value: gapPorStatusTela.envase,
                 color: "#2563EB",
                 icon: Waves,
                 filtro: "ENVASE",
               },
               {
                 label: "Em lavagem",
-                value: data.mtd_gap_por_etapa.lavagem,
+                value: gapPorStatusTela.lavagem,
                 color: "#CA8A04",
                 icon: Droplets,
                 filtro: "LAVAGEM",
