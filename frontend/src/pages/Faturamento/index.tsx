@@ -13,7 +13,6 @@ import {
   Package,
   RefreshCw,
   Search,
-  Target,
   UploadCloud,
   Users,
 } from "lucide-react"
@@ -415,13 +414,19 @@ export default function FaturamentoPage() {
   }, [])
 
   const mesesGrafico = useMemo(() => {
-    return (dados?.meses ?? []).map((item) => ({
-      mes: item.mes_nome ?? String(item.mes ?? ""),
-      Faturamento: item.faturamento ?? 0,
-      Quantidade: item.quantidade ?? 0,
-      Forecast: item.forecast ?? 0,
-      Orçado: item.orcado ?? 0,
-    }))
+    return (dados?.meses ?? []).map((item) => {
+      const quantidadeReal = item.quantidade ?? 0
+
+      return {
+        mes: item.mes_nome ?? String(item.mes ?? ""),
+        Faturamento: item.faturamento ?? 0,
+        // Não desenha a linha de quantidade nos meses futuros/sem realizado.
+        // Assim ela se comporta como o faturamento: mostra só mês com dado real.
+        Quantidade: quantidadeReal > 0 ? quantidadeReal : null,
+        Forecast: item.forecast ?? 0,
+        Orçado: item.orcado ?? 0,
+      }
+    })
   }, [dados])
 
   const linhasGrafico = useMemo(() => {
@@ -689,11 +694,9 @@ export default function FaturamentoPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-8">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <KpiCard title="Faturamento" value={fmtMoney(cards.faturamento_total)} subtitle="Valor total SD2" icon={DollarSign} iconBg="#E0F2FE" iconColor={AZUL} />
         <KpiCard title="Quantidade" value={fmtNumero(cards.quantidade_total)} subtitle="Volume faturado" icon={BarChart3} iconBg="#DBEAFE" iconColor="#2563EB" />
-        <KpiCard title="Forecast S&OP" value={fmtNumero(cards.forecast_total)} subtitle="Volume previsto" icon={Target} iconBg="#FEF3C7" iconColor={LARANJA} />
-        <KpiCard title="Ating. Forecast" value={fmtPct(cards.atingimento_forecast_pct)} subtitle={`${fmtNumero(cards.delta_forecast)} cx vs forecast`} icon={RefreshCw} iconBg="#DCFCE7" iconColor={VERDE} />
         <KpiCard title="Clientes ativos" value={fmtNumero(cards.clientes_ativos)} subtitle="Com venda no período" icon={Users} iconBg="#F3E8FF" iconColor={ROXO_SUAVE} />
         <KpiCard title="Produtos ativos" value={fmtNumero(cards.produtos_ativos)} subtitle="SKUs faturados" icon={Package} iconBg="#F1F5F9" iconColor="#475569" />
         <KpiCard title="Ticket/cliente" value={fmtMoney(cards.ticket_medio_cliente)} subtitle="Faturamento médio" icon={Building2} iconBg="#ECFDF5" iconColor={VERDE} />
