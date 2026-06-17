@@ -605,6 +605,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
   const [filtroEmbalado, setFiltroEmbalado] = useState("");
+  const [filtroVisaoPlano, setFiltroVisaoPlano] = useState("");
   const [apenasAtrasados, setApenasAtrasados] = useState(true);
   const [modalAuditoria, setModalAuditoria] = useState(false);
   const [retemPorLote, setRetemPorLote] = useState(0.7);
@@ -755,35 +756,33 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
   const hoje = new Date().toISOString().split("T")[0];
 
+  function statusPrincipalLote(l: LoteRastreamento) {
+    // Status/causa principal do lote.
+    // A ordem evita que um lote reprovado ou reprogramado apareça também como "em envase"
+    // só porque já teve apontamento de envase.
+    if (l.desvio_reprovacao) return "REPROVACAO_DESVIO";
+    if (l.em_desvio) return "DESVIO";
+    if (l.atraso_producao) return "ATRASO_PRODUCAO";
+    if (l.perda_rendimento) return "RENDIMENTO";
+    if (l.check_liberado) return "LIBERADO";
+    if (l.check_embalagem) return "EMBALAGEM";
+    if (l.check_envase) return "ENVASE";
+    if (l.check_lavagem) return "LAVAGEM";
+    return "NAO_INICIADO";
+  }
+
   const lotesFiltradosBase = (data?.lotes ?? []).filter((l) => {
     if (apenasAtrasados && !l.considerar_previsto_ate_hoje) return false;
     if (filtroGrupo && l.grupo !== filtroGrupo) return false;
+
+    if (filtroVisaoPlano === "REPROGRAMADOS" && !(l.reprogramado || l.atraso_producao)) return false;
+    if (filtroVisaoPlano === "MANTIDOS" && (l.reprogramado || l.atraso_producao)) return false;
+
     if (filtroEmbalado === "SIM" && !l.check_embalagem) return false;
     if (filtroEmbalado === "NAO" && l.check_embalagem) return false;
-    if (filtroEtapa === "LIBERADO" && !l.check_liberado) return false;
-    if (filtroEtapa === "REPROVACAO_DESVIO" && !l.desvio_reprovacao) return false;
-    if (filtroEtapa === "DESVIO" && !l.em_desvio) return false;
-    if (filtroEtapa === "ATRASO_PRODUCAO" && !l.atraso_producao) return false;
-    if (filtroEtapa === "RENDIMENTO" && !l.perda_rendimento) return false;
-    if (
-      filtroEtapa === "EMBALAGEM" &&
-      (!l.check_embalagem || l.check_liberado || l.em_desvio || l.atraso_producao)
-    )
-      return false;
-    if (
-      filtroEtapa === "ENVASE" &&
-      (!l.check_envase || l.check_embalagem || l.em_desvio || l.atraso_producao)
-    )
-      return false;
-    if (
-      filtroEtapa === "LAVAGEM" &&
-      (!l.check_lavagem || l.check_envase || l.em_desvio || l.atraso_producao)
-    )
-      return false;
-    if (filtroEtapa === "NAO_INICIADO" && (l.check_lavagem || l.em_desvio || l.atraso_producao))
-      return false;
-    if (filtroEtapa === "ATRASADO" && (!l.atrasado || l.check_liberado))
-      return false;
+
+    if (filtroEtapa === "ATRASADO" && (!l.atrasado || l.check_liberado)) return false;
+    if (filtroEtapa && filtroEtapa !== "ATRASADO" && statusPrincipalLote(l) !== filtroEtapa) return false;
 
     return true;
   });
@@ -1154,6 +1153,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 key={k.label}
                 onClick={() => {
                   setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
+                  setFiltroEmbalado("");
                   setApenasAtrasados(false);
                   setSelecionados(new Set());
                 }}
@@ -1205,7 +1205,6 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             value={filtroGrupo}
             onChange={(e) => {
               setFiltroGrupo(e.target.value);
-              setApenasAtrasados(false);
               setSelecionados(new Set());
             }}
             className="rounded-lg border px-3 py-2 text-sm outline-none"
@@ -1230,14 +1229,42 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             className="text-[10px] font-semibold uppercase tracking-wider"
             style={{ color: "var(--text-secondary)" }}
           >
-            Etapa
+            Visão do plano
+          </label>
+
+          <select
+            value={filtroVisaoPlano}
+            onChange={(e) => {
+              setFiltroVisaoPlano(e.target.value);
+              setSelecionados(new Set());
+            }}
+            className="rounded-lg border px-3 py-2 text-sm outline-none"
+            style={{
+              background: "var(--bg-secondary)",
+              borderColor: "var(--border)",
+              color: "var(--text-primary)",
+              minWidth: 190,
+            }}
+          >
+            <option value="">V1 do mês</option>
+            <option value="MANTIDOS">Mantidos no mês atual</option>
+            <option value="REPROGRAMADOS">Reprogramados</option>
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label
+            className="text-[10px] font-semibold uppercase tracking-wider"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Status/causa
           </label>
 
           <select
             value={filtroEtapa}
             onChange={(e) => {
               setFiltroEtapa(e.target.value);
-              setApenasAtrasados(false);
+              setFiltroEmbalado("");
               setSelecionados(new Set());
             }}
             className="rounded-lg border px-3 py-2 text-sm outline-none"
@@ -1248,7 +1275,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
               minWidth: 160,
             }}
           >
-            <option value="">Todas as etapas</option>
+            <option value="">Todos os status</option>
             <option value="LIBERADO">Liberado</option>
             <option value="REPROVACAO_DESVIO">Reprovação/desvio</option>
             <option value="DESVIO">Em desvio</option>
@@ -1267,14 +1294,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             className="text-[10px] font-semibold uppercase tracking-wider"
             style={{ color: "var(--text-secondary)" }}
           >
-            Embalado?
+            Passou embalagem?
           </label>
 
           <select
             value={filtroEmbalado}
             onChange={(e) => {
               setFiltroEmbalado(e.target.value);
-              setApenasAtrasados(false);
               setSelecionados(new Set());
             }}
             className="rounded-lg border px-3 py-2 text-sm outline-none"
@@ -1299,22 +1325,23 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             Período
           </label>
 
-          <button
-            onClick={() => {
-              setApenasAtrasados(!apenasAtrasados);
+          <select
+            value={apenasAtrasados ? "ATE_HOJE" : "MES_COMPLETO"}
+            onChange={(e) => {
+              setApenasAtrasados(e.target.value === "ATE_HOJE");
               setSelecionados(new Set());
             }}
-            className="rounded-lg border px-3 py-2 text-sm font-semibold transition-colors"
+            className="rounded-lg border px-3 py-2 text-sm font-semibold outline-none"
             style={{
-              background: apenasAtrasados
-                ? "var(--bg-sidebar)"
-                : "var(--bg-secondary)",
+              background: apenasAtrasados ? "var(--bg-sidebar)" : "var(--bg-secondary)",
               borderColor: "var(--border)",
-              color: apenasAtrasados ? "#fff" : "var(--text-secondary)",
+              color: apenasAtrasados ? "#fff" : "var(--text-primary)",
+              minWidth: 150,
             }}
           >
-            {apenasAtrasados ? "Previsto até hoje" : "Mês completo"}
-          </button>
+            <option value="MES_COMPLETO">Mês completo</option>
+            <option value="ATE_HOJE">Previsto até hoje</option>
+          </select>
         </div>
 
         <div className="flex flex-col gap-1">
