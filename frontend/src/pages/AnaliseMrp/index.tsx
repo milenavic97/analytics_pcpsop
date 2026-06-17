@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v15_matriz_todos_venda_consumo_cobertura"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v16_mps_pi_alocado_exportacao"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
