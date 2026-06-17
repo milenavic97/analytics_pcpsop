@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v13_matriz_movimento_cobertura"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v14_venda_consumo_cobertura_p70_descontinuado"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -320,6 +320,7 @@ function getAgingItensDireto(params: {
   status?: string
   tipo_negocio?: string
   status_portfolio?: string
+  descontinuado?: string
   transferencia_bravi?: string
   classificacao_cadastro?: string
   semaforo?: SemaforoEstoque
@@ -598,6 +599,7 @@ type FiltroTabelaEstoque = {
   status?: string
   tipo_negocio?: string
   status_portfolio?: string
+  descontinuado?: string
   transferencia_bravi?: string
   classificacao_cadastro?: string
   semaforo?: SemaforoEstoque
@@ -611,6 +613,7 @@ const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
     filtro.status || "",
     filtro.tipo_negocio || "",
     filtro.status_portfolio || "",
+    filtro.descontinuado || "",
     filtro.transferencia_bravi || "",
     filtro.classificacao_cadastro || "",
     filtro.semaforo || "",
@@ -1982,7 +1985,9 @@ function normalizarFaixaCobertura(label: string) {
     "61-90 dias": "1,5 a 3 meses",
     ">90 dias": "Excesso > 3 meses",
     "> 3 meses": "Excesso > 3 meses",
-    "Sem consumo": "Sem consumo",
+    "Sem consumo": "Sem forecast",
+    "Sem forecast": "Sem forecast",
+    "0 m": "0 m",
   }
   return mapa[texto] || texto || "Sem faixa"
 }
@@ -2012,24 +2017,24 @@ type MatrixPoint = {
 
 const MATRIZ_QUADRANTES: Record<QuadranteMatrizKey, { titulo: string; subtitulo: string; acao: string; color: string; bg: string; border: string }> = {
   EXCESSO_PARADO: {
-    titulo: "Excesso com baixo movimento",
-    subtitulo: "Cobertura alta e venda/consumo recente abaixo do corte",
+    titulo: "Excesso com venda/consumo abaixo do corte",
+    subtitulo: "Cobertura alta e venda/consumo médio 6M abaixo do corte",
     acao: "Evitar nova compra, revisar validade, troca, devolução ou entrega parcelada.",
     color: "#B91C1C",
     bg: "rgba(220,38,38,0.06)",
     border: "rgba(220,38,38,0.22)",
   },
   EXCESSO_COM_GIRO: {
-    titulo: "Excesso com movimento ativo",
-    subtitulo: "Cobertura alta, mas com venda/consumo relevante",
+    titulo: "Excesso com venda/consumo acima do corte",
+    subtitulo: "Cobertura alta e venda/consumo médio 6M acima do corte",
     acao: "Reduzir próxima compra, revisar MOQ e negociar entrega parcelada.",
     color: "#D97706",
     bg: "rgba(245,158,11,0.08)",
     border: "rgba(245,158,11,0.28)",
   },
   BAIXO_GIRO_CONTROLADO: {
-    titulo: "Baixo movimento controlado",
-    subtitulo: "Baixo movimento e cobertura sem excesso",
+    titulo: "Baixa venda/consumo controlada",
+    subtitulo: "Venda/consumo médio 6M abaixo do corte e cobertura sem excesso",
     acao: "Monitorar e evitar reposição automática sem demanda confirmada.",
     color: "#64748B",
     bg: "rgba(100,116,139,0.08)",
@@ -2037,12 +2042,83 @@ const MATRIZ_QUADRANTES: Record<QuadranteMatrizKey, { titulo: string; subtitulo:
   },
   RISCO_FALTA: {
     titulo: "Risco de falta",
-    subtitulo: "Movimento relevante e baixa cobertura",
+    subtitulo: "Venda/consumo médio 6M acima do corte e baixa cobertura",
     acao: "Priorizar compra, liberação, transferência ou acompanhamento de lead time.",
     color: "#0F5E7C",
     bg: "rgba(14,116,144,0.08)",
     border: "rgba(14,116,144,0.24)",
   },
+}
+
+function termoVendaConsumoPorEscopo(escopo?: EscopoEstoque) {
+  if (escopo === "produtos") return "venda"
+  if (escopo === "insumos") return "consumo"
+  return "venda/consumo"
+}
+
+function termoVendaConsumoTituloPorEscopo(escopo?: EscopoEstoque) {
+  if (escopo === "produtos") return "Venda"
+  if (escopo === "insumos") return "Consumo"
+  return "Venda/consumo"
+}
+
+function labelCorteVendaConsumoMatriz(escopo?: EscopoEstoque) {
+  if (escopo === "produtos") return "Corte venda média"
+  if (escopo === "insumos") return "Corte consumo médio"
+  return "Corte venda/consumo médio"
+}
+
+function eixoVendaConsumoMatriz(escopo?: EscopoEstoque) {
+  if (escopo === "produtos") return "Venda média mensal 6M"
+  if (escopo === "insumos") return "Consumo médio mensal 6M"
+  return "Venda/consumo médio mensal 6M"
+}
+
+function getQuadranteMatrizInfo(key: QuadranteMatrizKey, escopo?: EscopoEstoque) {
+  const base = MATRIZ_QUADRANTES[key]
+  const termo = termoVendaConsumoPorEscopo(escopo)
+
+  if (key === "EXCESSO_PARADO") {
+    return {
+      ...base,
+      titulo: `Excesso com ${termo} abaixo do corte`,
+      subtitulo: `Cobertura alta e ${termo} média 6M abaixo do corte`,
+    }
+  }
+
+  if (key === "EXCESSO_COM_GIRO") {
+    return {
+      ...base,
+      titulo: `Excesso com ${termo} acima do corte`,
+      subtitulo: `Cobertura alta e ${termo} média 6M acima do corte`,
+    }
+  }
+
+  if (key === "BAIXO_GIRO_CONTROLADO") {
+    return {
+      ...base,
+      titulo: `${termoVendaConsumoTituloPorEscopo(escopo)} baixa controlada`,
+      subtitulo: `${termoVendaConsumoTituloPorEscopo(escopo)} média 6M abaixo do corte e cobertura sem excesso`,
+    }
+  }
+
+  return {
+    ...base,
+    subtitulo: `${termoVendaConsumoTituloPorEscopo(escopo)} média 6M acima do corte e baixa cobertura`,
+  }
+}
+
+function itemTemForecastFuturoDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return false
+  return getForecastSeisMesesDashboard(item).some((ponto) => Number(ponto.valor || 0) > 0)
+}
+
+function formatarCoberturaDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return "0,0 m"
+  if (getEstoqueAtualReal(item) <= 0) return "0,0 m"
+  if (!itemTemForecastFuturoDashboard(item)) return "Sem forecast"
+  const cobertura = getCoberturaMatriz(item)
+  return `${fmtNumber(cobertura, 1)} m`
 }
 
 function percentile(values: number[], p: number) {
@@ -2148,9 +2224,14 @@ function itemTemConsumoOuDemandaDashboard(item: AgingEstoqueItem | null | undefi
 }
 
 function getFaixaCoberturaOperacionalDashboard(item: AgingEstoqueItem | null | undefined) {
-  if (!item || !itemTemConsumoOuDemandaDashboard(item)) return "Sem consumo"
+  if (!item) return "Sem forecast"
+
+  const estoque = getEstoqueAtualReal(item)
+  if (estoque <= 0) return "0 m"
+  if (!itemTemForecastFuturoDashboard(item)) return "Sem forecast"
 
   const cobertura = getCoberturaMatriz(item)
+  if (cobertura <= 0) return "0 m"
   if (cobertura < 1) return "0 a 1 mês"
   if (cobertura < 1.5) return "1 a 1,5 mês"
   if (cobertura <= 3) return "1,5 a 3 meses"
@@ -2246,8 +2327,8 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
   const demandas = base.map(getDemandaMatriz).filter((v) => v > 0)
   const coberturas = base.map(getCoberturaMatriz).filter((v) => v > 0)
 
-  const corteConsumo = Math.max(1, percentile(consumos, 0.65))
-  const corteDemanda = Math.max(1, percentile(demandas, 0.65))
+  const corteConsumo = Math.max(1, percentile(consumos, 0.70))
+  const corteDemanda = Math.max(1, percentile(demandas, 0.70))
   const corteCobertura = 3
 
   const maxConsumoBruto = Math.max(corteConsumo * 1.8, percentile(consumos, 0.95), 1)
@@ -2329,18 +2410,18 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
   }
 }
 
-function MatrixTooltip({ active, payload }: any) {
+function MatrixTooltip({ active, payload, escopo }: any) {
   if (!active || !payload?.length) return null
   const ponto = payload[0]?.payload as MatrixPoint | undefined
   if (!ponto) return null
-  const quadrante = MATRIZ_QUADRANTES[ponto.quadrante]
+  const quadrante = getQuadranteMatrizInfo(ponto.quadrante, escopo as EscopoEstoque)
 
   return (
     <div className="max-w-[360px] rounded-2xl border bg-white p-3 text-xs shadow-xl" style={{ borderColor: "var(--border)" }}>
       <p className="font-bold" style={{ color: "var(--text-primary)" }}>{ponto.codigo} · {ponto.produto || "Item"}</p>
       <p className="mt-1" style={{ color: "var(--text-secondary)" }}>{ponto.linha} · {quadrante.titulo}</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <div><span style={{ color: "var(--text-secondary)" }}>Movimento médio 6M</span><p className="font-bold">{fmtNumber(ponto.consumo, 0)}</p></div>
+        <div><span style={{ color: "var(--text-secondary)" }}>{eixoVendaConsumoMatriz(escopo as EscopoEstoque)}</span><p className="font-bold">{fmtNumber(ponto.consumo, 0)}</p></div>
         <div><span style={{ color: "var(--text-secondary)" }}>Demanda mês</span><p className="font-bold">{fmtNumber(ponto.demanda, 0)}</p></div>
         <div><span style={{ color: "var(--text-secondary)" }}>Cobertura</span><p className="font-bold">{fmtNumber(ponto.cobertura, 1)} m</p></div>
         <div><span style={{ color: "var(--text-secondary)" }}>Estoque</span><p className="font-bold">{fmtNumber(ponto.estoque, 0)}</p></div>
@@ -2394,7 +2475,7 @@ function getCategoriaStatusDashboard(item: AgingEstoqueItem | null | undefined):
   const status = String(raw.status_estoque || raw.status || "").trim().toUpperCase()
   const semaforo = calcularSemaforoEstoque(item)
   const faixaCobertura = getFaixaCoberturaOperacionalDashboard(item)
-  const ehSemConsumo = faixaCobertura === "Sem consumo"
+  const ehSemConsumo = !itemTemConsumoOuDemandaDashboard(item)
   const ehExcesso = faixaCobertura === "Excesso > 3 meses"
   const demandaAtual = getDemandaMesAtualStatusDashboard(item)
   const ehCritico = !ehSemConsumo && !ehExcesso && demandaAtual > 0 && (semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO")
@@ -2456,7 +2537,7 @@ function StatusLinhaDashboardTooltip({
   const totalEntradas = itensTooltip.reduce((sum, item) => sum + getEntradasMesAtualDashboard(item), 0)
   const total6m = itensTooltip.reduce((sum, item) => sum + getTotalSeisMesesDashboard(item), 0)
   const totalForecast = itensTooltip.reduce((sum, item) => sum + getDemandaTotalOperacionalDashboard(item), 0)
-  const coberturaAgregada = totalForecast > 0 ? (totalEstoque + totalEntradas) / totalForecast : 0
+  const coberturaAgregada = totalForecast > 0 ? totalEstoque / totalForecast : 0
 
   return (
     <div className="max-h-[78vh] w-[min(1040px,92vw)] overflow-y-auto rounded-3xl border bg-white p-5 shadow-2xl" style={{ borderColor: 'var(--border)' }}>
@@ -2500,7 +2581,7 @@ function StatusLinhaDashboardTooltip({
         </div>
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
           <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Cobertura</p>
-          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{totalForecast > 0 ? `${fmtNumber(coberturaAgregada, 1)} m` : 'Sem consumo'}</p>
+          <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{totalEstoque <= 0 ? '0,0 m' : totalForecast > 0 ? `${fmtNumber(coberturaAgregada, 1)} m` : 'Sem forecast'}</p>
         </div>
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'rgba(124,58,237,0.24)' }}>
           <p className="text-[10px] font-bold uppercase" style={{ color: '#6D28D9' }}>Bravi</p>
@@ -2556,7 +2637,7 @@ function StatusLinhaDashboardTooltip({
                 </div>
                 <div className="rounded-2xl border p-2" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>Cob.</p>
-                  <p className="mt-1 text-xs font-bold">{itemTemConsumoOuDemandaDashboard(item) ? `${fmtNumber(cobertura, 1)} m` : 'Sem consumo'}</p>
+                  <p className="mt-1 text-xs font-bold">{formatarCoberturaDashboard(item)}</p>
                 </div>
               </div>
 
@@ -2652,7 +2733,7 @@ function CoberturaFaixaTooltip({ active, payload }: { active?: boolean; payload?
                     <p className="truncate text-xs font-bold" style={{ color: "var(--text-primary)" }}>{codigo || "—"} · {produto}</p>
                     <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>{metodo || "forecast acumulado"}</p>
                   </div>
-                  <span className="shrink-0 text-xs font-bold" style={{ color: "#163B63" }}>{cobertura > 0 ? `${fmtNumber(cobertura, 1)} m` : "0 m"}</span>
+                  <span className="shrink-0 text-xs font-bold" style={{ color: "#163B63" }}>{formatarCoberturaDashboard(item)}</span>
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
                   <div><span style={{ color: "var(--text-secondary)" }}>Estoque</span><p className="font-bold">{fmtQtdEstoque(estoque)}</p></div>
@@ -3267,7 +3348,7 @@ function DashboardSkuDetailModal({
   const totalEntradas = itensOrdenados.reduce((sum, item) => sum + getEntradasMesAtualDashboard(item), 0)
   const total6m = itensOrdenados.reduce((sum, item) => sum + getTotalSeisMesesDashboard(item), 0)
   const totalForecast = itensOrdenados.reduce((sum, item) => sum + getDemandaTotalOperacionalDashboard(item), 0)
-  const coberturaAgregada = totalForecast > 0 ? (totalEstoque + totalEntradas) / totalForecast : 0
+  const coberturaAgregada = totalForecast > 0 ? totalEstoque / totalForecast : 0
   const accent = state.accentColor || "#163B63"
 
   return (
@@ -3291,7 +3372,7 @@ function DashboardSkuDetailModal({
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Entradas mês</p><p className="mt-1 text-lg font-bold">{fmtQtdEstoque(totalEntradas)}</p></div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Venda/cons. 6M</p><p className="mt-1 text-lg font-bold">{fmtQtdInteira(total6m)}</p></div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Forecast/demanda</p><p className="mt-1 text-lg font-bold">{fmtQtdInteira(totalForecast)}</p></div>
-            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Cobertura</p><p className="mt-1 text-lg font-bold">{totalForecast > 0 ? `${fmtNumber(coberturaAgregada, 1)} m` : "Sem consumo"}</p></div>
+            <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--border)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Cobertura</p><p className="mt-1 text-lg font-bold">{totalEstoque <= 0 ? "0,0 m" : totalForecast > 0 ? `${fmtNumber(coberturaAgregada, 1)} m` : "Sem forecast"}</p></div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "rgba(124,58,237,0.24)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "#6D28D9" }}>Bravi</p><p className="mt-1 text-lg font-bold" style={{ color: "#6D28D9" }}>{fmtNumber(itensOrdenados.filter(itemEhBraviDashboard).length)}</p></div>
             <div className="rounded-2xl border bg-white p-3" style={{ borderColor: "rgba(217,119,6,0.24)" }}><p className="text-[10px] font-bold uppercase" style={{ color: "#B45309" }}>Descont.</p><p className="mt-1 text-lg font-bold" style={{ color: "#B45309" }}>{fmtNumber(itensOrdenados.filter(itemEhDescontinuadoDashboard).length)}</p></div>
           </div>
@@ -3348,13 +3429,13 @@ function DashboardSkuDetailModal({
                     return (
                       <tr key={`${codigo}-${descricao}`} className="border-b last:border-0" style={{ borderColor: "var(--border)", background: selecionado ? "rgba(22,59,99,0.04)" : "#FFFFFF" }}>
                         <td className="px-3 py-3 align-middle"><span className="rounded-xl bg-slate-100 px-2 py-1 font-bold" style={{ color: "var(--text-primary)" }}>{codigo || "—"}</span></td>
-                        <td className="px-3 py-3 align-middle"><p className="max-w-[360px] truncate font-bold" style={{ color: "var(--text-primary)" }}>{descricao}</p><p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>{String(raw.tipo || raw.tipo_produto_erp || "")}</p></td>
+                        <td className="px-3 py-3 align-middle"><p className="max-w-[360px] truncate font-bold" style={{ color: "var(--text-primary)" }}>{descricao}</p><div className="mt-1 flex flex-wrap items-center gap-1">{itemEhDescontinuadoDashboard(item) && <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ borderColor: "rgba(217,119,6,0.32)", background: "rgba(245,158,11,0.10)", color: "#B45309" }}>Descontinuado</span>}<span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{String(raw.tipo || raw.tipo_produto_erp || "")}</span></div></td>
                         <td className="px-3 py-3 align-middle" style={{ color: "var(--text-secondary)" }}>{getLinhaDashboardItem(item)}</td>
                         <td className="px-3 py-3 align-middle"><span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span></td>
                         <td className="px-3 py-3 text-right align-middle font-bold">{fmtQtdEstoque(getEstoqueAtualReal(item))}</td>
                         <td className="px-3 py-3 text-right align-middle">{fmtQtdEstoque(getEntradasMesAtualDashboard(item))}</td>
                         <td className="px-3 py-3 text-right align-middle">{fmtQtdInteira(getDemandaTotalOperacionalDashboard(item))}</td>
-                        <td className="px-3 py-3 text-right align-middle font-bold">{getFaixaCoberturaOperacionalDashboard(item) === "Sem consumo" ? "Sem consumo" : `${fmtNumber(getCoberturaMatriz(item), 1)} m`}</td>
+                        <td className="px-3 py-3 text-right align-middle font-bold">{formatarCoberturaDashboard(item)}</td>
                         <td className="px-3 py-3 text-right align-middle">{fmtQtdInteira(getTotalSeisMesesDashboard(item))}</td>
                         <td className="px-3 py-3 text-right align-middle font-bold">{fmtCurrency(getValorEstoqueMatriz(item), 0)}</td>
                         <td className="px-3 py-3 text-right align-middle">
@@ -3517,14 +3598,17 @@ function ItensDrilldownDashboardTable({
                   </td>
                   <td className="px-3 py-3 align-middle">
                     <p className="max-w-[360px] truncate font-bold" style={{ color: "var(--text-primary)" }}>{descricao}</p>
-                    <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>{String(raw.status_portfolio || raw.tipo || raw.tipo_produto_erp || "")}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      {itemEhDescontinuadoDashboard(item) && <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ borderColor: "rgba(217,119,6,0.32)", background: "rgba(245,158,11,0.10)", color: "#B45309" }}>Descontinuado</span>}
+                      <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>{String(raw.status_portfolio || raw.tipo || raw.tipo_produto_erp || "")}</span>
+                    </div>
                   </td>
                   <td className="px-3 py-3 align-middle" style={{ color: "var(--text-secondary)" }}>{linha}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(estoque)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(total6m, 0)}</td>
                   <td className="px-3 py-3 text-center align-middle"><MiniHistoricoDashboard item={item} /></td>
                   <td className="px-3 py-3 text-center align-middle"><MiniForecastDashboard item={item} /></td>
-                  <td className="px-3 py-3 text-right align-middle">{itemTemConsumoOuDemandaDashboard(item) ? `${fmtNumber(cobertura, 1)} m` : "Sem consumo"}</td>
+                  <td className="px-3 py-3 text-right align-middle">{formatarCoberturaDashboard(item)}</td>
                   <td className="px-3 py-3 text-right align-middle">{fmtQtdEstoque(entradas)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold">{fmtCurrency(valor, 0)}</td>
                 </tr>
@@ -3573,14 +3657,16 @@ function ItensDrilldownDashboardTable({
 function MatrizEstoqueGiroPanel({
   itens,
   loading,
+  escopo = "todos",
   onApplyFilter,
 }: {
   itens: AgingEstoqueItem[]
   loading?: boolean
+  escopo?: EscopoEstoque
   onApplyFilter: (filtro: FiltroTabelaEstoque | null, escopo?: EscopoEstoque) => void
 }) {
   const matriz = useMemo(() => montarPontosMatrizEstoque(itens || []), [itens])
-  const [quadranteSelecionado, setQuadranteSelecionado] = useState<QuadranteMatrizKey>("RISCO_FALTA")
+  const [quadranteSelecionado, setQuadranteSelecionado] = useState<QuadranteMatrizKey>("EXCESSO_PARADO")
 
   const pontosQuadrante = useMemo(() => {
     return matriz.pontos
@@ -3588,12 +3674,14 @@ function MatrizEstoqueGiroPanel({
       .sort((a, b) => b.valor - a.valor || b.demanda - a.demanda || b.consumo - a.consumo)
   }, [matriz.pontos, quadranteSelecionado])
 
-  const quadranteAtual = MATRIZ_QUADRANTES[quadranteSelecionado]
+  const pontosGrafico = pontosQuadrante
+
+  const quadranteAtual = getQuadranteMatrizInfo(quadranteSelecionado, escopo)
 
   if (!itens?.length && loading) {
     return (
       <div className="card p-5">
-        <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Carregando matriz movimento x cobertura...</p>
+        <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Carregando matriz venda/consumo x cobertura...</p>
       </div>
     )
   }
@@ -3602,14 +3690,14 @@ function MatrizEstoqueGiroPanel({
     <div className="card p-5">
       <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Matriz movimento x cobertura</p>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Matriz venda/consumo x cobertura</p>
           <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Prioridade de ação por SKU</h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            O eixo horizontal mostra o movimento médio mensal dos últimos 6 meses; o vertical mostra a cobertura do estoque atual em meses. O tamanho da bolha representa valor em estoque.
+            {`O eixo horizontal mostra ${eixoVendaConsumoMatriz(escopo).toLowerCase()}; o vertical mostra a cobertura do estoque atual em meses. O tamanho da bolha representa valor em estoque.`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte movimento: {fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}</span>
+          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>{labelCorteVendaConsumoMatriz(escopo)}: {fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}</span>
           <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte cobertura: {fmtNumber(matriz.corteCobertura || 3, 1)} m</span>
           <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Cobertura calculada só com estoque atual</span>
         </div>
@@ -3617,7 +3705,7 @@ function MatrizEstoqueGiroPanel({
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {(Object.keys(MATRIZ_QUADRANTES) as QuadranteMatrizKey[]).map((key) => {
-          const info = MATRIZ_QUADRANTES[key]
+          const info = getQuadranteMatrizInfo(key, escopo)
           const resumo = matriz.resumo[key]
           const active = quadranteSelecionado === key
           return (
@@ -3641,7 +3729,7 @@ function MatrizEstoqueGiroPanel({
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2">
                 <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>SKUs</p><p className="text-lg font-bold">{fmtNumber(resumo?.skus || 0)}</p></div>
-                <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Mov./mês</p><p className="text-lg font-bold">{fmtCompact((resumo as any)?.consumo || 0)}</p></div>
+                <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>{escopo === "produtos" ? "Venda/mês" : escopo === "insumos" ? "Consumo/mês" : "Venda/cons. mês"}</p><p className="text-lg font-bold">{fmtCompact((resumo as any)?.consumo || 0)}</p></div>
                 <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Cob. méd.</p><p className="text-lg font-bold">{fmtNumber((resumo as any)?.cobertura || 0, 1)} m</p></div>
               </div>
               <p className="mt-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>{info.acao}</p>
@@ -3656,13 +3744,13 @@ function MatrizEstoqueGiroPanel({
             <XAxis
               type="number"
               dataKey="x"
-              name="Movimento médio 6M"
+              name={eixoVendaConsumoMatriz(escopo)}
               domain={[0, Math.max(matriz.maxConsumo || matriz.maxGiro, (matriz.corteConsumo || matriz.corteGiro) * 1.15)]}
               tickFormatter={(value) => fmtCompact(Number(value))}
               tick={{ fontSize: 11, fill: "#64748B" }}
               axisLine={{ stroke: "#CBD5E1" }}
               tickLine={false}
-              label={{ value: "Movimento médio mensal 6M", position: "bottom", offset: 18, fontSize: 12, fill: "#64748B" }}
+              label={{ value: eixoVendaConsumoMatriz(escopo), position: "bottom", offset: 18, fontSize: 12, fill: "#64748B" }}
             />
             <YAxis
               type="number"
@@ -3681,7 +3769,7 @@ function MatrizEstoqueGiroPanel({
               stroke="#94A3B8"
               strokeWidth={1.5}
               strokeDasharray="4 4"
-              label={{ value: `Corte movimento ${fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}`, position: "insideBottomRight", fill: "#64748B", fontSize: 11 }}
+              label={{ value: `${labelCorteVendaConsumoMatriz(escopo)} ${fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}`, position: "insideBottomRight", fill: "#64748B", fontSize: 11 }}
             />
             <ReferenceLine
               y={matriz.corteCobertura || 3}
@@ -3690,17 +3778,17 @@ function MatrizEstoqueGiroPanel({
               strokeDasharray="4 4"
               label={{ value: `Corte cobertura ${fmtNumber(matriz.corteCobertura || 3, 1)} m`, position: "insideTopLeft", fill: "#64748B", fontSize: 11 }}
             />
-            <Tooltip content={<MatrixTooltip />} cursor={{ stroke: "#94A3B8", strokeDasharray: "3 3" }} />
+            <Tooltip content={<MatrixTooltip escopo={escopo} />} cursor={{ stroke: "#94A3B8", strokeDasharray: "3 3" }} />
             <Scatter
               name="SKUs"
-              data={matriz.pontos}
+              data={pontosGrafico}
               onClick={(entry: any) => {
                 const ponto = entry as MatrixPoint
                 if (!ponto?.quadrante) return
                 setQuadranteSelecionado(ponto.quadrante)
               }}
             >
-              {matriz.pontos.map((ponto) => (
+              {pontosGrafico.map((ponto) => (
                 <Cell key={`${ponto.codigo}-${ponto.quadrante}`} fill={MATRIZ_QUADRANTES[ponto.quadrante].color} fillOpacity={0.82} stroke="#FFFFFF" strokeWidth={1} />
               ))}
             </Scatter>
@@ -3714,7 +3802,7 @@ function MatrizEstoqueGiroPanel({
             { key: "BAIXO_GIRO_CONTROLADO", className: "left-4 bottom-4" },
             { key: "RISCO_FALTA", className: "right-4 bottom-4" },
           ] as const).map(({ key, className }) => {
-            const info = MATRIZ_QUADRANTES[key]
+            const info = getQuadranteMatrizInfo(key, escopo)
             const resumo = matriz.resumo[key]
             return (
               <div
@@ -3766,6 +3854,7 @@ function DashboardEstoquePanel({
 }) {
   const [escopoSelecionadoDashboard, setEscopoSelecionadoDashboard] = useState<EscopoEstoque>("produtos")
   const [linhaSelecionadaDashboard, setLinhaSelecionadaDashboard] = useState<string>("TODAS")
+  const [descontinuadoSelecionadoDashboard, setDescontinuadoSelecionadoDashboard] = useState<"TODOS" | "SIM" | "NAO">("TODOS")
   const [drilldownDashboard, setDrilldownDashboard] = useState<DashboardDrilldownState | null>(null)
 
   const dashboardRespAtual = dataPorEscopo?.[escopoSelecionadoDashboard] || data
@@ -3813,13 +3902,17 @@ function DashboardEstoquePanel({
   }, [linhaSelecionadaDashboard, linhasDashboard])
 
   const itensFiltradosDashboard = useMemo(() => {
-    if (linhaSelecionadaDashboard === "TODAS") return itensBaseDashboard
-    return itensBaseDashboard.filter((item) => itemPertenceLinhaDashboard(item, linhaSelecionadaDashboard))
-  }, [itensBaseDashboard, linhaSelecionadaDashboard])
+    return itensBaseDashboard.filter((item) => {
+      if (linhaSelecionadaDashboard !== "TODAS" && !itemPertenceLinhaDashboard(item, linhaSelecionadaDashboard)) return false
+      if (descontinuadoSelecionadoDashboard === "SIM" && !itemEhDescontinuadoDashboard(item)) return false
+      if (descontinuadoSelecionadoDashboard === "NAO" && itemEhDescontinuadoDashboard(item)) return false
+      return true
+    })
+  }, [itensBaseDashboard, linhaSelecionadaDashboard, descontinuadoSelecionadoDashboard])
 
   useEffect(() => {
     setDrilldownDashboard(null)
-  }, [escopoSelecionadoDashboard, linhaSelecionadaDashboard])
+  }, [escopoSelecionadoDashboard, linhaSelecionadaDashboard, descontinuadoSelecionadoDashboard])
 
   const filtroLinhaAtual = linhaSelecionadaDashboard === "TODAS"
     ? null
@@ -3972,7 +4065,7 @@ function DashboardEstoquePanel({
   }, [itensFiltradosDashboard])
 
   const coberturaData = useMemo(() => {
-    const ordem = ["0 a 1 mês", "1 a 1,5 mês", "1,5 a 3 meses", "Excesso > 3 meses", "Sem consumo"]
+    const ordem = ["0 m", "0 a 1 mês", "1 a 1,5 mês", "1,5 a 3 meses", "Excesso > 3 meses", "Sem forecast"]
     const mapa = new Map<string, AgingEstoqueItem[]>(ordem.map((faixa) => [faixa, []]))
 
     for (const item of itensFiltradosDashboard) {
@@ -4052,7 +4145,7 @@ function DashboardEstoquePanel({
               <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Filtra cards, gráficos, matriz e rankings por escopo e linha de negócio.</p>
             </div>
           </div>
-          <div className="grid w-full gap-3 sm:w-auto sm:min-w-[520px] sm:grid-cols-2">
+          <div className="grid w-full gap-3 sm:w-auto sm:min-w-[720px] sm:grid-cols-3">
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Escopo</label>
               <select
@@ -4078,12 +4171,25 @@ function DashboardEstoquePanel({
                 {linhasDashboard.map((linha) => <option key={linha} value={linha}>{linha}</option>)}
               </select>
             </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Descontinuado?</label>
+              <select
+                value={descontinuadoSelecionadoDashboard}
+                onChange={(event) => setDescontinuadoSelecionadoDashboard(event.target.value as "TODOS" | "SIM" | "NAO")}
+                className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold outline-none"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="TODOS">Todos</option>
+                <option value="SIM">Sim</option>
+                <option value="NAO">Não</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-7">
-        <KpiCard label="Total itens" value={fmtNumber(totalItens)} helper={`${escopoSelecionadoDashboard === "produtos" ? "PA/MR" : escopoSelecionadoDashboard === "insumos" ? "Insumos" : "Todos"}${linhaSelecionadaDashboard === "TODAS" ? "" : ` · ${linhaSelecionadaDashboard}`}`} icon={<Boxes size={20} />} tone="default" onClick={() => abrirListaDashboard("Total de itens", "Lista completa do recorte selecionado no dashboard.", itensFiltradosDashboard, "#163B63")} />
+        <KpiCard label="Total itens" value={fmtNumber(totalItens)} helper={`${escopoSelecionadoDashboard === "produtos" ? "PA/MR" : escopoSelecionadoDashboard === "insumos" ? "Insumos" : "Todos"}${linhaSelecionadaDashboard === "TODAS" ? "" : ` · ${linhaSelecionadaDashboard}`}${descontinuadoSelecionadoDashboard === "TODOS" ? "" : ` · Descont.: ${descontinuadoSelecionadoDashboard === "SIM" ? "Sim" : "Não"}`}`} icon={<Boxes size={20} />} tone="default" onClick={() => abrirListaDashboard("Total de itens", "Lista completa do recorte selecionado no dashboard.", itensFiltradosDashboard, "#163B63")} />
         <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens críticos", "Itens com ruptura, criticidade ou semáforo vermelho no recorte atual.", itensPorCategoriaDashboard("criticos"), "#DC2626")} />
         <KpiCard label="Sem estoque" value={fmtNumber(metricasDashboard.semEstoque)} helper={`${fmtNumber(pctSemEstoque, 1)}% com saldo atual zerado`} icon={<ArrowDownRight size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens sem estoque", "Itens com saldo atual igual a zero no recorte selecionado.", itensSemEstoqueDashboard, "#DC2626")} />
         <KpiCard label="Atenção" value={fmtNumber(metricasDashboard.atencao)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" onClick={() => abrirListaDashboard("Itens em atenção", "Itens com semáforo amarelo ou status de atenção.", itensAtencaoDashboard, "#D97706")} />
@@ -4150,7 +4256,7 @@ function DashboardEstoquePanel({
 
       <DashboardSkuDetailModal state={drilldownDashboard} onClose={() => setDrilldownDashboard(null)} />
 
-      <MatrizEstoqueGiroPanel itens={itensFiltradosDashboard} loading={loadingMatriz} onApplyFilter={(filtro) => aplicarFiltroComLinha(filtro)} />
+      <MatrizEstoqueGiroPanel itens={itensFiltradosDashboard} loading={loadingMatriz} escopo={escopoSelecionadoDashboard} onApplyFilter={(filtro) => aplicarFiltroComLinha(filtro)} />
 
     </div>
   )
