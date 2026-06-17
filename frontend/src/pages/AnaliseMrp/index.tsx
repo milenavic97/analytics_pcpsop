@@ -2675,31 +2675,31 @@ const STATUS_DASHBOARD_META: Record<CategoriaStatusDashboard, { label: string; c
     label: "Críticos",
     color: "#DC2626",
     bg: "rgba(220,38,38,0.10)",
-    tooltip: "Itens com risco de ruptura ou cobertura insuficiente, considerando estoque atual, entradas previstas e demanda/consumo futuro.",
+    tooltip: "Regra: existe demanda/forecast no mês atual e o estoque base do mês não cobre essa demanda. Ruptura = estoque base <= 0; Crítico = estoque base > 0 e menor que a demanda do mês. Para PA interno, estoque base = estoque atual; para insumos/comprados, considera a base operacional validada no status.",
   },
   excesso: {
     label: "Excesso",
     color: "#2563EB",
     bg: "rgba(37,99,235,0.10)",
-    tooltip: "Itens com cobertura acima do limite saudável, normalmente acima de 3 meses de demanda/consumo.",
+    tooltip: "Regra: cobertura futura do status > 3,0 meses. A cobertura é calculada consumindo a demanda/forecast dos próximos meses; para PA interno usa estoque atual, e para insumos/comprados usa a base operacional validada no status.",
   },
   semGiro: {
     label: "Sem consumo",
     color: "#64748B",
     bg: "rgba(148,163,184,0.18)",
-    tooltip: "Itens com estoque ou cadastro ativo, mas sem venda/consumo recente e sem demanda clara no plano atual.",
+    tooltip: "Regra: demanda/forecast do mês atual = 0 e movimento dos últimos 6 meses = 0. Para PA/MR/PPS/PV o movimento vem da venda/faturamento; para MP/ME/MI/PI vem do consumo da posição de estoque/Aging.",
   },
   atencao: {
     label: "Atenção",
     color: "#D97706",
     bg: "rgba(217,119,6,0.10)",
-    tooltip: "Itens que ainda não romperam, mas estão com cobertura baixa, semáforo amarelo ou próximos do limite de risco.",
+    tooltip: "Regra: existe demanda/forecast no mês atual, o estoque base cobre a demanda do mês, mas a cobertura futura do status fica abaixo de 3,0 meses.",
   },
   ok: {
     label: "OK",
     color: "#15803D",
     bg: "rgba(21,128,61,0.10)",
-    tooltip: "Itens com cobertura dentro da faixa considerada saudável para o recorte analisado.",
+    tooltip: "Regra: item fora das condições de ruptura/crítico, excesso e sem consumo. Quando há demanda no mês, o estoque base cobre o mês atual e a cobertura futura fica dentro da faixa saudável.",
   },
 }
 
@@ -4488,11 +4488,11 @@ function DashboardEstoquePanel({
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-7">
         <KpiCard label="Total itens" value={fmtNumber(totalItens)} helper={`${escopoSelecionadoDashboard === "produtos" ? "PA/MR" : escopoSelecionadoDashboard === "insumos" ? "Insumos" : "Todos"}${linhaSelecionadaDashboard === "TODAS" ? "" : ` · ${linhaSelecionadaDashboard}`}${descontinuadoSelecionadoDashboard === "TODOS" ? "" : ` · Descont.: ${descontinuadoSelecionadoDashboard === "SIM" ? "Sim" : "Não"}`}`} icon={<Boxes size={20} />} tone="default" onClick={() => abrirListaDashboard("Total de itens", "Lista completa do recorte selecionado no dashboard.", itensFiltradosDashboard, "#163B63")} />
-        <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" tooltip={STATUS_DASHBOARD_META.criticos.tooltip} onClick={() => abrirListaDashboard("Itens críticos", "Itens com ruptura, criticidade ou semáforo vermelho no recorte atual.", itensPorCategoriaDashboard("criticos"), "#DC2626")} />
+        <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" tooltip={STATUS_DASHBOARD_META.criticos.tooltip} onClick={() => abrirListaDashboard("Itens críticos", "Itens com demanda no mês atual e estoque base insuficiente para cobrir essa demanda.", itensPorCategoriaDashboard("criticos"), "#DC2626")} />
         <KpiCard label="Sem estoque" value={fmtNumber(metricasDashboard.semEstoque)} helper={`${fmtNumber(pctSemEstoque, 1)}% com saldo atual zerado`} icon={<ArrowDownRight size={20} />} tone="danger" tooltip="Itens com saldo atual igual a zero no recorte selecionado, independentemente de cobertura futura ou entradas previstas." onClick={() => abrirListaDashboard("Itens sem estoque", "Itens com saldo atual igual a zero no recorte selecionado.", itensSemEstoqueDashboard, "#DC2626")} />
-        <KpiCard label="Atenção" value={fmtNumber(metricasDashboard.atencao)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" tooltip={STATUS_DASHBOARD_META.atencao.tooltip} onClick={() => abrirListaDashboard("Itens em atenção", "Itens com semáforo amarelo ou status de atenção.", itensAtencaoDashboard, "#D97706")} />
-        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="estoque atual > 3m" icon={<ArrowUpRight size={20} />} tone="blue" tooltip={STATUS_DASHBOARD_META.excesso.tooltip} onClick={() => abrirListaDashboard("Itens em excesso", "Itens classificados pelo backend como excesso pela política atual.", itensExcessoDashboard, "#2563EB")} />
-        <KpiCard label="Sem consumo" value={fmtNumber(metricasDashboard.semGiro)} helper="sem referência de venda/consumo" icon={<PackageSearch size={20} />} tone="default" tooltip={STATUS_DASHBOARD_META.semGiro.tooltip} onClick={() => abrirListaDashboard("Itens sem consumo", "Itens sem venda, consumo ou demanda.", itensSemGiroDashboard, "#94A3B8")} />
+        <KpiCard label="Atenção" value={fmtNumber(metricasDashboard.atencao)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" tooltip={STATUS_DASHBOARD_META.atencao.tooltip} onClick={() => abrirListaDashboard("Itens em atenção", "Itens que cobrem o mês atual, mas ficam com cobertura futura abaixo de 3,0 meses.", itensAtencaoDashboard, "#D97706")} />
+        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="estoque atual > 3m" icon={<ArrowUpRight size={20} />} tone="blue" tooltip={STATUS_DASHBOARD_META.excesso.tooltip} onClick={() => abrirListaDashboard("Itens em excesso", "Itens com cobertura futura do status acima de 3,0 meses.", itensExcessoDashboard, "#2563EB")} />
+        <KpiCard label="Sem consumo" value={fmtNumber(metricasDashboard.semGiro)} helper="sem referência de venda/consumo" icon={<PackageSearch size={20} />} tone="default" tooltip={STATUS_DASHBOARD_META.semGiro.tooltip} onClick={() => abrirListaDashboard("Itens sem consumo", "Itens sem demanda/forecast no mês atual e sem movimento nos últimos 6 meses.", itensSemGiroDashboard, "#94A3B8")} />
         <KpiCard label="Estoque total" value={fmtCompact(metricasDashboard.saldoTotal)} helper={`Valor: ${fmtCurrency(metricasDashboard.valorEstoque, 0)}`} icon={<Boxes size={20} />} tone="success" onClick={() => abrirListaDashboard("Itens com estoque no recorte", "Lista do recorte atual ordenada por valor e volume em estoque.", itensFiltradosDashboard.filter((item) => getEstoqueAtualReal(item) > 0), "#15803D")} />
       </div>
 
