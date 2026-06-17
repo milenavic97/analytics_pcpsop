@@ -160,6 +160,16 @@ const VERMELHO_SUAVE = "#DC2626"
 const CINZA_AZULADO = "#CBD5E1"
 const PALETA_LINHAS = [AZUL, AZUL_CLARO, VERDE, LARANJA, ROXO_SUAVE, "#64748B", "#0EA5E9", "#A16207"]
 
+const APP_FONT_FAMILY = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const CHART_TICK_11 = { fontSize: 11, fontFamily: APP_FONT_FAMILY, fill: "#64748B" }
+const CHART_TICK_12 = { fontSize: 12, fontFamily: APP_FONT_FAMILY, fill: "#64748B" }
+const chartLabelStyle = (fill: string, fontSize = 11) => ({
+  fill,
+  fontSize,
+  fontWeight: 700,
+  fontFamily: APP_FONT_FAMILY,
+})
+
 const ESCOPOS = [
   { value: "TODOS", label: "Todos" },
   { value: "ANESTESICOS", label: "Anestésicos Injetáveis" },
@@ -313,6 +323,7 @@ export default function FaturamentoPage() {
   })
   const [buscaCliente, setBuscaCliente] = useState("")
   const [buscaProduto, setBuscaProduto] = useState("")
+  const [produtoRankingModo, setProdutoRankingModo] = useState<"valor" | "quantidade">("valor")
   const [abcModo, setAbcModo] = useState<"valor" | "quantidade">("valor")
   const [sortCliente, setSortCliente] = useState<"faturamento" | "quantidade" | "participacao_valor_pct">("faturamento")
   const [sortAsc, setSortAsc] = useState(false)
@@ -482,8 +493,27 @@ export default function FaturamentoPage() {
       })
     }
 
+    lista.sort((a, b) => {
+      if (produtoRankingModo === "quantidade") {
+        return (b.quantidade ?? 0) - (a.quantidade ?? 0)
+      }
+      return (b.faturamento ?? 0) - (a.faturamento ?? 0)
+    })
+
     return lista
-  }, [dados, buscaProduto])
+  }, [dados, buscaProduto, produtoRankingModo])
+
+  const topProdutosValor = useMemo(() => {
+    return [...(dados?.produtos ?? [])]
+      .sort((a, b) => (b.faturamento ?? 0) - (a.faturamento ?? 0))
+      .slice(0, 6)
+  }, [dados])
+
+  const topProdutosQuantidade = useMemo(() => {
+    return [...(dados?.produtos ?? [])]
+      .sort((a, b) => (b.quantidade ?? 0) - (a.quantidade ?? 0))
+      .slice(0, 6)
+  }, [dados])
 
   const resumoAbcValor = useMemo(() => {
     const clientes = dados?.clientes ?? []
@@ -531,11 +561,6 @@ export default function FaturamentoPage() {
     const uf = String(item.estado || "").trim().toUpperCase()
     return uf && !["NÃO INFORMADO", "NAO INFORMADO", "SEM UF", "-"].includes(uf)
   })
-  const tiposClientesComInformacao = (dados?.tipos_clientes ?? []).filter((item) => {
-    const tipo = String(item.tipo_cliente || "").trim().toUpperCase()
-    return tipo && !["NÃO INFORMADO", "NAO INFORMADO", "SEM TIPO", "-"].includes(tipo)
-  })
-
   function toggleSort(col: "faturamento" | "quantidade" | "participacao_valor_pct") {
     if (sortCliente === col) {
       setSortAsc(!sortAsc)
@@ -572,7 +597,7 @@ export default function FaturamentoPage() {
   const escopoLabel = dados?.escopo_label ?? ESCOPOS.find((e) => e.value === bloco)?.label ?? "Todos"
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
+    <div className="min-h-screen bg-slate-50 p-6 font-sans antialiased" style={{ fontFamily: APP_FONT_FAMILY }}>
       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Comercial · Faturamento</p>
@@ -736,9 +761,9 @@ export default function FaturamentoPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={mesesGrafico} margin={{ top: 24, right: 20, left: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                  <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
-                  <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={(v) => fmtNumero(Number(v))} />
+                  <XAxis dataKey="mes" tick={CHART_TICK_12} />
+                  <YAxis yAxisId="left" tick={CHART_TICK_12} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
+                  <YAxis yAxisId="right" orientation="right" tick={CHART_TICK_12} tickFormatter={(v) => fmtNumero(Number(v))} />
                   <Tooltip
                     formatter={(value: any, name: any) => {
                       if (name === "Faturamento") return [fmtMoneyFull(Number(value)), name]
@@ -748,22 +773,22 @@ export default function FaturamentoPage() {
                   <Legend />
                   {seriesVisiveis.faturamento && (
                     <Bar yAxisId="left" dataKey="Faturamento" name="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]}>
-                      <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={{ fill: AZUL, fontSize: 11, fontWeight: 700 }} />
+                      <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={chartLabelStyle(AZUL, 11)} />
                     </Bar>
                   )}
                   {seriesVisiveis.quantidade && (
                     <Line yAxisId="right" type="monotone" dataKey="Quantidade" name="Quantidade" stroke={AZUL_CLARO} strokeWidth={3} dot={{ r: 4 }}>
-                      <LabelList dataKey="Quantidade" position="top" formatter={labelQtd} style={{ fill: AZUL_CLARO, fontSize: 10, fontWeight: 700 }} />
+                      <LabelList dataKey="Quantidade" position="top" formatter={labelQtd} style={chartLabelStyle(AZUL_CLARO, 10)} />
                     </Line>
                   )}
                   {seriesVisiveis.forecast && (
                     <Line yAxisId="right" type="monotone" dataKey="Forecast" name="Forecast S&OP" stroke={LARANJA} strokeWidth={3} strokeDasharray="6 4" dot={{ r: 4 }}>
-                      <LabelList dataKey="Forecast" position="bottom" formatter={labelQtd} style={{ fill: LARANJA, fontSize: 10, fontWeight: 700 }} />
+                      <LabelList dataKey="Forecast" position="bottom" formatter={labelQtd} style={chartLabelStyle(LARANJA, 10)} />
                     </Line>
                   )}
                   {seriesVisiveis.orcado && (
                     <Line yAxisId="right" type="monotone" dataKey="Orçado" name="Orçado" stroke={VERDE} strokeWidth={2.5} strokeDasharray="3 3" dot={{ r: 4 }}>
-                      <LabelList dataKey="Orçado" position="top" formatter={labelQtd} style={{ fill: VERDE, fontSize: 10, fontWeight: 700 }} />
+                      <LabelList dataKey="Orçado" position="top" formatter={labelQtd} style={chartLabelStyle(VERDE, 10)} />
                     </Line>
                   )}
                 </ComposedChart>
@@ -780,14 +805,14 @@ export default function FaturamentoPage() {
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={linhasGrafico} layout="vertical" margin={{ left: 12, right: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
-                <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
-                <YAxis type="category" dataKey="linha" width={110} tick={{ fontSize: 11 }} />
+                <XAxis type="number" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
+                <YAxis type="category" dataKey="linha" width={110} tick={CHART_TICK_11} />
                 <Tooltip formatter={(value: any, name: any) => [name === "Faturamento" ? fmtMoneyFull(Number(value)) : fmtPct(Number(value)), name]} />
                 <Bar dataKey="Faturamento" radius={[0, 7, 7, 0]}>
                   {linhasGrafico.map((_, index) => (
                     <Cell key={`linha-${index}`} fill={PALETA_LINHAS[index % PALETA_LINHAS.length]} />
                   ))}
-                  <LabelList dataKey="Faturamento" position="right" formatter={labelMoney} style={{ fill: AZUL, fontSize: 11, fontWeight: 700 }} />
+                  <LabelList dataKey="Faturamento" position="right" formatter={labelMoney} style={chartLabelStyle(AZUL, 11)} />
                 </Bar>
               </ComposedChart>
             </ResponsiveContainer>
@@ -804,11 +829,11 @@ export default function FaturamentoPage() {
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={clientesMensalGrafico}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => fmtNumero(Number(v))} />
+                <XAxis dataKey="mes" tick={CHART_TICK_12} />
+                <YAxis tick={CHART_TICK_12} tickFormatter={(v) => fmtNumero(Number(v))} />
                 <Tooltip formatter={(value: any) => [fmtNumero(Number(value)), "Clientes ativos"]} />
                 <Bar dataKey="Clientes" fill={AZUL_CLARO} radius={[7, 7, 0, 0]}>
-                  <LabelList dataKey="Clientes" position="top" formatter={labelQtd} style={{ fill: AZUL, fontSize: 11, fontWeight: 700 }} />
+                  <LabelList dataKey="Clientes" position="top" formatter={labelQtd} style={chartLabelStyle(AZUL, 11)} />
                 </Bar>
               </ComposedChart>
             </ResponsiveContainer>
@@ -864,7 +889,7 @@ export default function FaturamentoPage() {
                     return (
                       <div key={item.classe} className="p-3 text-center" style={{ backgroundColor: `${cor}18` }}>
                         <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Classe {item.classe}</p>
-                        <p className="mt-1 text-xl font-black" style={{ color: item.classe === "C" ? "#64748B" : cor }}>
+                        <p className="mt-1 text-xl font-bold" style={{ color: item.classe === "C" ? "#64748B" : cor }}>
                           {fmtNumero(item.clientes)} clientes
                         </p>
                         <p className="mt-1 text-xs text-slate-500">{fmtPct(item.pctValor)} do faturamento</p>
@@ -889,7 +914,7 @@ export default function FaturamentoPage() {
                     return (
                       <div key={item.classe} className="p-3 text-center" style={{ backgroundColor: `${cor}18` }}>
                         <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Classe {item.classe}</p>
-                        <p className="mt-1 text-xl font-black" style={{ color: item.classe === "C" ? "#64748B" : cor }}>
+                        <p className="mt-1 text-xl font-bold" style={{ color: item.classe === "C" ? "#64748B" : cor }}>
                           {fmtNumero(item.clientes)} clientes
                         </p>
                         <p className="mt-1 text-xs text-slate-500">{fmtPct(item.pctQuantidade)} do volume</p>
@@ -986,41 +1011,87 @@ export default function FaturamentoPage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Tipo de cliente" subtitle="Faturamento por classificação comercial.">
-            {dimensaoClientesCarregada && tiposClientesComInformacao.length > 0 ? (
-              <div className="space-y-3">
-                {tiposClientesComInformacao.slice(0, 8).map((item) => (
-                  <div key={item.tipo_cliente} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="truncate text-sm font-semibold text-slate-800">{item.tipo_cliente || "Não informado"}</p>
-                      <p className="text-xs font-bold text-slate-500">{fmtPct(item.participacao_valor_pct)}</p>
+          <SectionCard title="Top produtos" subtitle="Ranking rápido dos itens que mais vendem em valor e em quantidade.">
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="rounded-full bg-[#E8F1F8] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-[#17375E]">Valor</span>
+                  <p className="text-xs text-slate-500">Maior faturamento</p>
+                </div>
+                <div className="space-y-2">
+                  {topProdutosValor.map((item, index) => (
+                    <div key={`valor-${item.produto}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-800" title={item.descricao}>{item.descricao || item.produto || "-"}</p>
+                          <p className="mt-0.5 text-[11px] text-slate-400">{item.produto || "-"} · {item.linha || item.grupo || "Sem linha"}</p>
+                        </div>
+                        <p className="shrink-0 text-sm font-bold text-[#17375E]">{fmtMoney(item.faturamento)}</p>
+                      </div>
+                      <div className="mt-1 flex justify-between text-xs text-slate-500">
+                        <span>{fmtNumero(item.quantidade)} un.</span>
+                        <span>{fmtPct(item.participacao_valor_pct)}</span>
+                      </div>
                     </div>
-                    <div className="mt-1 flex justify-between text-xs text-slate-500">
-                      <span>{fmtMoney(item.faturamento)}</span>
-                      <span>{fmtNumero(item.clientes)} clientes</span>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="rounded-full bg-[#FEF3C7] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-[#B45309]">Qtd</span>
+                  <p className="text-xs text-slate-500">Maior volume faturado</p>
+                </div>
+                <div className="space-y-2">
+                  {topProdutosQuantidade.map((item, index) => (
+                    <div key={`qtd-${item.produto}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-800" title={item.descricao}>{item.descricao || item.produto || "-"}</p>
+                          <p className="mt-0.5 text-[11px] text-slate-400">{item.produto || "-"} · {item.linha || item.grupo || "Sem linha"}</p>
+                        </div>
+                        <p className="shrink-0 text-sm font-bold text-[#D97706]">{fmtNumero(item.quantidade)}</p>
+                      </div>
+                      <div className="mt-1 flex justify-between text-xs text-slate-500">
+                        <span>{fmtMoney(item.faturamento)}</span>
+                        <span>{fmtMoney(item.preco_medio)} médio</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            ) : (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-                <p className="font-semibold text-slate-800">Tipo de cliente aguardando dClientes</p>
-                <p className="mt-1 text-xs leading-relaxed">Após o upload, este bloco passa a mostrar o faturamento por classificação comercial.</p>
-              </div>
-            )}
+            </div>
           </SectionCard>
         </div>
       </div>
 
       <div className="mt-6">
         <SectionCard
-          title="Top produtos"
-          subtitle="Produtos ordenados por faturamento, com comparação entre realizado, Forecast S&OP e Orçado."
+          title="Ranking de produtos"
+          subtitle={produtoRankingModo === "valor" ? "Produtos ordenados por faturamento." : "Produtos ordenados por quantidade faturada."}
         >
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <Award size={15} className="text-slate-400" />
-              <span>Mostrando até 200 produtos de maior faturamento. Use o filtro global do topo para recalcular todos os gráficos por código ou produto.</span>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+              <div className="flex items-center gap-2">
+                <Award size={15} className="text-slate-400" />
+                <span>Use os botões para alternar entre maior faturamento e maior volume.</span>
+              </div>
+              <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setProdutoRankingModo("valor")}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${produtoRankingModo === "valor" ? "bg-[#17375E] text-white shadow-sm" : "text-slate-500 hover:bg-white"}`}
+                >
+                  Valor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProdutoRankingModo("quantidade")}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${produtoRankingModo === "quantidade" ? "bg-[#D97706] text-white shadow-sm" : "text-slate-500 hover:bg-white"}`}
+                >
+                  Quantidade
+                </button>
+              </div>
             </div>
             <div className="relative w-full md:w-96">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
