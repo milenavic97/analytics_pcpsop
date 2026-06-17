@@ -1151,12 +1151,12 @@ type StatusPlanoMes = "SEM_MOVIMENTO" | "SEM_PREVISAO" | "OK" | "ATENCAO" | "ALE
 type StatusPlanoMeta = { label: string; bg: string; color: string; border: string; dot: string; title: string }
 
 const STATUS_PLANO_META: Record<StatusPlanoMes, StatusPlanoMeta> = {
-  SEM_MOVIMENTO: { label: "Sem movimento", bg: "rgba(100,116,139,0.08)", color: "#64748B", border: "rgba(100,116,139,0.22)", dot: "#94A3B8", title: "Sem previsão e sem consumo/venda no mês atual." },
-  SEM_PREVISAO: { label: "Sem previsão", bg: "rgba(220,38,38,0.09)", color: "#B91C1C", border: "rgba(220,38,38,0.26)", dot: "#DC2626", title: "Houve consumo/venda no mês, mas a previsão do mês está zerada." },
-  OK: { label: "Ok", bg: "rgba(22,163,74,0.08)", color: "#15803D", border: "rgba(22,163,74,0.24)", dot: "#16A34A", title: "Consumo/venda até 75% da previsão do mês." },
-  ATENCAO: { label: "Atenção", bg: "rgba(245,158,11,0.12)", color: "#B45309", border: "rgba(245,158,11,0.28)", dot: "#F59E0B", title: "Consumo/venda entre 75% e 85% da previsão do mês." },
-  ALERTA: { label: "Alerta", bg: "rgba(234,88,12,0.11)", color: "#C2410C", border: "rgba(234,88,12,0.28)", dot: "#EA580C", title: "Consumo/venda entre 85% e 100% da previsão do mês." },
-  ACIMA_PREVISAO: { label: "Acima da previsão", bg: "rgba(220,38,38,0.10)", color: "#B91C1C", border: "rgba(220,38,38,0.28)", dot: "#DC2626", title: "Consumo/venda acima de 100% da previsão do mês." },
+  SEM_MOVIMENTO: { label: "Sem movimento", bg: "rgba(100,116,139,0.13)", color: "#475569", border: "rgba(100,116,139,0.30)", dot: "#94A3B8", title: "Sem previsão e sem consumo/venda no mês atual." },
+  SEM_PREVISAO: { label: "Sem previsão", bg: "rgba(220,38,38,0.16)", color: "#991B1B", border: "rgba(220,38,38,0.34)", dot: "#DC2626", title: "Houve consumo/venda no mês, mas a previsão do mês está zerada." },
+  OK: { label: "Ok", bg: "rgba(22,163,74,0.13)", color: "#166534", border: "rgba(22,163,74,0.30)", dot: "#16A34A", title: "Consumo/venda até 75% da previsão do mês." },
+  ATENCAO: { label: "Atenção", bg: "rgba(245,158,11,0.20)", color: "#92400E", border: "rgba(245,158,11,0.38)", dot: "#F59E0B", title: "Consumo/venda entre 75% e 85% da previsão do mês." },
+  ALERTA: { label: "Alerta", bg: "rgba(234,88,12,0.18)", color: "#9A3412", border: "rgba(234,88,12,0.38)", dot: "#EA580C", title: "Consumo/venda entre 85% e 100% da previsão do mês." },
+  ACIMA_PREVISAO: { label: "Acima da previsão", bg: "rgba(220,38,38,0.18)", color: "#991B1B", border: "rgba(220,38,38,0.38)", dot: "#DC2626", title: "Consumo/venda acima de 100% da previsão do mês." },
 }
 
 function getStatusPlanoMes(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined): StatusPlanoMes {
@@ -1204,14 +1204,16 @@ function StatusPlanoBadge({ item }: { item: AgingEstoqueItem | AgingEstoqueItemD
   )
 }
 
-function getConsumoPrevisaoCellStyle(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
-  const meta = STATUS_PLANO_META[getStatusPlanoMes(item)]
+function getConsumoPrevisaoCellStyle(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined): React.CSSProperties {
+  const statusPlano = getStatusPlanoMes(item)
+  const meta = STATUS_PLANO_META[statusPlano]
   return {
-    background: meta.bg,
+    backgroundColor: meta.bg,
     color: meta.color,
-    fontWeight: getStatusPlanoMes(item) === "SEM_MOVIMENTO" ? 600 : 800,
+    fontWeight: statusPlano === "SEM_MOVIMENTO" ? 600 : 800,
     borderLeft: `1px solid ${meta.border}`,
     borderRight: `1px solid ${meta.border}`,
+    boxShadow: `inset 0 0 0 9999px ${meta.bg}`,
   }
 }
 
