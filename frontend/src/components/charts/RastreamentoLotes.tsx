@@ -788,53 +788,20 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   });
 
   const gapPorStatusTela = useMemo(() => {
+    const etapa = data?.mtd_gap_por_etapa ?? {};
+
     const totais = {
-      reprovacao_desvio: 0,
-      desvio_aberto: 0,
-      atraso_producao: 0,
-      rendimento: 0,
-      embalagem: 0,
-      envase: 0,
-      lavagem: 0,
-      nao_iniciado: 0,
+      reprovacao_desvio: Math.round(Number(etapa.reprovacao_desvio ?? 0)),
+      desvio_aberto: Math.round(Number(etapa.desvio_aberto ?? 0)),
+      atraso_producao: Math.round(Number(etapa.atraso_producao ?? 0)),
+      rendimento: Math.round(Number(etapa.rendimento ?? 0)),
+      embalagem: Math.round(Number(etapa.embalagem ?? 0)),
+      envase: Math.round(Number(etapa.envase ?? 0)),
+      lavagem: Math.round(Number(etapa.lavagem ?? 0)),
+      nao_iniciado: Math.round(Number(etapa.nao_iniciado ?? 0)),
       total: 0,
     };
 
-    for (const lote of data?.lotes ?? []) {
-      if (!lote.considerar_previsto_ate_hoje) continue;
-
-      const gap = Math.max(
-        Number(lote.qtd_prevista_cx || 0) - Number(lote.qtd_liberada_cx || 0),
-        0,
-      );
-
-      if (gap <= 0) continue;
-
-      const status = statusPrincipalLote(lote);
-      const valor = status === "RENDIMENTO"
-        ? Math.max(Number(lote.qtd_perda_rendimento_cx ?? gap), 0)
-        : gap;
-
-      if (valor <= 0) continue;
-
-      if (status === "REPROVACAO_DESVIO") totais.reprovacao_desvio += valor;
-      else if (status === "DESVIO") totais.desvio_aberto += valor;
-      else if (status === "ATRASO_PRODUCAO") totais.atraso_producao += valor;
-      else if (status === "RENDIMENTO") totais.rendimento += valor;
-      else if (status === "EMBALAGEM") totais.embalagem += valor;
-      else if (status === "ENVASE") totais.envase += valor;
-      else if (status === "LAVAGEM") totais.lavagem += valor;
-      else if (status === "NAO_INICIADO") totais.nao_iniciado += valor;
-    }
-
-    totais.reprovacao_desvio = Math.round(totais.reprovacao_desvio);
-    totais.desvio_aberto = Math.round(totais.desvio_aberto);
-    totais.atraso_producao = Math.round(totais.atraso_producao);
-    totais.rendimento = Math.round(totais.rendimento);
-    totais.embalagem = Math.round(totais.embalagem);
-    totais.envase = Math.round(totais.envase);
-    totais.lavagem = Math.round(totais.lavagem);
-    totais.nao_iniciado = Math.round(totais.nao_iniciado);
     totais.total =
       totais.reprovacao_desvio +
       totais.desvio_aberto +
@@ -846,9 +813,12 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       totais.nao_iniciado;
 
     return totais;
-  }, [data?.lotes]);
+  }, [data?.mtd_gap_por_etapa]);
 
-  const gapAlertaTela = gapPorStatusTela.total || data?.mtd_cx_gap || 0;
+  // O alerta executivo precisa usar a conta oficial do backend:
+  // previsto até hoje - liberado até hoje.
+  // Os cards usam mtd_gap_por_etapa já conciliado pelo backend.
+  const gapAlertaTela = data?.mtd_cx_gap ?? gapPorStatusTela.total ?? 0;
 
   const lotesFiltrados = useMemo(() => {
     let lista = [...lotesFiltradosBase];
