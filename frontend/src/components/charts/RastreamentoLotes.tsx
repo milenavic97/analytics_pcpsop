@@ -38,6 +38,8 @@ interface LoteRastreamento {
   qtd_produzida_tb: number;
   qtd_produzida_cx: number;
   qtd_liberada_cx: number;
+  qtd_perda_rendimento_cx?: number;
+  considerar_previsto_ate_hoje?: boolean;
   sku_pa: string | null;
   data_lib: string | null;
   data_inicio: string | null;
@@ -754,7 +756,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const hoje = new Date().toISOString().split("T")[0];
 
   const lotesFiltradosBase = (data?.lotes ?? []).filter((l) => {
-    if (apenasAtrasados && (!l.data_lib || l.data_lib > hoje)) return false;
+    if (apenasAtrasados && !l.considerar_previsto_ate_hoje) return false;
     if (filtroGrupo && l.grupo !== filtroGrupo) return false;
     if (filtroEmbalado === "SIM" && !l.check_embalagem) return false;
     if (filtroEmbalado === "NAO" && l.check_embalagem) return false;
