@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v18_status_estoque_atual_v71"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v20_tooltip_unico_v73"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -324,6 +324,7 @@ function getAgingItensDireto(params: {
   transferencia_bravi?: string
   classificacao_cadastro?: string
   semaforo?: SemaforoEstoque
+  alerta_previsao?: string
   force_refresh?: boolean
   _t?: string | number
 }): Promise<AgingItensResponse> {
@@ -338,8 +339,10 @@ function getAgingItensDireto(params: {
     tipo_negocio: params.tipo_negocio,
     status_portfolio: params.status_portfolio,
     transferencia_bravi: params.transferencia_bravi,
+    descontinuado: params.descontinuado,
     classificacao_cadastro: params.classificacao_cadastro,
     semaforo: params.semaforo,
+    alerta_previsao: params.alerta_previsao,
     force_refresh: params.force_refresh,
     _t: params._t,
   })
@@ -546,11 +549,11 @@ const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "ce
   { key: "unid", label: "UM", align: "center", width: "w-[70px]" },
   { key: "saldo", label: "Estoque atual", align: "right", width: "w-[120px]" },
   { key: "saldo_quarentena", label: "Quarentena 98", align: "right", width: "w-[120px]" },
-  { key: "qtd_pedidos_abertos", label: "Pedidos", align: "right", width: "w-[110px]" },
+  { key: "qtd_pedidos_abertos", label: "Entradas/PC", align: "right", width: "w-[110px]" },
   { key: "estoque_mais_pedidos", label: "Estoque + entradas", align: "right", width: "w-[135px]" },
   { key: "consumo_mes_atual", label: "Consumo mês", align: "right", width: "w-[120px]" },
   { key: "demanda_mes_atual", label: "Previsão mês", align: "right", width: "w-[120px]" },
-  { key: "previsto_vs_consumido_pct", label: "% previsão consumida", align: "right", width: "w-[140px]" },
+  { key: "previsto_vs_consumido_pct", label: "Consumo vs previsão", align: "right", width: "w-[145px]" },
   { key: "pct_mes_decorrido", label: "% mês decorrido", align: "right", width: "w-[125px]" },
   { key: "desvio_ritmo_pct", label: "Desvio ritmo", align: "right", width: "w-[120px]" },
   { key: "dias_em_estoque", label: "Dias estoque", align: "right", width: "w-[110px]" },
@@ -573,22 +576,18 @@ const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "ce
 const COLUNAS_PADRAO_INSUMOS = [
   "status",
   "tipo",
-  "unid",
   "saldo",
-  "saldo_quarentena",
   "qtd_pedidos_abertos",
   "estoque_mais_pedidos",
   "consumo_mes_atual",
   "demanda_mes_atual",
-  "pct_consumo_previsto",
+  "previsto_vs_consumido_pct",
   "pct_mes_decorrido",
   "desvio_ritmo_pct",
-  "dias_em_estoque",
+  "cobertura_meses_atual",
+  "cobertura_meses_futura",
   "lead_time_dias",
   "qtd_minima",
-  "consumo_durante_lt",
-  "estoque_ideal",
-  "gap_volume",
 ]
 
 
@@ -603,6 +602,7 @@ type FiltroTabelaEstoque = {
   transferencia_bravi?: string
   classificacao_cadastro?: string
   semaforo?: SemaforoEstoque
+  alerta_previsao?: string
 }
 
 const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
@@ -617,6 +617,7 @@ const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
     filtro.transferencia_bravi || "",
     filtro.classificacao_cadastro || "",
     filtro.semaforo || "",
+    filtro.alerta_previsao || "",
   ].join("|")
 }
 
@@ -2575,7 +2576,7 @@ function StatusLinhaDashboardTooltip({
         )}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6 xl:grid-cols-8">
         <div className="rounded-2xl border bg-white p-3" style={{ borderColor: 'var(--border)' }}>
           <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-secondary)' }}>SKUs</p>
           <p className="mt-1 text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{fmtNumber(itensTooltip.length)}</p>
@@ -3740,8 +3741,7 @@ function MatrizEstoqueGiroPanel({
             <span
               className="inline-flex cursor-help items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-bold"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-              title={textoTooltipCorteVendaConsumoMatriz(escopo)}
-            >
+              >
               {labelCorteVendaConsumoMatriz(escopo)}: {fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}
               <span className="text-[10px] opacity-70">?</span>
             </span>
@@ -3754,8 +3754,7 @@ function MatrizEstoqueGiroPanel({
             <span
               className="inline-flex cursor-help items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-bold"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-              title={textoTooltipCorteCoberturaMatriz()}
-            >
+              >
               Corte cobertura: {fmtNumber(matriz.corteCobertura || 3, 1)} m
               <span className="text-[10px] opacity-70">?</span>
             </span>
@@ -5873,7 +5872,19 @@ function limparValorFiltro(value?: string) {
 
 function filtroVazio(filtro: FiltroTabelaEstoque | null) {
   if (!filtro) return true
-  return !filtro.busca && !filtro.status && !filtro.tipo_negocio && !filtro.status_portfolio && !filtro.transferencia_bravi && !filtro.classificacao_cadastro && !filtro.semaforo
+  return !filtro.busca && !filtro.status && !filtro.tipo_negocio && !filtro.status_portfolio && !filtro.descontinuado && !filtro.transferencia_bravi && !filtro.classificacao_cadastro && !filtro.semaforo && !filtro.alerta_previsao
+}
+
+function labelAlertaPrevisaoFiltro(escopo: EscopoEstoque) {
+  if (escopo === "produtos") return "Venda acima da previsão"
+  if (escopo === "insumos") return "Consumo acima da previsão"
+  return "Venda/consumo acima da previsão"
+}
+
+function helperAlertaPrevisaoFiltro(escopo: EscopoEstoque) {
+  if (escopo === "produtos") return "Venda do mês atual maior que o forecast do mês."
+  if (escopo === "insumos") return "Consumo do mês atual maior que a previsão do mês."
+  return "Itens em que venda/consumo do mês atual já superou a previsão do mês."
 }
 
 function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
@@ -5885,7 +5896,9 @@ function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
   if (filtro.tipo_negocio) partes.push(`Linha: ${filtro.tipo_negocio}`)
   if (filtro.status) partes.push(STATUS_LABEL[filtro.status] || filtro.status)
   if (filtro.status_portfolio) partes.push(`Portfólio: ${filtro.status_portfolio}`)
+  if (filtro.descontinuado) partes.push(`Descontinuado: ${filtro.descontinuado === "SIM" ? "Sim" : "Não"}`)
   if (filtro.transferencia_bravi) partes.push(`Bravi: ${filtro.transferencia_bravi}`)
+  if (filtro.alerta_previsao === "SIM") partes.push("Consumo acima da previsão")
   if (filtro.classificacao_cadastro === "NAO_CLASSIFICADOS") partes.push("Não classificados")
   else if (filtro.classificacao_cadastro === "MAPEADOS") partes.push("Mapeados")
   else if (filtro.classificacao_cadastro) partes.push(`Classificação: ${filtro.classificacao_cadastro}`)
@@ -6119,9 +6132,11 @@ export default function AgingEstoquePage() {
         status: activeFilter?.status,
         tipo_negocio: activeFilter?.tipo_negocio,
         status_portfolio: activeFilter?.status_portfolio,
+        descontinuado: activeFilter?.descontinuado,
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
         semaforo: activeFilter?.semaforo,
+        alerta_previsao: activeFilter?.alerta_previsao,
         _t: refreshTick ? refreshTick : undefined,
       })
       .then((res) => {
@@ -6540,9 +6555,11 @@ export default function AgingEstoquePage() {
         status: activeFilter?.status,
         tipo_negocio: activeFilter?.tipo_negocio,
         status_portfolio: activeFilter?.status_portfolio,
+        descontinuado: activeFilter?.descontinuado,
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
         semaforo: activeFilter?.semaforo,
+        alerta_previsao: activeFilter?.alerta_previsao,
       }
 
       const primeiraPagina = normalizarCoberturaPaMrResponse(
@@ -6952,6 +6969,34 @@ export default function AgingEstoquePage() {
                 <option value="SEM_CONSUMO">Sem consumo</option>
               </select>
             </label>
+
+            <label>
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Consumo x previsão</span>
+              <select
+                value={activeFilter?.alerta_previsao || "TODOS"}
+                onChange={(e) => atualizarFiltroCampo("alerta_previsao", e.target.value === "TODOS" ? undefined : e.target.value)}
+                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+                style={{ borderColor: activeFilter?.alerta_previsao === "SIM" ? "rgba(220,38,38,0.35)" : "var(--border)", color: "var(--text-primary)", background: activeFilter?.alerta_previsao === "SIM" ? "rgba(220,38,38,0.04)" : "#FFFFFF" }}
+                title={helperAlertaPrevisaoFiltro(escopoEstoque)}
+              >
+                <option value="TODOS">Todos</option>
+                <option value="SIM">{labelAlertaPrevisaoFiltro(escopoEstoque)}</option>
+              </select>
+            </label>
+
+            <label>
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Descontinuado?</span>
+              <select
+                value={activeFilter?.descontinuado || "TODOS"}
+                onChange={(e) => atualizarFiltroCampo("descontinuado", e.target.value === "TODOS" ? undefined : e.target.value)}
+                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="TODOS">Todos</option>
+                <option value="SIM">Sim</option>
+                <option value="NAO">Não</option>
+              </select>
+            </label>
           </div>
         </div>
 
@@ -6959,9 +7004,9 @@ export default function AgingEstoquePage() {
           <div className="flex items-center justify-between gap-4 border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
-              <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Insumos por consumo vs previsão e cobertura</h2>
+              <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Gestão operacional: consumo do mês vs previsão</h2>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Status compara consumo acumulado do mês com a previsão proporcional ao dia atual.
+                Acompanhe quando o consumo/venda do mês atual ultrapassa a previsão do mês. Use o filtro “Consumo x previsão” para ver apenas os itens em vermelho.
               </p>
             </div>
 
@@ -7089,19 +7134,32 @@ export default function AgingEstoquePage() {
                   <tr
                     key={item.codigo}
                     className="cursor-pointer border-b transition hover:bg-slate-100"
-                    style={{ borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "rgba(22,59,99,0.07)" : undefined }}
+                    style={{ borderColor: getNum(item, "previsao_consumo_alerta") > 0 ? "rgba(220,38,38,0.28)" : "var(--border)", background: selected?.codigo === item.codigo ? "rgba(22,59,99,0.07)" : getNum(item, "previsao_consumo_alerta") > 0 ? "rgba(220,38,38,0.025)" : undefined }}
                     onClick={() => abrirDetalhe(item)}
                   >
                     <td className="px-3 py-2 font-bold">{item.codigo}</td>
-                    <td className="truncate px-3 py-2" title={item.produto || ""}>{item.produto || "—"}</td>
-                    {colunasInsumosTabela.map((col) => (
-                      <td
-                        key={`${item.codigo}-${col.key}`}
-                        className={`px-3 py-2 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : ""}`}
-                      >
-                        {renderValorColunaInsumo(item, col.key)}
-                      </td>
-                    ))}
+                    <td className="px-3 py-2" title={item.produto || ""}>
+                      <div className="max-w-[220px] truncate font-semibold">{item.produto || "—"}</div>
+                      {itemEhDescontinuadoDashboard(item) && (
+                        <span className="mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ borderColor: "rgba(217,119,6,0.32)", background: "rgba(245,158,11,0.10)", color: "#B45309" }}>
+                          Descontinuado
+                        </span>
+                      )}
+                    </td>
+                    {colunasInsumosTabela.map((col) => {
+                      const alertaPrevisao = getNum(item, "previsao_consumo_alerta") > 0
+                      const colunaAlerta = col.key === "previsto_vs_consumido_pct"
+                      return (
+                        <td
+                          key={`${item.codigo}-${col.key}`}
+                          className={`px-3 py-2 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : ""}`}
+                          style={colunaAlerta && alertaPrevisao ? { background: "rgba(220,38,38,0.08)", color: "#B91C1C", fontWeight: 800 } : undefined}
+                          title={colunaAlerta && alertaPrevisao ? "Consumo/venda do mês atual acima da previsão do mês" : undefined}
+                        >
+                          {renderValorColunaInsumo(item, col.key)}
+                        </td>
+                      )
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -7552,8 +7610,8 @@ export default function AgingEstoquePage() {
                     key={`${item.codigo}-${item.tipo}-${item.grupo_gerencial}`}
                     className="cursor-pointer border-t text-xs transition hover:bg-slate-50"
                     style={{
-                      borderColor: "var(--border)",
-                      background: selected?.codigo === item.codigo ? "rgba(37,99,235,0.06)" : undefined,
+                      borderColor: alertaPrevisao ? "rgba(220,38,38,0.22)" : "var(--border)",
+                      background: selected?.codigo === item.codigo ? "rgba(37,99,235,0.06)" : alertaPrevisao ? "rgba(220,38,38,0.02)" : undefined,
                     }}
                     onClick={() => abrirDetalhe(item)}
                   >
@@ -7568,6 +7626,11 @@ export default function AgingEstoquePage() {
                       style={{ borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "#EFF6FF" : "#FFFFFF" }}
                     >
                       <div className="max-w-[190px] truncate font-medium" style={{ color: "var(--text-primary)" }} title={item.produto || ""}>{item.produto || "—"}</div>
+                      {itemEhDescontinuadoDashboard(item) && (
+                        <span className="mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ borderColor: "rgba(217,119,6,0.32)", background: "rgba(245,158,11,0.10)", color: "#B45309" }}>
+                          Descontinuado
+                        </span>
+                      )}
                     </td>
                     {isColunaVisivel("status") && <td className="px-2 py-2"><SemaforoBadge item={item} /></td>}
                     {isColunaVisivel("curva_a") && <td className="px-2 py-2 text-center whitespace-nowrap">{String(itemEx.curva_a || item.abc_ytm || "—")}</td>}
@@ -7590,7 +7653,12 @@ export default function AgingEstoquePage() {
                         : "var(--text-primary)"
 
                       return (
-                        <td key={col.key} className={`px-2 py-2 text-right whitespace-nowrap ${isGap ? "font-semibold" : ""}`} style={{ color }}>
+                        <td
+                          key={col.key}
+                          className={`px-2 py-2 text-right whitespace-nowrap ${isGap ? "font-semibold" : ""}`}
+                          style={col.key === "previsto_vs_consumido_pct" && alertaPrevisao ? { color, background: "rgba(220,38,38,0.08)", fontWeight: 800 } : { color }}
+                          title={col.key === "previsto_vs_consumido_pct" && alertaPrevisao ? "Consumo/venda do mês atual acima da previsão do mês" : undefined}
+                        >
                           {fmtTableValue(item, col, isTabelaProdutos)}
                         </td>
                       )
