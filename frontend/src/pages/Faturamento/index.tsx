@@ -10,14 +10,11 @@ import {
   DollarSign,
   Loader2,
   MapPin,
-  UploadCloud,
-  X,
-  Database,
-  AlertCircle,
   Package,
   RefreshCw,
   Search,
   Target,
+  UploadCloud,
   Users,
 } from "lucide-react"
 import {
@@ -137,6 +134,9 @@ type ResumoFaturamento = {
 
 const AZUL = "#17375E"
 const AZUL_CLARO = "#7EA6C8"
+const VERDE = "#0F766E"
+const LARANJA = "#D97706"
+const CINZA_AZULADO = "#CBD5E1"
 
 const ESCOPOS = [
   { value: "TODOS", label: "Todos" },
@@ -179,6 +179,19 @@ function fmtPct(value?: number) {
   return `${fmtNumero(value ?? 0, 1)}%`
 }
 
+function fmtDataHora(value?: string | null) {
+  if (!value) return "Não carregada"
+  const data = new Date(value)
+  if (Number.isNaN(data.getTime())) return "Não carregada"
+  return data.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
 function abreviar(texto?: string, max = 22) {
   const valor = String(texto || "-").trim()
   if (valor.length <= max) return valor
@@ -191,293 +204,6 @@ function badgeAbc(classe?: string) {
   if (c === "B") return "bg-amber-50 text-amber-700 ring-amber-200"
   return "bg-slate-100 text-slate-600 ring-slate-200"
 }
-
-
-type AbcResumoItem = {
-  classe: "A" | "B" | "C"
-  clientes: number
-  participacao: number
-  valor: number
-}
-
-const ABC_CORES: Record<string, string> = {
-  A: "#17375E",
-  B: "#2F6F8F",
-  C: "#CBD5E1",
-}
-
-function montarResumoAbc(clientes: Cliente[], modo: "valor" | "quantidade"): AbcResumoItem[] {
-  const campoClasse: keyof Cliente = modo === "valor" ? "abc_valor" : "abc_qtd"
-  const campoParticipacao: keyof Cliente = modo === "valor" ? "participacao_valor_pct" : "participacao_qtd_pct"
-  const campoValor: keyof Cliente = modo === "valor" ? "faturamento" : "quantidade"
-
-  const totalValor = clientes.reduce((acc, item) => acc + Number(item[campoValor] ?? 0), 0)
-
-  return (["A", "B", "C"] as const).map((classe) => {
-    const itens = clientes.filter((item) => String(item[campoClasse] || "C").toUpperCase() === classe)
-    const valor = itens.reduce((acc, item) => acc + Number(item[campoValor] ?? 0), 0)
-    const participacaoBackend = itens.reduce((acc, item) => acc + Number(item[campoParticipacao] ?? 0), 0)
-    const participacaoCalculada = totalValor > 0 ? (valor / totalValor) * 100 : 0
-
-    return {
-      classe,
-      clientes: itens.length,
-      participacao: participacaoBackend > 0 ? participacaoBackend : participacaoCalculada,
-      valor,
-    }
-  })
-}
-
-function AbcConcentracaoPanel({
-  title,
-  subtitle,
-  itens,
-  modo,
-}: {
-  title: string
-  subtitle: string
-  itens: AbcResumoItem[]
-  modo: "valor" | "quantidade"
-}) {
-  const totalClientes = itens.reduce((acc, item) => acc + item.clientes, 0)
-  const totalValor = itens.reduce((acc, item) => acc + item.valor, 0)
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="mb-4">
-        <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-        <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
-      </div>
-
-      <div className="grid overflow-hidden rounded-2xl border border-slate-200 bg-white sm:grid-cols-3">
-        {itens.map((item) => (
-          <div key={item.classe} className="border-b border-slate-100 p-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Classe {item.classe}</p>
-            <p className="mt-1 text-xl font-bold text-slate-900">{fmtNumero(item.clientes)}</p>
-            <p className="text-xs text-slate-500">clientes · {fmtPct(item.participacao)}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-4 space-y-3">
-        <div>
-          <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
-            <span>Participação em clientes</span>
-            <span>{fmtNumero(totalClientes)} clientes</span>
-          </div>
-          <div className="flex h-8 overflow-hidden rounded-xl bg-slate-200">
-            {itens.map((item) => {
-              const width = totalClientes > 0 ? (item.clientes / totalClientes) * 100 : 0
-              return (
-                <div
-                  key={item.classe}
-                  className="flex items-center justify-center text-[11px] font-bold text-white"
-                  style={{ width: `${width}%`, backgroundColor: ABC_CORES[item.classe] }}
-                  title={`Classe ${item.classe}: ${fmtNumero(item.clientes)} clientes`}
-                >
-                  {width >= 14 ? `${fmtNumero(item.clientes)}` : ""}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
-            <span>{modo === "valor" ? "Participação no faturamento" : "Participação na quantidade"}</span>
-            <span>{modo === "valor" ? fmtMoney(totalValor) : fmtNumero(totalValor)}</span>
-          </div>
-          <div className="flex h-8 overflow-hidden rounded-xl bg-slate-200">
-            {itens.map((item) => (
-              <div
-                key={item.classe}
-                className="flex items-center justify-center text-[11px] font-bold text-white"
-                style={{ width: `${Math.max(item.participacao, 0)}%`, backgroundColor: ABC_CORES[item.classe] }}
-                title={`Classe ${item.classe}: ${fmtPct(item.participacao)} · ${modo === "valor" ? fmtMoney(item.valor) : fmtNumero(item.valor)}`}
-              >
-                {item.participacao >= 12 ? fmtPct(item.participacao) : ""}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-3 pt-1">
-          {itens.map((item) => (
-            <span key={item.classe} className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ABC_CORES[item.classe] }} />
-              Classe {item.classe}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {modalClientesAberto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Base de dados</p>
-                <h2 className="mt-1 text-lg font-semibold text-slate-900">Upload dClientes</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Carregue a dimensão de clientes para liberar UF, município, região, tipo de cliente e nomes comerciais.
-                </p>
-              </div>
-              <button
-                onClick={() => setModalClientesAberto(false)}
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-4 px-5 py-5">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Status atual</p>
-                <p className="mt-1 text-sm text-slate-700">
-                  {ultimaAtualizacaoClientes
-                    ? `Última atualização: ${new Date(ultimaAtualizacaoClientes).toLocaleString("pt-BR")}`
-                    : "Ainda não há carga de dClientes registrada com sucesso."}
-                </p>
-              </div>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Arquivo dClientes</span>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={(event) => setArquivoClientes(event.target.files?.[0] ?? null)}
-                  className="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-[#17375E] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
-                />
-              </label>
-
-              {arquivoClientes && (
-                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  Selecionado: <span className="font-semibold text-slate-700">{arquivoClientes.name}</span>
-                </div>
-              )}
-
-              {statusUploadClientes && (
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                  {statusUploadClientes}
-                </div>
-              )}
-
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <button
-                  onClick={() => setModalClientesAberto(false)}
-                  className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Fechar
-                </button>
-                <button
-                  onClick={enviarBaseClientes}
-                  disabled={uploadingClientes || !arquivoClientes}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#17375E] px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-                >
-                  {uploadingClientes ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
-                  Enviar dClientes
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function DimensaoPendenteCard({ tipo }: { tipo: "uf" | "tipo" }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-      <div className="flex items-start gap-3">
-        <div className="rounded-xl bg-white p-2 text-slate-500 shadow-sm">
-          <AlertCircle size={16} />
-        </div>
-        <div>
-          <p className="font-semibold text-slate-800">
-            {tipo === "uf" ? "UF ainda sem dimensão de clientes" : "Tipo de cliente ainda sem dimensão"}
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Suba a base dClientes para cruzar o código da SD2 com UF, município, região e tipo de cliente.
-          </p>
-        </div>
-      </div>
-
-      {modalClientesAberto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Base de dados</p>
-                <h2 className="mt-1 text-lg font-semibold text-slate-900">Upload dClientes</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Carregue a dimensão de clientes para liberar UF, município, região, tipo de cliente e nomes comerciais.
-                </p>
-              </div>
-              <button
-                onClick={() => setModalClientesAberto(false)}
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-4 px-5 py-5">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Status atual</p>
-                <p className="mt-1 text-sm text-slate-700">
-                  {ultimaAtualizacaoClientes
-                    ? `Última atualização: ${new Date(ultimaAtualizacaoClientes).toLocaleString("pt-BR")}`
-                    : "Ainda não há carga de dClientes registrada com sucesso."}
-                </p>
-              </div>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Arquivo dClientes</span>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={(event) => setArquivoClientes(event.target.files?.[0] ?? null)}
-                  className="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-[#17375E] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
-                />
-              </label>
-
-              {arquivoClientes && (
-                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  Selecionado: <span className="font-semibold text-slate-700">{arquivoClientes.name}</span>
-                </div>
-              )}
-
-              {statusUploadClientes && (
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                  {statusUploadClientes}
-                </div>
-              )}
-
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <button
-                  onClick={() => setModalClientesAberto(false)}
-                  className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Fechar
-                </button>
-                <button
-                  onClick={enviarBaseClientes}
-                  disabled={uploadingClientes || !arquivoClientes}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#17375E] px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-                >
-                  {uploadingClientes ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
-                  Enviar dClientes
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 
 function KpiCard({
   title,
@@ -502,78 +228,6 @@ function KpiCard({
           <Icon size={18} />
         </div>
       </div>
-
-      {modalClientesAberto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Base de dados</p>
-                <h2 className="mt-1 text-lg font-semibold text-slate-900">Upload dClientes</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Carregue a dimensão de clientes para liberar UF, município, região, tipo de cliente e nomes comerciais.
-                </p>
-              </div>
-              <button
-                onClick={() => setModalClientesAberto(false)}
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-4 px-5 py-5">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Status atual</p>
-                <p className="mt-1 text-sm text-slate-700">
-                  {ultimaAtualizacaoClientes
-                    ? `Última atualização: ${new Date(ultimaAtualizacaoClientes).toLocaleString("pt-BR")}`
-                    : "Ainda não há carga de dClientes registrada com sucesso."}
-                </p>
-              </div>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Arquivo dClientes</span>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={(event) => setArquivoClientes(event.target.files?.[0] ?? null)}
-                  className="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-[#17375E] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
-                />
-              </label>
-
-              {arquivoClientes && (
-                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  Selecionado: <span className="font-semibold text-slate-700">{arquivoClientes.name}</span>
-                </div>
-              )}
-
-              {statusUploadClientes && (
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                  {statusUploadClientes}
-                </div>
-              )}
-
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <button
-                  onClick={() => setModalClientesAberto(false)}
-                  className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Fechar
-                </button>
-                <button
-                  onClick={enviarBaseClientes}
-                  disabled={uploadingClientes || !arquivoClientes}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#17375E] px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-                >
-                  {uploadingClientes ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
-                  Enviar dClientes
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -594,78 +248,6 @@ function SectionCard({
         {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
       </div>
       <div className="p-5">{children}</div>
-
-      {modalClientesAberto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Base de dados</p>
-                <h2 className="mt-1 text-lg font-semibold text-slate-900">Upload dClientes</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Carregue a dimensão de clientes para liberar UF, município, região, tipo de cliente e nomes comerciais.
-                </p>
-              </div>
-              <button
-                onClick={() => setModalClientesAberto(false)}
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-4 px-5 py-5">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Status atual</p>
-                <p className="mt-1 text-sm text-slate-700">
-                  {ultimaAtualizacaoClientes
-                    ? `Última atualização: ${new Date(ultimaAtualizacaoClientes).toLocaleString("pt-BR")}`
-                    : "Ainda não há carga de dClientes registrada com sucesso."}
-                </p>
-              </div>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Arquivo dClientes</span>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={(event) => setArquivoClientes(event.target.files?.[0] ?? null)}
-                  className="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-[#17375E] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
-                />
-              </label>
-
-              {arquivoClientes && (
-                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  Selecionado: <span className="font-semibold text-slate-700">{arquivoClientes.name}</span>
-                </div>
-              )}
-
-              {statusUploadClientes && (
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                  {statusUploadClientes}
-                </div>
-              )}
-
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <button
-                  onClick={() => setModalClientesAberto(false)}
-                  className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Fechar
-                </button>
-                <button
-                  onClick={enviarBaseClientes}
-                  disabled={uploadingClientes || !arquivoClientes}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#17375E] px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-                >
-                  {uploadingClientes ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
-                  Enviar dClientes
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -682,7 +264,6 @@ export default function FaturamentoPage() {
   const [abcModo, setAbcModo] = useState<"valor" | "quantidade">("valor")
   const [sortCliente, setSortCliente] = useState<"faturamento" | "quantidade" | "participacao_valor_pct">("faturamento")
   const [sortAsc, setSortAsc] = useState(false)
-
   const [modalClientesAberto, setModalClientesAberto] = useState(false)
   const [arquivoClientes, setArquivoClientes] = useState<File | null>(null)
   const [uploadingClientes, setUploadingClientes] = useState(false)
@@ -702,7 +283,6 @@ export default function FaturamentoPage() {
       setLoading(false)
     }
   }
-
 
   async function carregarUltimaAtualizacaoClientes() {
     try {
@@ -783,33 +363,6 @@ export default function FaturamentoPage() {
     }))
   }, [dados])
 
-  const clientesMesGrafico = useMemo(() => {
-    return (dados?.meses ?? []).map((item) => ({
-      mes: item.mes_nome ?? String(item.mes ?? ""),
-      Clientes: item.clientes ?? 0,
-      Produtos: item.produtos ?? 0,
-    }))
-  }, [dados])
-
-  const abcValorResumo = useMemo(() => montarResumoAbc(dados?.clientes ?? [], "valor"), [dados])
-  const abcQtdResumo = useMemo(() => montarResumoAbc(dados?.clientes ?? [], "quantidade"), [dados])
-
-  const temDimensaoClientes = Boolean((dados?.meta?.qtd_clientes_dimensao ?? 0) > 0 && dados?.meta?.join_clientes !== "sem dimensão de clientes")
-  const temUfInformada = temDimensaoClientes && (dados?.estados ?? []).some((item) => {
-    const uf = String(item.estado || "").trim().toUpperCase()
-    return uf && uf !== "NÃO INFORMADO" && uf !== "NAO INFORMADO" && uf !== "-"
-  })
-  const temTipoClienteInformado = temDimensaoClientes && (dados?.tipos_clientes ?? []).some((item) => {
-    const tipo = String(item.tipo_cliente || "").trim().toUpperCase()
-    return tipo && tipo !== "NÃO INFORMADO" && tipo !== "NAO INFORMADO" && tipo !== "-"
-  })
-
-  const maiorMesFaturamento = useMemo(() => {
-    const meses = dados?.meses ?? []
-    return [...meses].sort((a, b) => Number(b.faturamento ?? 0) - Number(a.faturamento ?? 0))[0]
-  }, [dados])
-
-
   const clientesFiltrados = useMemo(() => {
     const termo = buscaCliente.trim().toLowerCase()
     let lista = [...(dados?.clientes ?? [])]
@@ -857,6 +410,57 @@ export default function FaturamentoPage() {
 
     return lista
   }, [dados, buscaProduto])
+
+  const resumoAbcValor = useMemo(() => {
+    const clientes = dados?.clientes ?? []
+    const totalValor = clientes.reduce((acc, item) => acc + (item.faturamento ?? 0), 0)
+    const totalClientes = clientes.length
+    return ["A", "B", "C"].map((classe) => {
+      const itens = clientes.filter((item) => String(item.abc_valor || "C").toUpperCase() === classe)
+      const valor = itens.reduce((acc, item) => acc + (item.faturamento ?? 0), 0)
+      return {
+        classe,
+        clientes: itens.length,
+        valor,
+        pctValor: totalValor ? (valor / totalValor) * 100 : 0,
+        pctClientes: totalClientes ? (itens.length / totalClientes) * 100 : 0,
+      }
+    })
+  }, [dados])
+
+  const resumoAbcQuantidade = useMemo(() => {
+    const clientes = dados?.clientes ?? []
+    const totalQtd = clientes.reduce((acc, item) => acc + (item.quantidade ?? 0), 0)
+    const totalClientes = clientes.length
+    return ["A", "B", "C"].map((classe) => {
+      const itens = clientes.filter((item) => String(item.abc_qtd || "C").toUpperCase() === classe)
+      const quantidade = itens.reduce((acc, item) => acc + (item.quantidade ?? 0), 0)
+      return {
+        classe,
+        clientes: itens.length,
+        quantidade,
+        pctQuantidade: totalQtd ? (quantidade / totalQtd) * 100 : 0,
+        pctClientes: totalClientes ? (itens.length / totalClientes) * 100 : 0,
+      }
+    })
+  }, [dados])
+
+  const clientesMensalGrafico = useMemo(() => {
+    return (dados?.meses ?? []).map((item) => ({
+      mes: item.mes_nome ?? String(item.mes ?? ""),
+      Clientes: item.clientes ?? 0,
+    }))
+  }, [dados])
+
+  const dimensaoClientesCarregada = (dados?.meta?.qtd_clientes_dimensao ?? 0) > 0
+  const estadosComInformacao = (dados?.estados ?? []).filter((item) => {
+    const uf = String(item.estado || "").trim().toUpperCase()
+    return uf && !["NÃO INFORMADO", "NAO INFORMADO", "SEM UF", "-"].includes(uf)
+  })
+  const tiposClientesComInformacao = (dados?.tipos_clientes ?? []).filter((item) => {
+    const tipo = String(item.tipo_cliente || "").trim().toUpperCase()
+    return tipo && !["NÃO INFORMADO", "NAO INFORMADO", "SEM TIPO", "-"].includes(tipo)
+  })
 
   function toggleSort(col: "faturamento" | "quantidade" | "participacao_valor_pct") {
     if (sortCliente === col) {
@@ -910,10 +514,14 @@ export default function FaturamentoPage() {
           </select>
 
           <button
-            onClick={() => setModalClientesAberto(true)}
+            type="button"
+            onClick={() => {
+              setModalClientesAberto(true)
+              carregarUltimaAtualizacaoClientes()
+            }}
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
           >
-            <Database size={16} />
+            <UploadCloud size={16} />
             Base de clientes
           </button>
 
@@ -940,8 +548,7 @@ export default function FaturamentoPage() {
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Escopo selecionado</p>
             <p className="mt-1 text-lg font-semibold text-slate-900">{escopoLabel}</p>
             <p className="mt-1 text-xs text-slate-500">
-              A dimensão de clientes cruza o código da SD2 com UF, município, região e tipo. Fonte cliente: {dados?.meta?.join_clientes ?? "carregando"}.
-              {ultimaAtualizacaoClientes ? ` Última dClientes: ${new Date(ultimaAtualizacaoClientes).toLocaleString("pt-BR")}.` : ""}
+              A dimensão de clientes é cruzada por código da SD2. Fonte cliente: {dimensaoClientesCarregada ? "dClientes vinculada" : "aguardando dClientes"}.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 sm:grid-cols-4">
@@ -974,75 +581,37 @@ export default function FaturamentoPage() {
         <KpiCard title="Preço médio" value={fmtMoney(cards.preco_medio)} subtitle="Valor / quantidade" icon={Target} />
       </div>
 
-      <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Principais leituras</p>
-            <p className="mt-1 text-sm text-slate-600">
-              {maiorMesFaturamento?.mes_nome ? `${maiorMesFaturamento.mes_nome} concentra o maior faturamento do período (${fmtMoney(maiorMesFaturamento.faturamento)}). ` : ""}
-              O top cliente representa {fmtPct(cards.top_cliente_participacao_pct)} do faturamento e a base tem {fmtNumero(cards.clientes_ativos)} clientes ativos.
-            </p>
-          </div>
-          {!temDimensaoClientes && (
-            <button
-              onClick={() => setModalClientesAberto(true)}
-              className="inline-flex w-fit items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-            >
-              <UploadCloud size={15} />
-              Subir dClientes para liberar UF/tipo
-            </button>
-          )}
-        </div>
-      </div>
-
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <SectionCard
-            title="Evolução mensal do faturamento e volume"
-            subtitle="Faturamento em valor e quantidade faturada por mês. Clientes ativos ficam em visão separada."
+            title="Evolução mensal"
+            subtitle="Faturamento em valor, quantidade faturada e clientes ativos por mês."
           >
-            <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
-              <div className="h-[320px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={mesesGrafico}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                    <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
-                    <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={(v) => fmtNumero(Number(v))} />
-                    <Tooltip
-                      formatter={(value: any, name: any) => {
-                        if (name === "Faturamento") return [fmtMoneyFull(Number(value)), name]
-                        return [fmtNumero(Number(value)), name]
-                      }}
-                    />
-                    <Legend />
-                    <Bar yAxisId="left" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={3} dot={{ r: 4 }} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <h3 className="text-sm font-bold text-slate-900">Clientes ativos por mês</h3>
-                <p className="mt-1 text-xs text-slate-500">Ajuda a ver concentração versus ampliação da base ativa.</p>
-                <div className="mt-3 h-[250px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={clientesMesGrafico}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                      <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip formatter={(value: any, name: any) => [fmtNumero(Number(value)), name]} />
-                      <Bar dataKey="Clientes" fill="#2F6F8F" radius={[6, 6, 0, 0]} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+            <div className="h-[340px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={mesesGrafico}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
+                  <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={(v) => fmtNumero(Number(v))} />
+                  <Tooltip
+                    formatter={(value: any, name: any) => {
+                      if (name === "Faturamento") return [fmtMoneyFull(Number(value)), name]
+                      return [fmtNumero(Number(value)), name]
+                    }}
+                  />
+                  <Legend />
+                  <Bar yAxisId="left" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} />
+                  <Line yAxisId="right" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={3} dot={{ r: 4 }} />
+                  <Line yAxisId="right" type="monotone" dataKey="Clientes" stroke="#0F172A" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 3 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
             </div>
           </SectionCard>
         </div>
 
         <SectionCard
-          title="Composição do faturamento por linha"
+          title="Mix por linha"
           subtitle="Participação do faturamento por linha de negócio."
         >
           <div className="h-[340px]">
@@ -1059,27 +628,31 @@ export default function FaturamentoPage() {
         </SectionCard>
       </div>
 
+      <div className="mt-6">
+        <SectionCard
+          title="Clientes ativos por mês"
+          subtitle="Quantidade de clientes com faturamento no mês. Separado para não poluir a leitura de faturamento e volume."
+        >
+          <div className="h-[220px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={clientesMensalGrafico}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => fmtNumero(Number(v))} />
+                <Tooltip formatter={(value: any) => [fmtNumero(Number(value)), "Clientes ativos"]} />
+                <Bar dataKey="Clientes" fill={AZUL_CLARO} radius={[7, 7, 0, 0]} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+      </div>
+
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <SectionCard
             title="ABC de clientes"
-            subtitle="Concentração por cliente, comparando quantidade de clientes versus participação em faturamento e volume."
+            subtitle="Curva ABC por valor ou por quantidade. Use a busca para encontrar cliente, UF ou tipo."
           >
-            <div className="mb-5 grid gap-4 lg:grid-cols-2">
-              <AbcConcentracaoPanel
-                title="ABC por valor"
-                subtitle="Quanto cada classe de clientes concentra do faturamento."
-                itens={abcValorResumo}
-                modo="valor"
-              />
-              <AbcConcentracaoPanel
-                title="ABC por quantidade"
-                subtitle="Quanto cada classe de clientes concentra do volume faturado."
-                itens={abcQtdResumo}
-                modo="quantidade"
-              />
-            </div>
-
             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="inline-flex w-fit rounded-xl border border-slate-200 bg-slate-50 p-1">
                 <button
@@ -1104,6 +677,58 @@ export default function FaturamentoPage() {
                   placeholder="Buscar cliente, UF ou tipo"
                   className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-[#17375E]"
                 />
+              </div>
+            </div>
+
+            <div className="mb-5 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Concentração ABC por valor</p>
+                    <p className="text-xs text-slate-500">Participação dos clientes no faturamento.</p>
+                  </div>
+                  <DollarSign size={17} className="text-slate-400" />
+                </div>
+                <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  {resumoAbcValor.map((item) => {
+                    const cor = item.classe === "A" ? VERDE : item.classe === "B" ? "#2563EB" : CINZA_AZULADO
+                    return (
+                      <div key={item.classe} className="p-3 text-center" style={{ backgroundColor: `${cor}18` }}>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Classe {item.classe}</p>
+                        <p className="mt-1 text-xl font-black" style={{ color: item.classe === "C" ? "#64748B" : cor }}>
+                          {fmtNumero(item.clientes)} clientes
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">{fmtPct(item.pctValor)} do faturamento</p>
+                        <p className="text-[11px] text-slate-400">{fmtPct(item.pctClientes)} da base</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Concentração ABC por quantidade</p>
+                    <p className="text-xs text-slate-500">Participação dos clientes no volume faturado.</p>
+                  </div>
+                  <BarChart3 size={17} className="text-slate-400" />
+                </div>
+                <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  {resumoAbcQuantidade.map((item) => {
+                    const cor = item.classe === "A" ? VERDE : item.classe === "B" ? LARANJA : CINZA_AZULADO
+                    return (
+                      <div key={item.classe} className="p-3 text-center" style={{ backgroundColor: `${cor}18` }}>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Classe {item.classe}</p>
+                        <p className="mt-1 text-xl font-black" style={{ color: item.classe === "C" ? "#64748B" : cor }}>
+                          {fmtNumero(item.clientes)} clientes
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">{fmtPct(item.pctQuantidade)} do volume</p>
+                        <p className="text-[11px] text-slate-400">{fmtPct(item.pctClientes)} da base</p>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             </div>
 
@@ -1163,9 +788,9 @@ export default function FaturamentoPage() {
 
         <div className="space-y-6">
           <SectionCard title="Top UFs" subtitle="Distribuição geográfica do faturamento.">
-            {temUfInformada ? (
+            {dimensaoClientesCarregada && estadosComInformacao.length > 0 ? (
               <div className="space-y-3">
-                {(dados?.estados ?? []).slice(0, 10).map((item) => (
+                {estadosComInformacao.slice(0, 10).map((item) => (
                   <div key={item.estado}>
                     <div className="mb-1 flex items-center justify-between gap-3 text-sm">
                       <div className="flex min-w-0 items-center gap-2">
@@ -1185,14 +810,17 @@ export default function FaturamentoPage() {
                 ))}
               </div>
             ) : (
-              <DimensaoPendenteCard tipo="uf" />
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                <p className="font-semibold text-slate-800">Dimensão de clientes ainda não vinculada</p>
+                <p className="mt-1 text-xs leading-relaxed">Suba a base dClientes para liberar a visão por UF, município e região.</p>
+              </div>
             )}
           </SectionCard>
 
           <SectionCard title="Tipo de cliente" subtitle="Faturamento por classificação comercial.">
-            {temTipoClienteInformado ? (
+            {dimensaoClientesCarregada && tiposClientesComInformacao.length > 0 ? (
               <div className="space-y-3">
-                {(dados?.tipos_clientes ?? []).slice(0, 8).map((item) => (
+                {tiposClientesComInformacao.slice(0, 8).map((item) => (
                   <div key={item.tipo_cliente} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
                     <div className="flex items-center justify-between gap-3">
                       <p className="truncate text-sm font-semibold text-slate-800">{item.tipo_cliente || "Não informado"}</p>
@@ -1206,7 +834,10 @@ export default function FaturamentoPage() {
                 ))}
               </div>
             ) : (
-              <DimensaoPendenteCard tipo="tipo" />
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                <p className="font-semibold text-slate-800">Tipo de cliente aguardando dClientes</p>
+                <p className="mt-1 text-xs leading-relaxed">Após o upload, este bloco passa a mostrar o faturamento por classificação comercial.</p>
+              </div>
             )}
           </SectionCard>
         </div>
@@ -1273,69 +904,67 @@ export default function FaturamentoPage() {
           </div>
         </SectionCard>
       </div>
-
       {modalClientesAberto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Base de dados</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Base de clientes</p>
                 <h2 className="mt-1 text-lg font-semibold text-slate-900">Upload dClientes</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Carregue a dimensão de clientes para liberar UF, município, região, tipo de cliente e nomes comerciais.
-                </p>
+                <p className="mt-1 text-xs text-slate-500">Atualiza UF, município, região, tipo de cliente e nomes para cruzar com a SD2.</p>
               </div>
               <button
+                type="button"
                 onClick={() => setModalClientesAberto(false)}
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
               >
-                <X size={18} />
+                Fechar
               </button>
             </div>
 
             <div className="space-y-4 px-5 py-5">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Status atual</p>
-                <p className="mt-1 text-sm text-slate-700">
-                  {ultimaAtualizacaoClientes
-                    ? `Última atualização: ${new Date(ultimaAtualizacaoClientes).toLocaleString("pt-BR")}`
-                    : "Ainda não há carga de dClientes registrada com sucesso."}
-                </p>
+              <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                <p className="font-semibold text-slate-800">Última atualização</p>
+                <p className="mt-1">{fmtDataHora(ultimaAtualizacaoClientes)}</p>
               </div>
 
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Arquivo dClientes</span>
+              <label className="block rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center hover:bg-slate-100">
+                <UploadCloud className="mx-auto text-slate-400" size={28} />
+                <p className="mt-2 text-sm font-semibold text-slate-800">Selecionar arquivo dClientes</p>
+                <p className="mt-1 text-xs text-slate-500">Aceita XLSX/XLS exportado do cadastro de clientes.</p>
                 <input
                   type="file"
                   accept=".xlsx,.xls,.csv"
+                  className="hidden"
                   onChange={(event) => setArquivoClientes(event.target.files?.[0] ?? null)}
-                  className="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-[#17375E] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
                 />
               </label>
 
               {arquivoClientes && (
-                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                  Selecionado: <span className="font-semibold text-slate-700">{arquivoClientes.name}</span>
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                  Arquivo selecionado: <span className="font-semibold">{arquivoClientes.name}</span>
                 </div>
               )}
 
               {statusUploadClientes && (
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                   {statusUploadClientes}
                 </div>
               )}
 
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <div className="flex justify-end gap-3 pt-2">
                 <button
+                  type="button"
                   onClick={() => setModalClientesAberto(false)}
                   className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
-                  Fechar
+                  Cancelar
                 </button>
                 <button
+                  type="button"
                   onClick={enviarBaseClientes}
                   disabled={uploadingClientes || !arquivoClientes}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#17375E] px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#17375E] px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
                 >
                   {uploadingClientes ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
                   Enviar dClientes
