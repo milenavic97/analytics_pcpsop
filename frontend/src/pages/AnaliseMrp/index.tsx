@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v14_venda_consumo_cobertura_p70_descontinuado"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v15_matriz_todos_venda_consumo_cobertura"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -2033,8 +2033,8 @@ const MATRIZ_QUADRANTES: Record<QuadranteMatrizKey, { titulo: string; subtitulo:
     border: "rgba(245,158,11,0.28)",
   },
   BAIXO_GIRO_CONTROLADO: {
-    titulo: "Baixa venda/consumo controlada",
-    subtitulo: "Venda/consumo médio 6M abaixo do corte e cobertura sem excesso",
+    titulo: "Venda/consumo abaixo do corte sem excesso",
+    subtitulo: "Venda/consumo médio 6M abaixo do corte, com cobertura sem excesso",
     acao: "Monitorar e evitar reposição automática sem demanda confirmada.",
     color: "#64748B",
     bg: "rgba(100,116,139,0.08)",
@@ -2097,8 +2097,8 @@ function getQuadranteMatrizInfo(key: QuadranteMatrizKey, escopo?: EscopoEstoque)
   if (key === "BAIXO_GIRO_CONTROLADO") {
     return {
       ...base,
-      titulo: `${termoVendaConsumoTituloPorEscopo(escopo)} baixa controlada`,
-      subtitulo: `${termoVendaConsumoTituloPorEscopo(escopo)} média 6M abaixo do corte e cobertura sem excesso`,
+      titulo: `${termoVendaConsumoTituloPorEscopo(escopo)} abaixo do corte sem excesso`,
+      subtitulo: `${termoVendaConsumoTituloPorEscopo(escopo)} média 6M abaixo do corte, com cobertura sem excesso`,
     }
   }
 
@@ -2613,7 +2613,10 @@ function StatusLinhaDashboardTooltip({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{codigo || '—'} · {descricao}</p>
-                  <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{getLinhaDashboardItem(item)} · {String(raw.tipo || raw.tipo_produto_erp || '')}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    {itemEhDescontinuadoDashboard(item) && <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ borderColor: "rgba(217,119,6,0.32)", background: "rgba(245,158,11,0.10)", color: "#B45309" }}>Descontinuado</span>}
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{getLinhaDashboardItem(item)} · {String(raw.tipo || raw.tipo_produto_erp || '')}</span>
+                  </div>
                 </div>
                 <span className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: metaItem.bg, color: metaItem.color }}>{metaItem.label}</span>
               </div>
@@ -3666,17 +3669,36 @@ function MatrizEstoqueGiroPanel({
   onApplyFilter: (filtro: FiltroTabelaEstoque | null, escopo?: EscopoEstoque) => void
 }) {
   const matriz = useMemo(() => montarPontosMatrizEstoque(itens || []), [itens])
-  const [quadranteSelecionado, setQuadranteSelecionado] = useState<QuadranteMatrizKey>("EXCESSO_PARADO")
+  const [quadranteSelecionado, setQuadranteSelecionado] = useState<QuadranteMatrizKey | null>(null)
 
-  const pontosQuadrante = useMemo(() => {
-    return matriz.pontos
-      .filter((ponto) => ponto.quadrante === quadranteSelecionado)
-      .sort((a, b) => b.valor - a.valor || b.demanda - a.demanda || b.consumo - a.consumo)
+  useEffect(() => {
+    setQuadranteSelecionado(null)
+  }, [escopo, itens?.length])
+
+  const pontosTabela = useMemo(() => {
+    const prioridade: Record<QuadranteMatrizKey, number> = {
+      RISCO_FALTA: 0,
+      EXCESSO_PARADO: 1,
+      EXCESSO_COM_GIRO: 2,
+      BAIXO_GIRO_CONTROLADO: 3,
+    }
+
+    const base = quadranteSelecionado
+      ? matriz.pontos.filter((ponto) => ponto.quadrante === quadranteSelecionado)
+      : matriz.pontos
+
+    return [...base].sort((a, b) => {
+      if (!quadranteSelecionado) {
+        const prioridadeDiff = prioridade[a.quadrante] - prioridade[b.quadrante]
+        if (prioridadeDiff !== 0) return prioridadeDiff
+      }
+      return b.valor - a.valor || b.demanda - a.demanda || b.consumo - a.consumo
+    })
   }, [matriz.pontos, quadranteSelecionado])
 
-  const pontosGrafico = pontosQuadrante
+  const pontosGrafico = quadranteSelecionado ? pontosTabela : matriz.pontos
 
-  const quadranteAtual = getQuadranteMatrizInfo(quadranteSelecionado, escopo)
+  const quadranteAtual = quadranteSelecionado ? getQuadranteMatrizInfo(quadranteSelecionado, escopo) : null
 
   if (!itens?.length && loading) {
     return (
@@ -3700,6 +3722,18 @@ function MatrizEstoqueGiroPanel({
           <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>{labelCorteVendaConsumoMatriz(escopo)}: {fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}</span>
           <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte cobertura: {fmtNumber(matriz.corteCobertura || 3, 1)} m</span>
           <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Cobertura calculada só com estoque atual</span>
+          <button
+            type="button"
+            onClick={() => setQuadranteSelecionado(null)}
+            className="rounded-full border px-3 py-1.5 text-xs font-bold transition hover:bg-slate-50"
+            style={{
+              borderColor: quadranteSelecionado ? "var(--border)" : "#163B63",
+              background: quadranteSelecionado ? "#FFFFFF" : "rgba(22,59,99,0.08)",
+              color: quadranteSelecionado ? "var(--text-secondary)" : "#163B63",
+            }}
+          >
+            Ver todos os quadrantes
+          </button>
         </div>
       </div>
 
@@ -3712,7 +3746,7 @@ function MatrizEstoqueGiroPanel({
             <button
               key={key}
               type="button"
-              onClick={() => setQuadranteSelecionado(key)}
+              onClick={() => setQuadranteSelecionado((atual) => atual === key ? null : key)}
               className="rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
               style={{
                 borderColor: active ? info.color : "var(--border)",
@@ -3820,13 +3854,13 @@ function MatrizEstoqueGiroPanel({
 
       <div className="mt-4">
         <ItensDrilldownDashboardTable
-          titulo={quadranteAtual.titulo}
-          subtitulo={quadranteAtual.subtitulo}
-          acao={quadranteAtual.acao}
-          itens={pontosQuadrante.map((ponto) => ponto.raw)}
-          accentColor={quadranteAtual.color}
+          titulo={quadranteAtual ? quadranteAtual.titulo : "Todos os quadrantes"}
+          subtitulo={quadranteAtual ? quadranteAtual.subtitulo : "Matriz sem filtro; clique em um quadrante para isolar os SKUs."}
+          acao={quadranteAtual?.acao}
+          itens={pontosTabela.map((ponto) => ponto.raw)}
+          accentColor={quadranteAtual ? quadranteAtual.color : "#163B63"}
           preserveOrder
-          vazio="Nenhum item neste quadrante com a base carregada."
+          vazio={quadranteAtual ? "Nenhum item neste quadrante com a base carregada." : "Nenhum item na matriz com a base carregada."}
         />
       </div>
     </div>
@@ -4237,7 +4271,7 @@ function DashboardEstoquePanel({
           <div className="mb-4">
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Cobertura por faixa</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Distribuição dos itens por cobertura</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Ajuda a separar risco de falta, excesso e itens sem consumo pela cobertura do estoque atual contra a demanda.</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Ajuda a separar risco de falta, excesso e itens sem forecast pela cobertura do estoque atual contra a demanda.</p>
           </div>
           <div className="h-[360px]">
             <ResponsiveContainer width="100%" height="100%">
