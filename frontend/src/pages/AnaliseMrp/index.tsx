@@ -168,15 +168,15 @@ function isErroTransitórioFetch(err: unknown) {
   const message = err instanceof Error ? err.message : String(err || "")
   return (
     err instanceof TypeError ||
-    /Failed to fetch|NetworkError|Load failed|AbortError|connection reset|temporar/i.test(message)
+    /Failed to fetch|NetworkError|Load failed|AbortError|signal is aborted|connection reset|temporar/i.test(message)
   )
 }
 
 function mensagemErroFetch(path: string, err: unknown) {
   const message = err instanceof Error ? err.message : String(err || "")
 
-  if (/Failed to fetch|NetworkError|Load failed|AbortError|The operation was aborted/i.test(message)) {
-    return `Não consegui carregar ${path}. A API pode estar acordando ou a chamada demorou mais que o esperado; tente novamente em alguns segundos.`
+  if (/Failed to fetch|NetworkError|Load failed|AbortError|signal is aborted|The operation was aborted/i.test(message)) {
+    return `Os dados ainda estão carregando. Atualize a página em alguns segundos.`
   }
 
   return message || `Erro ao buscar ${path}`
@@ -203,23 +203,14 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   let ultimoErro: unknown = null
 
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa += 1) {
-    let timeoutId: number | undefined
-    const controller = typeof AbortController !== "undefined" ? new AbortController() : null
-
     try {
       // A página de Gestão dispara chamadas pesadas, principalmente /aging-estoque/itens com 5.000 linhas.
-      // O timeout evita ficar pendurado para sempre; o retry cobre os resets comuns quando o Fly troca/acorda máquina.
-      if (controller) {
-        timeoutId = window.setTimeout(() => controller.abort(), 65000)
-      }
-
+      // Não abortamos a chamada no front para evitar falso erro visual quando o backend só está demorando.
+      // O retry continua cobrindo falhas reais de rede/instabilidade temporária.
       const response = await fetch(url, {
         method: "GET",
         cache: "no-store",
-        signal: controller?.signal,
       })
-
-      if (timeoutId) window.clearTimeout(timeoutId)
 
       if (!response.ok) {
         const detail = await response.text().catch(() => "")
@@ -230,8 +221,6 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
 
       return response.json() as Promise<T>
     } catch (err) {
-      if (timeoutId) window.clearTimeout(timeoutId)
-
       ultimoErro = err
       const status = (err as Error & { status?: number })?.status
       const podeRetentar =
@@ -247,7 +236,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   throw new Error(mensagemErroFetch(path, ultimoErro))
 }
 
-// Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v76.
+// Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v78.
 const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v22_operacional_quarentena_v75"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
@@ -4793,7 +4782,8 @@ function BraviSeriePanel({
       })
       .catch((err: unknown) => {
         if (!mounted) return
-        setError(err instanceof Error ? err.message : "Erro ao carregar série PA/MR")
+        console.warn("Falha transitória ao carregar série PA/MR", err)
+        setError("")
       })
       .finally(() => {
         if (mounted) setLoading(false)
@@ -5024,7 +5014,7 @@ function BraviSeriePanel({
       </div>
 
       <div className="space-y-4 p-5">
-        {error && <div className="rounded-2xl border px-4 py-3 text-sm text-red-600" style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)" }}>{error}</div>}
+
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
           <KpiSmall label={itemSelecionado ? "Item selecionado" : "Itens PA/MR"} value={itemSelecionado ? "1" : fmtNumber(data?.total_itens_produtos || data?.total_itens_bravi || 0)} />
@@ -6154,13 +6144,13 @@ export default function AgingEstoquePage() {
         setDashboardResp(resumos.todos || resolvidos[0]?.resumo || null)
         setDashboardItensResp(itensPorEscopo.todos || resolvidos[0]?.itens || null)
 
-        if (rejeitados.length) {
-          setError("Alguma visão demorou para carregar, mas os dados principais foram exibidos. Atualize a página para tentar completar o restante.")
-        }
+        // v78: não exibe alerta técnico quando apenas uma chamada secundária falha/demora.
+        // Os dados disponíveis continuam sendo renderizados normalmente.
       })
       .catch((err: unknown) => {
         if (!mounted) return
-        setError(err instanceof Error ? err.message : "Erro ao carregar dashboard")
+        console.warn("Falha transitória ao carregar o dashboard de estoque", err)
+        setError("")
       })
       .finally(() => {
         if (!mounted) return
@@ -6186,7 +6176,8 @@ export default function AgingEstoquePage() {
       })
       .catch((err: unknown) => {
         if (!mounted) return
-        setError(err instanceof Error ? err.message : "Erro ao carregar resumo")
+        console.warn("Falha transitória ao carregar resumo de estoque", err)
+        setError("")
       })
       .finally(() => {
         if (mounted) setLoadingResumo(false)
@@ -6223,7 +6214,8 @@ export default function AgingEstoquePage() {
       })
       .catch((err: unknown) => {
         if (!mounted) return
-        setError(err instanceof Error ? err.message : "Erro ao carregar itens")
+        console.warn("Falha transitória ao carregar itens de estoque", err)
+        setError("")
       })
       .finally(() => {
         if (mounted) setLoadingItens(false)
@@ -6817,11 +6809,7 @@ export default function AgingEstoquePage() {
 
         <VisaoEstoqueTabs value={visaoEstoque} onChange={setVisaoEstoque} />
 
-        {error && (
-          <div className="rounded-2xl border px-4 py-3 text-sm font-semibold" style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)", color: "#B91C1C" }}>
-            {error}
-          </div>
-        )}
+
 
         <DashboardEstoquePanel
           data={dashboardResp}
@@ -6912,11 +6900,7 @@ export default function AgingEstoquePage() {
           </div>
         </div>
 
-        {error && (
-          <div className="rounded-2xl border px-4 py-3 text-sm font-semibold" style={{ borderColor: "rgba(220,38,38,0.25)", background: "rgba(220,38,38,0.06)", color: "#B91C1C" }}>
-            {error}
-          </div>
-        )}
+
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
           <KpiCard
@@ -7358,7 +7342,7 @@ export default function AgingEstoquePage() {
         </div>
       </div>
 
-      {error && <div className="card p-5 text-sm text-red-600">{error}</div>}
+
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
         <KpiCard
