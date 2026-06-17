@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v20_tooltip_unico_v73"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v21_tooltip_sem_title_v74"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -3741,7 +3741,8 @@ function MatrizEstoqueGiroPanel({
             <span
               className="inline-flex cursor-help items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-bold"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-              >
+              title=""
+            >
               {labelCorteVendaConsumoMatriz(escopo)}: {fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}
               <span className="text-[10px] opacity-70">?</span>
             </span>
@@ -3754,7 +3755,8 @@ function MatrizEstoqueGiroPanel({
             <span
               className="inline-flex cursor-help items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-bold"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-              >
+              title=""
+            >
               Corte cobertura: {fmtNumber(matriz.corteCobertura || 3, 1)} m
               <span className="text-[10px] opacity-70">?</span>
             </span>
