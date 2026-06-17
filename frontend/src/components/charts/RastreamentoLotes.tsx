@@ -788,7 +788,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   });
 
   const gapPorStatusTela = useMemo(() => {
-    const etapa = data?.mtd_gap_por_etapa ?? {};
+    const etapa = (data?.mtd_gap_por_etapa ?? {}) as Partial<RastreamentoData["mtd_gap_por_etapa"]>;
 
     const totais = {
       reprovacao_desvio: Math.round(Number(etapa.reprovacao_desvio ?? 0)),
