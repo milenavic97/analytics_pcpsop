@@ -1154,7 +1154,8 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 key={k.label}
                 onClick={() => {
                   setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
-                  setApenasAtrasados(true);
+                  setApenasAtrasados(false);
+                  setSelecionados(new Set());
                 }}
                 className="px-4 py-3 text-left transition-all"
                 style={{
@@ -1202,7 +1203,11 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
           <select
             value={filtroGrupo}
-            onChange={(e) => setFiltroGrupo(e.target.value)}
+            onChange={(e) => {
+              setFiltroGrupo(e.target.value);
+              setApenasAtrasados(false);
+              setSelecionados(new Set());
+            }}
             className="rounded-lg border px-3 py-2 text-sm outline-none"
             style={{
               background: "var(--bg-secondary)",
@@ -1230,7 +1235,11 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
           <select
             value={filtroEtapa}
-            onChange={(e) => setFiltroEtapa(e.target.value)}
+            onChange={(e) => {
+              setFiltroEtapa(e.target.value);
+              setApenasAtrasados(false);
+              setSelecionados(new Set());
+            }}
             className="rounded-lg border px-3 py-2 text-sm outline-none"
             style={{
               background: "var(--bg-secondary)",
@@ -1263,7 +1272,11 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
           <select
             value={filtroEmbalado}
-            onChange={(e) => setFiltroEmbalado(e.target.value)}
+            onChange={(e) => {
+              setFiltroEmbalado(e.target.value);
+              setApenasAtrasados(false);
+              setSelecionados(new Set());
+            }}
             className="rounded-lg border px-3 py-2 text-sm outline-none"
             style={{
               background: "var(--bg-secondary)",
@@ -1287,7 +1300,10 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           </label>
 
           <button
-            onClick={() => setApenasAtrasados(!apenasAtrasados)}
+            onClick={() => {
+              setApenasAtrasados(!apenasAtrasados);
+              setSelecionados(new Set());
+            }}
             className="rounded-lg border px-3 py-2 text-sm font-semibold transition-colors"
             style={{
               background: apenasAtrasados
