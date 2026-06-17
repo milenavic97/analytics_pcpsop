@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v16_mps_pi_alocado_exportacao"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v17_tooltip_corte_percentil70"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -2062,10 +2062,27 @@ function termoVendaConsumoTituloPorEscopo(escopo?: EscopoEstoque) {
   return "Venda/consumo"
 }
 
+const PERCENTIL_CORTE_VENDA_CONSUMO_MATRIZ = 70
+
 function labelCorteVendaConsumoMatriz(escopo?: EscopoEstoque) {
   if (escopo === "produtos") return "Corte venda média"
   if (escopo === "insumos") return "Corte consumo médio"
   return "Corte venda/consumo médio"
+}
+
+function textoTooltipCorteVendaConsumoMatriz(escopo?: EscopoEstoque) {
+  const termo = termoVendaConsumoPorEscopo(escopo)
+  const base = escopo === "produtos"
+    ? "venda média mensal dos últimos 6 meses pela SD2"
+    : escopo === "insumos"
+      ? "consumo médio mensal dos últimos 6 meses pela posição de estoque/Aging"
+      : "venda/consumo médio mensal dos últimos 6 meses conforme o tipo do item"
+
+  return `Corte calculado pelo percentil ${PERCENTIL_CORTE_VENDA_CONSUMO_MATRIZ} do recorte atual. A tela ordena os SKUs pela ${base}; aproximadamente ${PERCENTIL_CORTE_VENDA_CONSUMO_MATRIZ}% dos itens ficam com ${termo} média igual ou abaixo desse valor. O corte muda conforme filtros de escopo, linha e descontinuado.`
+}
+
+function textoTooltipCorteCoberturaMatriz() {
+  return "Corte fixo de 3 meses. Itens acima desse valor são avaliados como cobertura alta; itens abaixo entram como cobertura controlada ou risco de falta, conforme a venda/consumo média 6M."
 }
 
 function eixoVendaConsumoMatriz(escopo?: EscopoEstoque) {
@@ -3719,8 +3736,34 @@ function MatrizEstoqueGiroPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>{labelCorteVendaConsumoMatriz(escopo)}: {fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}</span>
-          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte cobertura: {fmtNumber(matriz.corteCobertura || 3, 1)} m</span>
+          <div className="group relative">
+            <span
+              className="inline-flex cursor-help items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-bold"
+              style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              title={textoTooltipCorteVendaConsumoMatriz(escopo)}
+            >
+              {labelCorteVendaConsumoMatriz(escopo)}: {fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}
+              <span className="text-[10px] opacity-70">?</span>
+            </span>
+            <div className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-80 rounded-2xl border bg-white p-3 text-xs leading-relaxed shadow-xl group-hover:block" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+              <p className="mb-1 font-bold" style={{ color: "var(--text-primary)" }}>Como o corte é calculado?</p>
+              <p>{textoTooltipCorteVendaConsumoMatriz(escopo)}</p>
+            </div>
+          </div>
+          <div className="group relative">
+            <span
+              className="inline-flex cursor-help items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-bold"
+              style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              title={textoTooltipCorteCoberturaMatriz()}
+            >
+              Corte cobertura: {fmtNumber(matriz.corteCobertura || 3, 1)} m
+              <span className="text-[10px] opacity-70">?</span>
+            </span>
+            <div className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-80 rounded-2xl border bg-white p-3 text-xs leading-relaxed shadow-xl group-hover:block" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+              <p className="mb-1 font-bold" style={{ color: "var(--text-primary)" }}>Como ler a cobertura?</p>
+              <p>{textoTooltipCorteCoberturaMatriz()}</p>
+            </div>
+          </div>
           <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Cobertura calculada só com estoque atual</span>
           <button
             type="button"
@@ -4662,7 +4705,7 @@ function BraviSeriePanel({
               criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : Number(res.resumo?.criticos || 0),
             },
             serie: serieBackend,
-            debug: { ...(res.debug || {}), modo_front: "item_pa_mr_backend_cache_v32" },
+            debug: { ...(res.debug || {}), modo_front: "item_pa_mr_backend_cache_v33_tooltip_percentil70" },
           })
         })
         .catch((err: unknown) => {
