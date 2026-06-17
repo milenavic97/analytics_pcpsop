@@ -1098,7 +1098,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           </button>
 
           <div
-            className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-6"
+            className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-7"
             style={{ background: "var(--border)" }}
           >
             {[
@@ -1112,6 +1112,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 color: "#92400E",
                 icon: AlertTriangle,
                 filtro: "REPROVACAO_DESVIO",
+              },
+              {
+                label: "Em desvio aberto",
+                value: data.mtd_gap_por_etapa.desvio_aberto ?? 0,
+                color: "#B45309",
+                icon: AlertTriangle,
+                filtro: "DESVIO",
               },
               {
                 label: "Atraso produção",
