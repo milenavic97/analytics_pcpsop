@@ -22,6 +22,8 @@ import {
   ComposedChart,
   Bar,
   Line,
+  Cell,
+  LabelList,
   XAxis,
   YAxis,
   Tooltip,
@@ -29,7 +31,6 @@ import {
   CartesianGrid,
 } from "recharts"
 
-import { getResumoFaturamento } from "../../services/api"
 
 type Cards = {
   faturamento_total?: number
@@ -38,6 +39,12 @@ type Cards = {
   produtos_ativos?: number
   ticket_medio_cliente?: number
   preco_medio?: number
+  forecast_total?: number
+  orcado_total?: number
+  delta_forecast?: number
+  delta_orcado?: number
+  atingimento_forecast_pct?: number
+  atingimento_orcado_pct?: number
   registros?: number
   top_cliente_nome?: string
   top_cliente_participacao_pct?: number
@@ -48,6 +55,12 @@ type Mes = {
   mes_nome?: string
   faturamento?: number
   quantidade?: number
+  forecast?: number
+  orcado?: number
+  delta_forecast?: number
+  delta_orcado?: number
+  atingimento_forecast_pct?: number
+  atingimento_orcado_pct?: number
   clientes?: number
   produtos?: number
   preco_medio?: number
@@ -84,6 +97,12 @@ type Produto = {
   linha?: string
   faturamento?: number
   quantidade?: number
+  forecast?: number
+  orcado?: number
+  delta_forecast?: number
+  delta_orcado?: number
+  atingimento_forecast_pct?: number
+  atingimento_orcado_pct?: number
   preco_medio?: number
   clientes?: number
   participacao_valor_pct?: number
@@ -129,6 +148,7 @@ type ResumoFaturamento = {
     join_clientes?: string
     qtd_clientes_dimensao?: number
     observacao?: string
+    produto_filtro?: string
   }
 }
 
@@ -136,7 +156,10 @@ const AZUL = "#17375E"
 const AZUL_CLARO = "#7EA6C8"
 const VERDE = "#0F766E"
 const LARANJA = "#D97706"
+const ROXO_SUAVE = "#7C3AED"
+const VERMELHO_SUAVE = "#DC2626"
 const CINZA_AZULADO = "#CBD5E1"
+const PALETA_LINHAS = [AZUL, AZUL_CLARO, VERDE, LARANJA, ROXO_SUAVE, "#64748B", "#0EA5E9", "#A16207"]
 
 const ESCOPOS = [
   { value: "TODOS", label: "Todos" },
@@ -175,6 +198,24 @@ function fmtMoneyFull(value?: number) {
   }).format(value ?? 0)
 }
 
+function labelMoney(value: any) {
+  const numero = Number(value || 0)
+  if (!numero) return ""
+  return fmtMoney(numero)
+}
+
+function labelQtd(value: any) {
+  const numero = Number(value || 0)
+  if (!numero) return ""
+  return fmtNumero(numero)
+}
+
+function labelPct(value: any) {
+  const numero = Number(value || 0)
+  if (!numero) return ""
+  return fmtPct(numero)
+}
+
 function fmtPct(value?: number) {
   return `${fmtNumero(value ?? 0, 1)}%`
 }
@@ -210,11 +251,15 @@ function KpiCard({
   value,
   subtitle,
   icon: Icon,
+  iconBg = "#F1F5F9",
+  iconColor = AZUL,
 }: {
   title: string
   value: string
   subtitle?: string
   icon: any
+  iconBg?: string
+  iconColor?: string
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -224,7 +269,7 @@ function KpiCard({
           <p className="mt-2 text-2xl font-bold leading-tight text-slate-900 tabular-nums">{value}</p>
           {subtitle && <p className="mt-1 truncate text-xs text-slate-500">{subtitle}</p>}
         </div>
-        <div className="rounded-xl bg-slate-100 p-2.5 text-[#17375E]">
+        <div className="rounded-xl p-2.5" style={{ backgroundColor: iconBg, color: iconColor }}>
           <Icon size={18} />
         </div>
       </div>
@@ -259,6 +304,14 @@ export default function FaturamentoPage() {
 
   const [ano, setAno] = useState(2026)
   const [bloco, setBloco] = useState("TODOS")
+  const [produtoBuscaInput, setProdutoBuscaInput] = useState("")
+  const [produtoFiltro, setProdutoFiltro] = useState("")
+  const [seriesVisiveis, setSeriesVisiveis] = useState({
+    faturamento: true,
+    quantidade: true,
+    forecast: true,
+    orcado: true,
+  })
   const [buscaCliente, setBuscaCliente] = useState("")
   const [buscaProduto, setBuscaProduto] = useState("")
   const [abcModo, setAbcModo] = useState<"valor" | "quantidade">("valor")
@@ -274,8 +327,23 @@ export default function FaturamentoPage() {
     try {
       setLoading(true)
       setErro(null)
-      const response = await getResumoFaturamento({ ano, bloco })
-      setDados(response as ResumoFaturamento)
+
+      const params = new URLSearchParams({
+        ano: String(ano),
+        bloco,
+      })
+
+      if (produtoFiltro.trim()) {
+        params.set("produto", produtoFiltro.trim())
+      }
+
+      const response = await fetch(`${API_BASE}/faturamento/resumo?${params.toString()}&_t=${Date.now()}`)
+      if (!response.ok) {
+        throw new Error("Erro ao carregar resumo de faturamento.")
+      }
+
+      const json = await response.json()
+      setDados(json as ResumoFaturamento)
     } catch (error) {
       console.error(error)
       setErro("Não foi possível carregar o faturamento agora. Atualize a página ou tente novamente em alguns instantes.")
@@ -340,7 +408,7 @@ export default function FaturamentoPage() {
 
   useEffect(() => {
     carregarResumo()
-  }, [ano, bloco])
+  }, [ano, bloco, produtoFiltro])
 
   useEffect(() => {
     carregarUltimaAtualizacaoClientes()
@@ -351,6 +419,8 @@ export default function FaturamentoPage() {
       mes: item.mes_nome ?? String(item.mes ?? ""),
       Faturamento: item.faturamento ?? 0,
       Quantidade: item.quantidade ?? 0,
+      Forecast: item.forecast ?? 0,
+      Orçado: item.orcado ?? 0,
     }))
   }, [dados])
 
@@ -477,6 +547,22 @@ export default function FaturamentoPage() {
     return sortAsc ? <ChevronUp size={11} /> : <ChevronDown size={11} />
   }
 
+  function toggleSerie(chave: keyof typeof seriesVisiveis) {
+    setSeriesVisiveis((atual) => ({
+      ...atual,
+      [chave]: !atual[chave],
+    }))
+  }
+
+  function aplicarFiltroProduto() {
+    setProdutoFiltro(produtoBuscaInput.trim())
+  }
+
+  function limparFiltroProduto() {
+    setProdutoBuscaInput("")
+    setProdutoFiltro("")
+  }
+
   const cards = dados?.cards ?? {}
   const escopoLabel = dados?.escopo_label ?? ESCOPOS.find((e) => e.value === bloco)?.label ?? "Todos"
 
@@ -511,6 +597,37 @@ export default function FaturamentoPage() {
               <option key={item.value} value={item.value}>{item.label}</option>
             ))}
           </select>
+
+          <div className="relative w-full sm:w-72">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={produtoBuscaInput}
+              onChange={(event) => setProdutoBuscaInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") aplicarFiltroProduto()
+              }}
+              placeholder="Código, produto, grupo ou linha"
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm font-medium text-slate-700 shadow-sm outline-none focus:border-[#17375E]"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={aplicarFiltroProduto}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100"
+          >
+            Filtrar produto
+          </button>
+
+          {produtoFiltro && (
+            <button
+              type="button"
+              onClick={limparFiltroProduto}
+              className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-500 shadow-sm hover:bg-slate-50"
+            >
+              Limpar produto
+            </button>
+          )}
 
           <button
             type="button"
@@ -548,6 +665,7 @@ export default function FaturamentoPage() {
             <p className="mt-1 text-lg font-semibold text-slate-900">{escopoLabel}</p>
             <p className="mt-1 text-xs text-slate-500">
               A dimensão de clientes é cruzada por código da SD2. Fonte cliente: {dimensaoClientesCarregada ? "dClientes vinculada" : "aguardando dClientes"}.
+              {produtoFiltro && <span className="ml-2 font-semibold text-blue-700">Produto filtrado: {produtoFiltro}</span>}
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 sm:grid-cols-4">
@@ -571,24 +689,49 @@ export default function FaturamentoPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard title="Faturamento" value={fmtMoney(cards.faturamento_total)} subtitle="Valor total SD2" icon={DollarSign} />
-        <KpiCard title="Quantidade" value={fmtNumero(cards.quantidade_total)} subtitle="Volume faturado" icon={BarChart3} />
-        <KpiCard title="Clientes ativos" value={fmtNumero(cards.clientes_ativos)} subtitle="Com venda no período" icon={Users} />
-        <KpiCard title="Produtos ativos" value={fmtNumero(cards.produtos_ativos)} subtitle="SKUs faturados" icon={Package} />
-        <KpiCard title="Ticket/cliente" value={fmtMoney(cards.ticket_medio_cliente)} subtitle="Faturamento médio" icon={Building2} />
-        <KpiCard title="Preço médio" value={fmtMoney(cards.preco_medio)} subtitle="Valor / quantidade" icon={Target} />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-8">
+        <KpiCard title="Faturamento" value={fmtMoney(cards.faturamento_total)} subtitle="Valor total SD2" icon={DollarSign} iconBg="#E0F2FE" iconColor={AZUL} />
+        <KpiCard title="Quantidade" value={fmtNumero(cards.quantidade_total)} subtitle="Volume faturado" icon={BarChart3} iconBg="#DBEAFE" iconColor="#2563EB" />
+        <KpiCard title="Forecast S&OP" value={fmtNumero(cards.forecast_total)} subtitle="Volume previsto" icon={Target} iconBg="#FEF3C7" iconColor={LARANJA} />
+        <KpiCard title="Ating. Forecast" value={fmtPct(cards.atingimento_forecast_pct)} subtitle={`${fmtNumero(cards.delta_forecast)} cx vs forecast`} icon={RefreshCw} iconBg="#DCFCE7" iconColor={VERDE} />
+        <KpiCard title="Clientes ativos" value={fmtNumero(cards.clientes_ativos)} subtitle="Com venda no período" icon={Users} iconBg="#F3E8FF" iconColor={ROXO_SUAVE} />
+        <KpiCard title="Produtos ativos" value={fmtNumero(cards.produtos_ativos)} subtitle="SKUs faturados" icon={Package} iconBg="#F1F5F9" iconColor="#475569" />
+        <KpiCard title="Ticket/cliente" value={fmtMoney(cards.ticket_medio_cliente)} subtitle="Faturamento médio" icon={Building2} iconBg="#ECFDF5" iconColor={VERDE} />
+        <KpiCard title="Preço médio" value={fmtMoney(cards.preco_medio)} subtitle="Valor / quantidade" icon={Award} iconBg="#FFF7ED" iconColor={LARANJA} />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <SectionCard
-            title="Evolução mensal do faturamento e volume"
-            subtitle="Faturamento em valor e quantidade faturada por mês. Clientes ativos ficam no gráfico separado abaixo."
+            title="Evolução mensal do faturamento, volume e plano"
+            subtitle="Barras mostram faturamento; linhas comparam quantidade real, Forecast S&OP e Orçado. Clique nos botões para mostrar ou ocultar séries."
           >
-            <div className="h-[340px]">
+            <div className="mb-3 flex flex-wrap gap-2">
+              {[
+                { key: "faturamento", label: "Faturamento", color: AZUL },
+                { key: "quantidade", label: "Quantidade", color: AZUL_CLARO },
+                { key: "forecast", label: "Forecast S&OP", color: LARANJA },
+                { key: "orcado", label: "Orçado", color: VERDE },
+              ].map((serie) => (
+                <button
+                  key={serie.key}
+                  type="button"
+                  onClick={() => toggleSerie(serie.key as keyof typeof seriesVisiveis)}
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    seriesVisiveis[serie.key as keyof typeof seriesVisiveis]
+                      ? "border-slate-200 bg-white text-slate-700 shadow-sm"
+                      : "border-slate-200 bg-slate-100 text-slate-400"
+                  }`}
+                >
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: serie.color }} />
+                  {serie.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="h-[360px]">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={mesesGrafico}>
+                <ComposedChart data={mesesGrafico} margin={{ top: 24, right: 20, left: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                   <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
                   <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
@@ -600,8 +743,26 @@ export default function FaturamentoPage() {
                     }}
                   />
                   <Legend />
-                  <Bar yAxisId="left" dataKey="Faturamento" name="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} />
-                  <Line yAxisId="right" type="monotone" dataKey="Quantidade" name="Quantidade" stroke={AZUL_CLARO} strokeWidth={3} dot={{ r: 4 }} />
+                  {seriesVisiveis.faturamento && (
+                    <Bar yAxisId="left" dataKey="Faturamento" name="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]}>
+                      <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={{ fill: AZUL, fontSize: 11, fontWeight: 700 }} />
+                    </Bar>
+                  )}
+                  {seriesVisiveis.quantidade && (
+                    <Line yAxisId="right" type="monotone" dataKey="Quantidade" name="Quantidade" stroke={AZUL_CLARO} strokeWidth={3} dot={{ r: 4 }}>
+                      <LabelList dataKey="Quantidade" position="top" formatter={labelQtd} style={{ fill: AZUL_CLARO, fontSize: 10, fontWeight: 700 }} />
+                    </Line>
+                  )}
+                  {seriesVisiveis.forecast && (
+                    <Line yAxisId="right" type="monotone" dataKey="Forecast" name="Forecast S&OP" stroke={LARANJA} strokeWidth={3} strokeDasharray="6 4" dot={{ r: 4 }}>
+                      <LabelList dataKey="Forecast" position="bottom" formatter={labelQtd} style={{ fill: LARANJA, fontSize: 10, fontWeight: 700 }} />
+                    </Line>
+                  )}
+                  {seriesVisiveis.orcado && (
+                    <Line yAxisId="right" type="monotone" dataKey="Orçado" name="Orçado" stroke={VERDE} strokeWidth={2.5} strokeDasharray="3 3" dot={{ r: 4 }}>
+                      <LabelList dataKey="Orçado" position="top" formatter={labelQtd} style={{ fill: VERDE, fontSize: 10, fontWeight: 700 }} />
+                    </Line>
+                  )}
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -619,7 +780,12 @@ export default function FaturamentoPage() {
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
                 <YAxis type="category" dataKey="linha" width={110} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(value: any, name: any) => [name === "Faturamento" ? fmtMoneyFull(Number(value)) : fmtPct(Number(value)), name]} />
-                <Bar dataKey="Faturamento" fill={AZUL} radius={[0, 7, 7, 0]} />
+                <Bar dataKey="Faturamento" radius={[0, 7, 7, 0]}>
+                  {linhasGrafico.map((_, index) => (
+                    <Cell key={`linha-${index}`} fill={PALETA_LINHAS[index % PALETA_LINHAS.length]} />
+                  ))}
+                  <LabelList dataKey="Faturamento" position="right" formatter={labelMoney} style={{ fill: AZUL, fontSize: 11, fontWeight: 700 }} />
+                </Bar>
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -638,7 +804,9 @@ export default function FaturamentoPage() {
                 <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => fmtNumero(Number(v))} />
                 <Tooltip formatter={(value: any) => [fmtNumero(Number(value)), "Clientes ativos"]} />
-                <Bar dataKey="Clientes" fill={AZUL_CLARO} radius={[7, 7, 0, 0]} />
+                <Bar dataKey="Clientes" fill={AZUL_CLARO} radius={[7, 7, 0, 0]}>
+                  <LabelList dataKey="Clientes" position="top" formatter={labelQtd} style={{ fill: AZUL, fontSize: 11, fontWeight: 700 }} />
+                </Bar>
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -844,12 +1012,12 @@ export default function FaturamentoPage() {
       <div className="mt-6">
         <SectionCard
           title="Top produtos"
-          subtitle="Produtos ordenados por faturamento. Busca por código, descrição, grupo ou linha."
+          subtitle="Produtos ordenados por faturamento, com comparação entre realizado, Forecast S&OP e Orçado."
         >
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <Award size={15} className="text-slate-400" />
-              <span>Mostrando até 200 produtos de maior faturamento.</span>
+              <span>Mostrando até 200 produtos de maior faturamento. Use o filtro global do topo para recalcular todos os gráficos por código ou produto.</span>
             </div>
             <div className="relative w-full md:w-96">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -871,6 +1039,10 @@ export default function FaturamentoPage() {
                   <th className="px-3 py-3 text-left text-xs font-semibold">Linha</th>
                   <th className="px-3 py-3 text-right text-xs font-semibold">Faturamento</th>
                   <th className="px-3 py-3 text-right text-xs font-semibold">Quantidade</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold">Forecast</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold">Ating. FC</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold">Orçado</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold">Ating. Orç.</th>
                   <th className="px-3 py-3 text-right text-xs font-semibold">Preço médio</th>
                   <th className="px-3 py-3 text-right text-xs font-semibold">Clientes</th>
                   <th className="px-3 py-3 text-right text-xs font-semibold">Part.</th>
@@ -887,6 +1059,10 @@ export default function FaturamentoPage() {
                     <td className="px-3 py-3 text-xs text-slate-600">{item.linha || "-"}</td>
                     <td className="px-3 py-3 text-right font-semibold text-slate-900">{fmtMoney(item.faturamento)}</td>
                     <td className="px-3 py-3 text-right text-slate-600">{fmtNumero(item.quantidade)}</td>
+                    <td className="px-3 py-3 text-right text-slate-600">{fmtNumero(item.forecast)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-orange-700">{fmtPct(item.atingimento_forecast_pct)}</td>
+                    <td className="px-3 py-3 text-right text-slate-600">{fmtNumero(item.orcado)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-emerald-700">{fmtPct(item.atingimento_orcado_pct)}</td>
                     <td className="px-3 py-3 text-right text-slate-600">{fmtMoney(item.preco_medio)}</td>
                     <td className="px-3 py-3 text-right text-slate-600">{fmtNumero(item.clientes)}</td>
                     <td className="px-3 py-3 text-right text-slate-600">{fmtPct(item.participacao_valor_pct)}</td>
@@ -894,7 +1070,7 @@ export default function FaturamentoPage() {
                 ))}
                 {!loading && produtosFiltrados.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-500">Nenhum produto encontrado.</td>
+                    <td colSpan={12} className="px-4 py-8 text-center text-sm text-slate-500">Nenhum produto encontrado.</td>
                   </tr>
                 )}
               </tbody>
