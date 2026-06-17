@@ -351,7 +351,6 @@ export default function FaturamentoPage() {
       mes: item.mes_nome ?? String(item.mes ?? ""),
       Faturamento: item.faturamento ?? 0,
       Quantidade: item.quantidade ?? 0,
-      Clientes: item.clientes ?? 0,
     }))
   }, [dados])
 
@@ -584,8 +583,8 @@ export default function FaturamentoPage() {
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <SectionCard
-            title="Evolução mensal"
-            subtitle="Faturamento em valor, quantidade faturada e clientes ativos por mês."
+            title="Evolução mensal do faturamento e volume"
+            subtitle="Faturamento em valor e quantidade faturada por mês. Clientes ativos ficam no gráfico separado abaixo."
           >
             <div className="h-[340px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -601,9 +600,8 @@ export default function FaturamentoPage() {
                     }}
                   />
                   <Legend />
-                  <Bar yAxisId="left" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} />
-                  <Line yAxisId="right" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={3} dot={{ r: 4 }} />
-                  <Line yAxisId="right" type="monotone" dataKey="Clientes" stroke="#0F172A" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 3 }} />
+                  <Bar yAxisId="left" dataKey="Faturamento" name="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} />
+                  <Line yAxisId="right" type="monotone" dataKey="Quantidade" name="Quantidade" stroke={AZUL_CLARO} strokeWidth={3} dot={{ r: 4 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -631,7 +629,7 @@ export default function FaturamentoPage() {
       <div className="mt-6">
         <SectionCard
           title="Clientes ativos por mês"
-          subtitle="Quantidade de clientes com faturamento no mês. Separado para não poluir a leitura de faturamento e volume."
+          subtitle="Quantidade de clientes com faturamento no mês, em visão separada para facilitar a leitura."
         >
           <div className="h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
