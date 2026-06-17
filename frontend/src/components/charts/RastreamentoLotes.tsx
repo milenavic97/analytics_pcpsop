@@ -178,6 +178,14 @@ function fmt(n?: number | null) {
   return new Intl.NumberFormat("pt-BR").format(Math.round(n));
 }
 
+function fmtPercent(n?: number | null) {
+  if (n === null || n === undefined || Number.isNaN(Number(n))) return "0,0";
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(Number(n));
+}
+
 function fmtData(iso?: string | null) {
   if (!iso) return "—";
   const [y, m, d] = iso.split("-");
@@ -819,6 +827,11 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   // previsto até hoje - liberado até hoje.
   // Os cards usam mtd_gap_por_etapa já conciliado pelo backend.
   const gapAlertaTela = data?.mtd_cx_gap ?? gapPorStatusTela.total ?? 0;
+  const denominadorCards = Math.max(0, Number(gapAlertaTela || gapPorStatusTela.total || 0));
+  const textoPercentualCard = (valor: number) =>
+    denominadorCards > 0
+      ? `${fmtPercent((Number(valor || 0) / denominadorCards) * 100)}% do faltante`
+      : "0,0% do faltante";
 
   const lotesFiltrados = useMemo(() => {
     let lista = [...lotesFiltradosBase];
@@ -1136,21 +1149,14 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           >
             {[
               {
-                label: "Reprovação/desvio",
+                label: "Perda reprovação/desvio",
                 value: gapPorStatusTela.reprovacao_desvio,
                 color: "#92400E",
                 icon: AlertTriangle,
                 filtro: "REPROVACAO_DESVIO",
               },
               {
-                label: "Em desvio aberto",
-                value: gapPorStatusTela.desvio_aberto,
-                color: "#B45309",
-                icon: AlertTriangle,
-                filtro: "DESVIO",
-              },
-              {
-                label: "Atraso produção",
+                label: "Perda produção",
                 value: gapPorStatusTela.atraso_producao,
                 color: "#DC2626",
                 icon: Clock,
@@ -1162,6 +1168,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 color: "#6B7280",
                 icon: TrendingDown,
                 filtro: "RENDIMENTO",
+              },
+              {
+                label: "Em desvio aberto",
+                value: gapPorStatusTela.desvio_aberto,
+                color: "#B45309",
+                icon: AlertTriangle,
+                filtro: "DESVIO",
               },
               {
                 label: "Em embalagem",
@@ -1221,6 +1234,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   }}
                 >
                   {fmt(k.value)} cx
+                </p>
+
+                <p
+                  className="mt-0.5 text-[11px] font-medium"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {textoPercentualCard(k.value)}
                 </p>
               </button>
             ))}
@@ -1313,10 +1333,10 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           >
             <option value="">Todos os status</option>
             <option value="LIBERADO">Liberado</option>
-            <option value="REPROVACAO_DESVIO">Reprovação/desvio</option>
-            <option value="DESVIO">Em desvio</option>
-            <option value="ATRASO_PRODUCAO">Atraso de produção</option>
-            <option value="RENDIMENTO">Perda por rendimento</option>
+            <option value="REPROVACAO_DESVIO">Perda reprovação/desvio</option>
+            <option value="DESVIO">Em desvio aberto</option>
+            <option value="ATRASO_PRODUCAO">Perda produção</option>
+            <option value="RENDIMENTO">Perda rendimento</option>
             <option value="EMBALAGEM">Em embalagem</option>
             <option value="ENVASE">Em envase</option>
             <option value="LAVAGEM">Em lavagem</option>
