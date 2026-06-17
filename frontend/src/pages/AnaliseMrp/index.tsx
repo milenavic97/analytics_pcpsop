@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v17_tooltip_corte_percentil70"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v18_status_estoque_atual_v71"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -3764,7 +3764,7 @@ function MatrizEstoqueGiroPanel({
               <p>{textoTooltipCorteCoberturaMatriz()}</p>
             </div>
           </div>
-          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Cobertura calculada só com estoque atual</span>
+          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Cobertura: PA estoque atual; comprados com entradas</span>
           <button
             type="button"
             onClick={() => setQuadranteSelecionado(null)}
@@ -4705,7 +4705,7 @@ function BraviSeriePanel({
               criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : Number(res.resumo?.criticos || 0),
             },
             serie: serieBackend,
-            debug: { ...(res.debug || {}), modo_front: "item_pa_mr_backend_cache_v33_tooltip_percentil70" },
+            debug: { ...(res.debug || {}), modo_front: "item_pa_mr_backend_cache_v34_status_estoque_atual_v71" },
           })
         })
         .catch((err: unknown) => {
