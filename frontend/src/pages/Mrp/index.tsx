@@ -1058,6 +1058,73 @@ function toNumber(value: unknown) {
   return Number(texto)
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : []
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function asMonthlyArray(value: unknown): Array<number | null> {
+  const vazio = Array.from({ length: 12 }, () => null as number | null)
+  const arr = asArray<unknown>(value)
+
+  if (!arr.length) return vazio
+
+  const temMesExplicito = arr.some((item) => {
+    const obj = asRecord(item)
+    return obj.mes !== undefined || obj.mes_numero !== undefined || obj.month !== undefined
+  })
+
+  if (temMesExplicito) {
+    const meses = [...vazio]
+    arr.forEach((item) => {
+      const obj = asRecord(item)
+      const mes = Number(obj.mes ?? obj.mes_numero ?? obj.month)
+      if (!Number.isFinite(mes) || mes < 1 || mes > 12) return
+
+      const bruto = obj.qtd_caixas ?? obj.quantidade ?? obj.realizado ?? obj.valor ?? obj.total ?? obj.qtd ?? null
+      if (bruto === null || bruto === undefined || bruto === "") {
+        meses[mes - 1] = null
+        return
+      }
+
+      const n = Number(bruto)
+      meses[mes - 1] = Number.isFinite(n) ? n : null
+    })
+    return meses
+  }
+
+  return Array.from({ length: 12 }, (_, idx) => {
+    const bruto = arr[idx]
+    if (bruto === null || bruto === undefined || bruto === "") return null
+    const n = Number(bruto)
+    return Number.isFinite(n) ? n : null
+  })
+}
+
+function asMudancasRealizado(value: unknown): MudancaRealizado[] {
+  if (Array.isArray(value)) return value as MudancaRealizado[]
+
+  const obj = asRecord(value)
+  const candidatas = [
+    obj.mudancas_realizado,
+    obj.lotes_atualizados,
+    obj.dados,
+    obj.items,
+    obj.results,
+  ]
+
+  for (const candidata of candidatas) {
+    if (Array.isArray(candidata)) return candidata as MudancaRealizado[]
+  }
+
+  return []
+}
+
 function normalizarTexto(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/gi, "").toUpperCase()
 }
@@ -2097,7 +2164,7 @@ function ProjecaoPerdasMensais({ rodadas, etapasPorRodada, rodadaAtual }: {
 
   useEffect(() => {
     getSd3RealizadoMensal(anoAnalise)
-      .then(setSd3Mensal)
+      .then((d: unknown) => setSd3Mensal(asMonthlyArray(d)))
       .catch(() => setSd3Mensal(Array.from({ length: 12 }, () => null)))
   }, [anoAnalise])
 
@@ -2743,9 +2810,10 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
 
     getOrcadoLiberacao()
       .then((d: unknown) => {
-        const data = d as { meses?: Array<{ mes: number; L1?: number; L2?: number }> }
+        const data = d as { meses?: unknown }
+        const mesesRaw = asArray<{ mes?: number; L1?: number; L2?: number }>(data.meses)
         const meses = Array.from({ length: 12 }, (_, i) => {
-          const item = data.meses?.find((m) => Number(m.mes) === i + 1)
+          const item = mesesRaw.find((m) => Number(m.mes) === i + 1)
           return ((Number(item?.L1 || 0) + Number(item?.L2 || 0)) / 500)
         })
         setOrcadoMensalCaixas(meses)
@@ -2755,7 +2823,7 @@ function VisaoConsolidada({ rodadas, etapasPorRodada, rodadaAtual, mudancasReali
 
   useEffect(() => {
     getSd3RealizadoMensal(anoAnalise)
-      .then(setSd3MensalConsolidado)
+      .then((d: unknown) => setSd3MensalConsolidado(asMonthlyArray(d)))
       .catch(() => setSd3MensalConsolidado(Array.from({ length: 12 }, () => null)))
   }, [anoAnalise])
 
@@ -3084,23 +3152,51 @@ export default function Mrp() {
   }
 
   async function carregarRodadas() {
-    const data = await getMrpRodadas()
-    setRodadas(data)
-    if (data.length > 0 && !rodadaSelecionada) setRodadaSelecionada(data[0])
-    return data
+    try {
+      const dataRaw = await getMrpRodadas()
+      const data = asArray<MrpRodada>(dataRaw)
+      setRodadas(data)
+
+      if (data.length > 0 && !rodadaSelecionada) setRodadaSelecionada(data[0])
+      if (!Array.isArray(dataRaw)) {
+        console.warn("Resposta inesperada em getMrpRodadas:", dataRaw)
+      }
+
+      return data
+    } catch (err) {
+      console.error("Erro ao carregar rodadas MRP:", err)
+      setRodadas([])
+      setRodadaSelecionada(null)
+      showToast({
+        tipo: "error",
+        titulo: "Erro ao carregar MPS",
+        mensagem: "Não foi possível carregar as rodadas do MPS agora.",
+      })
+      return []
+    }
   }
 
   async function carregarDadosRodada(rodadaId: string) {
     setLoading(true)
     try {
       const [etapasData, alocacoesData, mudancasData] = await Promise.all([
-        getMrpEtapas(rodadaId),
-        getMrpAlocacoes(rodadaId),
-        getMrpMudancasRealizado(rodadaId),
+        getMrpEtapas(rodadaId).catch((err) => {
+          console.error("Erro ao carregar etapas MRP:", err)
+          return []
+        }),
+        getMrpAlocacoes(rodadaId).catch((err) => {
+          console.error("Erro ao carregar alocações MRP:", err)
+          return []
+        }),
+        getMrpMudancasRealizado(rodadaId).catch((err) => {
+          console.error("Erro ao carregar mudanças do realizado:", err)
+          return []
+        }),
       ])
-      setEtapas(etapasData)
-      setAlocacoes(alocacoesData)
-      setMudancasRealizado(mudancasData.mudancas_realizado || mudancasData.lotes_atualizados || [])
+
+      setEtapas(asArray<MrpEtapa>(etapasData))
+      setAlocacoes(asArray<MrpAlocacaoDia>(alocacoesData))
+      setMudancasRealizado(asMudancasRealizado(mudancasData))
       setEdicoes({})
     } finally {
       setLoading(false)
@@ -3129,7 +3225,7 @@ export default function Mrp() {
       await Promise.all(mesmoMesAno.map(async (r) => {
         if (!r.id || mapa[r.id]) return
         try {
-          mapa[r.id] = await getMrpEtapas(r.id)
+          mapa[r.id] = asArray<MrpEtapa>(await getMrpEtapas(r.id))
         } catch {
           mapa[r.id] = []
         }
@@ -3229,10 +3325,11 @@ export default function Mrp() {
     try {
       setImportandoReal(true)
       const response = await importarMrpProducaoReal(rodadaSelecionada.id, arquivoReal)
-      setMudancasRealizado(response.mudancas_realizado || response.lotes_atualizados || [])
+      const mudancas = asMudancasRealizado(response)
+      setMudancasRealizado(mudancas)
       await carregarDadosRodada(rodadaSelecionada.id)
       await carregarComparativo(rodadaSelecionada, rodadas)
-      showToast({ tipo: "success", titulo: "Realizado aplicado", mensagem: `${(response.lotes_atualizados || []).length} lote(s) atualizados.` })
+      showToast({ tipo: "success", titulo: "Realizado aplicado", mensagem: `${mudancas.length} lote(s) atualizados.` })
     } catch (err) {
       showToast({ tipo: "error", titulo: "Erro ao importar real", mensagem: err instanceof Error ? err.message : "Erro ao importar realizado." })
     } finally { setImportandoReal(false) }
