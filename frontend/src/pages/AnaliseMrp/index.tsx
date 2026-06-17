@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v6_status_mes_atual"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v9_forecast_hist_faturado"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -931,13 +931,10 @@ function getMovimentoSeisMesesStatusDashboard(item: AgingEstoqueItem | null | un
 }
 
 function getDemandaStatusDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
-  const demandaMes = getDemandaMesAtualStatusDashboard(item)
-  if (demandaMes > 0) return demandaMes
-
-  const movimento6m = getMovimentoSeisMesesStatusDashboard(item as AgingEstoqueItem)
-  if (movimento6m > 0) return movimento6m / 6
-
-  return 0
+  // Regra final: status/crítico usa somente forecast/demanda do mês atual.
+  // Venda/consumo dos últimos 6 meses continua aparecendo como histórico, mas
+  // não cria demanda artificial para classificar PA como crítico.
+  return getDemandaMesAtualStatusDashboard(item)
 }
 
 function getCoberturaStatusDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -1599,6 +1596,21 @@ function calcularSemaforoEstoque(item: AgingEstoqueItem | null | undefined): Sem
   }
 
   if (!isProdutoOperacionalEstoque(item)) {
+    const statusInsumo = String(raw.status_estoque || item.status || "").toUpperCase()
+    const saldoRealInsumo = getEstoqueAtualReal(item)
+    const estoqueComEntradasInsumo = saldoRealInsumo + getEntradasMesAtualDashboard(item)
+    const demandaInsumo = getDemandaStatusDashboard(item)
+
+    // Para insumos, o ritmo consumo x previsão continua existindo, mas a
+    // criticidade de estoque tem prioridade. Assim FELIPRESSINA não aparece OK
+    // quando está em ruptura por falta de saldo disponível.
+    if (demandaInsumo > 0) {
+      if (estoqueComEntradasInsumo <= 0) return "VERMELHO"
+      if (["RUPTURA", "CRITICO"].includes(statusInsumo)) return "VERMELHO"
+      if (estoqueComEntradasInsumo < demandaInsumo) return "VERMELHO"
+      if (statusInsumo === "ATENCAO") return "AMARELO"
+    }
+
     return calcularSemaforoConsumoInsumo(item)
   }
 
@@ -2057,7 +2069,48 @@ function getGiroMatriz(item: AgingEstoqueItem) {
   return getConsumoMatriz(item)
 }
 
+function calcularCoberturaMesesPorForecastDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return null
+  const disponivel = Math.max(0, getEstoqueAtualReal(item) + getEntradasMesAtualDashboard(item))
+  if (disponivel <= 0) return 0
+
+  const forecast = getForecastSeisMesesDashboard(item)
+    .map((ponto) => Math.max(0, Number(ponto.valor || 0)))
+    .filter((valor) => Number.isFinite(valor))
+
+  const demandas = forecast.filter((valor) => valor > 0)
+  if (!demandas.length) return null
+
+  let restante = disponivel
+  let meses = 0
+  let demandaTotal = 0
+
+  for (const demanda of demandas) {
+    demandaTotal += demanda
+    if (restante >= demanda) {
+      meses += 1
+      restante -= demanda
+    } else {
+      meses += restante / demanda
+      restante = 0
+      break
+    }
+  }
+
+  if (restante > 0 && demandaTotal > 0) {
+    const media = demandaTotal / demandas.length
+    meses += media > 0 ? restante / media : 0
+  }
+
+  return Number.isFinite(meses) ? Math.max(0, meses) : null
+}
+
 function getCoberturaMatriz(item: AgingEstoqueItem) {
+  // A cobertura exibida na matriz/listas precisa bater com o mini forecast da própria linha:
+  // estoque disponível + entradas do mês consumindo a previsão futura mês a mês.
+  const coberturaPelaSerie = calcularCoberturaMesesPorForecastDashboard(item)
+  if (coberturaPelaSerie !== null) return coberturaPelaSerie
+
   const candidatos = [
     getNum(item, "cobertura_meses_futura"),
     getNum(item, "cobertura_futura_dias") / 30,
@@ -2338,8 +2391,9 @@ function getCategoriaStatusDashboard(item: AgingEstoqueItem | null | undefined):
   const faixaCobertura = getFaixaCoberturaOperacionalDashboard(item)
   const ehSemConsumo = faixaCobertura === "Sem consumo"
   const ehExcesso = faixaCobertura === "Excesso > 3 meses"
-  const ehCritico = !ehSemConsumo && !ehExcesso && (semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO")
-  const ehAtencao = !ehSemConsumo && !ehCritico && !ehExcesso && (semaforo === "AMARELO" || status === "ATENCAO")
+  const demandaAtual = getDemandaMesAtualStatusDashboard(item)
+  const ehCritico = !ehSemConsumo && !ehExcesso && demandaAtual > 0 && (semaforo === "VERMELHO" || status === "RUPTURA" || status === "CRITICO")
+  const ehAtencao = !ehSemConsumo && !ehCritico && !ehExcesso && (semaforo === "AMARELO" || status === "ATENCAO" || (demandaAtual <= 0 && getMovimentoSeisMesesStatusDashboard(item) > 0))
 
   if (ehCritico) return "criticos"
   if (ehExcesso) return "excesso"
@@ -2633,55 +2687,74 @@ function getUltimosMesesDashboard(qtdMeses = 6) {
   return meses
 }
 
+function serieTemValorDashboard(pontos: any[] | undefined, camposValor: string[]) {
+  return (pontos || []).some((ponto) => camposValor.some((campo) => toNumberSafe(ponto?.[campo], 0) > 0))
+}
+
 function getHistoricoSeisMesesDashboard(item: AgingEstoqueItem | null | undefined) {
   const meses = getUltimosMesesDashboard(6)
   const mapa = new Map<string, number>(meses.map((mes) => [mes.key, 0]))
   const raw = (item || {}) as any
+  const tipo = getTipoDashboardItem(item)
+  const ehProduto = ["PA", "MR", "PPS", "PV", "PA/MR"].includes(tipo) || String(raw.transferencia_bravi || "").trim() === "Sim"
 
-  const serieFaturamento = Array.isArray(raw.historico_6m)
-    ? raw.historico_6m
-    : Array.isArray(raw.faturamento_sd2)
-      ? raw.faturamento_sd2
-      : Array.isArray(raw.serie_operacional)
-        ? raw.serie_operacional
-        : []
-
-  if (serieFaturamento.length) {
-    for (const ponto of serieFaturamento) {
+  const aplicarSerie = (pontos: any[] | undefined, camposValor: string[]) => {
+    let aplicou = false
+    for (const ponto of pontos || []) {
       const ano = Number(ponto?.ano || 0)
       const mes = Number(ponto?.mes || 0)
       if (!ano || !mes) continue
       const key = monthKey(ano, mes)
       if (!mapa.has(key)) continue
-      const qtd = Number(ponto?.faturamento_qtd ?? ponto?.consumo ?? ponto?.demanda ?? 0)
-      mapa.set(key, (mapa.get(key) || 0) + (Number.isFinite(qtd) ? qtd : 0))
+      let qtd = 0
+      for (const campo of camposValor) {
+        qtd = toNumberSafe(ponto?.[campo], 0)
+        if (qtd !== 0) break
+      }
+      if (Number.isFinite(qtd)) {
+        mapa.set(key, (mapa.get(key) || 0) + qtd)
+        aplicou = true
+      }
+    }
+    return aplicou
+  }
+
+  const limparMapa = () => {
+    for (const mes of meses) mapa.set(mes.key, 0)
+  }
+
+  // PA/MR/PPS/PV: prioriza a linha de Faturado vinda da própria base S&OP/Forecast,
+  // que é a linha azul já validada no dashboard executivo. SD2 fica como fallback.
+  if (ehProduto) {
+    const fontesProduto: Array<{ pontos: any[] | undefined; campos: string[] }> = [
+      { pontos: Array.isArray(raw.historico_faturado_sop) ? raw.historico_faturado_sop : undefined, campos: ["faturamento_qtd", "faturado", "qtd_faturado", "realizado", "qtd_realizado", "consumo"] },
+      { pontos: Array.isArray(raw.faturamento_sop) ? raw.faturamento_sop : undefined, campos: ["faturamento_qtd", "faturado", "qtd_faturado", "realizado", "qtd_realizado", "consumo"] },
+      { pontos: Array.isArray(raw.historico_6m) ? raw.historico_6m : undefined, campos: ["faturamento_qtd", "faturado", "qtd_faturado", "realizado", "qtd_realizado", "consumo"] },
+      { pontos: Array.isArray(raw.faturamento_sd2) ? raw.faturamento_sd2 : undefined, campos: ["faturamento_qtd", "quantidade", "consumo"] },
+      { pontos: Array.isArray(raw.serie_operacional) ? raw.serie_operacional : undefined, campos: ["faturamento_qtd", "consumo"] },
+      { pontos: Array.isArray(raw.linha_tempo_estoque) ? raw.linha_tempo_estoque : undefined, campos: ["faturamento_qtd", "consumo"] },
+    ]
+
+    for (const fonte of fontesProduto) {
+      if (!serieTemValorDashboard(fonte.pontos, fonte.campos)) continue
+      limparMapa()
+      aplicarSerie(fonte.pontos, fonte.campos)
+      return meses.map((mes) => ({ ...mes, valor: mapa.get(mes.key) || 0 }))
     }
   }
 
-  const historicoConsumo = Array.isArray(raw.historico_consumo) ? raw.historico_consumo : []
-  if (!serieFaturamento.length && historicoConsumo.length) {
-    for (const ponto of historicoConsumo) {
-      const ano = Number(ponto?.ano || 0)
-      const mes = Number(ponto?.mes || 0)
-      if (!ano || !mes) continue
-      const key = monthKey(ano, mes)
-      if (!mapa.has(key)) continue
-      const qtd = Number(ponto?.consumo || 0)
-      mapa.set(key, (mapa.get(key) || 0) + (Number.isFinite(qtd) ? qtd : 0))
-    }
-  }
+  // Insumos/PI: consumo realizado vem da posição de estoque/Aging.
+  const fontesInsumo: Array<{ pontos: any[] | undefined; campos: string[] }> = [
+    { pontos: Array.isArray(raw.historico_consumo) ? raw.historico_consumo : undefined, campos: ["consumo"] },
+    { pontos: Array.isArray(raw.linha_tempo_estoque) ? raw.linha_tempo_estoque : undefined, campos: ["consumo"] },
+    { pontos: Array.isArray(raw.historico_6m) ? raw.historico_6m : undefined, campos: ["consumo", "faturamento_qtd"] },
+  ]
 
-  const linhaTempo = Array.isArray(raw.linha_tempo_estoque) ? raw.linha_tempo_estoque : []
-  if (!serieFaturamento.length && !historicoConsumo.length && linhaTempo.length) {
-    for (const ponto of linhaTempo) {
-      const ano = Number(ponto?.ano || 0)
-      const mes = Number(ponto?.mes || 0)
-      if (!ano || !mes) continue
-      const key = monthKey(ano, mes)
-      if (!mapa.has(key)) continue
-      const qtd = Number(ponto?.consumo ?? ponto?.faturamento_qtd ?? ponto?.demanda ?? ponto?.forecast ?? 0)
-      mapa.set(key, (mapa.get(key) || 0) + (Number.isFinite(qtd) ? qtd : 0))
-    }
+  for (const fonte of fontesInsumo) {
+    if (!serieTemValorDashboard(fonte.pontos, fonte.campos)) continue
+    limparMapa()
+    aplicarSerie(fonte.pontos, fonte.campos)
+    break
   }
 
   return meses.map((mes) => ({ ...mes, valor: mapa.get(mes.key) || 0 }))
@@ -2715,6 +2788,30 @@ function MiniHistoricoDashboard({ item }: { item: AgingEstoqueItem }) {
 }
 
 
+
+function MiniForecastDashboard({ item }: { item: AgingEstoqueItem }) {
+  const forecast = getForecastSeisMesesDashboard(item).slice(0, 6)
+  const max = Math.max(...forecast.map((ponto) => Number(ponto.valor || 0)), 1)
+
+  return (
+    <div className="min-w-[250px] rounded-xl border bg-slate-50 px-3 py-2" style={{ borderColor: "var(--border)" }}>
+      <div className="flex h-[72px] items-end gap-2">
+        {forecast.map((ponto) => {
+          const valor = Number(ponto.valor || 0)
+          const altura = valor > 0 ? Math.max(8, (valor / max) * 42) : 2
+          return (
+            <div key={ponto.key} className="flex flex-1 flex-col items-center justify-end gap-1">
+              <span className="text-[10px] font-bold" style={{ color: "var(--text-primary)" }}>{valor > 0 ? fmtCompact(valor) : "0"}</span>
+              <span className="w-full max-w-[22px] rounded-t-md" style={{ height: `${altura}px`, background: valor > 0 ? "#F97316" : "#CBD5E1" }} />
+              <span className="text-[9px] font-semibold" style={{ color: "var(--text-secondary)" }}>{ponto.label}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function getProximosMesesDashboard(qtdMeses = 6) {
   const hoje = new Date()
   const base = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
@@ -2736,9 +2833,10 @@ function getForecastSeisMesesDashboard(item: AgingEstoqueItem | null | undefined
   const anoAtual = hoje.getFullYear()
   const mesAtual = hoje.getMonth() + 1
   const keyAtual = monthKey(anoAtual, mesAtual)
-  const valoresPorMes = new Map<string, { ano: number; mes: number; valor: number }>()
 
-  const aplicarPontos = (pontos: any[], camposValor: string[]) => {
+  const montarMapa = (pontos: any[] | undefined, camposValor: string[]) => {
+    const mapa = new Map<string, { ano: number; mes: number; valor: number }>()
+
     for (const ponto of pontos || []) {
       const ano = Number(ponto?.ano || 0)
       const mes = Number(ponto?.mes || 0)
@@ -2753,20 +2851,33 @@ function getForecastSeisMesesDashboard(item: AgingEstoqueItem | null | undefined
         if (valor > 0) break
       }
 
-      if (valor <= 0) {
-        valoresPorMes.set(key, valoresPorMes.get(key) || { ano, mes, valor: 0 })
-        continue
-      }
-
-      const atual = valoresPorMes.get(key) || { ano, mes, valor: 0 }
-      atual.valor += valor
-      valoresPorMes.set(key, atual)
+      // Mantém o mês mesmo quando valor = 0. Isso faz o gráfico ficar com
+      // buraco/linha quebrada em meses sem demanda, como ago/out da FELIPRESSINA.
+      const atual = mapa.get(key) || { ano, mes, valor: 0 }
+      atual.valor += Math.max(0, valor)
+      mapa.set(key, atual)
     }
+
+    return mapa
   }
 
-  if (Array.isArray(raw.forecast)) aplicarPontos(raw.forecast, ["forecast", "demanda", "qtd_forecast"])
-  if (Array.isArray(raw.linha_tempo_estoque)) aplicarPontos(raw.linha_tempo_estoque, ["demanda", "forecast"])
-  if (Array.isArray(raw.comparativo_mensal)) aplicarPontos(raw.comparativo_mensal, ["forecast", "demanda"])
+  const fontes: Array<{ pontos: any[] | undefined; campos: string[] }> = [
+    // Prioridade do dashboard: a série futura calculada pelo backend.
+    // Para insumos, ela vem do MPS V1 L1+L2 explodido via BOM; não usar forecast direto do PA.
+    { pontos: Array.isArray(raw.forecast_futuro) ? raw.forecast_futuro : undefined, campos: ["forecast", "demanda", "qtd_forecast"] },
+    { pontos: Array.isArray(raw.forecast) ? raw.forecast : undefined, campos: ["forecast", "demanda", "qtd_forecast"] },
+    { pontos: Array.isArray(raw.linha_tempo_estoque) ? raw.linha_tempo_estoque : undefined, campos: ["demanda", "forecast"] },
+    { pontos: Array.isArray(raw.comparativo_mensal) ? raw.comparativo_mensal : undefined, campos: ["forecast", "demanda"] },
+  ]
+
+  let valoresPorMes = new Map<string, { ano: number; mes: number; valor: number }>()
+  for (const fonte of fontes) {
+    const mapaFonte = montarMapa(fonte.pontos, fonte.campos)
+    if (mapaFonte.size > 0) {
+      valoresPorMes = mapaFonte
+      break
+    }
+  }
 
   const demandaAtual = Math.max(
     getNum((item || {}) as AgingEstoqueItem, "demanda_mes_atual"),
@@ -2800,6 +2911,7 @@ function getForecastSeisMesesDashboard(item: AgingEstoqueItem | null | undefined
 
   return meses.map((mes) => ({ ...mes, valor: valoresPorMes.get(mes.key)?.valor || 0 }))
 }
+
 function getTotalForecastDashboard(item: AgingEstoqueItem | null | undefined) {
   return getForecastSeisMesesDashboard(item).reduce((sum, ponto) => sum + Number(ponto.valor || 0), 0)
 }
@@ -3366,7 +3478,7 @@ function ItensDrilldownDashboardTable({
       </div>
 
       <div className="overflow-auto">
-        <table className="w-full min-w-[1180px] text-xs">
+        <table className="w-full min-w-[1480px] text-xs">
           <thead style={{ background: "#1F5C7A", color: "#FFFFFF" }}>
             <tr className="text-left uppercase tracking-wide">
               <th className="px-3 py-3">SKU</th>
@@ -3374,7 +3486,8 @@ function ItensDrilldownDashboardTable({
               <th className="px-3 py-3">Linha</th>
               <th className="px-3 py-3 text-right">Estoque</th>
               <th className="px-3 py-3 text-right">Total 6M</th>
-              <th className="px-3 py-3">Histórico 6M</th>
+              <th className="px-3 py-3 text-center">Histórico 6M</th>
+              <th className="px-3 py-3 text-center">Forecast</th>
               <th className="px-3 py-3 text-right">Cobertura</th>
               <th className="px-3 py-3 text-right">Entradas mês</th>
               <th className="px-3 py-3 text-right">Valor estoque</th>
@@ -3404,7 +3517,8 @@ function ItensDrilldownDashboardTable({
                   <td className="px-3 py-3 align-middle" style={{ color: "var(--text-secondary)" }}>{linha}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(estoque)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(total6m, 0)}</td>
-                  <td className="px-3 py-3 align-middle"><MiniHistoricoDashboard item={item} /></td>
+                  <td className="px-3 py-3 text-center align-middle"><MiniHistoricoDashboard item={item} /></td>
+                  <td className="px-3 py-3 text-center align-middle"><MiniForecastDashboard item={item} /></td>
                   <td className="px-3 py-3 text-right align-middle">{itemTemConsumoOuDemandaDashboard(item) ? `${fmtNumber(cobertura, 1)} m` : "Sem consumo"}</td>
                   <td className="px-3 py-3 text-right align-middle">{fmtQtdEstoque(entradas)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold">{fmtCurrency(valor, 0)}</td>
@@ -3413,7 +3527,7 @@ function ItensDrilldownDashboardTable({
             })}
             {!itensVisiveis.length && (
               <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>{vazio}</td>
+                <td colSpan={10} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>{vazio}</td>
               </tr>
             )}
           </tbody>
