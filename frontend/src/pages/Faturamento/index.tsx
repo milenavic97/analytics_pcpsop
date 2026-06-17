@@ -160,7 +160,7 @@ const VERMELHO_SUAVE = "#DC2626"
 const CINZA_AZULADO = "#CBD5E1"
 const PALETA_LINHAS = [AZUL, AZUL_CLARO, VERDE, LARANJA, ROXO_SUAVE, "#64748B", "#0EA5E9", "#A16207"]
 
-const APP_FONT_FAMILY = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const APP_FONT_FAMILY = "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 const CHART_TICK_11 = { fontSize: 11, fontFamily: APP_FONT_FAMILY, fill: "#64748B" }
 const CHART_TICK_12 = { fontSize: 12, fontFamily: APP_FONT_FAMILY, fill: "#64748B" }
 const chartLabelStyle = (fill: string, fontSize = 11) => ({
@@ -271,15 +271,15 @@ function KpiCard({
   iconColor?: string
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{title}</p>
-          <p className="mt-2 text-2xl font-bold leading-tight text-slate-900 tabular-nums">{value}</p>
-          {subtitle && <p className="mt-1 truncate text-xs text-slate-500">{subtitle}</p>}
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{title}</p>
+          <p className="mt-5 text-3xl font-bold leading-tight text-slate-900 tabular-nums">{value}</p>
+          {subtitle && <p className="mt-2 truncate text-sm text-slate-500">{subtitle}</p>}
         </div>
-        <div className="rounded-xl p-2.5" style={{ backgroundColor: iconBg, color: iconColor }}>
-          <Icon size={18} />
+        <div className="rounded-xl p-3" style={{ backgroundColor: iconBg, color: iconColor }}>
+          <Icon size={20} />
         </div>
       </div>
     </div>
@@ -298,8 +298,8 @@ function SectionCard({
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-100 px-5 py-4">
-        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-        {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
+        <h2 className="text-xl font-bold text-slate-900">{title}</h2>
+        {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
       </div>
       <div className="p-5">{children}</div>
     </div>
@@ -597,12 +597,12 @@ export default function FaturamentoPage() {
   const escopoLabel = dados?.escopo_label ?? ESCOPOS.find((e) => e.value === bloco)?.label ?? "Todos"
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6 font-sans antialiased" style={{ fontFamily: APP_FONT_FAMILY }}>
+    <div className="space-y-6 p-6 font-sans antialiased">
       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Comercial · Faturamento</p>
-          <h1 className="mt-1 text-2xl font-semibold text-slate-900">Dashboard de Faturamento</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Comercial · Faturamento</p>
+          <h1 className="text-3xl font-bold text-slate-900">Dashboard de Faturamento</h1>
+          <p className="mt-2 text-slate-500">
             Visão executiva por cliente, produto, linha, UF e curva ABC com base na SD2 processada.
           </p>
         </div>
@@ -611,7 +611,7 @@ export default function FaturamentoPage() {
           <select
             value={ano}
             onChange={(event) => setAno(Number(event.target.value))}
-            className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none focus:border-[#17375E]"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-[#17375E]"
           >
             <option value={2026}>2026</option>
             <option value={2025}>2025</option>
@@ -621,7 +621,7 @@ export default function FaturamentoPage() {
           <select
             value={bloco}
             onChange={(event) => setBloco(event.target.value)}
-            className="h-10 min-w-[210px] rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none focus:border-[#17375E]"
+            className="min-w-[210px] rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-[#17375E]"
           >
             {ESCOPOS.map((item) => (
               <option key={item.value} value={item.value}>{item.label}</option>
@@ -637,14 +637,14 @@ export default function FaturamentoPage() {
                 if (event.key === "Enter") aplicarFiltroProduto()
               }}
               placeholder="Código, produto, grupo ou linha"
-              className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm font-medium text-slate-700 shadow-sm outline-none focus:border-[#17375E]"
+              className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-9 pr-3 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-[#17375E]"
             />
           </div>
 
           <button
             type="button"
             onClick={aplicarFiltroProduto}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-100"
+            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 shadow-sm transition hover:bg-blue-100"
           >
             Filtrar produto
           </button>
@@ -653,7 +653,7 @@ export default function FaturamentoPage() {
             <button
               type="button"
               onClick={limparFiltroProduto}
-              className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-500 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-semibold text-slate-500 shadow-sm transition hover:bg-slate-50"
             >
               Limpar produto
             </button>
@@ -665,7 +665,7 @@ export default function FaturamentoPage() {
               setModalClientesAberto(true)
               carregarUltimaAtualizacaoClientes()
             }}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
             <UploadCloud size={16} />
             Base de clientes
@@ -674,7 +674,7 @@ export default function FaturamentoPage() {
           <button
             onClick={carregarResumo}
             disabled={loading}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#17375E] px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#17375E] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#102B4A] disabled:opacity-60"
           >
             {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
             Atualizar
@@ -691,28 +691,28 @@ export default function FaturamentoPage() {
       <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Escopo selecionado</p>
-            <p className="mt-1 text-lg font-semibold text-slate-900">{escopoLabel}</p>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Escopo selecionado</p>
+            <p className="mt-2 text-xl font-bold text-slate-900">{escopoLabel}</p>
+            <p className="mt-1 text-sm text-slate-500">
               A dimensão de clientes é cruzada por código da SD2. Fonte cliente: {dimensaoClientesCarregada ? "dClientes vinculada" : "aguardando dClientes"}.
               {produtoFiltro && <span className="ml-2 font-semibold text-blue-700">Produto filtrado: {produtoFiltro}</span>}
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 text-sm text-slate-500 sm:grid-cols-4">
             <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="font-semibold text-slate-700">Ano</p>
+              <p className="font-bold text-slate-700">Ano</p>
               <p>{ano}</p>
             </div>
             <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="font-semibold text-slate-700">Registros</p>
+              <p className="font-bold text-slate-700">Registros</p>
               <p>{fmtNumero(cards.registros)}</p>
             </div>
             <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="font-semibold text-slate-700">Clientes dim.</p>
+              <p className="font-bold text-slate-700">Clientes dim.</p>
               <p>{fmtNumero(dados?.meta?.qtd_clientes_dimensao)}</p>
             </div>
             <div className="rounded-xl bg-slate-50 px-3 py-2">
-              <p className="font-semibold text-slate-700">Top cliente</p>
+              <p className="font-bold text-slate-700">Top cliente</p>
               <p>{fmtPct(cards.top_cliente_participacao_pct)}</p>
             </div>
           </div>
@@ -878,7 +878,7 @@ export default function FaturamentoPage() {
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-bold text-slate-900">Concentração ABC por valor</p>
+                    <p className="text-base font-bold text-slate-900">Concentração ABC por valor</p>
                     <p className="text-xs text-slate-500">Participação dos clientes no faturamento.</p>
                   </div>
                   <DollarSign size={17} className="text-slate-400" />
@@ -892,7 +892,7 @@ export default function FaturamentoPage() {
                         <p className="mt-1 text-xl font-bold" style={{ color: item.classe === "C" ? "#64748B" : cor }}>
                           {fmtNumero(item.clientes)} clientes
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">{fmtPct(item.pctValor)} do faturamento</p>
+                        <p className="mt-1 text-sm text-slate-500">{fmtPct(item.pctValor)} do faturamento</p>
                         <p className="text-[11px] text-slate-400">{fmtPct(item.pctClientes)} da base</p>
                       </div>
                     )
@@ -903,7 +903,7 @@ export default function FaturamentoPage() {
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-bold text-slate-900">Concentração ABC por quantidade</p>
+                    <p className="text-base font-bold text-slate-900">Concentração ABC por quantidade</p>
                     <p className="text-xs text-slate-500">Participação dos clientes no volume faturado.</p>
                   </div>
                   <BarChart3 size={17} className="text-slate-400" />
@@ -917,7 +917,7 @@ export default function FaturamentoPage() {
                         <p className="mt-1 text-xl font-bold" style={{ color: item.classe === "C" ? "#64748B" : cor }}>
                           {fmtNumero(item.clientes)} clientes
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">{fmtPct(item.pctQuantidade)} do volume</p>
+                        <p className="mt-1 text-sm text-slate-500">{fmtPct(item.pctQuantidade)} do volume</p>
                         <p className="text-[11px] text-slate-400">{fmtPct(item.pctClientes)} da base</p>
                       </div>
                     )
@@ -1023,7 +1023,7 @@ export default function FaturamentoPage() {
                     <div key={`valor-${item.produto}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-800" title={item.descricao}>{item.descricao || item.produto || "-"}</p>
+                          <p className="truncate text-sm font-bold text-slate-800" title={item.descricao}>{item.descricao || item.produto || "-"}</p>
                           <p className="mt-0.5 text-[11px] text-slate-400">{item.produto || "-"} · {item.linha || item.grupo || "Sem linha"}</p>
                         </div>
                         <p className="shrink-0 text-sm font-bold text-[#17375E]">{fmtMoney(item.faturamento)}</p>
@@ -1047,7 +1047,7 @@ export default function FaturamentoPage() {
                     <div key={`qtd-${item.produto}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-800" title={item.descricao}>{item.descricao || item.produto || "-"}</p>
+                          <p className="truncate text-sm font-bold text-slate-800" title={item.descricao}>{item.descricao || item.produto || "-"}</p>
                           <p className="mt-0.5 text-[11px] text-slate-400">{item.produto || "-"} · {item.linha || item.grupo || "Sem linha"}</p>
                         </div>
                         <p className="shrink-0 text-sm font-bold text-[#D97706]">{fmtNumero(item.quantidade)}</p>
@@ -1159,7 +1159,7 @@ export default function FaturamentoPage() {
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Base de clientes</p>
                 <h2 className="mt-1 text-lg font-semibold text-slate-900">Upload dClientes</h2>
-                <p className="mt-1 text-xs text-slate-500">Atualiza UF, município, região, tipo de cliente e nomes para cruzar com a SD2.</p>
+                <p className="mt-1 text-sm text-slate-500">Atualiza UF, município, região, tipo de cliente e nomes para cruzar com a SD2.</p>
               </div>
               <button
                 type="button"
@@ -1178,8 +1178,8 @@ export default function FaturamentoPage() {
 
               <label className="block rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center hover:bg-slate-100">
                 <UploadCloud className="mx-auto text-slate-400" size={28} />
-                <p className="mt-2 text-sm font-semibold text-slate-800">Selecionar arquivo dClientes</p>
-                <p className="mt-1 text-xs text-slate-500">Aceita XLSX/XLS exportado do cadastro de clientes.</p>
+                <p className="mt-2 text-sm font-bold text-slate-800">Selecionar arquivo dClientes</p>
+                <p className="mt-1 text-sm text-slate-500">Aceita XLSX/XLS exportado do cadastro de clientes.</p>
                 <input
                   type="file"
                   accept=".xlsx,.xls,.csv"
