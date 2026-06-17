@@ -1234,7 +1234,7 @@ function calcularSemaforoConsumoInsumo(item: AgingEstoqueItem | AgingEstoqueItem
   // deve transformar automaticamente o status principal em Crítico quando há
   // estoque/cobertura. A criticidade principal continua sendo risco de falta.
   if (previsao <= 0 && consumo > 0) {
-    const coberturaFutura = getNum(item, "cobertura_meses_futura")
+    const coberturaFutura = toNumberSafe((item as unknown as Record<string, unknown> | null | undefined)?.cobertura_meses_futura, 0)
     const estoqueOperacional = getEstoqueAtualReal(item) + getPedidosAbertos(item) + getQuarentenaAtualReal(item)
     if (estoqueOperacional <= 0 || coberturaFutura <= 0.5) return "VERMELHO"
     if (coberturaFutura < 3) return "AMARELO"
