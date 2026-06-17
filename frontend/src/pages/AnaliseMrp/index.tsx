@@ -203,7 +203,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   let ultimoErro: unknown = null
 
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa += 1) {
-    let timeoutId: ReturnType<typeof window.setTimeout> | undefined
+    let timeoutId: number | undefined
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null
 
     try {
