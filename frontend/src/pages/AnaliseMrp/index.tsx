@@ -160,6 +160,28 @@ async function getBraviSerie(granularidade: GranularidadeSerie, codigo?: string)
   return fetchJsonComCache<BraviSerieResponse>("/aging-estoque/produtos/serie", params)
 }
 
+function esperar(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function isErroTransitórioFetch(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err || "")
+  return (
+    err instanceof TypeError ||
+    /Failed to fetch|NetworkError|Load failed|AbortError|connection reset|temporar/i.test(message)
+  )
+}
+
+function mensagemErroFetch(path: string, err: unknown) {
+  const message = err instanceof Error ? err.message : String(err || "")
+
+  if (/Failed to fetch|NetworkError|Load failed|AbortError|The operation was aborted/i.test(message)) {
+    return `Não consegui carregar ${path}. A API pode estar acordando ou a chamada demorou mais que o esperado; tente novamente em alguns segundos.`
+  }
+
+  return message || `Erro ao buscar ${path}`
+}
+
 async function fetchJson<T>(path: string, params: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {
   const searchParams = new URLSearchParams()
 
@@ -176,19 +198,56 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   }
 
   const query = searchParams.toString()
-  const response = await fetch(`${API_BASE}${path}${query ? `?${query}` : ""}`, {
-    method: "GET",
-    cache: "no-store",
-  })
+  const url = `${API_BASE}${path}${query ? `?${query}` : ""}`
+  const maxTentativas = 3
+  let ultimoErro: unknown = null
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "")
-    throw new Error(detail || `Erro ${response.status} ao buscar ${path}`)
+  for (let tentativa = 1; tentativa <= maxTentativas; tentativa += 1) {
+    let timeoutId: ReturnType<typeof window.setTimeout> | undefined
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null
+
+    try {
+      // A página de Gestão dispara chamadas pesadas, principalmente /aging-estoque/itens com 5.000 linhas.
+      // O timeout evita ficar pendurado para sempre; o retry cobre os resets comuns quando o Fly troca/acorda máquina.
+      if (controller) {
+        timeoutId = window.setTimeout(() => controller.abort(), 65000)
+      }
+
+      const response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        signal: controller?.signal,
+      })
+
+      if (timeoutId) window.clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "")
+        const erro = new Error(detail || `Erro ${response.status} ao buscar ${path}`)
+        ;(erro as Error & { status?: number }).status = response.status
+        throw erro
+      }
+
+      return response.json() as Promise<T>
+    } catch (err) {
+      if (timeoutId) window.clearTimeout(timeoutId)
+
+      ultimoErro = err
+      const status = (err as Error & { status?: number })?.status
+      const podeRetentar =
+        tentativa < maxTentativas &&
+        (isErroTransitórioFetch(err) || status === 408 || status === 429 || Boolean(status && status >= 500))
+
+      if (!podeRetentar) break
+
+      await esperar(tentativa === 1 ? 800 : 1600)
+    }
   }
 
-  return response.json() as Promise<T>
+  throw new Error(mensagemErroFetch(path, ultimoErro))
 }
 
+// Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v76.
 const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v22_operacional_quarentena_v75"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
@@ -6039,7 +6098,7 @@ export default function AgingEstoquePage() {
     const forceRefreshDashboard = refreshTick > 0
     const cacheBustDashboard = forceRefreshDashboard ? `${refreshTick}-${Date.now()}` : undefined
 
-    Promise.all(
+    Promise.allSettled(
       escoposDashboard.map(async (escopo) => {
         const classificacao = classificacaoPadraoPorEscopo(escopo)
 
@@ -6071,18 +6130,33 @@ export default function AgingEstoquePage() {
       .then((resultados) => {
         if (!mounted) return
 
+        const resolvidos = resultados
+          .filter((resultado): resultado is PromiseFulfilledResult<{ escopo: EscopoEstoque; resumo: AgingResumoResponse; itens: AgingItensResponse }> => resultado.status === "fulfilled")
+          .map((resultado) => resultado.value)
+
+        const rejeitados = resultados.filter((resultado) => resultado.status === "rejected")
+
+        if (!resolvidos.length) {
+          const primeiroErro = rejeitados[0] as PromiseRejectedResult | undefined
+          throw new Error(primeiroErro?.reason instanceof Error ? primeiroErro.reason.message : "Erro ao carregar dashboard")
+        }
+
         const resumos: Partial<Record<EscopoEstoque, AgingResumoResponse>> = {}
         const itensPorEscopo: Partial<Record<EscopoEstoque, AgingItensResponse>> = {}
 
-        for (const resultado of resultados) {
+        for (const resultado of resolvidos) {
           resumos[resultado.escopo] = resultado.resumo
           itensPorEscopo[resultado.escopo] = resultado.itens
         }
 
         setDashboardResumoPorEscopo(resumos)
         setDashboardItensPorEscopo(itensPorEscopo)
-        setDashboardResp(resumos.todos || null)
-        setDashboardItensResp(itensPorEscopo.todos || null)
+        setDashboardResp(resumos.todos || resolvidos[0]?.resumo || null)
+        setDashboardItensResp(itensPorEscopo.todos || resolvidos[0]?.itens || null)
+
+        if (rejeitados.length) {
+          setError("Alguma visão demorou para carregar, mas os dados principais foram exibidos. Atualize a página para tentar completar o restante.")
+        }
       })
       .catch((err: unknown) => {
         if (!mounted) return
