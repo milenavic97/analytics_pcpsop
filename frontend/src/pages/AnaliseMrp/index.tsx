@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v21_tooltip_sem_title_v74"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v22_operacional_quarentena_v75"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -543,40 +543,41 @@ const COLUNAS_PADRAO_PA_MR = [
   "estoque_mais_pedidos_valor",
 ]
 
-const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "center" | "right"; width?: string }[] = [
-  { key: "status", label: "Status", width: "w-[110px]" },
-  { key: "tipo", label: "Tipo", width: "w-[80px]" },
-  { key: "unid", label: "UM", align: "center", width: "w-[70px]" },
-  { key: "saldo", label: "Estoque atual", align: "right", width: "w-[120px]" },
-  { key: "saldo_quarentena", label: "Quarentena 98", align: "right", width: "w-[120px]" },
-  { key: "qtd_pedidos_abertos", label: "Entradas/PC", align: "right", width: "w-[110px]" },
-  { key: "estoque_mais_pedidos", label: "Estoque + entradas", align: "right", width: "w-[135px]" },
-  { key: "consumo_mes_atual", label: "Consumo mês", align: "right", width: "w-[120px]" },
-  { key: "demanda_mes_atual", label: "Previsão mês", align: "right", width: "w-[120px]" },
-  { key: "previsto_vs_consumido_pct", label: "Consumo vs previsão", align: "right", width: "w-[145px]" },
-  { key: "pct_mes_decorrido", label: "% mês decorrido", align: "right", width: "w-[125px]" },
-  { key: "desvio_ritmo_pct", label: "Desvio ritmo", align: "right", width: "w-[120px]" },
-  { key: "dias_em_estoque", label: "Dias estoque", align: "right", width: "w-[110px]" },
-  { key: "cobertura_meses_atual", label: "Cob. atual", align: "right", width: "w-[110px]" },
-  { key: "cobertura_meses_futura", label: "Cob. futura", align: "right", width: "w-[110px]" },
-  { key: "maior_media", label: "Maior média", align: "right", width: "w-[110px]" },
-  { key: "lead_time_dias", label: "Lead time", align: "right", width: "w-[100px]" },
-  { key: "qtd_minima", label: "MOQ", align: "right", width: "w-[110px]" },
-  { key: "consumo_durante_lt", label: "Ponto pedido", align: "right", width: "w-[120px]" },
-  { key: "estoque_ideal", label: "Estoque ideal", align: "right", width: "w-[120px]" },
-  { key: "gap_volume", label: "Gap", align: "right", width: "w-[110px]" },
-  { key: "saldo_sb8_bruto", label: "Saldo bruto SB8", align: "right", width: "w-[120px]" },
-  { key: "empenho_lote", label: "Empenho lote", align: "right", width: "w-[120px]" },
-  { key: "custo_unitario", label: "Custo unitário", align: "right", width: "w-[120px]" },
-  { key: "estoque_atual_valor", label: "Estoque R$", align: "right", width: "w-[120px]" },
-  { key: "pedidos_abertos_valor", label: "Pedidos R$", align: "right", width: "w-[120px]" },
-  { key: "estoque_mais_pedidos_valor", label: "Estoque + entradas R$", align: "right", width: "w-[140px]" },
+const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "center" | "right"; width?: string; tooltip?: string }[] = [
+  { key: "status", label: "Status", width: "w-[110px]", tooltip: "Classificação operacional: crítico quando estoque + entradas/PC + quarentena não cobre a previsão do mês; atenção quando cobre o mês, mas não cobre 3 meses; excesso quando cobre acima de 3 meses." },
+  { key: "tipo", label: "Tipo", width: "w-[80px]", tooltip: "Tipo ERP do item: MP, ME, MI, PI, PA, MR, PPS ou PV." },
+  { key: "unid", label: "UM", align: "center", width: "w-[70px]", tooltip: "Unidade de medida cadastrada para o item." },
+  { key: "saldo", label: "Estoque atual", align: "right", width: "w-[120px]", tooltip: "Saldo atual disponível do item. Para insumos, vem da posição de estoque/Aging; para PA/MR/PPS/PV, vem da SB8 conforme regra da tela." },
+  { key: "saldo_quarentena", label: "Quarentena 98", align: "right", width: "w-[120px]", tooltip: "Volume no armazém 98/quarentena. Aparece separado para visibilidade e também entra na coluna Estoque + entradas + quarentena." },
+  { key: "qtd_pedidos_abertos", label: "Entradas/PC", align: "right", width: "w-[110px]", tooltip: "Pedidos de compra/entradas em aberto considerados como volume em trânsito para a cobertura operacional." },
+  { key: "estoque_mais_pedidos", label: "Estoque + entr. + quar.", align: "right", width: "w-[150px]", tooltip: "Soma operacional: estoque atual + entradas/PC em aberto + quarentena 98. É a base usada para a cobertura futura de insumos/comprados." },
+  { key: "consumo_mes_atual", label: "Consumo mês", align: "right", width: "w-[120px]", tooltip: "Consumo realizado no mês atual. Para insumos/PI/MP/ME/MI vem da coluna M_MM_AAAA da posição de estoque/Aging. Para PA/MR/PPS/PV representa venda/faturamento do mês pela SD2." },
+  { key: "demanda_mes_atual", label: "Previsão mês", align: "right", width: "w-[120px]", tooltip: "Previsão/demanda do mês atual. Para PA/MR/PPS/PV vem do forecast S&OP; para insumos vem da demanda explodida pelo MPS/BOM." },
+  { key: "previsto_vs_consumido_pct", label: "Consumo vs previsão", align: "right", width: "w-[145px]", tooltip: "Consumo do mês dividido pela previsão do mês. Fica em vermelho quando passa de 100%." },
+  { key: "pct_mes_decorrido", label: "% mês decorrido", align: "right", width: "w-[125px]", tooltip: "Percentual do mês já transcorrido até a data atual. Ajuda a comparar o ritmo de consumo com a previsão proporcional." },
+  { key: "desvio_ritmo_pct", label: "Desvio ritmo", align: "right", width: "w-[120px]", tooltip: "Diferença em pontos percentuais entre consumo vs previsão e o percentual do mês decorrido. Valor positivo indica consumo acima do ritmo esperado." },
+  { key: "dias_em_estoque", label: "Dias estoque", align: "right", width: "w-[110px]", tooltip: "Cobertura convertida para dias, com base no forecast/demanda usado na cobertura operacional." },
+  { key: "cobertura_meses_atual", label: "Cob. atual", align: "right", width: "w-[110px]", tooltip: "Cobertura em meses considerando apenas o estoque atual contra o forecast/demanda futura." },
+  { key: "cobertura_meses_futura", label: "Cob. futura", align: "right", width: "w-[110px]", tooltip: "Cobertura em meses considerando estoque atual + entradas/PC + quarentena 98, consumindo o forecast/demanda dos próximos meses." },
+  { key: "maior_media", label: "Maior média", align: "right", width: "w-[110px]", tooltip: "Maior média histórica entre 3, 6 e 9 meses informada na posição de estoque/Aging." },
+  { key: "lead_time_dias", label: "Lead time", align: "right", width: "w-[100px]", tooltip: "Lead time total do item, em dias, vindo da base de parâmetros de estoque." },
+  { key: "qtd_minima", label: "MOQ", align: "right", width: "w-[110px]", tooltip: "Quantidade mínima por pedido/MOQ cadastrada para o item." },
+  { key: "consumo_durante_lt", label: "Ponto pedido", align: "right", width: "w-[120px]", tooltip: "Consumo estimado durante o lead time: maior média mensal / 30 x lead time." },
+  { key: "estoque_ideal", label: "Estoque ideal", align: "right", width: "w-[120px]", tooltip: "Maior valor entre consumo durante o lead time e MOQ." },
+  { key: "gap_volume", label: "Gap", align: "right", width: "w-[110px]", tooltip: "Diferença entre estoque + entradas + quarentena e estoque ideal." },
+  { key: "saldo_sb8_bruto", label: "Saldo bruto SB8", align: "right", width: "w-[120px]", tooltip: "Saldo bruto na SB8 antes de descontar empenhos, quando disponível." },
+  { key: "empenho_lote", label: "Empenho lote", align: "right", width: "w-[120px]", tooltip: "Quantidade empenhada no lote, quando disponível na SB8." },
+  { key: "custo_unitario", label: "Custo unitário", align: "right", width: "w-[120px]", tooltip: "Custo unitário do item, vindo da base de custo unitário." },
+  { key: "estoque_atual_valor", label: "Estoque R$", align: "right", width: "w-[120px]", tooltip: "Valor financeiro do estoque atual: estoque atual x custo unitário." },
+  { key: "pedidos_abertos_valor", label: "Pedidos R$", align: "right", width: "w-[120px]", tooltip: "Valor financeiro das entradas/PC em aberto: entradas x custo unitário." },
+  { key: "estoque_mais_pedidos_valor", label: "Estoque + entradas R$", align: "right", width: "w-[150px]", tooltip: "Valor financeiro de estoque atual + entradas/PC + quarentena: base operacional x custo unitário." },
 ]
 
 const COLUNAS_PADRAO_INSUMOS = [
   "status",
   "tipo",
   "saldo",
+  "saldo_quarentena",
   "qtd_pedidos_abertos",
   "estoque_mais_pedidos",
   "consumo_mes_atual",
@@ -1010,7 +1011,7 @@ function getDiasEstoqueProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe 
 }
 
 function getEstoqueMaisEntradasProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
-  return getEstoqueAtualReal(item) + getPedidosAbertos(item)
+  return getEstoqueAtualReal(item) + getPedidosAbertos(item) + getQuarentenaAtualReal(item)
 }
 
 function normalizarCoberturaPaMrItem<T extends AgingEstoqueItem | AgingEstoqueItemDetalhe>(item: T): T {
@@ -1114,7 +1115,7 @@ function renderValorColunaInsumo(item: AgingEstoqueItem, key: string): ReactNode
     case "qtd_pedidos_abertos":
       return fmtNumber(getPedidosAbertos(item), 0)
     case "estoque_mais_pedidos":
-      return fmtNumber(getEstoqueAtualReal(item) + getPedidosAbertos(item), 0)
+      return fmtNumber(getEstoqueAtualReal(item) + getPedidosAbertos(item) + getQuarentenaAtualReal(item), 0)
     case "consumo_mes_atual":
       return fmtNumber(getConsumoMesAtual(item), 0)
     case "demanda_mes_atual":
@@ -1395,7 +1396,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   const pedidosAbertos = getPedidosAbertos(item)
   const pontoAtual = ensure(hoje.getFullYear(), hoje.getMonth() + 1)
   pontoAtual.estoque_atual = estoqueAtualReal
-  pontoAtual.estoque_mais_pedidos = estoqueAtualReal + pedidosAbertos
+  pontoAtual.estoque_mais_pedidos = estoqueAtualReal + pedidosAbertos + getQuarentenaAtualReal(item)
   pontoAtual.estoque_quarentena = getAnyNumber(item as Record<string, unknown>, "saldo_quarentena") || getAnyNumber(item as Record<string, unknown>, "quarentena")
   pontoAtual.quarentena = pontoAtual.estoque_quarentena
   pontoAtual.saldo_grafico = estoqueAtualReal
@@ -7112,13 +7113,14 @@ export default function AgingEstoquePage() {
                       <th
                         key={col.key}
                         className={`${col.width || "w-[110px]"} px-3 py-3 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : ""}`}
+                        title={col.tooltip || col.label}
                       >
                         {ordenavel ? (
                           <button
                             type="button"
                             onClick={() => handleSort(col.key as SortKey)}
                             className={`inline-flex w-full items-center gap-1 rounded-md text-[11px] font-bold leading-tight text-white/95 transition hover:text-white ${col.align === "right" ? "justify-end text-right" : col.align === "center" ? "justify-center text-center" : "justify-start text-left"}`}
-                            title={`Ordenar por ${col.label}`}
+                            title={col.tooltip ? `${col.label}: ${col.tooltip}` : `Ordenar por ${col.label}`}
                           >
                             <span className="whitespace-normal">{col.label}</span>
                             <span className={ativo ? "text-white" : "text-white/55"}>{seta}</span>
