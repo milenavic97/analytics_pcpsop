@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v10_consumo_posicao_m06"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v11_matriz_cobertura_estoque_sem_entrada"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -2012,9 +2012,9 @@ type MatrixPoint = {
 
 const MATRIZ_QUADRANTES: Record<QuadranteMatrizKey, { titulo: string; subtitulo: string; acao: string; color: string; bg: string; border: string }> = {
   EXCESSO_PARADO: {
-    titulo: "Excesso sem consumo",
-    subtitulo: "Cobertura alta com baixo consumo recente",
-    acao: "Evitar compra, avaliar validade, troca, devolução ou descontinuação.",
+    titulo: "Excesso com baixo consumo",
+    subtitulo: "Cobertura alta com consumo recente baixo",
+    acao: "Evitar nova compra, revisar validade, troca, devolução ou entrega parcelada.",
     color: "#B91C1C",
     bg: "rgba(220,38,38,0.06)",
     border: "rgba(220,38,38,0.22)",
@@ -2069,9 +2069,12 @@ function getGiroMatriz(item: AgingEstoqueItem) {
   return getConsumoMatriz(item)
 }
 
-function calcularCoberturaMesesPorForecastDashboard(item: AgingEstoqueItem | null | undefined) {
+function calcularCoberturaMesesPorForecastDashboard(item: AgingEstoqueItem | null | undefined, incluirEntradas = true) {
   if (!item) return null
-  const disponivel = Math.max(0, getEstoqueAtualReal(item) + getEntradasMesAtualDashboard(item))
+
+  // Para risco operacional, entradas do mês podem evitar ruptura.
+  // Para matriz/excesso, não podem inflar cobertura de estoque: excesso é estoque atual parado, não entrada prevista.
+  const disponivel = Math.max(0, getEstoqueAtualReal(item) + (incluirEntradas ? getEntradasMesAtualDashboard(item) : 0))
   if (disponivel <= 0) return 0
 
   const forecast = getForecastSeisMesesDashboard(item)
@@ -2106,14 +2109,15 @@ function calcularCoberturaMesesPorForecastDashboard(item: AgingEstoqueItem | nul
 }
 
 function getCoberturaMatriz(item: AgingEstoqueItem) {
-  // A cobertura exibida na matriz/listas precisa bater com o mini forecast da própria linha:
-  // estoque disponível + entradas do mês consumindo a previsão futura mês a mês.
-  const coberturaPelaSerie = calcularCoberturaMesesPorForecastDashboard(item)
+  // Matriz de excesso deve medir cobertura do ESTOQUE ATUAL contra o forecast.
+  // Entradas previstas continuam aparecendo na coluna/gráfico, mas não podem transformar
+  // um item com 1 mês de estoque em "excesso".
+  const coberturaPelaSerie = calcularCoberturaMesesPorForecastDashboard(item, false)
   if (coberturaPelaSerie !== null) return coberturaPelaSerie
 
   const candidatos = [
-    getNum(item, "cobertura_meses_futura"),
-    getNum(item, "cobertura_futura_dias") / 30,
+    getNum(item, "cobertura_meses_estoque_atual"),
+    getNum(item, "cobertura_dias_estoque_atual") / 30,
     getNum(item, "cobertura_meses_status"),
     getNum(item, "cobertura_meses_atual"),
     getNum(item, "cobertura_status_dias") / 30,
@@ -3606,6 +3610,7 @@ function MatrizEstoqueGiroPanel({
         <div className="flex flex-wrap gap-2">
           <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte consumo: {fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}</span>
           <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte demanda: {fmtNumber(matriz.corteDemanda || 0, 0)}</span>
+          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Cobertura: estoque atual</span>
         </div>
       </div>
 
@@ -4081,7 +4086,7 @@ function DashboardEstoquePanel({
         <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens críticos", "Itens com ruptura, criticidade ou semáforo vermelho no recorte atual.", itensPorCategoriaDashboard("criticos"), "#DC2626")} />
         <KpiCard label="Sem estoque" value={fmtNumber(metricasDashboard.semEstoque)} helper={`${fmtNumber(pctSemEstoque, 1)}% com saldo atual zerado`} icon={<ArrowDownRight size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens sem estoque", "Itens com saldo atual igual a zero no recorte selecionado.", itensSemEstoqueDashboard, "#DC2626")} />
         <KpiCard label="Atenção" value={fmtNumber(metricasDashboard.atencao)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" onClick={() => abrirListaDashboard("Itens em atenção", "Itens com semáforo amarelo ou status de atenção.", itensAtencaoDashboard, "#D97706")} />
-        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="cobertura futura > 3m" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => abrirListaDashboard("Itens em excesso", "Itens classificados pelo backend como excesso pela política atual.", itensExcessoDashboard, "#2563EB")} />
+        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="estoque atual > 3m" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => abrirListaDashboard("Itens em excesso", "Itens classificados pelo backend como excesso pela política atual.", itensExcessoDashboard, "#2563EB")} />
         <KpiCard label="Sem consumo" value={fmtNumber(metricasDashboard.semGiro)} helper="sem referência de venda/consumo" icon={<PackageSearch size={20} />} tone="default" onClick={() => abrirListaDashboard("Itens sem consumo", "Itens sem venda, consumo ou demanda.", itensSemGiroDashboard, "#94A3B8")} />
         <KpiCard label="Estoque total" value={fmtCompact(metricasDashboard.saldoTotal)} helper={`Valor: ${fmtCurrency(metricasDashboard.valorEstoque, 0)}`} icon={<Boxes size={20} />} tone="success" onClick={() => abrirListaDashboard("Itens com estoque no recorte", "Lista do recorte atual ordenada por valor e volume em estoque.", itensFiltradosDashboard.filter((item) => getEstoqueAtualReal(item) > 0), "#15803D")} />
       </div>
@@ -4125,7 +4130,7 @@ function DashboardEstoquePanel({
           <div className="mb-4">
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Cobertura por faixa</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Distribuição dos itens por cobertura</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Ajuda a separar risco de falta, excesso e itens sem consumo pela cobertura futura acumulada.</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Ajuda a separar risco de falta, excesso e itens sem consumo pela cobertura do estoque atual contra a demanda.</p>
           </div>
           <div className="h-[360px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -4133,7 +4138,7 @@ function DashboardEstoquePanel({
                 <XAxis dataKey="faixa" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} interval={0} angle={-18} textAnchor="end" />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
                 <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} content={<CoberturaFaixaTooltip />} />
-                <Bar dataKey="itens" name="Itens" fill="#163B63" radius={[8, 8, 0, 0]} onClick={(row) => abrirListaDashboard(`Cobertura · ${row.faixa}`, "Itens agrupados pela cobertura futura: estoque disponível consumindo a demanda dos próximos meses.", row.itens_lista || [], "#163B63")}>
+                <Bar dataKey="itens" name="Itens" fill="#163B63" radius={[8, 8, 0, 0]} onClick={(row) => abrirListaDashboard(`Cobertura · ${row.faixa}`, "Itens agrupados pela cobertura do estoque atual consumindo a demanda/forecast dos próximos meses.", row.itens_lista || [], "#163B63")}>
                   <LabelList dataKey="itens" position="top" fontSize={12} fill="#163B63" formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
               </BarChart>
