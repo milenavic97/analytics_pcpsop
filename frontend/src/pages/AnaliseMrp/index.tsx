@@ -372,6 +372,7 @@ function getAgingItensDireto(params: {
   transferencia_bravi?: string
   classificacao_cadastro?: string
   semaforo?: SemaforoEstoque
+  status_plano?: string
   alerta_previsao?: string
   force_refresh?: boolean
   _t?: string | number
@@ -390,6 +391,7 @@ function getAgingItensDireto(params: {
     descontinuado: params.descontinuado,
     classificacao_cadastro: params.classificacao_cadastro,
     semaforo: params.semaforo,
+    status_plano: params.status_plano,
     alerta_previsao: params.alerta_previsao,
     force_refresh: params.force_refresh,
     _t: params._t,
@@ -651,6 +653,7 @@ type FiltroTabelaEstoque = {
   transferencia_bravi?: string
   classificacao_cadastro?: string
   semaforo?: SemaforoEstoque
+  status_plano?: string
   alerta_previsao?: string
 }
 
@@ -666,6 +669,7 @@ const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
     filtro.transferencia_bravi || "",
     filtro.classificacao_cadastro || "",
     filtro.semaforo || "",
+    filtro.status_plano || "",
     filtro.alerta_previsao || "",
   ].join("|")
 }
@@ -5313,7 +5317,7 @@ function FiltrosEstoquePanel({
   const statusPortfolioOptions = ["TODOS", ...(opcoes?.status_portfolio || [])]
   const braviOptions = ["TODOS", "Sim", "Não"]
   const classificacaoOptions = ["TODOS", "MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS"]
-  const semaforoOptions: ("TODOS" | SemaforoEstoque)[] = ["TODOS", "VERMELHO", "AMARELO", "VERDE", "CINZA"]
+  const statusPlanoOptions: ("TODOS" | StatusPlanoMes)[] = ["TODOS", "SEM_MOVIMENTO", "SEM_PREVISAO", "OK", "ATENCAO", "ALERTA", "ACIMA_PREVISAO"]
 
   const selectClass = "h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
   const labelClass = "mb-1 block text-[10px] font-bold uppercase tracking-wide"
@@ -5400,14 +5404,14 @@ function FiltrosEstoquePanel({
         </label>
 
         <label>
-          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Status visual</span>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Status plano</span>
           <select
-            value={filtro?.semaforo || "TODOS"}
-            onChange={(e) => onChange("semaforo", e.target.value === "TODOS" ? undefined : e.target.value as SemaforoEstoque)}
+            value={filtro?.status_plano || "TODOS"}
+            onChange={(e) => onChange("status_plano", e.target.value === "TODOS" ? undefined : e.target.value)}
             className={selectClass}
             style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
           >
-            {semaforoOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : SEMAFORO_LABEL[opcao]}</option>)}
+            {statusPlanoOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : STATUS_PLANO_META[opcao]?.label || opcao}</option>)}
           </select>
         </label>
 
@@ -6029,7 +6033,7 @@ function limparValorFiltro(value?: string) {
 
 function filtroVazio(filtro: FiltroTabelaEstoque | null) {
   if (!filtro) return true
-  return !filtro.busca && !filtro.status && !filtro.tipo_negocio && !filtro.status_portfolio && !filtro.descontinuado && !filtro.transferencia_bravi && !filtro.classificacao_cadastro && !filtro.semaforo && !filtro.alerta_previsao
+  return !filtro.busca && !filtro.status && !filtro.tipo_negocio && !filtro.status_portfolio && !filtro.descontinuado && !filtro.transferencia_bravi && !filtro.classificacao_cadastro && !filtro.semaforo && !filtro.status_plano && !filtro.alerta_previsao
 }
 
 function labelAlertaPrevisaoFiltro(escopo: EscopoEstoque) {
@@ -6055,6 +6059,7 @@ function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
   if (filtro.status_portfolio) partes.push(`Portfólio: ${filtro.status_portfolio}`)
   if (filtro.descontinuado) partes.push(`Descontinuado: ${filtro.descontinuado === "SIM" ? "Sim" : "Não"}`)
   if (filtro.transferencia_bravi) partes.push(`Bravi: ${filtro.transferencia_bravi}`)
+  if (filtro.status_plano) partes.push(`Status plano: ${STATUS_PLANO_META[filtro.status_plano as StatusPlanoMes]?.label || filtro.status_plano}`)
   if (filtro.alerta_previsao === "SIM") partes.push("Consumo acima da previsão")
   if (filtro.classificacao_cadastro === "NAO_CLASSIFICADOS") partes.push("Não classificados")
   else if (filtro.classificacao_cadastro === "MAPEADOS") partes.push("Mapeados")
@@ -6309,6 +6314,7 @@ export default function AgingEstoquePage() {
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
         semaforo: activeFilter?.semaforo,
+        status_plano: activeFilter?.status_plano,
         alerta_previsao: activeFilter?.alerta_previsao,
         _t: refreshTick ? refreshTick : undefined,
       })
@@ -6733,6 +6739,7 @@ export default function AgingEstoquePage() {
         transferencia_bravi: activeFilter?.transferencia_bravi,
         classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
         semaforo: activeFilter?.semaforo,
+        status_plano: activeFilter?.status_plano,
         alerta_previsao: activeFilter?.alerta_previsao,
       }
 
@@ -7137,16 +7144,21 @@ export default function AgingEstoquePage() {
             </label>
 
             <label>
-              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Consumo x previsão</span>
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status plano</span>
               <select
-                value={activeFilter?.alerta_previsao || "TODOS"}
-                onChange={(e) => atualizarFiltroCampo("alerta_previsao", e.target.value === "TODOS" ? undefined : e.target.value)}
+                value={activeFilter?.status_plano || "TODOS"}
+                onChange={(e) => atualizarFiltroCampo("status_plano", e.target.value === "TODOS" ? undefined : e.target.value)}
                 className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
-                style={{ borderColor: activeFilter?.alerta_previsao === "SIM" ? "rgba(220,38,38,0.35)" : "var(--border)", color: "var(--text-primary)", background: activeFilter?.alerta_previsao === "SIM" ? "rgba(220,38,38,0.04)" : "#FFFFFF" }}
-                title={helperAlertaPrevisaoFiltro(escopoEstoque)}
+                style={{ borderColor: activeFilter?.status_plano ? "rgba(22,59,99,0.35)" : "var(--border)", color: "var(--text-primary)", background: activeFilter?.status_plano ? "rgba(22,59,99,0.04)" : "#FFFFFF" }}
+                title="Filtra pelo status do plano do mês: consumo/venda acumulado contra a previsão do mês. Não filtra cobertura de estoque."
               >
                 <option value="TODOS">Todos</option>
-                <option value="SIM">{labelAlertaPrevisaoFiltro(escopoEstoque)}</option>
+                <option value="SEM_MOVIMENTO">Sem movimento</option>
+                <option value="SEM_PREVISAO">Sem previsão</option>
+                <option value="OK">Ok</option>
+                <option value="ATENCAO">Atenção</option>
+                <option value="ALERTA">Alerta</option>
+                <option value="ACIMA_PREVISAO">Acima da previsão</option>
               </select>
             </label>
 
@@ -7172,7 +7184,7 @@ export default function AgingEstoquePage() {
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
               <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Gestão operacional: consumo do mês vs previsão</h2>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Acompanhe quando o consumo/venda do mês atual ultrapassa a previsão do mês. Use o filtro “Consumo x previsão” para ver apenas os itens em vermelho.
+                Acompanhe o desvio do plano do mês. Use o filtro “Status plano” para ver itens sem previsão, em alerta ou acima da previsão.
               </p>
             </div>
 
