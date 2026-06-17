@@ -189,7 +189,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   return response.json() as Promise<T>
 }
 
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v5_12h_sem_refresh_automatico"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v6_status_mes_atual"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -1571,19 +1571,35 @@ const SEMAFORO_STYLE: Record<SemaforoEstoque, { bg: string; color: string; borde
   CINZA: { bg: "rgba(100,116,139,0.10)", color: "#475569", border: "rgba(100,116,139,0.24)", dot: "#94A3B8" },
 }
 
+function isProdutoOperacionalEstoque(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return false
+
+  const raw = item as unknown as Record<string, unknown>
+  const tipo = String((item as AgingEstoqueItem).tipo || raw.tipo_produto_erp || "").trim().toUpperCase()
+  const statusEstoque = String(raw.status_estoque || raw.status || "").trim().toUpperCase()
+  const transferenciaBravi = String(raw.transferencia_bravi || "").trim().toUpperCase()
+
+  return (
+    ["PA", "MR", "PPS", "PV", "PA/MR"].includes(tipo) ||
+    transferenciaBravi === "SIM" ||
+    statusEstoque === "TRANSFERENCIA_BRAVI"
+  )
+}
+
 function calcularSemaforoEstoque(item: AgingEstoqueItem | null | undefined): SemaforoEstoque {
   if (!item) return "CINZA"
 
   const raw = item as AgingEstoqueItem & Record<string, unknown>
-  const tipo = String(item.tipo || raw.tipo_produto_erp || "").toUpperCase()
 
-  if (tipo !== "PA" && tipo !== "MR") {
-    return calcularSemaforoConsumoInsumo(item)
-  }
-
+  // Quando o backend já devolve o status visual, ele é a fonte oficial.
+  // Isso evita divergência entre cards, tabela, filtro e exportação.
   const statusVisualBackend = String(raw.status_visual || "").toUpperCase()
   if (["VERMELHO", "AMARELO", "VERDE", "CINZA"].includes(statusVisualBackend)) {
     return statusVisualBackend as SemaforoEstoque
+  }
+
+  if (!isProdutoOperacionalEstoque(item)) {
+    return calcularSemaforoConsumoInsumo(item)
   }
 
   const status = String(raw.status_estoque || item.status || "").toUpperCase()
@@ -1608,10 +1624,10 @@ function SemaforoBadge({ item }: { item: AgingEstoqueItem }) {
   const estoqueComEntradas = saldoReal + getEntradasMesAtualDashboard(item)
   const previsaoMes = getPrevisaoMesAtual(item)
   const consumoMes = getConsumoMesAtual(item)
-  const tipo = String(item.tipo || (item as AgingEstoqueItem & Record<string, unknown>).tipo_produto_erp || "").toUpperCase()
-  const title = tipo !== "PA" && tipo !== "MR"
+  const ehProdutoOperacional = isProdutoOperacionalEstoque(item)
+  const title = !ehProdutoOperacional
     ? `Status: ${SEMAFORO_LABEL[semaforo]} | Consumo mês: ${fmtNumber(consumoMes, 0)} | Previsão mês: ${fmtNumber(previsaoMes, 0)} | Consumo previsto: ${fmtNumber(getPercentualConsumoPrevisto(item), 0)}% | Mês decorrido: ${fmtNumber(getPercentualMesDecorrido(), 0)}%`
-    : `Status: ${SEMAFORO_LABEL[semaforo]} | Estoque real: ${fmtNumber(saldoReal, 0)} | Estoque + entradas mês: ${fmtNumber(estoqueComEntradas, 0)} | Demanda ref.: ${fmtNumber(previsaoMes, 0)}`
+    : `Status: ${SEMAFORO_LABEL[semaforo]} | Estoque real: ${fmtNumber(saldoReal, 0)} | Estoque + entradas mês: ${fmtNumber(estoqueComEntradas, 0)} | Demanda ref.: ${fmtNumber(getDemandaStatusDashboard(item), 0)}`
 
   return (
     <span
@@ -1971,6 +1987,7 @@ type MatrixPoint = {
   y: number
   z: number
   giro: number
+  consumo: number
   cobertura: number
   estoque: number
   valor: number
@@ -1983,24 +2000,24 @@ type MatrixPoint = {
 
 const MATRIZ_QUADRANTES: Record<QuadranteMatrizKey, { titulo: string; subtitulo: string; acao: string; color: string; bg: string; border: string }> = {
   EXCESSO_PARADO: {
-    titulo: "Excesso parado",
-    subtitulo: "Estoque real alto com baixo giro",
+    titulo: "Excesso sem consumo",
+    subtitulo: "Cobertura alta com baixo consumo recente",
     acao: "Evitar compra, avaliar validade, troca, devolução ou descontinuação.",
     color: "#B91C1C",
     bg: "rgba(220,38,38,0.06)",
     border: "rgba(220,38,38,0.22)",
   },
   EXCESSO_COM_GIRO: {
-    titulo: "Excesso com giro",
-    subtitulo: "Estoque real alto, apesar de venda/consumo",
+    titulo: "Excesso com consumo",
+    subtitulo: "Cobertura alta, apesar de haver consumo",
     acao: "Reduzir próxima compra, revisar MOQ e negociar entrega parcelada.",
     color: "#D97706",
     bg: "rgba(245,158,11,0.08)",
     border: "rgba(245,158,11,0.28)",
   },
   BAIXO_GIRO_CONTROLADO: {
-    titulo: "Baixo giro controlado",
-    subtitulo: "Baixa demanda e cobertura controlada",
+    titulo: "Baixo consumo controlado",
+    subtitulo: "Baixo consumo e baixa demanda",
     acao: "Monitorar e evitar reposição automática sem demanda confirmada.",
     color: "#64748B",
     bg: "rgba(100,116,139,0.08)",
@@ -2008,7 +2025,7 @@ const MATRIZ_QUADRANTES: Record<QuadranteMatrizKey, { titulo: string; subtitulo:
   },
   RISCO_FALTA: {
     titulo: "Risco de falta",
-    subtitulo: "Alto giro e baixa cobertura",
+    subtitulo: "Demanda alta e baixa cobertura",
     acao: "Priorizar compra, liberação, transferência ou acompanhamento de lead time.",
     color: "#0F5E7C",
     bg: "rgba(14,116,144,0.08)",
@@ -2023,14 +2040,27 @@ function percentile(values: number[], p: number) {
   return nums[idx]
 }
 
+function getConsumoMatriz(item: AgingEstoqueItem) {
+  // Matriz executiva em consumo x demanda:
+  // consumo = média mensal dos últimos 6 meses, para comparar na mesma escala mensal da demanda.
+  const total6m = getMovimentoSeisMesesStatusDashboard(item)
+  return total6m > 0 ? total6m / 6 : 0
+}
+
+function getDemandaMatriz(item: AgingEstoqueItem) {
+  // Demanda/forecast do mês atual. Não usa consumo como fallback para não misturar os eixos.
+  return Math.max(0, getDemandaMesAtualStatusDashboard(item))
+}
+
 function getGiroMatriz(item: AgingEstoqueItem) {
-  // Giro/demanda da matriz precisa seguir a mesma régua do status:
-  // demanda do mês atual; se zerada, média de venda/consumo real dos últimos 6 meses.
-  return Math.max(0, getDemandaStatusDashboard(item))
+  // Compatibilidade com trechos antigos: agora o antigo "giro" representa consumo médio mensal.
+  return getConsumoMatriz(item)
 }
 
 function getCoberturaMatriz(item: AgingEstoqueItem) {
   const candidatos = [
+    getNum(item, "cobertura_meses_futura"),
+    getNum(item, "cobertura_futura_dias") / 30,
     getNum(item, "cobertura_meses_status"),
     getNum(item, "cobertura_meses_atual"),
     getNum(item, "cobertura_status_dias") / 30,
@@ -2155,26 +2185,28 @@ function filtrarItensPorEscopoDashboard(itens: AgingEstoqueItem[], escopo: Escop
 
 function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
   const base = (itens || []).filter((item) => String(item?.codigo || "").trim())
-  const giros = base.map(getGiroMatriz).filter((v) => v > 0)
-  const corteGiro = Math.max(1, percentile(giros, 0.65))
+  const consumos = base.map(getConsumoMatriz).filter((v) => v > 0)
+  const demandas = base.map(getDemandaMatriz).filter((v) => v > 0)
+  const corteConsumo = Math.max(1, percentile(consumos, 0.65))
+  const corteDemanda = Math.max(1, percentile(demandas, 0.65))
   const corteCobertura = 3
 
-  const maxGiroBruto = Math.max(corteGiro * 1.8, percentile(giros, 0.95), 1)
+  const maxConsumoBruto = Math.max(corteConsumo * 1.8, percentile(consumos, 0.95), 1)
+  const maxDemandaBruto = Math.max(corteDemanda * 1.8, percentile(demandas, 0.95), 1)
   const coberturas = base.map(getCoberturaMatriz).filter((v) => v > 0)
-  const maxCoberturaBruto = Math.max(corteCobertura * 1.5, percentile(coberturas, 0.95), 1)
   const valores = base.map(getValorEstoqueMatriz).filter((v) => v > 0)
   const maxValor = Math.max(percentile(valores, 0.95), Math.max(...valores, 0), 1)
 
-  const maxGiroVisual = Math.max(corteGiro * 1.25, percentile(giros, 0.9), 1)
-  const maxCoberturaVisual = Math.max(corteCobertura * 2.5, percentile(coberturas, 0.9), 6)
+  const maxConsumoVisual = Math.max(corteConsumo * 1.25, percentile(consumos, 0.9), 1)
+  const maxDemandaVisual = Math.max(corteDemanda * 1.25, percentile(demandas, 0.9), 1)
 
   const pontos: MatrixPoint[] = base.map((item) => {
-    const giro = getGiroMatriz(item)
+    const consumo = getConsumoMatriz(item)
+    const demanda = getDemandaMatriz(item)
     const cobertura = getCoberturaMatriz(item)
     const valor = getValorEstoqueMatriz(item)
     const estoque = getEstoqueAtualReal(item)
     const entradas = getEntradasMesAtualDashboard(item)
-    const demanda = getDemandaTotalOperacionalDashboard(item)
     const linha = String((item as any).tipo_negocio || (item as any).grupo_gerencial || "A classificar")
     const semaforo = calcularSemaforoEstoque(item)
     const faixaCobertura = getFaixaCoberturaOperacionalDashboard(item)
@@ -2182,13 +2214,13 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
     let quadrante: QuadranteMatrizKey = "BAIXO_GIRO_CONTROLADO"
 
     if (faixaCobertura === "Excesso > 3 meses") {
-      quadrante = giro >= corteGiro ? "EXCESSO_COM_GIRO" : "EXCESSO_PARADO"
-    } else if (faixaCobertura !== "Sem consumo" && giro >= corteGiro && cobertura < corteCobertura) {
+      quadrante = consumo >= corteConsumo ? "EXCESSO_COM_GIRO" : "EXCESSO_PARADO"
+    } else if (faixaCobertura !== "Sem consumo" && demanda >= corteDemanda && cobertura < corteCobertura) {
       quadrante = "RISCO_FALTA"
     }
 
-    const x = Math.min(giro, maxGiroBruto)
-    const y = Math.min(cobertura, maxCoberturaBruto)
+    const x = Math.min(consumo, maxConsumoBruto)
+    const y = Math.min(demanda, maxDemandaBruto)
     const z = Math.max(20, Math.min(520, 24 + (valor / maxValor) * 496))
 
     return {
@@ -2199,7 +2231,8 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
       x,
       y,
       z,
-      giro,
+      giro: consumo,
+      consumo,
       cobertura,
       estoque,
       valor,
@@ -2219,17 +2252,22 @@ function montarPontosMatrizEstoque(itens: AgingEstoqueItem[]) {
       valor: subset.reduce((sum, ponto) => sum + ponto.valor, 0),
       entradas: subset.reduce((sum, ponto) => sum + ponto.entradas, 0),
       demanda: subset.reduce((sum, ponto) => sum + ponto.demanda, 0),
+      consumo: subset.reduce((sum, ponto) => sum + ponto.consumo, 0),
     }
     return acc
-  }, {} as Record<QuadranteMatrizKey, { skus: number; estoque: number; valor: number; entradas: number; demanda: number }>)
+  }, {} as Record<QuadranteMatrizKey, { skus: number; estoque: number; valor: number; entradas: number; demanda: number; consumo: number }>)
 
   return {
     pontos,
     resumo,
-    corteGiro,
+    corteGiro: corteConsumo,
+    corteConsumo,
+    corteDemanda,
     corteCobertura,
-    maxGiro: maxGiroVisual,
-    maxCobertura: maxCoberturaVisual,
+    maxGiro: maxConsumoVisual,
+    maxConsumo: maxConsumoVisual,
+    maxDemanda: maxDemandaVisual,
+    maxCobertura: Math.max(corteCobertura * 1.5, percentile(coberturas, 0.9), 6),
   }
 }
 
@@ -2244,7 +2282,8 @@ function MatrixTooltip({ active, payload }: any) {
       <p className="font-bold" style={{ color: "var(--text-primary)" }}>{ponto.codigo} · {ponto.produto || "Item"}</p>
       <p className="mt-1" style={{ color: "var(--text-secondary)" }}>{ponto.linha} · {quadrante.titulo}</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <div><span style={{ color: "var(--text-secondary)" }}>Giro/demanda</span><p className="font-bold">{fmtNumber(ponto.giro, 0)}</p></div>
+        <div><span style={{ color: "var(--text-secondary)" }}>Consumo médio 6M</span><p className="font-bold">{fmtNumber(ponto.consumo, 0)}</p></div>
+        <div><span style={{ color: "var(--text-secondary)" }}>Demanda mês</span><p className="font-bold">{fmtNumber(ponto.demanda, 0)}</p></div>
         <div><span style={{ color: "var(--text-secondary)" }}>Cobertura</span><p className="font-bold">{fmtNumber(ponto.cobertura, 1)} m</p></div>
         <div><span style={{ color: "var(--text-secondary)" }}>Estoque</span><p className="font-bold">{fmtNumber(ponto.estoque, 0)}</p></div>
         <div><span style={{ color: "var(--text-secondary)" }}>Valor</span><p className="font-bold">{fmtCurrency(ponto.valor, 0)}</p></div>
@@ -3263,10 +3302,11 @@ function ItensDrilldownDashboardTable({
   preserveOrder?: boolean
   vazio?: string
 }) {
-  const [mostrarTodos, setMostrarTodos] = useState(false)
+  const [paginaAtual, setPaginaAtual] = useState(1)
+  const itensPorPagina = 10
 
   useEffect(() => {
-    setMostrarTodos(false)
+    setPaginaAtual(1)
   }, [titulo, itens.length])
 
   const itensOrdenados = useMemo(() => {
@@ -3281,7 +3321,10 @@ function ItensDrilldownDashboardTable({
     })
   }, [itens, preserveOrder])
 
-  const itensVisiveis = mostrarTodos ? itensOrdenados : itensOrdenados.slice(0, 40)
+  const totalPaginas = Math.max(1, Math.ceil(itensOrdenados.length / itensPorPagina))
+  const paginaSegura = Math.min(Math.max(1, paginaAtual), totalPaginas)
+  const inicioPagina = (paginaSegura - 1) * itensPorPagina
+  const itensVisiveis = itensOrdenados.slice(inicioPagina, inicioPagina + itensPorPagina)
 
   return (
     <div className="rounded-2xl border bg-white" style={{ borderColor: "var(--border)" }}>
@@ -3294,15 +3337,31 @@ function ItensDrilldownDashboardTable({
           {subtitulo && <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{subtitulo}</p>}
           {acao && <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{acao}</p>}
         </div>
-        {itensOrdenados.length > 40 && (
-          <button
-            type="button"
-            onClick={() => setMostrarTodos((atual) => !atual)}
-            className="rounded-xl border bg-white px-3 py-2 text-xs font-bold transition hover:bg-slate-50"
-            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-          >
-            {mostrarTodos ? "Ver menos" : "Ver todos"}
-          </button>
+        {itensOrdenados.length > itensPorPagina && (
+          <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+            <span className="font-semibold">{fmtNumber(inicioPagina + 1)}-{fmtNumber(Math.min(inicioPagina + itensPorPagina, itensOrdenados.length))} de {fmtNumber(itensOrdenados.length)}</span>
+            <button
+              type="button"
+              disabled={paginaSegura <= 1}
+              onClick={() => setPaginaAtual((atual) => Math.max(1, atual - 1))}
+              className="rounded-xl border bg-white px-3 py-2 font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              Anterior
+            </button>
+            <span className="rounded-xl border bg-white px-3 py-2 font-bold" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+              {paginaSegura}/{totalPaginas}
+            </span>
+            <button
+              type="button"
+              disabled={paginaSegura >= totalPaginas}
+              onClick={() => setPaginaAtual((atual) => Math.min(totalPaginas, atual + 1))}
+              className="rounded-xl border bg-white px-3 py-2 font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              Próxima
+            </button>
+          </div>
         )}
       </div>
 
@@ -3360,9 +3419,32 @@ function ItensDrilldownDashboardTable({
           </tbody>
         </table>
       </div>
-      {!mostrarTodos && itensOrdenados.length > 40 && (
-        <div className="border-t px-4 py-3 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-          Mostrando os 40 primeiros itens do recorte. Use “Ver todos” para abrir a lista completa.
+      {itensOrdenados.length > itensPorPagina && (
+        <div className="flex flex-col gap-2 border-t px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+          <span>Mostrando {fmtNumber(inicioPagina + 1)}-{fmtNumber(Math.min(inicioPagina + itensPorPagina, itensOrdenados.length))} de {fmtNumber(itensOrdenados.length)} itens.</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={paginaSegura <= 1}
+              onClick={() => setPaginaAtual((atual) => Math.max(1, atual - 1))}
+              className="rounded-xl border bg-white px-3 py-2 font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              Anterior
+            </button>
+            <span className="rounded-xl border bg-white px-3 py-2 font-bold" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+              Página {paginaSegura} de {totalPaginas}
+            </span>
+            <button
+              type="button"
+              disabled={paginaSegura >= totalPaginas}
+              onClick={() => setPaginaAtual((atual) => Math.min(totalPaginas, atual + 1))}
+              className="rounded-xl border bg-white px-3 py-2 font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            >
+              Próxima
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -3384,7 +3466,7 @@ function MatrizEstoqueGiroPanel({
   const pontosQuadrante = useMemo(() => {
     return matriz.pontos
       .filter((ponto) => ponto.quadrante === quadranteSelecionado)
-      .sort((a, b) => b.valor - a.valor || b.giro - a.giro)
+      .sort((a, b) => b.valor - a.valor || b.demanda - a.demanda || b.consumo - a.consumo)
   }, [matriz.pontos, quadranteSelecionado])
 
   const quadranteAtual = MATRIZ_QUADRANTES[quadranteSelecionado]
@@ -3392,7 +3474,7 @@ function MatrizEstoqueGiroPanel({
   if (!itens?.length && loading) {
     return (
       <div className="card p-5">
-        <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Carregando matriz Estoque x Giro...</p>
+        <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Carregando matriz consumo x demanda...</p>
       </div>
     )
   }
@@ -3401,15 +3483,15 @@ function MatrizEstoqueGiroPanel({
     <div className="card p-5">
       <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Matriz Estoque x Giro</p>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Matriz consumo x demanda</p>
           <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Prioridade de ação por SKU</h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            O eixo horizontal mostra giro/demanda; o vertical mostra cobertura em meses. O tamanho da bolha representa valor em estoque.
+            O eixo horizontal mostra consumo médio mensal dos últimos 6 meses; o vertical mostra a demanda/forecast do mês atual. O tamanho da bolha representa valor em estoque.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte giro: {fmtNumber(matriz.corteGiro, 0)}</span>
-          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte cobertura: {fmtNumber(matriz.corteCobertura, 0)} meses</span>
+          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte consumo: {fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}</span>
+          <span className="rounded-full border px-3 py-1.5 text-xs font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Corte demanda: {fmtNumber(matriz.corteDemanda || 0, 0)}</span>
         </div>
       </div>
 
@@ -3439,8 +3521,8 @@ function MatrizEstoqueGiroPanel({
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2">
                 <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>SKUs</p><p className="text-lg font-bold">{fmtNumber(resumo?.skus || 0)}</p></div>
-                <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Estoque</p><p className="text-lg font-bold">{fmtCompact(resumo?.estoque || 0)}</p></div>
-                <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Valor</p><p className="text-lg font-bold">{fmtCurrency(resumo?.valor || 0, 0)}</p></div>
+                <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Cons./mês</p><p className="text-lg font-bold">{fmtCompact((resumo as any)?.consumo || 0)}</p></div>
+                <div><p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Demanda</p><p className="text-lg font-bold">{fmtCompact(resumo?.demanda || 0)}</p></div>
               </div>
               <p className="mt-3 text-[11px]" style={{ color: "var(--text-secondary)" }}>{info.acao}</p>
             </button>
@@ -3454,39 +3536,39 @@ function MatrizEstoqueGiroPanel({
             <XAxis
               type="number"
               dataKey="x"
-              name="Giro / demanda"
-              domain={[0, Math.max(matriz.maxGiro, matriz.corteGiro * 1.15)]}
+              name="Consumo médio 6M"
+              domain={[0, Math.max(matriz.maxConsumo || matriz.maxGiro, (matriz.corteConsumo || matriz.corteGiro) * 1.15)]}
               tickFormatter={(value) => fmtCompact(Number(value))}
               tick={{ fontSize: 11, fill: "#64748B" }}
               axisLine={{ stroke: "#CBD5E1" }}
               tickLine={false}
-              label={{ value: "Giro / demanda", position: "bottom", offset: 18, fontSize: 12, fill: "#64748B" }}
+              label={{ value: "Consumo médio mensal 6M", position: "bottom", offset: 18, fontSize: 12, fill: "#64748B" }}
             />
             <YAxis
               type="number"
               dataKey="y"
-              name="Cobertura"
-              domain={[0, Math.max(matriz.maxCobertura, matriz.corteCobertura * 1.15)]}
+              name="Demanda mês"
+              domain={[0, Math.max(matriz.maxDemanda || 1, (matriz.corteDemanda || 1) * 1.15)]}
               tickFormatter={(value) => fmtCompact(Number(value))}
               tick={{ fontSize: 11, fill: "#64748B" }}
               axisLine={{ stroke: "#CBD5E1" }}
               tickLine={false}
-              label={{ value: "Cobertura em meses", angle: -90, position: "insideLeft", fontSize: 12, fill: "#64748B" }}
+              label={{ value: "Demanda / forecast do mês", angle: -90, position: "insideLeft", fontSize: 12, fill: "#64748B" }}
             />
             <ZAxis type="number" dataKey="z" range={[26, 520]} />
             <ReferenceLine
-              x={matriz.corteGiro}
+              x={matriz.corteConsumo || matriz.corteGiro}
               stroke="#94A3B8"
               strokeWidth={1.5}
               strokeDasharray="4 4"
-              label={{ value: `Corte giro ${fmtNumber(matriz.corteGiro, 0)}`, position: "insideBottomRight", fill: "#64748B", fontSize: 11 }}
+              label={{ value: `Corte consumo ${fmtNumber(matriz.corteConsumo || matriz.corteGiro, 0)}`, position: "insideBottomRight", fill: "#64748B", fontSize: 11 }}
             />
             <ReferenceLine
-              y={matriz.corteCobertura}
+              y={matriz.corteDemanda || 1}
               stroke="#94A3B8"
               strokeWidth={1.5}
               strokeDasharray="4 4"
-              label={{ value: `Corte cobertura ${fmtNumber(matriz.corteCobertura, 0)} m`, position: "insideTopLeft", fill: "#64748B", fontSize: 11 }}
+              label={{ value: `Corte demanda ${fmtNumber(matriz.corteDemanda || 0, 0)}`, position: "insideTopLeft", fill: "#64748B", fontSize: 11 }}
             />
             <Tooltip content={<MatrixTooltip />} cursor={{ stroke: "#94A3B8", strokeDasharray: "3 3" }} />
             <Scatter
@@ -3885,7 +3967,7 @@ function DashboardEstoquePanel({
         <KpiCard label="Itens críticos" value={fmtNumber(totalCriticos)} helper={`${fmtNumber(pctCritico, 1)}% do escopo`} icon={<AlertTriangle size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens críticos", "Itens com ruptura, criticidade ou semáforo vermelho no recorte atual.", itensPorCategoriaDashboard("criticos"), "#DC2626")} />
         <KpiCard label="Sem estoque" value={fmtNumber(metricasDashboard.semEstoque)} helper={`${fmtNumber(pctSemEstoque, 1)}% com saldo atual zerado`} icon={<ArrowDownRight size={20} />} tone="danger" onClick={() => abrirListaDashboard("Itens sem estoque", "Itens com saldo atual igual a zero no recorte selecionado.", itensSemEstoqueDashboard, "#DC2626")} />
         <KpiCard label="Atenção" value={fmtNumber(metricasDashboard.atencao)} helper="monitorar cobertura" icon={<AlertTriangle size={20} />} tone="warning" onClick={() => abrirListaDashboard("Itens em atenção", "Itens com semáforo amarelo ou status de atenção.", itensAtencaoDashboard, "#D97706")} />
-        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="cobertura do mês > 3m" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => abrirListaDashboard("Itens em excesso", "Itens classificados pelo backend como excesso pela política atual.", itensExcessoDashboard, "#2563EB")} />
+        <KpiCard label="Excesso" value={fmtNumber(metricasDashboard.excesso)} helper="cobertura futura > 3m" icon={<ArrowUpRight size={20} />} tone="blue" onClick={() => abrirListaDashboard("Itens em excesso", "Itens classificados pelo backend como excesso pela política atual.", itensExcessoDashboard, "#2563EB")} />
         <KpiCard label="Sem consumo" value={fmtNumber(metricasDashboard.semGiro)} helper="sem referência de venda/consumo" icon={<PackageSearch size={20} />} tone="default" onClick={() => abrirListaDashboard("Itens sem consumo", "Itens sem venda, consumo ou demanda.", itensSemGiroDashboard, "#94A3B8")} />
         <KpiCard label="Estoque total" value={fmtCompact(metricasDashboard.saldoTotal)} helper={`Valor: ${fmtCurrency(metricasDashboard.valorEstoque, 0)}`} icon={<Boxes size={20} />} tone="success" onClick={() => abrirListaDashboard("Itens com estoque no recorte", "Lista do recorte atual ordenada por valor e volume em estoque.", itensFiltradosDashboard.filter((item) => getEstoqueAtualReal(item) > 0), "#15803D")} />
       </div>
@@ -3929,7 +4011,7 @@ function DashboardEstoquePanel({
           <div className="mb-4">
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Cobertura por faixa</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Distribuição dos itens por cobertura</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Ajuda a separar risco de falta, excesso e itens sem consumo pela cobertura do mês atual.</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>Ajuda a separar risco de falta, excesso e itens sem consumo pela cobertura futura acumulada.</p>
           </div>
           <div className="h-[360px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -3937,7 +4019,7 @@ function DashboardEstoquePanel({
                 <XAxis dataKey="faixa" tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} interval={0} angle={-18} textAnchor="end" />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
                 <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} content={<CoberturaFaixaTooltip />} />
-                <Bar dataKey="itens" name="Itens" fill="#163B63" radius={[8, 8, 0, 0]} onClick={(row) => abrirListaDashboard(`Cobertura · ${row.faixa}`, "Itens agrupados pela cobertura do mês atual: estoque disponível + entradas do mês atual sobre demanda/forecast atual.", row.itens_lista || [], "#163B63")}>
+                <Bar dataKey="itens" name="Itens" fill="#163B63" radius={[8, 8, 0, 0]} onClick={(row) => abrirListaDashboard(`Cobertura · ${row.faixa}`, "Itens agrupados pela cobertura futura: estoque disponível consumindo a demanda dos próximos meses.", row.itens_lista || [], "#163B63")}>
                   <LabelList dataKey="itens" position="top" fontSize={12} fill="#163B63" formatter={(value: number) => value > 0 ? fmtNumber(value) : ""} />
                 </Bar>
               </BarChart>
@@ -3950,57 +4032,6 @@ function DashboardEstoquePanel({
 
       <MatrizEstoqueGiroPanel itens={itensFiltradosDashboard} loading={loadingMatriz} onApplyFilter={(filtro) => aplicarFiltroComLinha(filtro)} />
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="card p-5 xl:col-span-2">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Itens críticos</p>
-              <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Fila de ação</h2>
-            </div>
-            <button type="button" onClick={() => abrirListaDashboard("Itens críticos", "Lista completa dos itens críticos do recorte atual.", topCriticos, "#DC2626")} className="rounded-xl border px-3 py-2 text-xs font-bold transition hover:bg-slate-50" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Ver todos</button>
-          </div>
-          <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
-            <table className="w-full text-sm">
-              <thead style={{ background: "#163B63", color: "#FFFFFF" }}>
-                <tr className="text-left text-[11px] uppercase tracking-wide">
-                  <th className="px-3 py-2">Código</th><th className="px-3 py-2">Descrição</th><th className="px-3 py-2">Linha</th><th className="px-3 py-2 text-right">Estoque</th><th className="px-3 py-2 text-right">Entradas mês</th><th className="px-3 py-2 text-right">Demanda</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topCriticos.slice(0, 8).map((item) => (
-                  <tr key={`${item.codigo}-${item.produto}`} className="border-b last:border-0" style={{ borderColor: "var(--border)" }}>
-                    <td className="px-3 py-2 font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo}</td>
-                    <td className="px-3 py-2" style={{ color: "var(--text-primary)" }}>{(item as any).produto || "—"}</td>
-                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{(item as any).tipo_negocio || (item as any).grupo_gerencial || "—"}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(getEstoqueAtualReal(item), 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(getEntradasMesAtualDashboard(item), 0)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(getDemandaTotalOperacionalDashboard(item), 0)}</td>
-                  </tr>
-                ))}
-                {!topCriticos.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Sem itens críticos para o filtro selecionado.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="card p-5">
-          <div className="mb-4">
-            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Excesso e capital parado</p>
-            <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Top excesso</h2>
-          </div>
-          <div className="space-y-3">
-            {topExcesso.slice(0, 6).map((item) => (
-              <button key={`${item.codigo}-excesso`} type="button" onClick={() => abrirListaDashboard(String((item as any).produto || item.codigo), "Detalhe do item selecionado no ranking de excesso.", [item], "#2563EB")} className="w-full rounded-2xl border p-3 text-left transition hover:bg-slate-50" style={{ borderColor: "var(--border)" }}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0"><p className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>{item.codigo} · {(item as any).produto}</p><p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>{(item as any).tipo_negocio || (item as any).grupo_gerencial || "Sem linha"}</p></div>
-                  <span className="shrink-0 rounded-full px-2 py-1 text-[11px] font-bold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>{fmtCompact(getEstoqueAtualReal(item))}</span>
-                </div>
-              </button>
-            ))}
-            {!topExcesso.length && <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Sem ranking de excesso para o filtro selecionado.</p>}
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
