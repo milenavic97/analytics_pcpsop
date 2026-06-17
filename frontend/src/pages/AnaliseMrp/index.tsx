@@ -601,7 +601,7 @@ const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "ce
   { key: "estoque_mais_pedidos", label: "Estoque + entr. + quar.", align: "right", width: "w-[150px]", tooltip: "Soma operacional: estoque atual + entradas/PC em aberto + quarentena 98. É a base usada para a cobertura futura de insumos/comprados." },
   { key: "consumo_mes_atual", label: "Consumo mês", align: "right", width: "w-[120px]", tooltip: "Consumo realizado no mês atual. Para insumos/PI/MP/ME/MI vem da coluna M_MM_AAAA da posição de estoque/Aging. Para PA/MR/PPS/PV representa venda/faturamento do mês pela SD2." },
   { key: "demanda_mes_atual", label: "Previsão mês", align: "right", width: "w-[120px]", tooltip: "Previsão/demanda do mês atual. Para PA/MR/PPS/PV vem do forecast S&OP; para insumos vem da demanda explodida pelo MPS/BOM." },
-  { key: "previsto_vs_consumido_pct", label: "Consumo vs previsão", align: "right", width: "w-[145px]", tooltip: "Consumo do mês dividido pela previsão do mês. Fica em vermelho quando passa de 100%." },
+  { key: "previsto_vs_consumido_pct", label: "Consumo vs previsão", align: "right", width: "w-[145px]", tooltip: "Consumo do mês dividido pela previsão do mês. Fica em vermelho quando passa de 100% ou quando houve consumo sem previsão cadastrada." },
   { key: "pct_mes_decorrido", label: "% mês decorrido", align: "right", width: "w-[125px]", tooltip: "Percentual do mês já transcorrido até a data atual. Ajuda a comparar o ritmo de consumo com a previsão proporcional." },
   { key: "desvio_ritmo_pct", label: "Desvio ritmo", align: "right", width: "w-[120px]", tooltip: "Diferença em pontos percentuais entre consumo vs previsão e o percentual do mês decorrido. Valor positivo indica consumo acima do ritmo esperado." },
   { key: "dias_em_estoque", label: "Dias estoque", align: "right", width: "w-[110px]", tooltip: "Cobertura convertida para dias, com base no forecast/demanda usado na cobertura operacional." },
@@ -1129,6 +1129,21 @@ function getDesvioRitmoPct(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
   return getPercentualConsumoPrevisto(item) - getPercentualMesDecorrido()
 }
 
+function itemTemAlertaConsumoPrevisao(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return false
+
+  const alertaBackend = getNum(item, "previsao_consumo_alerta") > 0 || getNum(item, "consumo_sem_previsao") > 0
+  if (alertaBackend) return true
+
+  const previsao = getPrevisaoMesAtual(item)
+  const consumo = getConsumoMesAtual(item)
+
+  if (previsao <= 0 && consumo > 0) return true
+  if (previsao > 0 && consumo > previsao) return true
+
+  return false
+}
+
 function calcularSemaforoConsumoInsumo(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined): SemaforoEstoque {
   const previsao = getPrevisaoMesAtual(item)
   const consumo = getConsumoMesAtual(item)
@@ -1136,7 +1151,7 @@ function calcularSemaforoConsumoInsumo(item: AgingEstoqueItem | AgingEstoqueItem
   // Sem previsão e sem consumo: não há risco operacional para acompanhar agora.
   // Então fica OK, não "Sem referência".
   if (previsao <= 0 && consumo <= 0) return "VERDE"
-  if (previsao <= 0 && consumo > 0) return "AMARELO"
+  if (previsao <= 0 && consumo > 0) return "VERMELHO"
 
   const pctConsumo = getPercentualConsumoPrevisto(item)
   const pctMes = getPercentualMesDecorrido()
@@ -1172,7 +1187,7 @@ function renderValorColunaInsumo(item: AgingEstoqueItem, key: string): ReactNode
       const previsao = getPrevisaoMesAtual(item)
       const consumo = getConsumoMesAtual(item)
       if (previsao <= 0 && consumo <= 0) return "—"
-      if (previsao <= 0 && consumo > 0) return "Sem previsão"
+      if (previsao <= 0 && consumo > 0) return "Consumo sem previsão"
       return `${fmtNumber(getPercentualConsumoPrevisto(item), 0)}%`
     }
     case "pct_mes_decorrido":
@@ -1181,7 +1196,7 @@ function renderValorColunaInsumo(item: AgingEstoqueItem, key: string): ReactNode
       const previsao = getPrevisaoMesAtual(item)
       const consumo = getConsumoMesAtual(item)
       if (previsao <= 0 && consumo <= 0) return "—"
-      if (previsao <= 0 && consumo > 0) return "Sem previsão"
+      if (previsao <= 0 && consumo > 0) return "Consumo sem previsão"
       return `${getDesvioRitmoPct(item) > 0 ? "+" : ""}${fmtNumber(getDesvioRitmoPct(item), 0)} p.p.`
     }
     case "dias_em_estoque":
@@ -7196,7 +7211,7 @@ export default function AgingEstoquePage() {
                   <tr
                     key={item.codigo}
                     className="cursor-pointer border-b transition hover:bg-slate-100"
-                    style={{ borderColor: getNum(item, "previsao_consumo_alerta") > 0 ? "rgba(220,38,38,0.28)" : "var(--border)", background: selected?.codigo === item.codigo ? "rgba(22,59,99,0.07)" : getNum(item, "previsao_consumo_alerta") > 0 ? "rgba(220,38,38,0.025)" : undefined }}
+                    style={{ borderColor: itemTemAlertaConsumoPrevisao(item) ? "rgba(220,38,38,0.28)" : "var(--border)", background: selected?.codigo === item.codigo ? "rgba(22,59,99,0.07)" : itemTemAlertaConsumoPrevisao(item) ? "rgba(220,38,38,0.025)" : undefined }}
                     onClick={() => abrirDetalhe(item)}
                   >
                     <td className="px-3 py-2 font-bold">{item.codigo}</td>
@@ -7209,14 +7224,14 @@ export default function AgingEstoquePage() {
                       )}
                     </td>
                     {colunasInsumosTabela.map((col) => {
-                      const alertaPrevisao = getNum(item, "previsao_consumo_alerta") > 0
+                      const alertaPrevisao = itemTemAlertaConsumoPrevisao(item)
                       const colunaAlerta = col.key === "previsto_vs_consumido_pct"
                       return (
                         <td
                           key={`${item.codigo}-${col.key}`}
                           className={`px-3 py-2 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : ""}`}
                           style={colunaAlerta && alertaPrevisao ? { background: "rgba(220,38,38,0.08)", color: "#B91C1C", fontWeight: 800 } : undefined}
-                          title={colunaAlerta && alertaPrevisao ? "Consumo/venda do mês atual acima da previsão do mês" : undefined}
+                          title={colunaAlerta && alertaPrevisao ? "Consumo/venda do mês atual acima da previsão ou sem previsão cadastrada" : undefined}
                         >
                           {renderValorColunaInsumo(item, col.key)}
                         </td>
@@ -7665,7 +7680,7 @@ export default function AgingEstoquePage() {
             <tbody>
               {itensOrdenados.map((item) => {
                 const itemEx = item as AgingEstoqueItem & Record<string, unknown>
-                const alertaPrevisao = getNum(item, "previsao_consumo_alerta") > 0
+                const alertaPrevisao = itemTemAlertaConsumoPrevisao(item)
 
                 return (
                   <tr
@@ -7719,7 +7734,7 @@ export default function AgingEstoquePage() {
                           key={col.key}
                           className={`px-2 py-2 text-right whitespace-nowrap ${isGap ? "font-semibold" : ""}`}
                           style={col.key === "previsto_vs_consumido_pct" && alertaPrevisao ? { color, background: "rgba(220,38,38,0.08)", fontWeight: 800 } : { color }}
-                          title={col.key === "previsto_vs_consumido_pct" && alertaPrevisao ? "Consumo/venda do mês atual acima da previsão do mês" : undefined}
+                          title={col.key === "previsto_vs_consumido_pct" && alertaPrevisao ? "Consumo/venda do mês atual acima da previsão ou sem previsão cadastrada" : undefined}
                         >
                           {fmtTableValue(item, col, isTabelaProdutos)}
                         </td>
