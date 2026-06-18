@@ -2154,204 +2154,313 @@ const textoPercentualV1 = (valor: number) =>
         </>
       )}
 
-{modalPerdaProducao && data && (
-  <div
-    className="fixed inset-0 z-50 flex items-center justify-center p-4"
-    style={{ background: "rgba(15,23,42,0.45)" }}
-    onClick={() => setModalPerdaProducao(false)}
-  >
+
+{modalPerdaProducao && data && (() => {
+  const totalParadasModal = lotesPerdaProducao.reduce((acc, lote) => {
+    const eventos = lote.paradas_dia_fim_previsto || lote.paradas_periodo || [];
+    return acc + Number(lote.qtd_paradas_dia_fim_previsto ?? lote.qtd_paradas_periodo ?? eventos.length ?? 0);
+  }, 0);
+
+  const horasParadasModal = lotesPerdaProducao.reduce((acc, lote) => {
+    const eventos = lote.paradas_dia_fim_previsto || lote.paradas_periodo || [];
+    const horas = Number(
+      lote.horas_paradas_dia_fim_previsto ??
+        lote.horas_parada_periodo ??
+        eventos.reduce((soma, ev) => soma + Number(ev.duracao_horas ?? ev.duracao_h ?? 0), 0)
+    );
+    return acc + (Number.isFinite(horas) ? horas : 0);
+  }, 0);
+
+  return (
     <div
-      className="w-full max-w-6xl overflow-hidden rounded-2xl shadow-xl"
-      style={{ background: "var(--bg-primary)" }}
-      onClick={(e) => e.stopPropagation()}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(15,23,42,0.48)" }}
+      onClick={() => setModalPerdaProducao(false)}
     >
       <div
-        className="flex items-start justify-between border-b px-5 py-4"
-        style={{ borderColor: "var(--border)" }}
+        className="flex max-h-[92vh] w-full max-w-[1500px] flex-col overflow-hidden rounded-2xl shadow-2xl"
+        style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+        onClick={(e) => e.stopPropagation()}
       >
-        <div>
-          <p
-            className="text-[10px] font-semibold uppercase tracking-widest"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Perda produção
-          </p>
-          <h3 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-            Lotes reprogramados ou retirados da liberação do mês
-          </h3>
-          <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-            Mostra os lotes que estavam na V1 de {mesLabel}/{anoSelecionado} e deixaram de compor a liberação do mês na versão atual do MPS.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setModalPerdaProducao(false)}
-          className="rounded-lg p-2 hover:bg-black/5"
+        <div
+          className="flex items-center justify-between gap-4 px-6 py-4"
+          style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-secondary)" }}
         >
-          <X size={18} />
-        </button>
-      </div>
-
-      <div className="max-h-[70vh] overflow-auto p-5">
-        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
-            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
-              Perda produção total
-            </p>
-            <p className="mt-1 text-2xl font-bold" style={{ color: "#DC2626" }}>
-              {fmt(gapPorStatusMes.atraso_producao)} cx
-            </p>
-            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              {fmtTubetes(gapPorStatusMes.atraso_producao)} tubetes
-            </p>
+          <div className="flex min-w-0 items-center gap-3">
+            <div
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"
+              style={{ background: "rgba(239,68,68,0.10)", color: "#DC2626" }}
+            >
+              <AlertCircle size={20} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
+                Perda produção
+              </p>
+              <h3 className="text-xl font-black leading-tight" style={{ color: "var(--text-primary)" }}>
+                Lotes reprogramados ou retirados da liberação do mês
+              </h3>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                Leitura operacional do dia do fim previsto V1, usando o mesmo relatório de apontamento do MPS.
+              </p>
+            </div>
           </div>
 
-          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
-            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
-              Lotes afetados
-            </p>
-            <p className="mt-1 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
-              {lotesPerdaProducao.length}
-            </p>
-            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              Lotes da V1 reprogramados ou fora do mês
-            </p>
-          </div>
-
-          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
-            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
-              Leitura
-            </p>
-            <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-              O MPS atual empurrou ou retirou esses lotes da liberação de {mesLabel}.
-            </p>
-            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              As paradas são lidas do mesmo relatório de apontamento usado no MPS, no dia do fim previsto V1, por linha/recurso, com motivo, equipamento e horas.
-            </p>
-          </div>
+          <button
+            onClick={() => setModalPerdaProducao(false)}
+            className="rounded-xl p-2 transition hover:bg-black/5"
+            aria-label="Fechar modal"
+          >
+            <X size={19} />
+          </button>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
-          <table className="w-full min-w-[980px] text-left text-xs">
-            <thead style={{ background: "rgba(15,23,42,0.04)", color: "var(--text-secondary)" }}>
-              <tr>
-                <th className="px-4 py-3 font-bold uppercase tracking-wider">Lote</th>
-                <th className="px-4 py-3 font-bold uppercase tracking-wider">Grupo</th>
-                <th className="px-4 py-3 font-bold uppercase tracking-wider">Qtd V1</th>
-                <th className="px-4 py-3 font-bold uppercase tracking-wider">Fim previsto V1</th>
-                <th className="px-4 py-3 font-bold uppercase tracking-wider">Fim atual/real</th>
-                <th className="px-4 py-3 font-bold uppercase tracking-wider">O que aconteceu</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lotesPerdaProducao.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-6 text-center" colSpan={6} style={{ color: "var(--text-secondary)" }}>
-                    Nenhum lote de perda produção encontrado para esta visão.
-                  </td>
-                </tr>
-              ) : (
-                lotesPerdaProducao.map((l) => (
-                  <tr key={l.lote} className="border-t" style={{ borderColor: "var(--border)" }}>
-                    <td className="px-4 py-3 font-bold" style={{ color: "var(--text-primary)" }}>
-                      {l.lote}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>
-                      {l.grupo || "—"}
-                      {l.linha ? <div className="mt-1 text-[10px] font-semibold">Linha {l.linha}</div> : null}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmt(l.qtd_prevista_cx)} cx</span>
-                      <br />
-                      <span style={{ color: "var(--text-secondary)" }}>{fmtTubetes(l.qtd_prevista_cx)} tubetes</span>
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "var(--text-primary)" }}>
-                      {fmtData(l.data_fim_prevista || l.data_lib_prevista)}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "var(--text-primary)" }}>
-                      <span className="font-semibold">
-                        {fmtData(l.data_fim_real_apontamento || l.data_fim_atual || l.data_lib_atual)}
-                      </span>
-                      {l.fim_real_fonte && (
-                        <div className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                          Fonte: {l.fim_real_fonte}
+        <div className="overflow-auto p-5">
+          <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+            <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                Perda produção total
+              </p>
+              <p className="mt-1 text-2xl font-black" style={{ color: "#DC2626" }}>
+                {fmt(gapPorStatusMes.atraso_producao)} cx
+              </p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                {fmtTubetes(gapPorStatusMes.atraso_producao)} tubetes
+              </p>
+            </div>
+
+            <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                Lotes afetados
+              </p>
+              <p className="mt-1 text-2xl font-black" style={{ color: "var(--text-primary)" }}>
+                {lotesPerdaProducao.length}
+              </p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                Reprogramados ou fora do mês
+              </p>
+            </div>
+
+            <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                Ocorrências no apontamento
+              </p>
+              <p className="mt-1 text-2xl font-black" style={{ color: "var(--text-primary)" }}>
+                {fmt(totalParadasModal)}
+              </p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                No dia do fim previsto V1
+              </p>
+            </div>
+
+            <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                Horas paradas
+              </p>
+              <p className="mt-1 text-2xl font-black" style={{ color: horasParadasModal > 0 ? "#B45309" : "var(--text-primary)" }}>
+                {horasParadasModal.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h
+              </p>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                Soma dos eventos listados
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {lotesPerdaProducao.length === 0 ? (
+              <div className="rounded-2xl border p-8 text-center" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+                Nenhum lote de perda produção encontrado para esta visão.
+              </div>
+            ) : (
+              lotesPerdaProducao.map((l) => {
+                const eventos = (l.paradas_dia_fim_previsto || l.paradas_periodo || []) as ApontamentoEvento[];
+                const qtdParadas = Number(l.qtd_paradas_dia_fim_previsto ?? l.qtd_paradas_periodo ?? eventos.length ?? 0);
+                const horasParadas = Number(
+                  l.horas_paradas_dia_fim_previsto ??
+                    l.horas_parada_periodo ??
+                    eventos.reduce((soma, ev) => soma + Number(ev.duracao_horas ?? ev.duracao_h ?? 0), 0)
+                );
+                const temParada = qtdParadas > 0 || eventos.length > 0;
+
+                const equipamentos = new Map<string, { horas: number; ocorrencias: number }>();
+                const motivos = new Map<string, { horas: number; ocorrencias: number }>();
+
+                for (const ev of eventos) {
+                  const equipamento = ev.equipamento || "Sem equipamento";
+                  const motivo = ev.evento || ev.tipo_evento || "Ocorrência sem descrição";
+                  const horas = Number(ev.duracao_horas ?? ev.duracao_h ?? 0);
+
+                  const eq = equipamentos.get(equipamento) || { horas: 0, ocorrencias: 0 };
+                  eq.horas += Number.isFinite(horas) ? horas : 0;
+                  eq.ocorrencias += 1;
+                  equipamentos.set(equipamento, eq);
+
+                  const mot = motivos.get(motivo) || { horas: 0, ocorrencias: 0 };
+                  mot.horas += Number.isFinite(horas) ? horas : 0;
+                  mot.ocorrencias += 1;
+                  motivos.set(motivo, mot);
+                }
+
+                const equipamentoPrincipal = [...equipamentos.entries()].sort((a, b) => b[1].horas - a[1].horas)[0];
+                const motivoPrincipal = [...motivos.entries()].sort((a, b) => b[1].horas - a[1].horas)[0];
+
+                return (
+                  <div key={l.lote} className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+                    <div className="grid grid-cols-1 gap-0 lg:grid-cols-[270px_1fr]">
+                      <div className="border-b p-4 lg:border-b-0 lg:border-r" style={{ borderColor: "var(--border)", background: "rgba(15,23,42,0.015)" }}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                              Lote
+                            </p>
+                            <p className="mt-1 text-base font-black" style={{ color: "var(--text-primary)" }}>
+                              {l.lote}
+                            </p>
+                            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                              {l.grupo || "—"}{l.linha ? ` · Linha ${l.linha}` : ""}
+                            </p>
+                          </div>
+                          <span
+                            className="rounded-full px-2 py-1 text-[10px] font-bold"
+                            style={{ background: "rgba(239,68,68,0.08)", color: "#B91C1C", border: "1px solid rgba(239,68,68,0.18)" }}
+                          >
+                            perda
+                          </span>
                         </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>
-                      <div className="max-w-[520px]">
-                        <p className="font-semibold" style={{ color: "var(--text-primary)" }}>
-                          {l.motivo || l.status_atual || "Reprogramado / fora do mês"}
-                        </p>
-                        <p className="mt-1 leading-relaxed">{l.explicacao || "Lote saiu da curva mensal em relação à V1."}</p>
 
-                        {(() => {
-                          const paradasDia = l.paradas_dia_fim_previsto || l.paradas_periodo || [];
-                          const qtdParadas = Number(l.qtd_paradas_dia_fim_previsto ?? l.qtd_paradas_periodo ?? paradasDia.length ?? 0);
-                          const horasParadas = Number(l.horas_paradas_dia_fim_previsto ?? l.horas_parada_periodo ?? 0);
-                          const temParada = qtdParadas > 0 || paradasDia.length > 0;
-
-                          return (
-                            <div
-                              className="mt-2 rounded-xl border px-3 py-2"
-                              style={{
-                                borderColor: temParada ? "rgba(220,38,38,0.28)" : "var(--border)",
-                                background: temParada ? "rgba(254,242,242,0.72)" : "rgba(15,23,42,0.025)",
-                              }}
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
-                                  Paradas no dia do fim previsto V1
-                                  {l.data_referencia_parada ? ` · ${fmtData(l.data_referencia_parada)}` : ""}
-                                </span>
-                                <span className="text-[10px] font-semibold" style={{ color: temParada ? "#B91C1C" : "var(--text-secondary)" }}>
-                                  {qtdParadas} ocorr.
-                                  {horasParadas > 0 ? ` · ${String(horasParadas).replace(".", ",")} h` : ""}
-                                </span>
-                              </div>
-
-                              {temParada ? (
-                                <div className="mt-2 space-y-2">
-                                  {paradasDia.slice(0, 4).map((ev, idx) => (
-                                    <div key={`${l.lote}-parada-dia-${idx}`} className="rounded-lg border px-2 py-1.5" style={{ borderColor: "rgba(220,38,38,0.14)", background: "rgba(255,255,255,0.55)" }}>
-                                      <div className="text-[11px] leading-relaxed" style={{ color: "var(--text-primary)" }}>
-                                        <span className="font-bold">{fmtPeriodoApontamento(ev)}</span>
-                                        {fmtHorasApontamento(ev) ? <span className="font-semibold" style={{ color: "#B91C1C" }}> · {fmtHorasApontamento(ev)}</span> : null}
-                                      </div>
-                                      <div className="mt-0.5 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{ev.evento || ev.tipo_evento || "Ocorrência"}</span>
-                                        {ev.tipo_evento && ev.evento && ev.tipo_evento !== ev.evento ? <span> · {ev.tipo_evento}</span> : null}
-                                        {ev.equipamento ? <span> · Equip.: {ev.equipamento}</span> : null}
-                                        {ev.fonte_evento ? <span> · Fonte: {ev.fonte_evento}</span> : null}
-                                      </div>
-                                    </div>
-                                  ))}
-                                  {paradasDia.length > 4 && (
-                                    <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                                      +{paradasDia.length - 4} ocorrência(s) no relatório de apontamento
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <p className="mt-1 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                                  {l.resumo_parada || "Sem parada encontrada no relatório de apontamento no dia do fim previsto V1 para a linha analisada."}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        })()}
+                        <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <p className="font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)", fontSize: 10 }}>
+                              Qtd V1
+                            </p>
+                            <p className="mt-1 font-black" style={{ color: "var(--text-primary)" }}>{fmt(l.qtd_prevista_cx)} cx</p>
+                            <p style={{ color: "var(--text-secondary)" }}>{fmtTubetes(l.qtd_prevista_cx)} tubetes</p>
+                          </div>
+                          <div>
+                            <p className="font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)", fontSize: 10 }}>
+                              Status
+                            </p>
+                            <p className="mt-1 font-bold" style={{ color: "#B91C1C" }}>{l.status_atual || "Reprogramado"}</p>
+                          </div>
+                          <div>
+                            <p className="font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)", fontSize: 10 }}>
+                              Fim V1
+                            </p>
+                            <p className="mt-1 font-bold" style={{ color: "var(--text-primary)" }}>{fmtData(l.data_fim_prevista || l.data_lib_prevista)}</p>
+                          </div>
+                          <div>
+                            <p className="font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)", fontSize: 10 }}>
+                              Fim atual/real
+                            </p>
+                            <p className="mt-1 font-bold" style={{ color: "var(--text-primary)" }}>{fmtData(l.data_fim_real_apontamento || l.data_fim_atual || l.data_lib_atual)}</p>
+                            {l.fim_real_fonte ? <p style={{ color: "var(--text-secondary)", fontSize: 10 }}>Fonte: {l.fim_real_fonte}</p> : null}
+                          </div>
+                        </div>
                       </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+
+                      <div className="p-4">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black" style={{ color: "var(--text-primary)" }}>
+                              {l.motivo || l.status_atual || "Reprogramado para mês futuro"}
+                            </p>
+                            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                              {l.explicacao || "O volume saiu da liberação prevista do mês em relação à V1."}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+                              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Ocorr.</p>
+                              <p className="text-sm font-black" style={{ color: temParada ? "#B91C1C" : "var(--text-primary)" }}>{fmt(qtdParadas)}</p>
+                            </div>
+                            <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+                              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Horas</p>
+                              <p className="text-sm font-black" style={{ color: temParada ? "#B45309" : "var(--text-primary)" }}>{Number(horasParadas || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h</p>
+                            </div>
+                            <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)", minWidth: 170 }}>
+                              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Equip. principal</p>
+                              <p className="truncate text-sm font-black" style={{ color: "var(--text-primary)" }}>{equipamentoPrincipal?.[0] || "—"}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                          <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "rgba(15,23,42,0.02)" }}>
+                            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                              Dia analisado
+                            </p>
+                            <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                              {fmtData(l.data_referencia_parada || l.data_fim_prevista || l.data_lib_prevista)}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "rgba(15,23,42,0.02)" }}>
+                            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                              Motivo mais relevante
+                            </p>
+                            <p className="mt-1 truncate text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                              {motivoPrincipal?.[0] || "—"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)" }}>
+                          <table className="w-full min-w-[850px] text-left text-xs">
+                            <thead style={{ background: "rgba(15,23,42,0.04)", color: "var(--text-secondary)" }}>
+                              <tr>
+                                {["Data", "Horário", "Horas", "Equipamento", "Tipo", "Motivo", "Fonte"].map((h) => (
+                                  <th key={h} className="px-3 py-2 font-bold uppercase tracking-wider">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {!temParada ? (
+                                <tr>
+                                  <td colSpan={7} className="px-3 py-4 text-center" style={{ color: "var(--text-secondary)" }}>
+                                    {l.resumo_parada || "Sem parada encontrada no relatório de apontamento no dia do fim previsto V1 para a linha analisada."}
+                                  </td>
+                                </tr>
+                              ) : (
+                                eventos.map((ev, idx) => (
+                                  <tr key={`${l.lote}-parada-${idx}`} className="border-t" style={{ borderColor: "var(--border)" }}>
+                                    <td className="px-3 py-2 font-semibold" style={{ color: "var(--text-primary)" }}>
+                                      {fmtData(ev.data_inicial || ev.data_final || l.data_referencia_parada)}
+                                    </td>
+                                    <td className="px-3 py-2" style={{ color: "var(--text-primary)" }}>
+                                      {fmtHora(ev.hora_inicio) || "—"} → {fmtHora(ev.hora_fim) || "—"}
+                                    </td>
+                                    <td className="px-3 py-2 font-bold" style={{ color: "#B45309" }}>
+                                      {fmtHorasApontamento(ev) || "—"}
+                                    </td>
+                                    <td className="px-3 py-2" style={{ color: "var(--text-primary)" }}>
+                                      {ev.equipamento || "—"}
+                                    </td>
+                                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>
+                                      {ev.tipo_evento || "—"}
+                                    </td>
+                                    <td className="px-3 py-2" style={{ color: "var(--text-primary)" }}>
+                                      {ev.evento || "—"}
+                                    </td>
+                                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>
+                                      {ev.fonte_evento || "apontamento"}
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
     </div>
-  </div>
-)}
+  );
+})()}
 
       {modalAuditoria && data && (
         <div
