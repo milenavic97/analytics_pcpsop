@@ -155,6 +155,15 @@ interface RastreamentoData {
   mes_cx_plano_atual_tendencia?: number;
   mes_cx_diferenca_vs_v1?: number;
   mes_cx_saldo_tendencia?: number;
+  mes_cx_acrescimo_plano_atual?: number;
+  mes_cx_perdas_brutas_vs_v1?: number;
+  mes_cx_reconciliado_v1?: number;
+  mes_perdas_vs_v1_por_causa?: {
+    reprovacao_desvio?: number;
+    atraso_producao?: number;
+    rendimento?: number;
+    outros?: number;
+  };
   mes_gap_por_etapa?: {
     desvio?: number;
     reprovacao_desvio?: number;
@@ -823,11 +832,12 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     envase: number;
     lavagem: number;
     nao_iniciado: number;
+    outros: number;
     total: number;
   };
 
   const normalizarGapPorEtapa = (
-    etapa?: Partial<RastreamentoData["mtd_gap_por_etapa"]>,
+    etapa?: (Partial<RastreamentoData["mtd_gap_por_etapa"]> & { outros?: number }),
   ): GapPorEtapaNormalizado => {
     const totais = {
       reprovacao_desvio: Math.round(Number(etapa?.reprovacao_desvio ?? 0)),
@@ -838,6 +848,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       envase: Math.round(Number(etapa?.envase ?? 0)),
       lavagem: Math.round(Number(etapa?.lavagem ?? 0)),
       nao_iniciado: Math.round(Number(etapa?.nao_iniciado ?? 0)),
+      outros: Math.round(Number(etapa?.outros ?? 0)),
       total: 0,
     };
 
@@ -849,14 +860,17 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       totais.embalagem +
       totais.envase +
       totais.lavagem +
-      totais.nao_iniciado;
+      totais.nao_iniciado +
+      totais.outros;
 
     return totais;
   };
 
   const gapPorStatusMes = useMemo(
-    () => normalizarGapPorEtapa(data?.mes_gap_por_etapa ?? data?.mtd_gap_por_etapa),
-    [data?.mes_gap_por_etapa, data?.mtd_gap_por_etapa],
+    () => normalizarGapPorEtapa(
+      data?.mes_perdas_vs_v1_por_causa ?? data?.mes_gap_por_etapa ?? data?.mtd_gap_por_etapa,
+    ),
+    [data?.mes_perdas_vs_v1_por_causa, data?.mes_gap_por_etapa, data?.mtd_gap_por_etapa],
   );
 
   const gapPorStatusMtd = useMemo(
@@ -874,6 +888,14 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   );
   const mesSaldoTendencia = Number(
     data?.mes_cx_saldo_tendencia ?? Math.max(mesPlanoAtualTendencia - mesRealizado, 0),
+  );
+  const mesAcrescimoPlanoAtual = Number(data?.mes_cx_acrescimo_plano_atual ?? 0);
+  const mesPerdasBrutasVsV1 = Number(
+    data?.mes_cx_perdas_brutas_vs_v1 ?? gapPorStatusMes.total,
+  );
+  const mesReconciliadoV1 = Number(
+    data?.mes_cx_reconciliado_v1
+      ?? Math.round(mesPlanoAtualTendencia + mesPerdasBrutasVsV1 - mesAcrescimoPlanoAtual),
   );
 
   const mtdPrevistoV1 = Number(data?.mtd_cx_previsto ?? 0);
@@ -912,6 +934,15 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       icon: TrendingDown,
       filtro: "RENDIMENTO",
     },
+    ...(gapPorStatusMes.outros > 0
+      ? [{
+          label: "Outras perdas/ajustes",
+          value: gapPorStatusMes.outros,
+          color: "#7C2D12",
+          icon: AlertTriangle,
+          filtro: "",
+        }]
+      : []),
   ];
 
   const statusMtd = [
@@ -1239,7 +1270,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   className="mt-1 text-xs"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3; lotes ainda não liberados entram pela versão atual do MPS.
+                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3; lotes ainda não liberados entram pela versão atual do MPS. Se a versão atual acrescentar volume, ele aparece como compensação para a conciliação fechar.
                 </p>
               </div>
 
@@ -1253,7 +1284,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
               <div
                 className="rounded-2xl border bg-white p-4"
                 style={{ borderColor: "var(--border)" }}
@@ -1330,6 +1361,30 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   </p>
                 </button>
               ))}
+
+              <div
+                className="rounded-2xl border bg-white p-4 text-left"
+                style={{
+                  borderColor: "var(--border)",
+                  opacity: mesAcrescimoPlanoAtual === 0 ? 0.45 : 1,
+                }}
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <RefreshCw size={15} style={{ color: "#0F766E" }} />
+                  <p
+                    className="text-[11px] font-bold uppercase tracking-wider"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    Acréscimo plano atual
+                  </p>
+                </div>
+                <p className="text-2xl font-bold" style={{ color: mesAcrescimoPlanoAtual > 0 ? "#0F766E" : "var(--text-secondary)" }}>
+                  {fmt(mesAcrescimoPlanoAtual)} cx
+                </p>
+                <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  Compensa perdas na versão atual
+                </p>
+              </div>
             </div>
 
             <div
@@ -1341,11 +1396,18 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 fontWeight: 700,
               }}
             >
-              {mesDiferencaVsV1 > 0
-                ? `Diferença mensal vs V1: -${fmt(mesDiferencaVsV1)} cx`
-                : mesDiferencaVsV1 < 0
-                  ? `Plano atualizado acima da V1 em ${fmt(Math.abs(mesDiferencaVsV1))} cx`
-                  : "Plano atualizado igual à V1"}
+              <div className="flex flex-col gap-1">
+                <span>
+                  {mesDiferencaVsV1 > 0
+                    ? `Diferença líquida mensal vs V1: -${fmt(mesDiferencaVsV1)} cx`
+                    : mesDiferencaVsV1 < 0
+                      ? `Plano atualizado acima da V1 em ${fmt(Math.abs(mesDiferencaVsV1))} cx`
+                      : "Plano atualizado igual à V1"}
+                </span>
+                <span className="text-xs" style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
+                  {`Conciliação: atualizado ${fmt(mesPlanoAtualTendencia)} cx + perdas ${fmt(mesPerdasBrutasVsV1)} cx - acréscimos ${fmt(mesAcrescimoPlanoAtual)} cx = ${fmt(mesReconciliadoV1)} cx`}
+                </span>
+              </div>
             </div>
           </div>
 
