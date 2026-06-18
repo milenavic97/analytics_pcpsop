@@ -142,6 +142,19 @@ interface RastreamentoCacheEntry {
   data: RastreamentoData;
 }
 
+interface ApontamentoEvento {
+  data_inicial?: string | null;
+  data_final?: string | null;
+  tipo_evento?: string | null;
+  evento?: string | null;
+  equipamento?: string | null;
+  etapa?: string | null;
+  duracao_h?: number | null;
+  situacao?: string | null;
+  qtd_produzida?: number | null;
+  is_parada?: boolean | null;
+}
+
 interface AtrasoProducaoLote {
   lote: string;
   grupo?: string | null;
@@ -167,6 +180,13 @@ interface AtrasoProducaoLote {
   check_liberado?: boolean | null;
   em_desvio?: boolean | null;
   desvio_reprovacao?: boolean | null;
+  data_fim_real_apontamento?: string | null;
+  fim_real_fonte?: string | null;
+  paradas_periodo?: ApontamentoEvento[] | null;
+  qtd_paradas_periodo?: number | null;
+  horas_parada_periodo?: number | null;
+  apontamentos_periodo?: ApontamentoEvento[] | null;
+  resumo_parada?: string | null;
 }
 
 interface RastreamentoData {
@@ -2161,7 +2181,7 @@ const textoPercentualV1 = (valor: number) =>
               O MPS atual empurrou ou retirou esses lotes da liberação de {mesLabel}.
             </p>
             <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              A tabela mostra o fim previsto na V1 e o fim atual/reprogramado.
+              A tabela mostra o fim previsto na V1, o fim real pelo apontamento quando existir e as paradas registradas no período.
             </p>
           </div>
         </div>
@@ -2203,14 +2223,61 @@ const textoPercentualV1 = (valor: number) =>
                       {fmtData(l.data_fim_prevista || l.data_lib_prevista)}
                     </td>
                     <td className="px-4 py-3" style={{ color: "var(--text-primary)" }}>
-                      {fmtData(l.data_fim_atual || l.data_lib_atual)}
+                      <span className="font-semibold">
+                        {fmtData(l.data_fim_real_apontamento || l.data_fim_atual || l.data_lib_atual)}
+                      </span>
+                      {l.fim_real_fonte && (
+                        <div className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                          Fonte: {l.fim_real_fonte}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>
-                      <div className="max-w-[420px]">
+                      <div className="max-w-[520px]">
                         <p className="font-semibold" style={{ color: "var(--text-primary)" }}>
                           {l.motivo || l.status_atual || "Reprogramado / fora do mês"}
                         </p>
                         <p className="mt-1 leading-relaxed">{l.explicacao || "Lote saiu da curva mensal em relação à V1."}</p>
+
+                        <div
+                          className="mt-2 rounded-xl border px-3 py-2"
+                          style={{
+                            borderColor: (l.paradas_periodo?.length || 0) > 0 ? "rgba(220,38,38,0.28)" : "var(--border)",
+                            background: (l.paradas_periodo?.length || 0) > 0 ? "rgba(254,242,242,0.72)" : "rgba(15,23,42,0.025)",
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                              Paradas no período
+                            </span>
+                            <span className="text-[10px] font-semibold" style={{ color: (l.paradas_periodo?.length || 0) > 0 ? "#B91C1C" : "var(--text-secondary)" }}>
+                              {l.qtd_paradas_periodo || 0} ocorr.
+                              {Number(l.horas_parada_periodo || 0) > 0 ? ` · ${String(l.horas_parada_periodo).replace(".", ",")} h` : ""}
+                            </span>
+                          </div>
+
+                          {(l.paradas_periodo?.length || 0) > 0 ? (
+                            <div className="mt-2 space-y-1.5">
+                              {(l.paradas_periodo || []).slice(0, 3).map((ev, idx) => (
+                                <div key={`${l.lote}-parada-${idx}`} className="text-[11px] leading-relaxed" style={{ color: "var(--text-primary)" }}>
+                                  <span className="font-bold">{fmtData(ev.data_inicial || ev.data_final)}</span>
+                                  <span> · {ev.tipo_evento || "Ocorrência"}</span>
+                                  {ev.evento ? <span> · {ev.evento}</span> : null}
+                                  {ev.equipamento ? <span style={{ color: "var(--text-secondary)" }}> · {ev.equipamento}</span> : null}
+                                </div>
+                              ))}
+                              {(l.paradas_periodo?.length || 0) > 3 && (
+                                <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                                  +{(l.paradas_periodo?.length || 0) - 3} ocorrência(s) no apontamento
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                              {l.resumo_parada || "Sem parada registrada no relatório de apontamento para este lote no período do atraso."}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </td>
                   </tr>
