@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import {
-  DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package, CalendarDays,
+  DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package, CalendarDays, ChevronDown, ChevronUp,
 } from "lucide-react"
 
 import { DisponibilidadeModal } from "@/components/charts/DisponibilidadeModal"
@@ -126,6 +126,7 @@ export function OverviewPage() {
   const [modalFatProj, setModalFatProj]       = useState(false)
   const [modalLibProj, setModalLibProj]       = useState(false)
   const [modalPrevistoHoje, setModalPrevistoHoje] = useState(false)
+  const [atendimentoAberto, setAtendimentoAberto] = useState(false)
 
   const [orcadoLib, setOrcadoLib]             = useState<{ total_caixas: number; total_tubetes: number } | null>(null)
   const [orcadoFat, setOrcadoFat]             = useState<{ total_caixas: number } | null>(null)
@@ -266,11 +267,39 @@ export function OverviewPage() {
             <DemandaDisponibilidadeChart />
           </div>
         </div>
-        <div className="mt-6">
-          <GrupoDisponibilidadeTableV2 mtdCxPrevisto={mtdCxPrevisto} />
-        </div>
+
         <div className="mt-6">
           <RastreamentoLotes onMtdLoad={(p, l) => { setMtdCxPrevisto(p); setMtdCxLiberado(l); }} />
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <button
+            type="button"
+            onClick={() => setAtendimentoAberto((v) => !v)}
+            className="flex w-full items-center justify-between gap-4 bg-[#183C62] px-5 py-4 text-left text-white transition hover:bg-[#153655]"
+          >
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-white/60">Acompanhamento projetado</p>
+              <p className="mt-1 text-base font-bold leading-tight">Atendimento projetado — mês atual</p>
+            </div>
+
+            <div className="flex flex-shrink-0 items-center gap-3">
+              <div className="hidden rounded-xl bg-white/10 px-3 py-2 text-right sm:block">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-white/60">Previsto MTD</p>
+                <p className="text-sm font-bold">{mtdCxPrevisto > 0 ? `${fmt(mtdCxPrevisto)} cx` : "—"}</p>
+              </div>
+              <span className="inline-flex items-center gap-2 rounded-xl border border-white/25 px-3 py-2 text-xs font-bold uppercase tracking-wide">
+                {atendimentoAberto ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                {atendimentoAberto ? "Fechar" : "Abrir"}
+              </span>
+            </div>
+          </button>
+
+          {atendimentoAberto && (
+            <div className="border-t border-slate-200 bg-white p-3 md:p-4">
+              <GrupoDisponibilidadeTableV2 mtdCxPrevisto={mtdCxPrevisto} />
+            </div>
+          )}
         </div>
       </section>
 
