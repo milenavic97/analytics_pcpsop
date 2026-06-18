@@ -123,11 +123,18 @@ function buildLinhaData(data: ProjecaoLiberacoesResponse, linha: "L1" | "L2"): C
   for (let mes = 1; mes <= 12; mes++) {
     const row = linhasMap.get(mes)
 
+    // Regra do modal de Liberações Reais + Previstas:
+    // - `planejado` pode vir como plano bruto da versão do MPS.
+    // - `previsto`, quando enviado pelo backend, já representa a projeção ajustada
+    //   usada nos cards da Overview/Rastreamento para o mês atual e meses previstos.
+    // Por isso o gráfico deve priorizar `previsto` e só cair em `planejado` como fallback.
+    const planejadoAjustado = row?.previsto ?? row?.planejado ?? 0
+
     result.push({
       mes,
       mesLabel: MES_LABELS[mes - 1],
       linha,
-      planejado: Number(row?.planejado || 0),
+      planejado: Number(planejadoAjustado || 0),
       planejado_v1: row?.planejado_v1 ?? null,
       versao_planejada: row?.versao_planejada ?? null,
       realizado: row?.realizado ?? null,
