@@ -147,6 +147,24 @@ interface RastreamentoData {
   total_lotes_futuros?: number;
   total_lotes_fora_gantt?: number;
   total_lotes_desvio?: number;
+  mes_cx_previsto_v1?: number;
+  mes_cx_planejado_v1?: number;
+  mes_cx_realizado?: number;
+  mes_cx_plano_atual_puro?: number;
+  mes_cx_plano_atual_tendencia?: number;
+  mes_cx_diferenca_vs_v1?: number;
+  mes_cx_saldo_tendencia?: number;
+  mes_gap_por_etapa?: {
+    desvio?: number;
+    reprovacao_desvio?: number;
+    desvio_aberto?: number;
+    atraso_producao?: number;
+    rendimento?: number;
+    embalagem?: number;
+    envase?: number;
+    lavagem?: number;
+    nao_iniciado?: number;
+  };
   total_cx_previsto: number;
   total_cx_liberado: number;
   total_cx_gap?: number;
@@ -614,7 +632,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [filtroEtapa, setFiltroEtapa] = useState("");
   const [filtroEmbalado, setFiltroEmbalado] = useState("");
   const [filtroVisaoPlano, setFiltroVisaoPlano] = useState("");
-  const [apenasAtrasados, setApenasAtrasados] = useState(true);
+  const [apenasAtrasados, setApenasAtrasados] = useState(false);
   const [modalAuditoria, setModalAuditoria] = useState(false);
   const [retemPorLote, setRetemPorLote] = useState(0.7);
   const [sortRendimento, setSortRendimento] = useState<"asc" | "desc" | null>(null);
@@ -796,7 +814,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   });
 
   const gapPorStatusTela = useMemo(() => {
-    const etapa = (data?.mtd_gap_por_etapa ?? {}) as Partial<RastreamentoData["mtd_gap_por_etapa"]>;
+    const etapa = (data?.mes_gap_por_etapa ?? data?.mtd_gap_por_etapa ?? {}) as Partial<RastreamentoData["mtd_gap_por_etapa"]>;
 
     const totais = {
       reprovacao_desvio: Math.round(Number(etapa.reprovacao_desvio ?? 0)),
@@ -821,17 +839,27 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       totais.nao_iniciado;
 
     return totais;
-  }, [data?.mtd_gap_por_etapa]);
+  }, [data?.mes_gap_por_etapa, data?.mtd_gap_por_etapa]);
 
-  // O alerta executivo precisa usar a conta oficial do backend:
-  // previsto até hoje - liberado até hoje.
-  // Os cards usam mtd_gap_por_etapa já conciliado pelo backend.
+  // MTD continua disponível para conciliação operacional, mas o topo da página
+  // passa a ser mensal: V1 do mês versus plano atual/tendência.
   const gapAlertaTela = data?.mtd_cx_gap ?? gapPorStatusTela.total ?? 0;
-  const denominadorCards = Math.max(0, Number(gapAlertaTela || gapPorStatusTela.total || 0));
+  const mesPrevistoV1 = Number(data?.mes_cx_previsto_v1 ?? data?.total_cx_previsto ?? 0);
+  const mesPlanoAtualTendencia = Number(
+    data?.mes_cx_plano_atual_tendencia ?? data?.total_cx_liberado ?? 0,
+  );
+  const mesRealizado = Number(data?.mes_cx_realizado ?? data?.total_cx_liberado ?? 0);
+  const mesDiferencaVsV1 = Number(
+    data?.mes_cx_diferenca_vs_v1 ?? mesPrevistoV1 - mesPlanoAtualTendencia,
+  );
+  const mesSaldoTendencia = Number(
+    data?.mes_cx_saldo_tendencia ?? Math.max(mesPlanoAtualTendencia - mesRealizado, 0),
+  );
+  const denominadorCards = Math.max(0, Number(mesPrevistoV1 || data?.total_cx_previsto || gapPorStatusTela.total || 0));
   const textoPercentualCard = (valor: number) =>
     denominadorCards > 0
-      ? `${fmtPercent((Number(valor || 0) / denominadorCards) * 100)}% do faltante`
-      : "0,0% do faltante";
+      ? `${fmtPercent((Number(valor || 0) / denominadorCards) * 100)}% da V1`
+      : "0,0% da V1";
 
   const lotesFiltrados = useMemo(() => {
     let lista = [...lotesFiltradosBase];
@@ -1094,7 +1122,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             style={{
               borderColor: "var(--border)",
               background:
-                gapAlertaTela > 0
+                mesDiferencaVsV1 > 0
                   ? "rgba(220,38,38,0.04)"
                   : "rgba(22,163,74,0.04)",
             }}
@@ -1104,7 +1132,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 size={16}
                 className="mt-0.5 flex-shrink-0"
                 style={{
-                  color: gapAlertaTela > 0 ? "#DC2626" : "#16A34A",
+                  color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A",
                 }}
               />
 
@@ -1113,31 +1141,27 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   className="text-sm font-bold"
                   style={{ color: "var(--text-primary)" }}
                 >
-                  {gapAlertaTela > 0
-                    ? `Deveriam ter liberado ${fmt(
-                        data.mtd_cx_previsto,
-                      )} cx até hoje — só liberou ${fmt(
-                        data.mtd_cx_liberado,
-                      )} cx`
-                    : `Todas as ${fmt(
-                        data.mtd_cx_previsto,
-                      )} cx previstas até hoje foram liberadas!`}
+                  {`Planejado V1 do mês: ${fmt(mesPrevistoV1)} cx — plano atual/tendência: ${fmt(
+                    mesPlanoAtualTendencia,
+                  )} cx`}
                 </p>
 
-                {gapAlertaTela > 0 && (
-                  <p
-                    className="mt-0.5 text-sm"
-                    style={{ color: "#DC2626", fontWeight: 700 }}
-                  >
-                    Faltam {fmt(gapAlertaTela)} cx — veja onde estão:
-                  </p>
-                )}
+                <p
+                  className="mt-0.5 text-sm"
+                  style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A", fontWeight: 700 }}
+                >
+                  {mesDiferencaVsV1 > 0
+                    ? `Diferença vs V1: -${fmt(mesDiferencaVsV1)} cx — veja composição abaixo:`
+                    : mesDiferencaVsV1 < 0
+                      ? `Plano atual acima da V1 em ${fmt(Math.abs(mesDiferencaVsV1))} cx`
+                      : "Plano atual igual à V1"}
+                </p>
 
                 <p
                   className="mt-1 text-[11px]"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Clique para ver conciliação com SD3
+                  Realizado até hoje: {fmt(mesRealizado)} cx · Saldo previsto na tendência atual: {fmt(mesSaldoTendencia)} cx · clique para ver conciliação MTD com SD3
                 </p>
               </div>
             </div>
@@ -1799,7 +1823,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   className="mt-0.5 text-xs"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Diferença entre rastreamento por lote e SD3 total do mês
+                  Conciliação operacional até hoje, mantendo a visão mensal V1 x plano atual no topo
                 </p>
               </div>
 
