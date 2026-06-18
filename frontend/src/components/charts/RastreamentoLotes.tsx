@@ -145,11 +145,15 @@ interface RastreamentoCacheEntry {
 interface ApontamentoEvento {
   data_inicial?: string | null;
   data_final?: string | null;
+  hora_inicio?: string | null;
+  hora_fim?: string | null;
   tipo_evento?: string | null;
   evento?: string | null;
   equipamento?: string | null;
+  recurso?: string | null;
   etapa?: string | null;
   duracao_h?: number | null;
+  duracao_horas?: number | null;
   situacao?: string | null;
   qtd_produzida?: number | null;
   is_parada?: boolean | null;
@@ -158,6 +162,7 @@ interface ApontamentoEvento {
 interface AtrasoProducaoLote {
   lote: string;
   grupo?: string | null;
+  linha?: string | null;
   produto?: string | null;
   qtd_prevista_cx?: number | null;
   qtd_prevista_tb?: number | null;
@@ -278,6 +283,29 @@ function fmtData(iso?: string | null) {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
   return `${d}/${m}`;
+}
+
+
+function fmtHora(hora?: string | null) {
+  if (!hora) return "";
+  const raw = String(hora);
+  return raw.length >= 5 ? raw.slice(0, 5) : raw;
+}
+
+function fmtPeriodoApontamento(ev: ApontamentoEvento) {
+  const data = fmtData(ev.data_inicial || ev.data_final);
+  const hi = fmtHora(ev.hora_inicio);
+  const hf = fmtHora(ev.hora_fim);
+  if (hi && hf) return `${data} · ${hi} → ${hf}`;
+  if (hi) return `${data} · ${hi}`;
+  if (hf) return `${data} · até ${hf}`;
+  return data;
+}
+
+function fmtHorasApontamento(ev: ApontamentoEvento) {
+  const horas = Number(ev.duracao_horas ?? ev.duracao_h ?? 0);
+  if (!horas) return "";
+  return `${horas.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`;
 }
 
 function formatarDataHoraAtualizacao(value?: string | null) {
@@ -2181,7 +2209,7 @@ const textoPercentualV1 = (valor: number) =>
               O MPS atual empurrou ou retirou esses lotes da liberação de {mesLabel}.
             </p>
             <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              A tabela mostra o fim previsto na V1, o fim real pelo apontamento quando existir e as paradas registradas no período.
+              As paradas são buscadas igual ao MPS: por linha/recurso e janela entre o fim previsto V1 e o fim atual/reprogramado.
             </p>
           </div>
         </div>
@@ -2213,6 +2241,7 @@ const textoPercentualV1 = (valor: number) =>
                     </td>
                     <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>
                       {l.grupo || "—"}
+                      {l.linha ? <div className="mt-1 text-[10px] font-semibold">Linha {l.linha}</div> : null}
                     </td>
                     <td className="px-4 py-3">
                       <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmt(l.qtd_prevista_cx)} cx</span>
@@ -2248,7 +2277,7 @@ const textoPercentualV1 = (valor: number) =>
                         >
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
-                              Paradas no período
+                              Paradas no período · cascata MPS
                             </span>
                             <span className="text-[10px] font-semibold" style={{ color: (l.paradas_periodo?.length || 0) > 0 ? "#B91C1C" : "var(--text-secondary)" }}>
                               {l.qtd_paradas_periodo || 0} ocorr.
@@ -2260,9 +2289,10 @@ const textoPercentualV1 = (valor: number) =>
                             <div className="mt-2 space-y-1.5">
                               {(l.paradas_periodo || []).slice(0, 3).map((ev, idx) => (
                                 <div key={`${l.lote}-parada-${idx}`} className="text-[11px] leading-relaxed" style={{ color: "var(--text-primary)" }}>
-                                  <span className="font-bold">{fmtData(ev.data_inicial || ev.data_final)}</span>
+                                  <span className="font-bold">{fmtPeriodoApontamento(ev)}</span>
                                   <span> · {ev.tipo_evento || "Ocorrência"}</span>
                                   {ev.evento ? <span> · {ev.evento}</span> : null}
+                                  {fmtHorasApontamento(ev) ? <span style={{ color: "var(--text-secondary)" }}> · {fmtHorasApontamento(ev)}</span> : null}
                                   {ev.equipamento ? <span style={{ color: "var(--text-secondary)" }}> · {ev.equipamento}</span> : null}
                                 </div>
                               ))}
@@ -2274,7 +2304,7 @@ const textoPercentualV1 = (valor: number) =>
                             </div>
                           ) : (
                             <p className="mt-1 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                              {l.resumo_parada || "Sem parada registrada no relatório de apontamento para este lote no período do atraso."}
+                              {l.resumo_parada || "Sem parada encontrada na conciliação em cascata do MPS para a linha/período do atraso."}
                             </p>
                           )}
                         </div>
