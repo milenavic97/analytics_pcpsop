@@ -1170,10 +1170,10 @@ const textoPercentualV1 = (valor: number) =>
   const lotesForaGantt = data?.lotes_fora_gantt ?? [];
 
   const thBase =
-    "px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-right whitespace-nowrap";
+    "px-3 py-3 text-[10px] font-semibold uppercase tracking-wider text-right whitespace-nowrap";
 
   const thLeft =
-    "px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-left";
+    "px-3 py-3 text-[10px] font-semibold uppercase tracking-wider text-left";
 
   const todosLotes = lotesFiltrados.map((l) => l.lote);
   const todosSelecionados = todosLotes.length > 0 && todosLotes.every((id) => selecionados.has(id));
@@ -1857,14 +1857,20 @@ const textoPercentualV1 = (valor: number) =>
           <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
             <table className="w-full min-w-[1180px] border-separate border-spacing-0">
               <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
-                <tr style={{ background: "var(--bg-sidebar)", color: "#fff" }}>
+                <tr
+                  style={{
+                    background: "#F1F5F9",
+                    color: "#475569",
+                    boxShadow: "inset 0 -1px 0 var(--border)",
+                  }}
+                >
                   <th className="px-3 py-3 text-center" style={{ width: 36 }}>
                     <input
                       type="checkbox"
                       checked={todosSelecionados}
                       ref={(el) => { if (el) el.indeterminate = algunsSelecionados; }}
                       onChange={toggleTodos}
-                      style={{ cursor: "pointer", accentColor: "#fff" }}
+                      style={{ cursor: "pointer", accentColor: "var(--bg-sidebar)" }}
                     />
                   </th>
                   <th className={thLeft}>Lote / OP</th>
@@ -1880,7 +1886,7 @@ const textoPercentualV1 = (valor: number) =>
                     </span>
                   </th>
                   <th
-                    className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider"
+                    className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-wider"
                     style={{ minWidth: 280 }}
                   >
                     Etapas
@@ -1923,8 +1929,8 @@ const textoPercentualV1 = (valor: number) =>
                             : (l.atraso_producao || l.atrasado) && !l.check_liberado
                               ? "rgba(220,38,38,0.03)"
                               : i % 2 === 0
-                                ? "var(--bg-secondary)"
-                                : "var(--bg-primary)",
+                                ? "#FCFCFB"
+                                : "#FFFFFF",
                       }}
                     >
                       <td className="px-3 py-3 text-center" style={{ width: 36 }}>
