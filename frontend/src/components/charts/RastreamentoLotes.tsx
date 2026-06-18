@@ -732,6 +732,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [apenasAtrasados, setApenasAtrasados] = useState(false);
   const [modalAuditoria, setModalAuditoria] = useState(false);
   const [modalPerdaProducao, setModalPerdaProducao] = useState(false);
+  const [acompanhamentoHojeAberto, setAcompanhamentoHojeAberto] = useState(false);
   const [retemPorLote, setRetemPorLote] = useState(0.7);
   const [sortRendimento, setSortRendimento] = useState<"asc" | "desc" | null>(null);
   const [sortDataLib, setSortDataLib] = useState<"asc" | "desc" | null>(null);
@@ -1538,17 +1539,31 @@ const textoPercentualV1 = (valor: number) =>
                   </div>
                 </div>
 
-                <div className="rounded-xl bg-white/10 px-4 py-2 text-right">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
-                    Diferença
-                  </p>
-                  <p className="text-lg font-bold text-white">
-                    {fmt(mtdGap)} cx
-                  </p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="rounded-xl bg-white/10 px-4 py-2 text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                      Diferença
+                    </p>
+                    <p className="text-lg font-bold text-white">
+                      {fmt(mtdGap)} cx
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAcompanhamentoHojeAberto((v) => !v)}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-bold uppercase tracking-wider text-white transition hover:bg-white/15"
+                    aria-expanded={acompanhamentoHojeAberto}
+                  >
+                    {acompanhamentoHojeAberto ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    {acompanhamentoHojeAberto ? "Minimizar" : "Abrir"}
+                  </button>
                 </div>
               </div>
             </div>
 
+            {acompanhamentoHojeAberto && (
+              <>
             <div
               className="border-b px-5 py-3"
               style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
@@ -1609,6 +1624,8 @@ const textoPercentualV1 = (valor: number) =>
                 </button>
               ))}
             </div>
+              </>
+            )}
           </div>
         </div>
       )}
