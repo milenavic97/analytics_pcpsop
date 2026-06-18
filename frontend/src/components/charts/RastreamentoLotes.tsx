@@ -936,7 +936,9 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   ): GapPorEtapaNormalizado => {
     const totais = {
       reprovacao_desvio: Math.round(Number(etapa?.reprovacao_desvio ?? 0)),
-      desvio_aberto: Math.round(Number(etapa?.desvio_aberto ?? 0)),
+      // Compatibilidade: algumas respostas do backend ainda vêm como `desvio`.
+      // No card/tabela, isso representa "Em desvio aberto".
+      desvio_aberto: Math.round(Number(etapa?.desvio_aberto ?? etapa?.desvio ?? 0)),
       atraso_producao: Math.round(Number(etapa?.atraso_producao ?? 0)),
       rendimento: Math.round(Number(etapa?.rendimento ?? 0)),
       embalagem: Math.round(Number(etapa?.embalagem ?? 0)),
@@ -961,16 +963,99 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     return totais;
   };
 
-  const gapPorStatusMes = useMemo(
-    () => normalizarGapPorEtapa(
-      data?.mes_perdas_vs_v1_por_causa ?? data?.mes_gap_por_etapa ?? data?.mtd_gap_por_etapa,
-    ),
-    [data?.mes_perdas_vs_v1_por_causa, data?.mes_gap_por_etapa, data?.mtd_gap_por_etapa],
+  const recalcularTotalGapPorEtapa = (base: GapPorEtapaNormalizado): GapPorEtapaNormalizado => ({
+    ...base,
+    total:
+      base.reprovacao_desvio +
+      base.desvio_aberto +
+      base.atraso_producao +
+      base.rendimento +
+      base.embalagem +
+      base.envase +
+      base.lavagem +
+      base.nao_iniciado +
+      base.outros,
+  });
+
+  const aplicarFallbackOperacionalDosLotes = (
+    base: GapPorEtapaNormalizado,
+    fallbackLotes: GapPorEtapaNormalizado,
+  ): GapPorEtapaNormalizado => {
+    // As perdas principais continuam vindo preferencialmente dos campos reconciliados do backend.
+    // Já os status operacionais abertos precisam bater com os lotes visíveis na tabela.
+    const combinado = {
+      ...base,
+      desvio_aberto: base.desvio_aberto > 0 ? base.desvio_aberto : fallbackLotes.desvio_aberto,
+      embalagem: base.embalagem > 0 ? base.embalagem : fallbackLotes.embalagem,
+      envase: base.envase > 0 ? base.envase : fallbackLotes.envase,
+      lavagem: base.lavagem > 0 ? base.lavagem : fallbackLotes.lavagem,
+      nao_iniciado: base.nao_iniciado > 0 ? base.nao_iniciado : fallbackLotes.nao_iniciado,
+    };
+
+    return recalcularTotalGapPorEtapa(combinado);
+  };
+
+  const calcularStatusOperacionalPelosLotes = (somentePrevistoAteHoje: boolean): GapPorEtapaNormalizado => {
+    const totais = normalizarGapPorEtapa();
+
+    for (const lote of data?.lotes ?? []) {
+      if (somentePrevistoAteHoje && !lote.considerar_previsto_ate_hoje) continue;
+
+      const status = statusPrincipalLote(lote);
+      const previstoCx = Math.round(Number(lote.qtd_prevista_cx || 0));
+      const liberadoCx = Math.round(Number(lote.qtd_liberada_cx || 0));
+      const perdaRendimentoCx = Math.round(
+        Number(lote.qtd_perda_rendimento_cx ?? Math.max(previstoCx - liberadoCx, 0)),
+      );
+
+      if (status === "REPROVACAO_DESVIO") totais.reprovacao_desvio += previstoCx;
+      else if (status === "DESVIO") totais.desvio_aberto += previstoCx;
+      else if (status === "ATRASO_PRODUCAO") totais.atraso_producao += previstoCx;
+      else if (status === "RENDIMENTO") totais.rendimento += perdaRendimentoCx;
+      else if (status === "EMBALAGEM") totais.embalagem += previstoCx;
+      else if (status === "ENVASE") totais.envase += previstoCx;
+      else if (status === "LAVAGEM") totais.lavagem += previstoCx;
+      else if (status === "NAO_INICIADO") totais.nao_iniciado += previstoCx;
+    }
+
+    return recalcularTotalGapPorEtapa(totais);
+  };
+
+  const statusOperacionalMesPelosLotes = useMemo(
+    () => calcularStatusOperacionalPelosLotes(false),
+    [data?.lotes],
   );
 
+  const statusOperacionalMtdPelosLotes = useMemo(
+    () => calcularStatusOperacionalPelosLotes(true),
+    [data?.lotes],
+  );
+
+  const gapPorStatusMes = useMemo(() => {
+    const perdas = data?.mes_perdas_vs_v1_por_causa;
+    const etapas = data?.mes_gap_por_etapa;
+
+    const baseMes = normalizarGapPorEtapa({
+      reprovacao_desvio: perdas?.reprovacao_desvio ?? etapas?.reprovacao_desvio,
+      atraso_producao: perdas?.atraso_producao ?? etapas?.atraso_producao,
+      rendimento: perdas?.rendimento ?? etapas?.rendimento,
+      outros: perdas?.outros,
+      desvio_aberto: etapas?.desvio_aberto ?? etapas?.desvio,
+      embalagem: etapas?.embalagem,
+      envase: etapas?.envase,
+      lavagem: etapas?.lavagem,
+      nao_iniciado: etapas?.nao_iniciado,
+    });
+
+    return aplicarFallbackOperacionalDosLotes(baseMes, statusOperacionalMesPelosLotes);
+  }, [data?.mes_perdas_vs_v1_por_causa, data?.mes_gap_por_etapa, statusOperacionalMesPelosLotes]);
+
   const gapPorStatusMtd = useMemo(
-    () => normalizarGapPorEtapa(data?.mtd_gap_por_etapa),
-    [data?.mtd_gap_por_etapa],
+    () => aplicarFallbackOperacionalDosLotes(
+      normalizarGapPorEtapa(data?.mtd_gap_por_etapa),
+      statusOperacionalMtdPelosLotes,
+    ),
+    [data?.mtd_gap_por_etapa, statusOperacionalMtdPelosLotes],
   );
 
   const mesPrevistoV1 = Number(data?.mes_cx_previsto_v1 ?? data?.total_cx_previsto ?? 0);
@@ -1536,7 +1621,7 @@ const textoPercentualV1 = (valor: number) =>
             </div>
           </div>
 
-          <div className="card overflow-hidden p-0">
+          <div className={`card overflow-hidden p-0 ${acompanhamentoHojeAberto ? "rounded-b-none" : ""}`}>
             <div
               className="px-5 py-4"
               style={{ background: "#173A5E", color: "white" }}
@@ -1639,7 +1724,14 @@ const textoPercentualV1 = (valor: number) =>
       )}
 
       {acompanhamentoHojeAberto && (
-        <>
+        <div
+          className="card -mt-4 overflow-hidden rounded-t-none border-t-0 p-0"
+          style={{ background: "#FFFFFF" }}
+        >
+          <div
+            className="border-b px-4 py-3"
+            style={{ borderColor: "var(--border)", background: "#FFFFFF" }}
+          >
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
           <label
@@ -1830,10 +1922,11 @@ const textoPercentualV1 = (valor: number) =>
           {lotesFiltrados.length !== 1 ? "s" : ""}
         </p>
       </div>
+          </div>
 
       {loading && !data ? (
         <div
-          className="card p-10 text-center text-sm"
+          className="p-10 text-center text-sm"
           style={{ color: "var(--text-secondary)" }}
         >
           <RefreshCw
@@ -1844,7 +1937,7 @@ const textoPercentualV1 = (valor: number) =>
           Carregando rastreamento...
         </div>
       ) : (
-        <div className="card overflow-hidden p-0">
+        <div className="overflow-hidden p-0">
           {refreshing && (
             <div
               className="flex items-center gap-2 border-b px-4 py-2 text-xs font-semibold"
@@ -2169,7 +2262,7 @@ const textoPercentualV1 = (valor: number) =>
           </div>
         </div>
       )}
-        </>
+        </div>
       )}
 
 
