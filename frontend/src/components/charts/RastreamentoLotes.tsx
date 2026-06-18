@@ -2283,18 +2283,11 @@ const textoPercentualV1 = (valor: number) =>
                 );
                 const temParada = qtdParadas > 0 || eventos.length > 0;
 
-                const equipamentos = new Map<string, { horas: number; ocorrencias: number }>();
                 const motivos = new Map<string, { horas: number; ocorrencias: number }>();
 
                 for (const ev of eventos) {
-                  const equipamento = ev.equipamento || "Sem equipamento";
                   const motivo = ev.evento || ev.tipo_evento || "Ocorrência sem descrição";
                   const horas = Number(ev.duracao_horas ?? ev.duracao_h ?? 0);
-
-                  const eq = equipamentos.get(equipamento) || { horas: 0, ocorrencias: 0 };
-                  eq.horas += Number.isFinite(horas) ? horas : 0;
-                  eq.ocorrencias += 1;
-                  equipamentos.set(equipamento, eq);
 
                   const mot = motivos.get(motivo) || { horas: 0, ocorrencias: 0 };
                   mot.horas += Number.isFinite(horas) ? horas : 0;
@@ -2302,7 +2295,6 @@ const textoPercentualV1 = (valor: number) =>
                   motivos.set(motivo, mot);
                 }
 
-                const equipamentoPrincipal = [...equipamentos.entries()].sort((a, b) => b[1].horas - a[1].horas)[0];
                 const motivoPrincipal = [...motivos.entries()].sort((a, b) => b[1].horas - a[1].horas)[0];
 
                 return (
@@ -2377,10 +2369,6 @@ const textoPercentualV1 = (valor: number) =>
                             <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
                               <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Horas</p>
                               <p className="text-sm font-black" style={{ color: temParada ? "#B45309" : "var(--text-primary)" }}>{Number(horasParadas || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h</p>
-                            </div>
-                            <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)", minWidth: 170 }}>
-                              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Equip. principal</p>
-                              <p className="truncate text-sm font-black" style={{ color: "var(--text-primary)" }}>{equipamentoPrincipal?.[0] || "—"}</p>
                             </div>
                           </div>
                         </div>
