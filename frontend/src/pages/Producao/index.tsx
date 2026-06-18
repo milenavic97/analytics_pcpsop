@@ -16,10 +16,8 @@ import {
   AlertTriangle,
   BarChart3,
   CalendarDays,
-  CheckCircle2,
   Factory,
   Layers,
-  PackageCheck,
   RefreshCw,
   Search,
   Target,
@@ -60,43 +58,36 @@ const MESES = [
 ]
 
 type TabKey = "dashboard" | "acompanhamento"
-type LinhaFiltro = "TODAS" | "L1" | "L2" | "FABRIMA"
+type LinhaFiltro = "TODAS" | "L1" | "L2"
 
 interface PrincipalOfensor {
   motivo: string
   horas: number
   ocorrencias: number
-  celulas: string
+  linhas: string
 }
 
 interface DashboardResumo {
   planejado_cx: number
-  planejado_v1_cx: number
-  envasado_cx: number
-  embalado_cx: number
-  gap_envase_cx: number
-  aderencia_envase_pct: number
-  aderencia_embalagem_pct: number
+  realizado_cx: number
+  gap_cx: number
+  aderencia_pct: number
   horas_paradas: number
   lotes_envasados: number
-  lotes_embalados: number
   principal_ofensor?: PrincipalOfensor | null
 }
 
-interface DiaProducao {
-  data: string
-  dia: number
-  label: string
-  planejado_v1_cx: number
-  planejado_atual_cx: number
-  envasado_cx: number
-  embalado_cx: number
-  aderencia_pct: number
+interface MesProducao {
+  mes: number
+  mes_label: string
+  planejado_cx: number
+  realizado_cx: number
   gap_cx: number
+  aderencia_pct: number
 }
 
-interface CelulaProducao {
-  celula: string
+interface LinhaProducao {
+  linha: string
   nome: string
   planejado_cx: number
   realizado_cx: number
@@ -104,30 +95,36 @@ interface CelulaProducao {
   aderencia_pct: number
   horas_paradas: number
   lotes: number
+  principal_ofensor?: PrincipalOfensor | null
 }
 
 interface GrupoProducao {
   grupo: string
-  envasado_cx: number
-  embalado_cx: number
+  realizado_cx: number
   lotes: number
+}
+
+interface OfensorPorLinha extends PrincipalOfensor {
+  linha: string
+  linha_nome: string
 }
 
 interface DashboardResponse {
   ano: number
-  mes: number
-  mes_label: string
+  mes_final: number
+  periodo_label: string
   linha: string
   resumo: DashboardResumo
-  por_dia: DiaProducao[]
-  por_celula: CelulaProducao[]
+  por_mes: MesProducao[]
+  por_linha: LinhaProducao[]
   top_ofensores: PrincipalOfensor[]
+  top_ofensores_por_linha: OfensorPorLinha[]
   por_grupo: GrupoProducao[]
   debug?: Record<string, unknown>
 }
 
 interface AcompanhamentoCard {
-  celula: string
+  linha: string
   nome: string
   ultimo_lote: string
   ultima_data?: string | null
@@ -154,7 +151,7 @@ interface AcompanhamentoLinha {
 }
 
 interface AcompanhamentoSecao {
-  celula: string
+  linha: string
   nome: string
   tipo: string
   total_caixas: number
@@ -233,6 +230,12 @@ function gapClass(value?: number) {
   return "text-red-500"
 }
 
+function linhaLabel(linha: LinhaFiltro) {
+  if (linha === "L1") return "Envase — Linha 1"
+  if (linha === "L2") return "Envase — Linha 2"
+  return "Todas as linhas"
+}
+
 async function apiGet<T>(path: string, params: Record<string, string | number | undefined | null> = {}) {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)
 
@@ -242,7 +245,6 @@ async function apiGet<T>(path: string, params: Record<string, string | number | 
     }
   })
 
-  // Evita número antigo quando a página já ficou aberta.
   url.searchParams.set("t", String(Date.now()))
 
   const response = await fetch(url.toString(), {
@@ -346,7 +348,7 @@ function PageHeader({
           </p>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard de Produção</h1>
           <p className="mt-2 text-slate-500">
-            Indicadores de aderência e acompanhamento mensal por envase e embalagem.
+            Visão de envase: planejado MPS/Gantt x realizado Cogtive, por linha e por mês.
           </p>
         </div>
 
@@ -358,7 +360,7 @@ function PageHeader({
           >
             {MESES.map((label, idx) => (
               <option key={label} value={idx + 1}>
-                {label}/{ano}
+                {tab === "dashboard" ? `Até ${label}/${ano}` : `${label}/${ano}`}
               </option>
             ))}
           </select>
@@ -380,10 +382,9 @@ function PageHeader({
             onChange={(event) => onLinhaChange(event.target.value as LinhaFiltro)}
             className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
           >
-            <option value="TODAS">Todas as células</option>
+            <option value="TODAS">Todas as linhas</option>
             <option value="L1">Envase — Linha 1</option>
             <option value="L2">Envase — Linha 2</option>
-            <option value="FABRIMA">Embalagem — Fabrima</option>
           </select>
 
           <button
@@ -451,7 +452,7 @@ function MetricCard({
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{title}</p>
           <h3 className="mt-4 text-3xl font-bold text-slate-900">{value}</h3>
-          {subtitle && <p className="mt-2 text-sm text-slate-500">{subtitle}</p>}
+          {subtitle && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{subtitle}</p>}
         </div>
         <div className={`rounded-xl p-3 ${styles[accent]}`}>
           <Icon className="h-5 w-5" />
@@ -464,10 +465,10 @@ function MetricCard({
 function DashboardTab({ data }: { data: DashboardResponse }) {
   const resumo = data.resumo
 
-  const dailyData = useMemo(() => {
-    return (data.por_dia || []).map((item) => ({
+  const monthlyData = useMemo(() => {
+    return (data.por_mes || []).map((item) => ({
       ...item,
-      aderencia_plot_pct: item.aderencia_pct > 0 ? Math.min(item.aderencia_pct, 120) : null,
+      aderencia_plot_pct: item.aderencia_pct > 0 ? Math.min(item.aderencia_pct, 130) : null,
     }))
   }, [data])
 
@@ -477,59 +478,59 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
         <MetricCard
           title="Planejado"
           value={formatCx(resumo.planejado_cx)}
-          subtitle={`V1: ${formatCx(resumo.planejado_v1_cx)}`}
+          subtitle={`Período ${data.periodo_label}`}
           icon={Layers}
           accent="purple"
         />
         <MetricCard
-          title="Envasado"
-          value={formatCx(resumo.envasado_cx)}
-          subtitle={`${formatNumber(resumo.lotes_envasados)} lotes com envase`}
+          title="Realizado envase"
+          value={formatCx(resumo.realizado_cx)}
+          subtitle={`${formatNumber(resumo.lotes_envasados)} lotes envasados`}
           icon={Factory}
           accent="green"
         />
         <MetricCard
-          title="Embalado"
-          value={formatCx(resumo.embalado_cx)}
-          subtitle={`${formatNumber(resumo.lotes_embalados)} lotes embalados`}
-          icon={PackageCheck}
-          accent="blue"
-        />
-        <MetricCard
-          title="Aderência Envase"
-          value={formatPercent(resumo.aderencia_envase_pct)}
-          subtitle={`Gap ${formatCx(resumo.gap_envase_cx)}`}
+          title="% atingido"
+          value={formatPercent(resumo.aderencia_pct)}
+          subtitle="Realizado / planejado"
           icon={Target}
-          accent={resumo.aderencia_envase_pct >= 95 ? "green" : resumo.aderencia_envase_pct >= 80 ? "orange" : "red"}
+          accent={resumo.aderencia_pct >= 95 ? "green" : resumo.aderencia_pct >= 80 ? "orange" : "red"}
         />
         <MetricCard
-          title="Aderência Embalagem"
-          value={formatPercent(resumo.aderencia_embalagem_pct)}
-          subtitle="Embalado vs. envasado"
-          icon={CheckCircle2}
-          accent={resumo.aderencia_embalagem_pct >= 95 ? "green" : resumo.aderencia_embalagem_pct >= 80 ? "orange" : "red"}
+          title="Gap"
+          value={formatCx(resumo.gap_cx)}
+          subtitle={resumo.gap_cx >= 0 ? "Acima do planejado" : "Abaixo do planejado"}
+          icon={BarChart3}
+          accent={resumo.gap_cx >= 0 ? "green" : "red"}
         />
         <MetricCard
-          title="Horas Paradas"
+          title="Horas paradas"
           value={formatHoras(resumo.horas_paradas)}
-          subtitle={resumo.principal_ofensor?.motivo || "Sem ofensor no período"}
+          subtitle="Somente linhas de envase"
           icon={TimerReset}
           accent="orange"
         />
+        <MetricCard
+          title="Principal ofensor"
+          value={resumo.principal_ofensor ? formatHoras(resumo.principal_ofensor.horas) : "—"}
+          subtitle={resumo.principal_ofensor?.motivo || "Sem parada no período"}
+          icon={AlertTriangle}
+          accent="slate"
+        />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.55fr_1fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Evolução diária
+                Evolução mensal
               </p>
               <h2 className="text-xl font-bold text-slate-900">
-                Planejado x envasado x embalado — {data.mes_label}/{data.ano}
+                Planejado x realizado — {data.periodo_label}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Planejado vem do MPS/Gantt. Realizado vem dos apontamentos de produção.
+                Planejado vem do MPS/Gantt. Realizado vem dos apontamentos de envase.
               </p>
             </div>
           </div>
@@ -537,18 +538,17 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
           <div className="h-[420px] rounded-2xl border border-slate-200 bg-white p-4">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
-                data={dailyData}
+                data={monthlyData}
                 barCategoryGap="28%"
-                barGap={-20}
+                barGap={-18}
                 margin={{ top: 34, right: 20, left: 0, bottom: 0 }}
               >
                 <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
                 <XAxis
-                  dataKey="label"
+                  dataKey="mes_label"
                   tick={{ fill: "#64748B", fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
-                  interval={0}
                 />
                 <YAxis
                   yAxisId="left"
@@ -561,8 +561,8 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  domain={[0, 120]}
-                  ticks={[0, 30, 60, 90, 120]}
+                  domain={[0, 130]}
+                  ticks={[0, 50, 80, 100, 130]}
                   tick={{ fill: "#64748B", fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
@@ -574,35 +574,29 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
 
                 <Bar
                   yAxisId="left"
-                  dataKey="planejado_atual_cx"
+                  dataKey="planejado_cx"
                   name="Planejado"
                   fill={COLORS.softBlue}
                   radius={[7, 7, 0, 0]}
-                  barSize={30}
+                  barSize={42}
                 >
-                  <LabelList dataKey="planejado_atual_cx" content={<TopLabel fill="#64748B" />} />
+                  <LabelList dataKey="planejado_cx" content={<TopLabel fill="#64748B" />} />
                 </Bar>
                 <Bar
                   yAxisId="left"
-                  dataKey="envasado_cx"
-                  name="Envasado"
+                  dataKey="realizado_cx"
+                  name="Realizado envase"
                   fill={COLORS.darkBlue}
                   radius={[7, 7, 0, 0]}
-                  barSize={22}
-                />
-                <Bar
-                  yAxisId="left"
-                  dataKey="embalado_cx"
-                  name="Embalado"
-                  fill={COLORS.green}
-                  radius={[7, 7, 0, 0]}
-                  barSize={14}
-                />
+                  barSize={28}
+                >
+                  <LabelList dataKey="realizado_cx" content={<TopLabel fill="#2F3B7C" />} />
+                </Bar>
                 <Line
                   yAxisId="right"
                   type="monotone"
                   dataKey="aderencia_plot_pct"
-                  name="% aderência envase"
+                  name="% atingido"
                   stroke={COLORS.orange}
                   strokeWidth={2.5}
                   dot={{ r: 3, fill: COLORS.orange, stroke: COLORS.orange }}
@@ -618,9 +612,9 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
               Principais ofensores
             </p>
-            <h2 className="text-xl font-bold text-slate-900">Horas paradas por motivo</h2>
+            <h2 className="text-xl font-bold text-slate-900">Horas paradas no ano</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Mostra os maiores motivos de parada/setup/manutenção do mês.
+              Maiores motivos de parada/setup/manutenção em envase no período.
             </p>
           </div>
 
@@ -664,14 +658,17 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-5">
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-              Aderência por célula
+              Aderência por linha
             </p>
-            <h2 className="text-xl font-bold text-slate-900">L1, L2 e Fabrima</h2>
+            <h2 className="text-xl font-bold text-slate-900">Linha 1 e Linha 2</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Linha 1 considera MAQ 1 e MAQ 2 envasadora. Linha 2 considera L2 envasadora.
+            </p>
           </div>
 
           <div className="space-y-3">
-            {data.por_celula.map((item) => (
-              <div key={item.celula} className="rounded-2xl border border-slate-200 bg-white p-4">
+            {data.por_linha.map((item) => (
+              <div key={item.linha} className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="font-bold text-slate-900">{item.nome}</p>
@@ -697,6 +694,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
                 <div className="mt-3 flex flex-wrap gap-3 text-xs font-semibold text-slate-500">
                   <span>{formatHoras(item.horas_paradas)} paradas</span>
                   <span>{formatNumber(item.lotes)} lotes</span>
+                  <span>Ofensor: {item.principal_ofensor?.motivo || "—"}</span>
                 </div>
               </div>
             ))}
@@ -709,7 +707,10 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
               <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
                 Produção por grupo
               </p>
-              <h2 className="text-xl font-bold text-slate-900">Envasado x embalado</h2>
+              <h2 className="text-xl font-bold text-slate-900">Realizado em envase</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Volume envasado agrupado por família/produto no período.
+              </p>
             </div>
             <div className="rounded-xl bg-green-50 p-3 text-green-600">
               <BarChart3 className="h-5 w-5" />
@@ -721,15 +722,14 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
               <thead className="sticky top-0 bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Grupo</th>
-                  <th className="px-4 py-3 text-right">Envasado</th>
-                  <th className="px-4 py-3 text-right">Embalado</th>
+                  <th className="px-4 py-3 text-right">Realizado</th>
                   <th className="px-4 py-3 text-right">Lotes</th>
                 </tr>
               </thead>
               <tbody>
                 {data.por_grupo.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-slate-400">
+                    <td colSpan={3} className="px-4 py-10 text-center text-slate-400">
                       Nenhum grupo encontrado.
                     </td>
                   </tr>
@@ -737,8 +737,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
                 {data.por_grupo.map((item) => (
                   <tr key={item.grupo} className="border-t border-slate-100 hover:bg-slate-50">
                     <td className="px-4 py-3 font-semibold text-slate-800">{item.grupo}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCx(item.envasado_cx)}</td>
-                    <td className="px-4 py-3 text-right text-slate-600">{formatCx(item.embalado_cx)}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCx(item.realizado_cx)}</td>
                     <td className="px-4 py-3 text-right text-slate-600">{formatNumber(item.lotes)}</td>
                   </tr>
                 ))}
@@ -752,27 +751,20 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
 }
 
 function AcompanhamentoCardView({ item }: { item: AcompanhamentoCard }) {
-  const isFabrima = item.celula === "FABRIMA"
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-            {item.nome}
-          </p>
-          <h3 className="mt-4 text-2xl font-black text-slate-900">
-            {item.ultimo_lote || "—"}
-          </h3>
-          <p className="mt-1 text-sm text-slate-500">
-            Último lote {isFabrima ? "embalado" : "envasado"} • {formatDateBR(item.ultima_data)}
-          </p>
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{item.nome}</p>
+          <h3 className="mt-3 text-2xl font-black text-slate-900">{item.ultimo_lote || "—"}</h3>
+          <p className="mt-1 text-sm text-slate-500">Último lote envasado • {formatDateBR(item.ultima_data)}</p>
         </div>
-        <div className={`rounded-xl p-3 ${isFabrima ? "bg-blue-50 text-blue-600" : "bg-green-50 text-green-600"}`}>
-          {isFabrima ? <PackageCheck className="h-5 w-5" /> : <Factory className="h-5 w-5" />}
+        <div className="rounded-xl bg-green-50 p-3 text-green-600">
+          <Factory className="h-5 w-5" />
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-sm">
+      <div className="mt-5 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-sm">
         <div>
           <p className="text-xs font-bold uppercase text-slate-400">Total</p>
           <p className="font-bold text-slate-900">{formatCx(item.total_caixas)}</p>
@@ -787,7 +779,7 @@ function AcompanhamentoCardView({ item }: { item: AcompanhamentoCard }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const ok = status === "Apontado"
+  const ok = status === "Envasado"
   return (
     <span
       className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
@@ -800,15 +792,13 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function AcompanhamentoSecaoView({ secao }: { secao: AcompanhamentoSecao }) {
-  const isFabrima = secao.celula === "FABRIMA"
-
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 bg-white px-5 py-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
-            <div className={`rounded-xl p-3 ${isFabrima ? "bg-blue-50 text-blue-600" : "bg-green-50 text-green-600"}`}>
-              {isFabrima ? <PackageCheck className="h-5 w-5" /> : <Factory className="h-5 w-5" />}
+            <div className="rounded-xl bg-green-50 p-3 text-green-600">
+              <Factory className="h-5 w-5" />
             </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{secao.tipo}</p>
@@ -843,7 +833,7 @@ function AcompanhamentoSecaoView({ secao }: { secao: AcompanhamentoSecao }) {
             {secao.linhas.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
-                  Nenhum apontamento encontrado para esta célula.
+                  Nenhum apontamento de envase encontrado para esta linha.
                 </td>
               </tr>
             )}
@@ -895,10 +885,10 @@ function AcompanhamentoTab({
                 Acompanhamento do mês
               </p>
               <h2 className="text-xl font-bold text-slate-900">
-                Execução operacional — {data.mes_label}/{data.ano}
+                Envase operacional — {data.mes_label}/{data.ano}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Visão rápida para bater o mês: até qual lote envasou, embalou e qual equipamento apontou.
+                Visão rápida para bater o mês: até qual lote cada linha já envasou.
               </p>
             </div>
           </div>
@@ -915,15 +905,15 @@ function AcompanhamentoTab({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {data.cards.map((item) => (
-          <AcompanhamentoCardView key={item.celula} item={item} />
+          <AcompanhamentoCardView key={item.linha} item={item} />
         ))}
       </div>
 
       <div className="space-y-6">
         {data.secoes.map((secao) => (
-          <AcompanhamentoSecaoView key={secao.celula} secao={secao} />
+          <AcompanhamentoSecaoView key={secao.linha} secao={secao} />
         ))}
       </div>
     </div>
