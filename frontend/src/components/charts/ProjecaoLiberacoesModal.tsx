@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { X } from "lucide-react"
-import { getProjecaoLiberacoes } from "@/services/api"
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -74,6 +73,33 @@ interface ChartPoint {
 const MES_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 const TUBETES_POR_CAIXA = 500
+
+const API_URL = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
+const CACHE_VERSION = "projecao-liberacoes-2026-06-18-v3"
+
+async function getProjecaoLiberacoesFresh(signal?: AbortSignal): Promise<ProjecaoLiberacoesResponse> {
+  const params = new URLSearchParams({
+    cache_version: CACHE_VERSION,
+    t: String(Date.now()),
+  })
+
+  const response = await fetch(`${API_URL}/overview/projecao-liberacoes?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    signal,
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Erro ao carregar projeção de liberações: ${response.status}`)
+  }
+
+  return response.json() as Promise<ProjecaoLiberacoesResponse>
+}
 
 const COR_REAL = "#27336D"
 const COR_PLANEJADO = "#D7DCE7"
@@ -636,14 +662,32 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return
 
-    setLoading(true)
+    const controller = new AbortController()
 
-    getProjecaoLiberacoes()
-      .then((response: unknown) => {
-        setData(response as ProjecaoLiberacoesResponse)
+    setLoading(true)
+    setData(null)
+
+    getProjecaoLiberacoesFresh(controller.signal)
+      .then((response) => {
+        setData(response)
       })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+      .catch((error: unknown) => {
+        const errorName =
+          typeof error === "object" && error !== null && "name" in error
+            ? String((error as { name?: string }).name || "")
+            : ""
+
+        if (errorName !== "AbortError") {
+          console.error(error)
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      })
+
+    return () => controller.abort()
   }, [open])
 
   useEffect(() => {
