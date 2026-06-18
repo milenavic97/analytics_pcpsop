@@ -1081,57 +1081,69 @@ const textoPercentualV1 = (valor: number) =>
 
   const mesCardsCount = 3 + perdasMes.length;
 
-  const statusMtd = [
+  const montarStatusCards = (base: GapPorEtapaNormalizado) => [
     {
       label: "Perda reprovação/desvio",
-      value: gapPorStatusMtd.reprovacao_desvio,
+      value: base.reprovacao_desvio,
       color: "#92400E",
       icon: AlertTriangle,
       filtro: "REPROVACAO_DESVIO",
     },
     {
       label: "Perda produção",
-      value: gapPorStatusMtd.atraso_producao,
+      value: base.atraso_producao,
       color: "#DC2626",
       icon: Clock,
       filtro: "ATRASO_PRODUCAO",
     },
     {
       label: "Perda rendimento",
-      value: gapPorStatusMtd.rendimento,
+      value: base.rendimento,
       color: "#6B7280",
       icon: TrendingDown,
       filtro: "RENDIMENTO",
     },
     {
       label: "Em desvio aberto",
-      value: gapPorStatusMtd.desvio_aberto,
+      value: base.desvio_aberto,
       color: "#B45309",
       icon: AlertTriangle,
       filtro: "DESVIO",
     },
     {
       label: "Em embalagem",
-      value: gapPorStatusMtd.embalagem,
+      value: base.embalagem,
       color: "#EA580C",
       icon: Package,
       filtro: "EMBALAGEM",
     },
     {
       label: "Em envase",
-      value: gapPorStatusMtd.envase,
+      value: base.envase,
       color: "#2563EB",
       icon: Waves,
       filtro: "ENVASE",
     },
     {
       label: "Em lavagem",
-      value: gapPorStatusMtd.lavagem,
+      value: base.lavagem,
       color: "#CA8A04",
       icon: Droplets,
       filtro: "LAVAGEM",
     },
   ];
+
+  const statusAcompanhamento = montarStatusCards(apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes);
+  const tituloAcompanhamento = apenasAtrasados
+    ? "Lotes previstos até hoje pela V1"
+    : "Mês completo — V1 vs plano atual";
+  const textoResumoAcompanhamento = apenasAtrasados
+    ? `Planejado até hoje: ${fmt(mtdPrevistoV1)} cx — liberado: ${fmt(mtdLiberado)} cx — diferença: ${fmt(mtdGap)} cx`
+    : `V1 do mês: ${fmt(mesPrevistoV1)} cx — plano atualizado: ${fmt(mesPlanoAtualTendencia)} cx — diferença: ${fmt(Math.abs(mesDiferencaVsV1))} cx`;
+  const textoApoioAcompanhamento = apenasAtrasados
+    ? "Abaixo, os lotes vencidos pela V1 separados pelo status operacional atual."
+    : "Abaixo, os lotes do mês completo separados pelo status operacional atual.";
+  const textoPercentualAcompanhamento = (valor: number) => (apenasAtrasados ? textoPercentualMtd(valor) : textoPercentualV1(valor));
 
   const lotesFiltrados = useMemo(() => {
     let lista = [...lotesFiltradosBase];
@@ -1537,10 +1549,10 @@ const textoPercentualV1 = (valor: number) =>
 
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">
-                      Acompanhamento até hoje
+                      Acompanhamento de lotes
                     </p>
                     <h3 className="text-base font-bold text-white">
-                      Lotes previstos até hoje pela V1
+                      {tituloAcompanhamento}
                     </h3>
                   </div>
                 </div>
@@ -1566,10 +1578,10 @@ const textoPercentualV1 = (valor: number) =>
               style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
             >
               <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                {`Planejado até hoje: ${fmt(mtdPrevistoV1)} cx — liberado: ${fmt(mtdLiberado)} cx — diferença: ${fmt(mtdGap)} cx`}
+                {textoResumoAcompanhamento}
               </p>
               <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                Abaixo, os lotes vencidos pela V1 separados pelo status operacional atual.
+                {textoApoioAcompanhamento}
               </p>
             </div>
 
@@ -1577,20 +1589,19 @@ const textoPercentualV1 = (valor: number) =>
               className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-7"
               style={{ background: "var(--border)" }}
             >
-              {statusMtd.map((k) => (
+              {statusAcompanhamento.map((k) => (
                 <button
                   key={k.label}
                   type="button"
                   onClick={() => {
                     setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
                     setFiltroEmbalado("");
-                    setApenasAtrasados(true);
                     setSelecionados(new Set());
                   }}
                   className="px-4 py-3 text-left transition-all"
                   style={{
                     background:
-                      filtroEtapa === k.filtro && apenasAtrasados
+                      filtroEtapa === k.filtro
                         ? "var(--bg-primary)"
                         : "var(--bg-secondary)",
                     opacity: k.value === 0 ? 0.35 : 1,
@@ -1616,7 +1627,7 @@ const textoPercentualV1 = (valor: number) =>
                     {fmtTubetes(k.value)} tubetes
                   </p>
                   <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    {textoPercentualMtd(k.value)}
+                    {textoPercentualAcompanhamento(k.value)}
                   </p>
                 </button>
               ))}
