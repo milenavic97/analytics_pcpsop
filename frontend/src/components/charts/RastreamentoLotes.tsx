@@ -1540,42 +1540,6 @@ const textoPercentualV1 = (valor: number) =>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <div className="hidden items-stretch overflow-hidden rounded-xl border border-white/15 bg-white/10 md:flex">
-                    <div className="px-3 py-2 text-right">
-                      <p className="text-[9px] font-semibold uppercase tracking-wider text-white/60">
-                        Planejado
-                      </p>
-                      <p className="text-sm font-bold text-white">
-                        {fmt(mtdPrevistoV1)} cx
-                      </p>
-                    </div>
-                    <div className="border-l border-white/15 px-3 py-2 text-right">
-                      <p className="text-[9px] font-semibold uppercase tracking-wider text-white/60">
-                        Liberado
-                      </p>
-                      <p className="text-sm font-bold text-white">
-                        {fmt(mtdLiberado)} cx
-                      </p>
-                    </div>
-                    <div className="border-l border-white/15 bg-white/10 px-3 py-2 text-right">
-                      <p className="text-[9px] font-semibold uppercase tracking-wider text-white/60">
-                        Diferença
-                      </p>
-                      <p className="text-sm font-bold text-white">
-                        {fmt(mtdGap)} cx
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl bg-white/10 px-3 py-2 text-right md:hidden">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
-                      Diferença
-                    </p>
-                    <p className="text-lg font-bold text-white">
-                      {fmt(mtdGap)} cx
-                    </p>
-                  </div>
-
                   <button
                     type="button"
                     onClick={() => setAcompanhamentoHojeAberto((v) => !v)}
