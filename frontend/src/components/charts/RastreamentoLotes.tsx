@@ -1281,7 +1281,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   className="mt-1 text-xs"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3 apenas quando pertencem ao Gantt/MPS de junho; lotes ainda não liberados entram pela versão atual do MPS. Ganhos de rendimento e acréscimos aparecem separados para a conciliação fechar.
+                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3 apenas quando pertencem ao Gantt/MPS de junho; lotes ainda não liberados entram pela versão atual do MPS. Perdas e ganho de rendimento aparecem separados para leitura executiva.
                 </p>
               </div>
 
@@ -1295,7 +1295,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
               <div
                 className="rounded-2xl border bg-white p-4"
                 style={{ borderColor: "var(--border)" }}
@@ -1373,29 +1373,6 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 </button>
               ))}
 
-              <div
-                className="rounded-2xl border bg-white p-4 text-left"
-                style={{
-                  borderColor: "var(--border)",
-                  opacity: mesAcrescimoPlanoAtual === 0 ? 0.45 : 1,
-                }}
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <RefreshCw size={15} style={{ color: "#0F766E" }} />
-                  <p
-                    className="text-[11px] font-bold uppercase tracking-wider"
-                    style={{ color: "var(--text-secondary)" }}
-                  >
-                    Acréscimo plano atual
-                  </p>
-                </div>
-                <p className="text-2xl font-bold" style={{ color: mesAcrescimoPlanoAtual > 0 ? "#0F766E" : "var(--text-secondary)" }}>
-                  {fmt(mesAcrescimoPlanoAtual)} cx
-                </p>
-                <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                  Compensa perdas na versão atual
-                </p>
-              </div>
             </div>
 
             <div
@@ -1416,7 +1393,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                       : "Plano atualizado igual à V1"}
                 </span>
                 <span className="text-xs" style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
-                  {`Conciliação: atualizado ${fmt(mesPlanoAtualTendencia)} cx + perdas ${fmt(mesPerdasBrutasVsV1)} cx - acréscimos ${fmt(mesAcrescimoPlanoAtual)} cx - ganho rendimento ${fmt(mesGanhoRendimento)} cx = ${fmt(mesReconciliadoV1)} cx`}
+                  {`Perdas principais: reprovação/desvio, produção e rendimento. Ganho rendimento mostra lotes liberados acima do previsto V1.`}
                 </span>
               </div>
             </div>
