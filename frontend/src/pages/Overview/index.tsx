@@ -14,7 +14,7 @@ import PrevistoAteHojeModal from "@/components/charts/PrevistoAteHojeModal"
 
 import {
   getOrcadoLiberacao, getOrcadoFaturamento, getProjecaoFaturamento,
-  getProjecaoLiberacoes, getEstoqueMensal, getDisponibilidadeMensal,
+  getEstoqueMensal, getDisponibilidadeMensal,
   buscarUltimaAtualizacao,
 } from "@/services/api"
 
@@ -94,6 +94,32 @@ interface DisponibilidadePayload { mes_atual: number; entradas_previstas_mtd: nu
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
+const API_URL = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
+const OVERVIEW_CACHE_VERSION = "overview-liberacoes-ajustadas-2026-06-18-v4"
+
+async function getProjecaoLiberacoesFresh(): Promise<ProjLib> {
+  const params = new URLSearchParams({
+    cache_version: OVERVIEW_CACHE_VERSION,
+    t: String(Date.now()),
+  })
+
+  const response = await fetch(`${API_URL}/overview/projecao-liberacoes?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Erro ao carregar projeção de liberações: ${response.status}`)
+  }
+
+  return response.json() as Promise<ProjLib>
+}
+
 export function OverviewPage() {
   const [modalLib, setModalLib]               = useState(false)
   const [modalFatOrc, setModalFatOrc]         = useState(false)
@@ -124,7 +150,7 @@ export function OverviewPage() {
     getOrcadoLiberacao().then((d: unknown) => setOrcadoLib(d as any)).catch(() => {})
     getOrcadoFaturamento().then((d: unknown) => setOrcadoFat(d as any)).catch(() => {})
     getProjecaoFaturamento().then((d: unknown) => setProjFat(d as ProjFat)).catch(() => {})
-    getProjecaoLiberacoes().then((d: unknown) => setProjLib(d as ProjLib)).catch(() => {})
+    getProjecaoLiberacoesFresh().then((d: ProjLib) => setProjLib(d)).catch(() => {})
     getEstoqueMensal().then((d: unknown) => {
       const meses = d as EstoqueMes[]
       const jan = meses.find((m) => Number(m.mes) === 1)
