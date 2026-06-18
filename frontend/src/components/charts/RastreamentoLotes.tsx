@@ -2226,7 +2226,7 @@ const textoPercentualV1 = (valor: number) =>
               O MPS atual empurrou ou retirou esses lotes da liberação de {mesLabel}.
             </p>
             <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              As paradas são buscadas como no MPS: dia do fim previsto V1, por linha/recurso, com motivo, equipamento e horas.
+              As paradas são lidas do mesmo relatório de apontamento usado no MPS, no dia do fim previsto V1, por linha/recurso, com motivo, equipamento e horas.
             </p>
           </div>
         </div>
@@ -2334,7 +2334,7 @@ const textoPercentualV1 = (valor: number) =>
                                 </div>
                               ) : (
                                 <p className="mt-1 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                                  {l.resumo_parada || "Sem parada encontrada no dia do fim previsto V1 para a linha/período analisado."}
+                                  {l.resumo_parada || "Sem parada encontrada no relatório de apontamento no dia do fim previsto V1 para a linha analisada."}
                                 </p>
                               )}
                             </div>
