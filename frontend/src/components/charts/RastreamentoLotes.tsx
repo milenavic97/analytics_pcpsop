@@ -156,6 +156,7 @@ interface ApontamentoEvento {
   duracao_horas?: number | null;
   situacao?: string | null;
   qtd_produzida?: number | null;
+  fonte_evento?: string | null;
   is_parada?: boolean | null;
 }
 
@@ -190,6 +191,10 @@ interface AtrasoProducaoLote {
   paradas_periodo?: ApontamentoEvento[] | null;
   qtd_paradas_periodo?: number | null;
   horas_parada_periodo?: number | null;
+  paradas_dia_fim_previsto?: ApontamentoEvento[] | null;
+  qtd_paradas_dia_fim_previsto?: number | null;
+  horas_paradas_dia_fim_previsto?: number | null;
+  data_referencia_parada?: string | null;
   apontamentos_periodo?: ApontamentoEvento[] | null;
   resumo_parada?: string | null;
 }
@@ -2221,7 +2226,7 @@ const textoPercentualV1 = (valor: number) =>
               O MPS atual empurrou ou retirou esses lotes da liberação de {mesLabel}.
             </p>
             <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              As paradas são buscadas igual ao MPS: por linha/recurso e janela entre o fim previsto V1 e o fim atual/reprogramado.
+              As paradas são buscadas como no MPS: dia do fim previsto V1, por linha/recurso, com motivo, equipamento e horas.
             </p>
           </div>
         </div>
@@ -2280,46 +2285,61 @@ const textoPercentualV1 = (valor: number) =>
                         </p>
                         <p className="mt-1 leading-relaxed">{l.explicacao || "Lote saiu da curva mensal em relação à V1."}</p>
 
-                        <div
-                          className="mt-2 rounded-xl border px-3 py-2"
-                          style={{
-                            borderColor: (l.paradas_periodo?.length || 0) > 0 ? "rgba(220,38,38,0.28)" : "var(--border)",
-                            background: (l.paradas_periodo?.length || 0) > 0 ? "rgba(254,242,242,0.72)" : "rgba(15,23,42,0.025)",
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
-                              Paradas no período · cascata MPS
-                            </span>
-                            <span className="text-[10px] font-semibold" style={{ color: (l.paradas_periodo?.length || 0) > 0 ? "#B91C1C" : "var(--text-secondary)" }}>
-                              {l.qtd_paradas_periodo || 0} ocorr.
-                              {Number(l.horas_parada_periodo || 0) > 0 ? ` · ${String(l.horas_parada_periodo).replace(".", ",")} h` : ""}
-                            </span>
-                          </div>
+                        {(() => {
+                          const paradasDia = l.paradas_dia_fim_previsto || l.paradas_periodo || [];
+                          const qtdParadas = Number(l.qtd_paradas_dia_fim_previsto ?? l.qtd_paradas_periodo ?? paradasDia.length ?? 0);
+                          const horasParadas = Number(l.horas_paradas_dia_fim_previsto ?? l.horas_parada_periodo ?? 0);
+                          const temParada = qtdParadas > 0 || paradasDia.length > 0;
 
-                          {(l.paradas_periodo?.length || 0) > 0 ? (
-                            <div className="mt-2 space-y-1.5">
-                              {(l.paradas_periodo || []).slice(0, 3).map((ev, idx) => (
-                                <div key={`${l.lote}-parada-${idx}`} className="text-[11px] leading-relaxed" style={{ color: "var(--text-primary)" }}>
-                                  <span className="font-bold">{fmtPeriodoApontamento(ev)}</span>
-                                  <span> · {ev.tipo_evento || "Ocorrência"}</span>
-                                  {ev.evento ? <span> · {ev.evento}</span> : null}
-                                  {fmtHorasApontamento(ev) ? <span style={{ color: "var(--text-secondary)" }}> · {fmtHorasApontamento(ev)}</span> : null}
-                                  {ev.equipamento ? <span style={{ color: "var(--text-secondary)" }}> · {ev.equipamento}</span> : null}
+                          return (
+                            <div
+                              className="mt-2 rounded-xl border px-3 py-2"
+                              style={{
+                                borderColor: temParada ? "rgba(220,38,38,0.28)" : "var(--border)",
+                                background: temParada ? "rgba(254,242,242,0.72)" : "rgba(15,23,42,0.025)",
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                                  Paradas no dia do fim previsto V1
+                                  {l.data_referencia_parada ? ` · ${fmtData(l.data_referencia_parada)}` : ""}
+                                </span>
+                                <span className="text-[10px] font-semibold" style={{ color: temParada ? "#B91C1C" : "var(--text-secondary)" }}>
+                                  {qtdParadas} ocorr.
+                                  {horasParadas > 0 ? ` · ${String(horasParadas).replace(".", ",")} h` : ""}
+                                </span>
+                              </div>
+
+                              {temParada ? (
+                                <div className="mt-2 space-y-2">
+                                  {paradasDia.slice(0, 4).map((ev, idx) => (
+                                    <div key={`${l.lote}-parada-dia-${idx}`} className="rounded-lg border px-2 py-1.5" style={{ borderColor: "rgba(220,38,38,0.14)", background: "rgba(255,255,255,0.55)" }}>
+                                      <div className="text-[11px] leading-relaxed" style={{ color: "var(--text-primary)" }}>
+                                        <span className="font-bold">{fmtPeriodoApontamento(ev)}</span>
+                                        {fmtHorasApontamento(ev) ? <span className="font-semibold" style={{ color: "#B91C1C" }}> · {fmtHorasApontamento(ev)}</span> : null}
+                                      </div>
+                                      <div className="mt-0.5 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                                        <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{ev.evento || ev.tipo_evento || "Ocorrência"}</span>
+                                        {ev.tipo_evento && ev.evento && ev.tipo_evento !== ev.evento ? <span> · {ev.tipo_evento}</span> : null}
+                                        {ev.equipamento ? <span> · Equip.: {ev.equipamento}</span> : null}
+                                        {ev.fonte_evento ? <span> · Fonte: {ev.fonte_evento}</span> : null}
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {paradasDia.length > 4 && (
+                                    <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                                      +{paradasDia.length - 4} ocorrência(s) no relatório de apontamento
+                                    </div>
+                                  )}
                                 </div>
-                              ))}
-                              {(l.paradas_periodo?.length || 0) > 3 && (
-                                <div className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                                  +{(l.paradas_periodo?.length || 0) - 3} ocorrência(s) no apontamento
-                                </div>
+                              ) : (
+                                <p className="mt-1 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                                  {l.resumo_parada || "Sem parada encontrada no dia do fim previsto V1 para a linha/período analisado."}
+                                </p>
                               )}
                             </div>
-                          ) : (
-                            <p className="mt-1 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                              {l.resumo_parada || "Sem parada encontrada na conciliação em cascata do MPS para a linha/período do atraso."}
-                            </p>
-                          )}
-                        </div>
+                          );
+                        })()}
                       </div>
                     </td>
                   </tr>
