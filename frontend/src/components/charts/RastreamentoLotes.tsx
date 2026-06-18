@@ -1196,25 +1196,25 @@ const textoPercentualV1 = (valor: number) =>
       filtro: "DESVIO",
     },
     {
-      label: "Em embalagem",
+      label: "Embalados não liberados",
       value: base.embalagem,
       color: "#EA580C",
       icon: Package,
       filtro: "EMBALAGEM",
     },
     {
-      label: "Em envase",
+      label: "Envasados não embalados",
       value: base.envase,
       color: "#2563EB",
       icon: Waves,
       filtro: "ENVASE",
     },
     {
-      label: "Em lavagem",
-      value: base.lavagem,
+      label: "Não iniciados",
+      value: base.nao_iniciado,
       color: "#CA8A04",
       icon: Droplets,
-      filtro: "LAVAGEM",
+      filtro: "NAO_INICIADO",
     },
   ];
 
@@ -1487,7 +1487,7 @@ const textoPercentualV1 = (valor: number) =>
           <div className="card overflow-hidden p-0">
             <div
               className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4"
-              style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
+              style={{ borderColor: "var(--border)", background: "#FFFFFF" }}
             >
               <div>
                 <p
@@ -1621,7 +1621,7 @@ const textoPercentualV1 = (valor: number) =>
             </div>
           </div>
 
-          <div className={`card overflow-hidden p-0 ${acompanhamentoHojeAberto ? "rounded-b-none" : ""}`}>
+          <div className={`card overflow-hidden p-0 shadow-none ${acompanhamentoHojeAberto ? "rounded-b-none border-b-0" : ""}`}>
             <div
               className="px-5 py-4"
               style={{ background: "#173A5E", color: "white" }}
@@ -1660,7 +1660,7 @@ const textoPercentualV1 = (valor: number) =>
               <>
             <div
               className="border-b px-5 py-3"
-              style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
+              style={{ borderColor: "var(--border)", background: "#FFFFFF" }}
             >
               <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
                 {textoResumoAcompanhamento}
@@ -1688,7 +1688,7 @@ const textoPercentualV1 = (valor: number) =>
                     background:
                       filtroEtapa === k.filtro
                         ? "var(--bg-primary)"
-                        : "var(--bg-secondary)",
+                        : "#FFFFFF",
                     opacity: k.value === 0 ? 0.35 : 1,
                     cursor: k.value === 0 ? "default" : "pointer",
                   }}
@@ -1725,8 +1725,8 @@ const textoPercentualV1 = (valor: number) =>
 
       {acompanhamentoHojeAberto && (
         <div
-          className="card -mt-4 overflow-hidden rounded-t-none border-t-0 p-0"
-          style={{ background: "#FFFFFF" }}
+          className="card -mt-7 overflow-hidden rounded-t-none border-t-0 p-0 shadow-none"
+          style={{ background: "#FFFFFF", boxShadow: "none" }}
         >
           <div
             className="border-b px-4 py-3"
@@ -1821,10 +1821,10 @@ const textoPercentualV1 = (valor: number) =>
             <option value="DESVIO">Em desvio aberto</option>
             <option value="ATRASO_PRODUCAO">Perda produção</option>
             <option value="RENDIMENTO">Perda rendimento</option>
-            <option value="EMBALAGEM">Em embalagem</option>
-            <option value="ENVASE">Em envase</option>
-            <option value="LAVAGEM">Em lavagem</option>
-            <option value="NAO_INICIADO">Não iniciado</option>
+            <option value="EMBALAGEM">Embalados não liberados</option>
+            <option value="ENVASE">Envasados não embalados</option>
+            <option value="LAVAGEM">Lavados não envasados</option>
+            <option value="NAO_INICIADO">Não iniciados</option>
             <option value="ATRASADO">Atrasados</option>
           </select>
         </div>
