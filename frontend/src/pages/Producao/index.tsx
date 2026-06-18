@@ -86,6 +86,12 @@ interface MesProducao {
   aderencia_pct: number
 }
 
+interface LinhaMensalProducao {
+  linha: string
+  nome: string
+  meses: MesProducao[]
+}
+
 interface LinhaProducao {
   linha: string
   nome: string
@@ -116,6 +122,7 @@ interface DashboardResponse {
   linha: string
   resumo: DashboardResumo
   por_mes: MesProducao[]
+  por_mes_linha?: LinhaMensalProducao[]
   por_linha: LinhaProducao[]
   top_ofensores: PrincipalOfensor[]
   top_ofensores_por_linha: OfensorPorLinha[]
@@ -348,22 +355,30 @@ function PageHeader({
           </p>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard de Produção</h1>
           <p className="mt-2 text-slate-500">
-            Visão de envase: planejado MPS/Gantt x realizado Cogtive, por linha e por mês.
+            Visão anual de envase: planejado V1 do MPS x realizado Cogtive, por linha e por mês.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <select
-            value={mes}
-            onChange={(event) => onMesChange(Number(event.target.value))}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-          >
-            {MESES.map((label, idx) => (
-              <option key={label} value={idx + 1}>
-                {tab === "dashboard" ? `Até ${label}/${ano}` : `${label}/${ano}`}
-              </option>
-            ))}
-          </select>
+          {tab === "acompanhamento" && (
+            <select
+              value={mes}
+              onChange={(event) => onMesChange(Number(event.target.value))}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+            >
+              {MESES.map((label, idx) => (
+                <option key={label} value={idx + 1}>
+                  {`${label}/${ano}`}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {tab === "dashboard" && (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
+              Ano fechado: Jan–Dez
+            </div>
+          )}
 
           <select
             value={ano}
@@ -462,14 +477,117 @@ function MetricCard({
   )
 }
 
-function DashboardTab({ data }: { data: DashboardResponse }) {
-  const resumo = data.resumo
-
-  const monthlyData = useMemo(() => {
-    return (data.por_mes || []).map((item) => ({
+function MonthlyLineChartCard({
+  title,
+  subtitle,
+  meses,
+}: {
+  title: string
+  subtitle: string
+  meses: MesProducao[]
+}) {
+  const chartData = useMemo(() => {
+    return (meses || []).map((item) => ({
       ...item,
       aderencia_plot_pct: item.aderencia_pct > 0 ? Math.min(item.aderencia_pct, 130) : null,
     }))
+  }, [meses])
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            Evolução mensal
+          </p>
+          <h2 className="text-xl font-bold text-slate-900">{title}</h2>
+          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+        </div>
+      </div>
+
+      <div className="h-[330px] rounded-2xl border border-slate-200 bg-white p-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart
+            data={chartData}
+            barCategoryGap="28%"
+            barGap={-18}
+            margin={{ top: 34, right: 20, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
+            <XAxis
+              dataKey="mes_label"
+              tick={{ fill: "#64748B", fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              yAxisId="left"
+              tick={{ fill: "#64748B", fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(value) => formatNumber(Number(value))}
+              width={62}
+            />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              domain={[0, 130]}
+              ticks={[0, 50, 80, 100, 130]}
+              tick={{ fill: "#64748B", fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(value) => `${value}%`}
+              width={46}
+            />
+            <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
+            <Legend />
+
+            <Bar
+              yAxisId="left"
+              dataKey="planejado_cx"
+              name="Planejado V1"
+              fill={COLORS.softBlue}
+              radius={[7, 7, 0, 0]}
+              barSize={42}
+            >
+              <LabelList dataKey="planejado_cx" content={<TopLabel fill="#64748B" />} />
+            </Bar>
+            <Bar
+              yAxisId="left"
+              dataKey="realizado_cx"
+              name="Realizado envase"
+              fill={COLORS.darkBlue}
+              radius={[7, 7, 0, 0]}
+              barSize={28}
+            >
+              <LabelList dataKey="realizado_cx" content={<TopLabel fill="#2F3B7C" />} />
+            </Bar>
+            <Line
+              yAxisId="right"
+              type="monotone"
+              dataKey="aderencia_plot_pct"
+              name="% atingido"
+              stroke={COLORS.orange}
+              strokeWidth={2.5}
+              dot={{ r: 3, fill: COLORS.orange, stroke: COLORS.orange }}
+              connectNulls={false}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+function DashboardTab({ data }: { data: DashboardResponse }) {
+  const resumo = data.resumo
+
+  const linhasMensais = useMemo(() => {
+    const base = data.por_mes_linha?.length
+      ? data.por_mes_linha
+      : [{ linha: data.linha, nome: linhaLabel(data.linha as LinhaFiltro), meses: data.por_mes || [] }]
+
+    return base.filter((item) => data.linha === "TODAS" || item.linha === data.linha)
   }, [data])
 
   return (
@@ -520,91 +638,15 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.55fr_1fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Evolução mensal
-              </p>
-              <h2 className="text-xl font-bold text-slate-900">
-                Planejado x realizado — {data.periodo_label}
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Planejado vem do MPS/Gantt. Realizado vem dos apontamentos de envase.
-              </p>
-            </div>
-          </div>
-
-          <div className="h-[420px] rounded-2xl border border-slate-200 bg-white p-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={monthlyData}
-                barCategoryGap="28%"
-                barGap={-18}
-                margin={{ top: 34, right: 20, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="mes_label"
-                  tick={{ fill: "#64748B", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  yAxisId="left"
-                  tick={{ fill: "#64748B", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(value) => formatNumber(Number(value))}
-                  width={62}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  domain={[0, 130]}
-                  ticks={[0, 50, 80, 100, 130]}
-                  tick={{ fill: "#64748B", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(value) => `${value}%`}
-                  width={46}
-                />
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
-                <Legend />
-
-                <Bar
-                  yAxisId="left"
-                  dataKey="planejado_cx"
-                  name="Planejado"
-                  fill={COLORS.softBlue}
-                  radius={[7, 7, 0, 0]}
-                  barSize={42}
-                >
-                  <LabelList dataKey="planejado_cx" content={<TopLabel fill="#64748B" />} />
-                </Bar>
-                <Bar
-                  yAxisId="left"
-                  dataKey="realizado_cx"
-                  name="Realizado envase"
-                  fill={COLORS.darkBlue}
-                  radius={[7, 7, 0, 0]}
-                  barSize={28}
-                >
-                  <LabelList dataKey="realizado_cx" content={<TopLabel fill="#2F3B7C" />} />
-                </Bar>
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="aderencia_plot_pct"
-                  name="% atingido"
-                  stroke={COLORS.orange}
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: COLORS.orange, stroke: COLORS.orange }}
-                  connectNulls={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="space-y-6">
+          {linhasMensais.map((linha) => (
+            <MonthlyLineChartCard
+              key={linha.linha}
+              title={`${linha.nome} — planejado V1 x realizado`}
+              subtitle={`Ano fechado ${data.periodo_label}. Planejado pela V1 de cada mês usando MES DE PRODUCAO; realizado pelos apontamentos de envase.`}
+              meses={linha.meses}
+            />
+          ))}
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
