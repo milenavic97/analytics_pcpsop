@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Target,
   Package,
   Waves,
   Droplets,
@@ -813,18 +814,30 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     return true;
   });
 
-  const gapPorStatusTela = useMemo(() => {
-    const etapa = (data?.mes_gap_por_etapa ?? data?.mtd_gap_por_etapa ?? {}) as Partial<RastreamentoData["mtd_gap_por_etapa"]>;
+  type GapPorEtapaNormalizado = {
+    reprovacao_desvio: number;
+    desvio_aberto: number;
+    atraso_producao: number;
+    rendimento: number;
+    embalagem: number;
+    envase: number;
+    lavagem: number;
+    nao_iniciado: number;
+    total: number;
+  };
 
+  const normalizarGapPorEtapa = (
+    etapa?: Partial<RastreamentoData["mtd_gap_por_etapa"]>,
+  ): GapPorEtapaNormalizado => {
     const totais = {
-      reprovacao_desvio: Math.round(Number(etapa.reprovacao_desvio ?? 0)),
-      desvio_aberto: Math.round(Number(etapa.desvio_aberto ?? 0)),
-      atraso_producao: Math.round(Number(etapa.atraso_producao ?? 0)),
-      rendimento: Math.round(Number(etapa.rendimento ?? 0)),
-      embalagem: Math.round(Number(etapa.embalagem ?? 0)),
-      envase: Math.round(Number(etapa.envase ?? 0)),
-      lavagem: Math.round(Number(etapa.lavagem ?? 0)),
-      nao_iniciado: Math.round(Number(etapa.nao_iniciado ?? 0)),
+      reprovacao_desvio: Math.round(Number(etapa?.reprovacao_desvio ?? 0)),
+      desvio_aberto: Math.round(Number(etapa?.desvio_aberto ?? 0)),
+      atraso_producao: Math.round(Number(etapa?.atraso_producao ?? 0)),
+      rendimento: Math.round(Number(etapa?.rendimento ?? 0)),
+      embalagem: Math.round(Number(etapa?.embalagem ?? 0)),
+      envase: Math.round(Number(etapa?.envase ?? 0)),
+      lavagem: Math.round(Number(etapa?.lavagem ?? 0)),
+      nao_iniciado: Math.round(Number(etapa?.nao_iniciado ?? 0)),
       total: 0,
     };
 
@@ -839,11 +852,18 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       totais.nao_iniciado;
 
     return totais;
-  }, [data?.mes_gap_por_etapa, data?.mtd_gap_por_etapa]);
+  };
 
-  // MTD continua disponível para conciliação operacional, mas o topo da página
-  // passa a ser mensal: V1 do mês versus plano atual/tendência.
-  const gapAlertaTela = data?.mtd_cx_gap ?? gapPorStatusTela.total ?? 0;
+  const gapPorStatusMes = useMemo(
+    () => normalizarGapPorEtapa(data?.mes_gap_por_etapa ?? data?.mtd_gap_por_etapa),
+    [data?.mes_gap_por_etapa, data?.mtd_gap_por_etapa],
+  );
+
+  const gapPorStatusMtd = useMemo(
+    () => normalizarGapPorEtapa(data?.mtd_gap_por_etapa),
+    [data?.mtd_gap_por_etapa],
+  );
+
   const mesPrevistoV1 = Number(data?.mes_cx_previsto_v1 ?? data?.total_cx_previsto ?? 0);
   const mesPlanoAtualTendencia = Number(
     data?.mes_cx_plano_atual_tendencia ?? data?.total_cx_liberado ?? 0,
@@ -855,11 +875,96 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const mesSaldoTendencia = Number(
     data?.mes_cx_saldo_tendencia ?? Math.max(mesPlanoAtualTendencia - mesRealizado, 0),
   );
-  const denominadorCards = Math.max(0, Number(mesPrevistoV1 || data?.total_cx_previsto || gapPorStatusTela.total || 0));
-  const textoPercentualCard = (valor: number) =>
-    denominadorCards > 0
-      ? `${fmtPercent((Number(valor || 0) / denominadorCards) * 100)}% da V1`
+
+  const mtdPrevistoV1 = Number(data?.mtd_cx_previsto ?? 0);
+  const mtdLiberado = Number(data?.mtd_cx_liberado ?? 0);
+  const mtdGap = Number(data?.mtd_cx_gap ?? Math.max(mtdPrevistoV1 - mtdLiberado, 0));
+
+  const textoPercentualV1 = (valor: number) =>
+    mesPrevistoV1 > 0
+      ? `${fmtPercent((Number(valor || 0) / mesPrevistoV1) * 100)}% da V1`
       : "0,0% da V1";
+
+  const textoPercentualMtd = (valor: number) =>
+    mtdGap > 0
+      ? `${fmtPercent((Number(valor || 0) / mtdGap) * 100)}% do faltante até hoje`
+      : "0,0% do faltante até hoje";
+
+  const perdasMes = [
+    {
+      label: "Perda reprovação/desvio",
+      value: gapPorStatusMes.reprovacao_desvio,
+      color: "#92400E",
+      icon: AlertTriangle,
+      filtro: "REPROVACAO_DESVIO",
+    },
+    {
+      label: "Perda produção",
+      value: gapPorStatusMes.atraso_producao,
+      color: "#DC2626",
+      icon: Clock,
+      filtro: "ATRASO_PRODUCAO",
+    },
+    {
+      label: "Perda rendimento",
+      value: gapPorStatusMes.rendimento,
+      color: "#6B7280",
+      icon: TrendingDown,
+      filtro: "RENDIMENTO",
+    },
+  ];
+
+  const statusMtd = [
+    {
+      label: "Perda reprovação/desvio",
+      value: gapPorStatusMtd.reprovacao_desvio,
+      color: "#92400E",
+      icon: AlertTriangle,
+      filtro: "REPROVACAO_DESVIO",
+    },
+    {
+      label: "Perda produção",
+      value: gapPorStatusMtd.atraso_producao,
+      color: "#DC2626",
+      icon: Clock,
+      filtro: "ATRASO_PRODUCAO",
+    },
+    {
+      label: "Perda rendimento",
+      value: gapPorStatusMtd.rendimento,
+      color: "#6B7280",
+      icon: TrendingDown,
+      filtro: "RENDIMENTO",
+    },
+    {
+      label: "Em desvio aberto",
+      value: gapPorStatusMtd.desvio_aberto,
+      color: "#B45309",
+      icon: AlertTriangle,
+      filtro: "DESVIO",
+    },
+    {
+      label: "Em embalagem",
+      value: gapPorStatusMtd.embalagem,
+      color: "#EA580C",
+      icon: Package,
+      filtro: "EMBALAGEM",
+    },
+    {
+      label: "Em envase",
+      value: gapPorStatusMtd.envase,
+      color: "#2563EB",
+      icon: Waves,
+      filtro: "ENVASE",
+    },
+    {
+      label: "Em lavagem",
+      value: gapPorStatusMtd.lavagem,
+      color: "#CA8A04",
+      icon: Droplets,
+      filtro: "LAVAGEM",
+    },
+  ];
 
   const lotesFiltrados = useMemo(() => {
     let lista = [...lotesFiltradosBase];
@@ -1114,160 +1219,213 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       </div>
 
       {data && (
-        <div className="card overflow-hidden p-0">
-          <button
-            type="button"
-            onClick={() => setModalAuditoria(true)}
-            className="w-full border-b px-5 py-4 text-left transition-colors hover:brightness-[0.99]"
-            style={{
-              borderColor: "var(--border)",
-              background:
-                mesDiferencaVsV1 > 0
-                  ? "rgba(220,38,38,0.04)"
-                  : "rgba(22,163,74,0.04)",
-            }}
-          >
-            <div className="flex items-start gap-3">
-              <AlertTriangle
-                size={16}
-                className="mt-0.5 flex-shrink-0"
-                style={{
-                  color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A",
-                }}
-              />
-
+        <div className="space-y-3">
+          <div className="card p-4">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p
-                  className="text-sm font-bold"
+                  className="text-[10px] font-semibold uppercase tracking-widest"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Visão mensal
+                </p>
+                <h3
+                  className="text-base font-bold"
                   style={{ color: "var(--text-primary)" }}
                 >
-                  {`Planejado V1 do mês: ${fmt(mesPrevistoV1)} cx — plano atual/tendência: ${fmt(
-                    mesPlanoAtualTendencia,
-                  )} cx`}
-                </p>
-
+                  Planejado de liberação do mês
+                </h3>
                 <p
-                  className="mt-0.5 text-sm"
-                  style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A", fontWeight: 700 }}
-                >
-                  {mesDiferencaVsV1 > 0
-                    ? `Diferença vs V1: -${fmt(mesDiferencaVsV1)} cx — veja composição abaixo:`
-                    : mesDiferencaVsV1 < 0
-                      ? `Plano atual acima da V1 em ${fmt(Math.abs(mesDiferencaVsV1))} cx`
-                      : "Plano atual igual à V1"}
-                </p>
-
-                <p
-                  className="mt-1 text-[11px]"
+                  className="mt-1 text-xs"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Realizado até hoje: {fmt(mesRealizado)} cx · Saldo previsto na tendência atual: {fmt(mesSaldoTendencia)} cx · clique para ver conciliação MTD com SD3
+                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3; lotes ainda não liberados entram pela versão atual do MPS.
                 </p>
               </div>
-            </div>
-          </button>
 
-          <div
-            className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-7"
-            style={{ background: "var(--border)" }}
-          >
-            {[
-              {
-                label: "Perda reprovação/desvio",
-                value: gapPorStatusTela.reprovacao_desvio,
-                color: "#92400E",
-                icon: AlertTriangle,
-                filtro: "REPROVACAO_DESVIO",
-              },
-              {
-                label: "Perda produção",
-                value: gapPorStatusTela.atraso_producao,
-                color: "#DC2626",
-                icon: Clock,
-                filtro: "ATRASO_PRODUCAO",
-              },
-              {
-                label: "Perda rendimento",
-                value: gapPorStatusTela.rendimento,
-                color: "#6B7280",
-                icon: TrendingDown,
-                filtro: "RENDIMENTO",
-              },
-              {
-                label: "Em desvio aberto",
-                value: gapPorStatusTela.desvio_aberto,
-                color: "#B45309",
-                icon: AlertTriangle,
-                filtro: "DESVIO",
-              },
-              {
-                label: "Em embalagem",
-                value: gapPorStatusTela.embalagem,
-                color: "#EA580C",
-                icon: Package,
-                filtro: "EMBALAGEM",
-              },
-              {
-                label: "Em envase",
-                value: gapPorStatusTela.envase,
-                color: "#2563EB",
-                icon: Waves,
-                filtro: "ENVASE",
-              },
-              {
-                label: "Em lavagem",
-                value: gapPorStatusTela.lavagem,
-                color: "#CA8A04",
-                icon: Droplets,
-                filtro: "LAVAGEM",
-              },
-            ].map((k) => (
               <button
-                key={k.label}
-                onClick={() => {
-                  setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
-                  setFiltroEmbalado("");
-                  setApenasAtrasados(false);
-                  setSelecionados(new Set());
-                }}
-                className="px-4 py-3 text-left transition-all"
-                style={{
-                  background:
-                    filtroEtapa === k.filtro
-                      ? "var(--bg-primary)"
-                      : "var(--bg-secondary)",
-                  opacity: k.value === 0 ? 0.35 : 1,
-                  cursor: k.value === 0 ? "default" : "pointer",
-                }}
+                type="button"
+                onClick={() => setModalAuditoria(true)}
+                className="rounded-xl border px-3 py-2 text-xs font-semibold transition-colors hover:bg-black/5"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
               >
-                <div className="mb-1 flex items-center gap-1.5">
-                  <k.icon size={12} style={{ color: k.color }} />
+                Ver conciliação
+              </button>
+            </div>
 
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div
+                className="rounded-2xl border bg-white p-4"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <Target size={15} style={{ color: "#1D4ED8" }} />
                   <p
-                    className="text-[11px] font-semibold uppercase tracking-wider"
+                    className="text-[11px] font-bold uppercase tracking-wider"
                     style={{ color: "var(--text-secondary)" }}
                   >
-                    {k.label}
+                    Planejado liberação V1
                   </p>
                 </div>
+                <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+                  {fmt(mesPrevistoV1)} cx
+                </p>
+                <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  Plano congelado do mês
+                </p>
+              </div>
 
-                <p
-                  className="text-xl font-bold"
+              <div
+                className="rounded-2xl border bg-white p-4"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <RefreshCw size={15} style={{ color: "#0F766E" }} />
+                  <p
+                    className="text-[11px] font-bold uppercase tracking-wider"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    Planejado liberação atualizado
+                  </p>
+                </div>
+                <p className="text-2xl font-bold" style={{ color: "#0F766E" }}>
+                  {fmt(mesPlanoAtualTendencia)} cx
+                </p>
+                <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  Real {fmt(mesRealizado)} cx + saldo plano atual {fmt(mesSaldoTendencia)} cx
+                </p>
+              </div>
+
+              {perdasMes.map((k) => (
+                <button
+                  key={k.label}
+                  type="button"
+                  onClick={() => {
+                    setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
+                    setFiltroEmbalado("");
+                    setApenasAtrasados(false);
+                    setSelecionados(new Set());
+                  }}
+                  className="rounded-2xl border bg-white p-4 text-left transition-all hover:shadow-sm"
                   style={{
-                    color: k.value > 0 ? k.color : "var(--text-secondary)",
+                    borderColor: filtroEtapa === k.filtro ? k.color : "var(--border)",
+                    opacity: k.value === 0 ? 0.45 : 1,
+                    cursor: k.value === 0 ? "default" : "pointer",
                   }}
                 >
-                  {fmt(k.value)} cx
-                </p>
+                  <div className="mb-2 flex items-center gap-2">
+                    <k.icon size={15} style={{ color: k.color }} />
+                    <p
+                      className="text-[11px] font-bold uppercase tracking-wider"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      {k.label}
+                    </p>
+                  </div>
+                  <p className="text-2xl font-bold" style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}>
+                    {fmt(k.value)} cx
+                  </p>
+                  <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                    {textoPercentualV1(k.value)}
+                  </p>
+                </button>
+              ))}
+            </div>
 
-                <p
-                  className="mt-0.5 text-[11px] font-medium"
-                  style={{ color: "var(--text-secondary)" }}
+            <div
+              className="mt-3 rounded-2xl border px-4 py-3 text-sm"
+              style={{
+                borderColor: mesDiferencaVsV1 > 0 ? "rgba(220,38,38,0.20)" : "rgba(22,163,74,0.20)",
+                background: mesDiferencaVsV1 > 0 ? "rgba(220,38,38,0.04)" : "rgba(22,163,74,0.04)",
+                color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A",
+                fontWeight: 700,
+              }}
+            >
+              {mesDiferencaVsV1 > 0
+                ? `Diferença mensal vs V1: -${fmt(mesDiferencaVsV1)} cx`
+                : mesDiferencaVsV1 < 0
+                  ? `Plano atualizado acima da V1 em ${fmt(Math.abs(mesDiferencaVsV1))} cx`
+                  : "Plano atualizado igual à V1"}
+            </div>
+          </div>
+
+          <div className="card overflow-hidden p-0">
+            <div
+              className="border-b px-5 py-4"
+              style={{
+                borderColor: "var(--border)",
+                background: mtdGap > 0 ? "rgba(220,38,38,0.04)" : "rgba(22,163,74,0.04)",
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle
+                  size={16}
+                  className="mt-0.5 flex-shrink-0"
+                  style={{ color: mtdGap > 0 ? "#DC2626" : "#16A34A" }}
+                />
+
+                <div>
+                  <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                    Lotes previstos até hoje pela V1
+                  </p>
+                  <p
+                    className="mt-0.5 text-sm"
+                    style={{ color: mtdGap > 0 ? "#DC2626" : "#16A34A", fontWeight: 700 }}
+                  >
+                    {`Planejado até hoje: ${fmt(mtdPrevistoV1)} cx — liberado: ${fmt(mtdLiberado)} cx — diferença: ${fmt(mtdGap)} cx`}
+                  </p>
+                  <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                    Esta régua considera somente lotes com data de liberação V1 até hoje. A tabela abaixo permanece em mês completo até você mudar o filtro de período.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-7"
+              style={{ background: "var(--border)" }}
+            >
+              {statusMtd.map((k) => (
+                <button
+                  key={k.label}
+                  type="button"
+                  onClick={() => {
+                    setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
+                    setFiltroEmbalado("");
+                    setApenasAtrasados(true);
+                    setSelecionados(new Set());
+                  }}
+                  className="px-4 py-3 text-left transition-all"
+                  style={{
+                    background:
+                      filtroEtapa === k.filtro && apenasAtrasados
+                        ? "var(--bg-primary)"
+                        : "var(--bg-secondary)",
+                    opacity: k.value === 0 ? 0.35 : 1,
+                    cursor: k.value === 0 ? "default" : "pointer",
+                  }}
                 >
-                  {textoPercentualCard(k.value)}
-                </p>
-              </button>
-            ))}
+                  <div className="mb-1 flex items-center gap-1.5">
+                    <k.icon size={12} style={{ color: k.color }} />
+                    <p
+                      className="text-[11px] font-semibold uppercase tracking-wider"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      {k.label}
+                    </p>
+                  </div>
+                  <p
+                    className="text-xl font-bold"
+                    style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}
+                  >
+                    {fmt(k.value)} cx
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+                    {textoPercentualMtd(k.value)}
+                  </p>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
