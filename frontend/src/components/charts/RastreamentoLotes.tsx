@@ -10,6 +10,7 @@ import {
   Waves,
   Droplets,
   TrendingDown,
+  TrendingUp,
   X,
   Download,
   ChevronsUpDown,
@@ -156,12 +157,14 @@ interface RastreamentoData {
   mes_cx_diferenca_vs_v1?: number;
   mes_cx_saldo_tendencia?: number;
   mes_cx_acrescimo_plano_atual?: number;
+  mes_cx_ganho_rendimento?: number;
   mes_cx_perdas_brutas_vs_v1?: number;
   mes_cx_reconciliado_v1?: number;
   mes_perdas_vs_v1_por_causa?: {
     reprovacao_desvio?: number;
     atraso_producao?: number;
     rendimento?: number;
+    ganho_rendimento?: number;
     outros?: number;
   };
   mes_gap_por_etapa?: {
@@ -890,12 +893,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     data?.mes_cx_saldo_tendencia ?? Math.max(mesPlanoAtualTendencia - mesRealizado, 0),
   );
   const mesAcrescimoPlanoAtual = Number(data?.mes_cx_acrescimo_plano_atual ?? 0);
+  const mesGanhoRendimento = Number(data?.mes_cx_ganho_rendimento ?? data?.mes_perdas_vs_v1_por_causa?.ganho_rendimento ?? 0);
   const mesPerdasBrutasVsV1 = Number(
     data?.mes_cx_perdas_brutas_vs_v1 ?? gapPorStatusMes.total,
   );
   const mesReconciliadoV1 = Number(
     data?.mes_cx_reconciliado_v1
-      ?? Math.round(mesPlanoAtualTendencia + mesPerdasBrutasVsV1 - mesAcrescimoPlanoAtual),
+      ?? Math.round(mesPlanoAtualTendencia + mesPerdasBrutasVsV1 - mesAcrescimoPlanoAtual - mesGanhoRendimento),
   );
 
   const mtdPrevistoV1 = Number(data?.mtd_cx_previsto ?? 0);
@@ -933,6 +937,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       color: "#6B7280",
       icon: TrendingDown,
       filtro: "RENDIMENTO",
+    },
+    {
+      label: "Ganho rendimento",
+      value: mesGanhoRendimento,
+      color: "#16A34A",
+      icon: TrendingUp,
+      filtro: "LIBERADO",
     },
     ...(gapPorStatusMes.outros > 0
       ? [{
@@ -1270,7 +1281,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   className="mt-1 text-xs"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3; lotes ainda não liberados entram pela versão atual do MPS. Se a versão atual acrescentar volume, ele aparece como compensação para a conciliação fechar.
+                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3 apenas quando pertencem ao Gantt/MPS de junho; lotes ainda não liberados entram pela versão atual do MPS. Ganhos de rendimento e acréscimos aparecem separados para a conciliação fechar.
                 </p>
               </div>
 
@@ -1405,7 +1416,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                       : "Plano atualizado igual à V1"}
                 </span>
                 <span className="text-xs" style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
-                  {`Conciliação: atualizado ${fmt(mesPlanoAtualTendencia)} cx + perdas ${fmt(mesPerdasBrutasVsV1)} cx - acréscimos ${fmt(mesAcrescimoPlanoAtual)} cx = ${fmt(mesReconciliadoV1)} cx`}
+                  {`Conciliação: atualizado ${fmt(mesPlanoAtualTendencia)} cx + perdas ${fmt(mesPerdasBrutasVsV1)} cx - acréscimos ${fmt(mesAcrescimoPlanoAtual)} cx - ganho rendimento ${fmt(mesGanhoRendimento)} cx = ${fmt(mesReconciliadoV1)} cx`}
                 </span>
               </div>
             </div>
