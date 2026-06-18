@@ -156,6 +156,8 @@ interface RastreamentoData {
   mes_cx_plano_atual_tendencia?: number;
   mes_cx_diferenca_vs_v1?: number;
   mes_cx_saldo_tendencia?: number;
+  mes_cx_saldo_tendencia_bruto?: number;
+  mes_cx_desconto_reprovacao_plano_atual?: number;
   mes_cx_acrescimo_plano_atual?: number;
   mes_cx_ganho_rendimento?: number;
   mes_cx_perdas_brutas_vs_v1?: number;
@@ -1281,7 +1283,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   className="mt-1 text-xs"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3 apenas quando pertencem ao Gantt/MPS de junho; lotes ainda não liberados entram pela versão atual do MPS. Perdas e ganho de rendimento aparecem separados para leitura executiva.
+                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3 apenas quando pertencem ao Gantt/MPS de junho; lotes ainda não liberados entram pela versão atual do MPS, já descontando perdas de reprovação/desvio quando o MPS ainda mantém o bloco cheio.
                 </p>
               </div>
 
@@ -1334,7 +1336,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                   {fmt(mesPlanoAtualTendencia)} cx
                 </p>
                 <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                  Real {fmt(mesRealizado)} cx + saldo plano atual {fmt(mesSaldoTendencia)} cx
+                  Real {fmt(mesRealizado)} cx + saldo plano ajustado {fmt(mesSaldoTendencia)} cx
                 </p>
               </div>
 
@@ -1393,7 +1395,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                       : "Plano atualizado igual à V1"}
                 </span>
                 <span className="text-xs" style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
-                  {`Perdas principais: reprovação/desvio, produção e rendimento. Ganho rendimento mostra lotes liberados acima do previsto V1.`}
+                  {`Plano atualizado já desconta perdas de reprovação/desvio quando o MPS ainda mantém o bloco cheio. Ganho rendimento mostra lotes liberados acima do previsto V1.`}
                 </span>
               </div>
             </div>
