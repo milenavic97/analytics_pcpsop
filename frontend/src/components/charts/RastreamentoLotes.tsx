@@ -73,6 +73,7 @@ interface LoteRastreamento {
   status_gap?: string | null;
   motivo_gap?: string | null;
   data_lib_atual?: string | null;
+  data_fim_atual?: string | null;
   mes_previsto_atual?: number | null;
   ano_previsto_atual?: number | null;
 }
@@ -141,6 +142,33 @@ interface RastreamentoCacheEntry {
   data: RastreamentoData;
 }
 
+interface AtrasoProducaoLote {
+  lote: string;
+  grupo?: string | null;
+  produto?: string | null;
+  qtd_prevista_cx?: number | null;
+  qtd_prevista_tb?: number | null;
+  qtd_atual_cx?: number | null;
+  qtd_futura_cx?: number | null;
+  data_inicio_prevista?: string | null;
+  data_fim_prevista?: string | null;
+  data_lib_prevista?: string | null;
+  data_inicio_atual?: string | null;
+  data_fim_atual?: string | null;
+  data_lib_atual?: string | null;
+  mes_previsto_atual?: number | null;
+  ano_previsto_atual?: number | null;
+  status_atual?: string | null;
+  motivo?: string | null;
+  explicacao?: string | null;
+  check_lavagem?: boolean | null;
+  check_envase?: boolean | null;
+  check_embalagem?: boolean | null;
+  check_liberado?: boolean | null;
+  em_desvio?: boolean | null;
+  desvio_reprovacao?: boolean | null;
+}
+
 interface RastreamentoData {
   mes: number;
   ano: number;
@@ -203,6 +231,7 @@ interface RastreamentoData {
   };
   mtd_resumo_liberacao?: ResumoLiberacao;
   lotes_fora_gantt?: LoteForaGantt[];
+  atraso_producao_lotes?: AtrasoProducaoLote[];
   lotes: LoteRastreamento[];
 }
 
@@ -217,6 +246,11 @@ function fmtPercent(n?: number | null) {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   }).format(Number(n));
+}
+
+function fmtTubetes(cx?: number | null) {
+  if (cx === null || cx === undefined) return "—";
+  return fmt(Number(cx || 0) * 500);
 }
 
 function fmtData(iso?: string | null) {
@@ -649,6 +683,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [filtroVisaoPlano, setFiltroVisaoPlano] = useState("");
   const [apenasAtrasados, setApenasAtrasados] = useState(false);
   const [modalAuditoria, setModalAuditoria] = useState(false);
+  const [modalPerdaProducao, setModalPerdaProducao] = useState(false);
   const [retemPorLote, setRetemPorLote] = useState(0.7);
   const [sortRendimento, setSortRendimento] = useState<"asc" | "desc" | null>(null);
   const [sortDataLib, setSortDataLib] = useState<"asc" | "desc" | null>(null);
@@ -906,9 +941,40 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
   const mtdPrevistoV1 = Number(data?.mtd_cx_previsto ?? 0);
   const mtdLiberado = Number(data?.mtd_cx_liberado ?? 0);
-  const mtdGap = Number(data?.mtd_cx_gap ?? Math.max(mtdPrevistoV1 - mtdLiberado, 0));
+const mtdGap = Number(data?.mtd_cx_gap ?? Math.max(mtdPrevistoV1 - mtdLiberado, 0));
 
-  const textoPercentualV1 = (valor: number) =>
+const lotesPerdaProducao = useMemo<AtrasoProducaoLote[]>(() => {
+  const backend = data?.atraso_producao_lotes ?? [];
+  if (backend.length > 0) return backend;
+
+  return (data?.lotes ?? [])
+    .filter((l) => l.atraso_producao || l.reprogramado || l.status_gap === "Atraso de produção")
+    .map((l) => ({
+      lote: l.lote,
+      grupo: l.grupo,
+      produto: l.sku_pa || l.grupo,
+      qtd_prevista_cx: l.qtd_prevista_cx,
+      qtd_prevista_tb: l.qtd_prevista_tb,
+      data_inicio_prevista: l.data_inicio,
+      data_fim_prevista: l.data_fim,
+      data_lib_prevista: l.data_lib,
+      data_fim_atual: l.data_fim_atual,
+      data_lib_atual: l.data_lib_atual,
+      mes_previsto_atual: l.mes_previsto_atual,
+      ano_previsto_atual: l.ano_previsto_atual,
+      status_atual: l.status_gap,
+      motivo: l.motivo_gap,
+      explicacao: l.motivo_gap || "Lote saiu da liberação mensal prevista na V1.",
+      check_lavagem: l.check_lavagem,
+      check_envase: l.check_envase,
+      check_embalagem: l.check_embalagem,
+      check_liberado: l.check_liberado,
+      em_desvio: l.em_desvio,
+      desvio_reprovacao: l.desvio_reprovacao,
+    }));
+}, [data]);
+
+const textoPercentualV1 = (valor: number) =>
     mesPrevistoV1 > 0
       ? `${fmtPercent((Number(valor || 0) / mesPrevistoV1) * 100)}% da V1`
       : "0,0% da V1";
@@ -1279,12 +1345,6 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                 >
                   Planejado de liberação do mês
                 </h3>
-                <p
-                  className="mt-1 text-xs"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Compara a V1 congelada do mês com o plano atualizado. Lotes já liberados entram pelo real da SD3 apenas quando pertencem ao Gantt/MPS de junho; lotes ainda não liberados entram pela versão atual do MPS, já descontando perdas de reprovação/desvio quando o MPS ainda mantém o bloco cheio.
-                </p>
               </div>
 
               <button
@@ -1297,109 +1357,129 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
-              <div
-                className="rounded-2xl border bg-white p-4"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <Target size={15} style={{ color: "#1D4ED8" }} />
-                  <p
-                    className="text-[11px] font-bold uppercase tracking-wider"
-                    style={{ color: "var(--text-secondary)" }}
-                  >
-                    Planejado liberação V1
-                  </p>
-                </div>
-                <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
-                  {fmt(mesPrevistoV1)} cx
-                </p>
-                <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                  Plano congelado do mês
-                </p>
-              </div>
+  <div className="overflow-x-auto pb-1">
+    <div
+      className="grid min-w-[1260px] gap-2"
+      style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}
+    >
+      <div
+        className="rounded-2xl border bg-white p-3"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <div className="mb-2 flex items-center gap-2">
+          <Target size={14} style={{ color: "#1D4ED8" }} />
+          <p
+            className="text-[10px] font-bold uppercase tracking-wider"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Planejado V1
+          </p>
+        </div>
+        <p className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+          {fmt(mesPrevistoV1)} cx
+        </p>
+        <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+          {fmtTubetes(mesPrevistoV1)} tubetes
+        </p>
+        <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+          V1 congelada
+        </p>
+      </div>
 
-              <div
-                className="rounded-2xl border bg-white p-4"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <RefreshCw size={15} style={{ color: "#0F766E" }} />
-                  <p
-                    className="text-[11px] font-bold uppercase tracking-wider"
-                    style={{ color: "var(--text-secondary)" }}
-                  >
-                    Planejado liberação atualizado
-                  </p>
-                </div>
-                <p className="text-2xl font-bold" style={{ color: "#0F766E" }}>
-                  {fmt(mesPlanoAtualTendencia)} cx
-                </p>
-                <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                  Real {fmt(mesRealizado)} cx + saldo plano ajustado {fmt(mesSaldoTendencia)} cx
-                </p>
-              </div>
+      <div
+        className="rounded-2xl border bg-white p-3"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <div className="mb-2 flex items-center gap-2">
+          <RefreshCw size={14} style={{ color: "#0F766E" }} />
+          <p
+            className="text-[10px] font-bold uppercase tracking-wider"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Plano atualizado
+          </p>
+        </div>
+        <p className="text-xl font-bold" style={{ color: "#0F766E" }}>
+          {fmt(mesPlanoAtualTendencia)} cx
+        </p>
+        <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+          {fmtTubetes(mesPlanoAtualTendencia)} tubetes
+        </p>
+        <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+          Real {fmt(mesRealizado)} cx + saldo {fmt(mesSaldoTendencia)} cx
+        </p>
+      </div>
 
-              {perdasMes.map((k) => (
-                <button
-                  key={k.label}
-                  type="button"
-                  onClick={() => {
-                    setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
-                    setFiltroEmbalado("");
-                    setApenasAtrasados(false);
-                    setSelecionados(new Set());
-                  }}
-                  className="rounded-2xl border bg-white p-4 text-left transition-all hover:shadow-sm"
-                  style={{
-                    borderColor: filtroEtapa === k.filtro ? k.color : "var(--border)",
-                    opacity: k.value === 0 ? 0.45 : 1,
-                    cursor: k.value === 0 ? "default" : "pointer",
-                  }}
-                >
-                  <div className="mb-2 flex items-center gap-2">
-                    <k.icon size={15} style={{ color: k.color }} />
-                    <p
-                      className="text-[11px] font-bold uppercase tracking-wider"
-                      style={{ color: "var(--text-secondary)" }}
-                    >
-                      {k.label}
-                    </p>
-                  </div>
-                  <p className="text-2xl font-bold" style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}>
-                    {fmt(k.value)} cx
-                  </p>
-                  <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                    {textoPercentualV1(k.value)}
-                  </p>
-                </button>
-              ))}
+      <div
+        className="rounded-2xl border bg-white p-3"
+        style={{
+          borderColor: mesDiferencaVsV1 > 0 ? "rgba(220,38,38,0.30)" : "rgba(22,163,74,0.30)",
+          background: mesDiferencaVsV1 > 0 ? "rgba(220,38,38,0.03)" : "rgba(22,163,74,0.03)",
+        }}
+      >
+        <div className="mb-2 flex items-center gap-2">
+          <TrendingDown size={14} style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A" }} />
+          <p
+            className="text-[10px] font-bold uppercase tracking-wider"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Diferença vs V1
+          </p>
+        </div>
+        <p className="text-xl font-bold" style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A" }}>
+          {mesDiferencaVsV1 > 0 ? "-" : mesDiferencaVsV1 < 0 ? "+" : ""}{fmt(Math.abs(mesDiferencaVsV1))} cx
+        </p>
+        <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+          {fmtTubetes(Math.abs(mesDiferencaVsV1))} tubetes
+        </p>
+        <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+          Vs V1
+        </p>
+      </div>
 
-            </div>
-
-            <div
-              className="mt-3 rounded-2xl border px-4 py-3 text-sm"
-              style={{
-                borderColor: mesDiferencaVsV1 > 0 ? "rgba(220,38,38,0.20)" : "rgba(22,163,74,0.20)",
-                background: mesDiferencaVsV1 > 0 ? "rgba(220,38,38,0.04)" : "rgba(22,163,74,0.04)",
-                color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A",
-                fontWeight: 700,
-              }}
+      {perdasMes.map((k) => (
+        <button
+          key={k.label}
+          type="button"
+          onClick={() => {
+            if (k.filtro === "ATRASO_PRODUCAO") {
+              setModalPerdaProducao(true);
+            }
+            setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
+            setFiltroEmbalado("");
+            setApenasAtrasados(false);
+            setSelecionados(new Set());
+          }}
+          className="rounded-2xl border bg-white p-3 text-left transition-all hover:shadow-sm"
+          style={{
+            borderColor: filtroEtapa === k.filtro ? k.color : "var(--border)",
+            opacity: k.value === 0 ? 0.45 : 1,
+            cursor: "pointer",
+          }}
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <k.icon size={14} style={{ color: k.color }} />
+            <p
+              className="text-[10px] font-bold uppercase tracking-wider"
+              style={{ color: "var(--text-secondary)" }}
             >
-              <div className="flex flex-col gap-1">
-                <span>
-                  {mesDiferencaVsV1 > 0
-                    ? `Diferença líquida mensal vs V1: -${fmt(mesDiferencaVsV1)} cx`
-                    : mesDiferencaVsV1 < 0
-                      ? `Plano atualizado acima da V1 em ${fmt(Math.abs(mesDiferencaVsV1))} cx`
-                      : "Plano atualizado igual à V1"}
-                </span>
-                <span className="text-xs" style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
-                  {`Plano atualizado já desconta perdas de reprovação/desvio quando o MPS ainda mantém o bloco cheio. Ganho rendimento mostra lotes liberados acima do previsto V1.`}
-                </span>
-              </div>
-            </div>
+              {k.label}
+            </p>
           </div>
+          <p className="text-xl font-bold" style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}>
+            {fmt(k.value)} cx
+          </p>
+          <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+            {fmtTubetes(k.value)} tubetes
+          </p>
+          <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+            {textoPercentualV1(k.value)}
+          </p>
+        </button>
+      ))}
+    </div>
+  </div>
+</div>
 
           <div className="card overflow-hidden p-0">
             <div
@@ -1471,6 +1551,9 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
                     style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}
                   >
                     {fmt(k.value)} cx
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+                    {fmtTubetes(k.value)} tubetes
                   </p>
                   <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
                     {textoPercentualMtd(k.value)}
@@ -2005,6 +2088,141 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           </div>
         </div>
       )}
+
+{modalPerdaProducao && data && (
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    style={{ background: "rgba(15,23,42,0.45)" }}
+    onClick={() => setModalPerdaProducao(false)}
+  >
+    <div
+      className="w-full max-w-6xl overflow-hidden rounded-2xl shadow-xl"
+      style={{ background: "var(--bg-primary)" }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div
+        className="flex items-start justify-between border-b px-5 py-4"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <div>
+          <p
+            className="text-[10px] font-semibold uppercase tracking-widest"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Perda produção
+          </p>
+          <h3 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
+            Lotes reprogramados ou retirados da liberação do mês
+          </h3>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+            Mostra os lotes que estavam na V1 de {mesLabel}/{anoSelecionado} e deixaram de compor a liberação do mês na versão atual do MPS.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setModalPerdaProducao(false)}
+          className="rounded-lg p-2 hover:bg-black/5"
+        >
+          <X size={18} />
+        </button>
+      </div>
+
+      <div className="max-h-[70vh] overflow-auto p-5">
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
+            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+              Perda produção total
+            </p>
+            <p className="mt-1 text-2xl font-bold" style={{ color: "#DC2626" }}>
+              {fmt(gapPorStatusMes.atraso_producao)} cx
+            </p>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+              {fmtTubetes(gapPorStatusMes.atraso_producao)} tubetes
+            </p>
+          </div>
+
+          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
+            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+              Lotes afetados
+            </p>
+            <p className="mt-1 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+              {lotesPerdaProducao.length}
+            </p>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+              Lotes da V1 reprogramados ou fora do mês
+            </p>
+          </div>
+
+          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
+            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+              Leitura
+            </p>
+            <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              O MPS atual empurrou ou retirou esses lotes da liberação de {mesLabel}.
+            </p>
+            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+              A tabela mostra o fim previsto na V1 e o fim atual/reprogramado.
+            </p>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+          <table className="w-full min-w-[980px] text-left text-xs">
+            <thead style={{ background: "rgba(15,23,42,0.04)", color: "var(--text-secondary)" }}>
+              <tr>
+                <th className="px-4 py-3 font-bold uppercase tracking-wider">Lote</th>
+                <th className="px-4 py-3 font-bold uppercase tracking-wider">Grupo</th>
+                <th className="px-4 py-3 font-bold uppercase tracking-wider">Qtd V1</th>
+                <th className="px-4 py-3 font-bold uppercase tracking-wider">Fim previsto V1</th>
+                <th className="px-4 py-3 font-bold uppercase tracking-wider">Fim atual/real</th>
+                <th className="px-4 py-3 font-bold uppercase tracking-wider">O que aconteceu</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lotesPerdaProducao.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-6 text-center" colSpan={6} style={{ color: "var(--text-secondary)" }}>
+                    Nenhum lote de perda produção encontrado para esta visão.
+                  </td>
+                </tr>
+              ) : (
+                lotesPerdaProducao.map((l) => (
+                  <tr key={l.lote} className="border-t" style={{ borderColor: "var(--border)" }}>
+                    <td className="px-4 py-3 font-bold" style={{ color: "var(--text-primary)" }}>
+                      {l.lote}
+                    </td>
+                    <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>
+                      {l.grupo || "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmt(l.qtd_prevista_cx)} cx</span>
+                      <br />
+                      <span style={{ color: "var(--text-secondary)" }}>{fmtTubetes(l.qtd_prevista_cx)} tubetes</span>
+                    </td>
+                    <td className="px-4 py-3" style={{ color: "var(--text-primary)" }}>
+                      {fmtData(l.data_fim_prevista || l.data_lib_prevista)}
+                    </td>
+                    <td className="px-4 py-3" style={{ color: "var(--text-primary)" }}>
+                      {fmtData(l.data_fim_atual || l.data_lib_atual)}
+                    </td>
+                    <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>
+                      <div className="max-w-[420px]">
+                        <p className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {l.motivo || l.status_atual || "Reprogramado / fora do mês"}
+                        </p>
+                        <p className="mt-1 leading-relaxed">{l.explicacao || "Lote saiu da curva mensal em relação à V1."}</p>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
       {modalAuditoria && data && (
         <div
