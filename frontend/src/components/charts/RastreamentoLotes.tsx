@@ -1024,6 +1024,8 @@ const textoPercentualV1 = (valor: number) =>
       : []),
   ];
 
+  const mesCardsCount = 3 + perdasMes.length;
+
   const statusMtd = [
     {
       label: "Perda reprovação/desvio",
@@ -1330,19 +1332,19 @@ const textoPercentualV1 = (valor: number) =>
 
       {data && (
         <div className="space-y-3">
-          <div className="card p-4">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="card overflow-hidden p-0">
+            <div
+              className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4"
+              style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
+            >
               <div>
                 <p
-                  className="text-[10px] font-semibold uppercase tracking-widest"
+                  className="text-[10px] font-bold uppercase tracking-widest"
                   style={{ color: "var(--text-secondary)" }}
                 >
                   Visão mensal
                 </p>
-                <h3
-                  className="text-base font-bold"
-                  style={{ color: "var(--text-primary)" }}
-                >
+                <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>
                   Planejado de liberação do mês
                 </h3>
               </div>
@@ -1357,160 +1359,158 @@ const textoPercentualV1 = (valor: number) =>
               </button>
             </div>
 
-  <div className="overflow-x-auto pb-1">
-    <div
-      className="grid min-w-[1260px] gap-2"
-      style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}
-    >
-      <div
-        className="rounded-2xl border bg-white p-3"
-        style={{ borderColor: "var(--border)" }}
-      >
-        <div className="mb-2 flex items-center gap-2">
-          <Target size={14} style={{ color: "#1D4ED8" }} />
-          <p
-            className="text-[10px] font-bold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Planejado V1
-          </p>
-        </div>
-        <p className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-          {fmt(mesPrevistoV1)} cx
-        </p>
-        <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-          {fmtTubetes(mesPrevistoV1)} tubetes
-        </p>
-        <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-          V1 congelada
-        </p>
-      </div>
+            <div className="overflow-x-auto">
+              <div
+                className="grid gap-px"
+                style={{
+                  gridTemplateColumns: `repeat(${mesCardsCount}, minmax(155px, 1fr))`,
+                  minWidth: `${mesCardsCount * 165}px`,
+                  background: "var(--border)",
+                }}
+              >
+                <div className="min-h-[116px] bg-white p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Target size={14} style={{ color: "#1D4ED8" }} />
+                    <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                      Planejado V1
+                    </p>
+                  </div>
+                  <p className="text-2xl font-bold leading-none" style={{ color: "var(--text-primary)" }}>
+                    {fmt(mesPrevistoV1)} cx
+                  </p>
+                  <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+                    {fmtTubetes(mesPrevistoV1)} tubetes
+                  </p>
+                  <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                    V1 congelada
+                  </p>
+                </div>
 
-      <div
-        className="rounded-2xl border bg-white p-3"
-        style={{ borderColor: "var(--border)" }}
-      >
-        <div className="mb-2 flex items-center gap-2">
-          <RefreshCw size={14} style={{ color: "#0F766E" }} />
-          <p
-            className="text-[10px] font-bold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Plano atualizado
-          </p>
-        </div>
-        <p className="text-xl font-bold" style={{ color: "#0F766E" }}>
-          {fmt(mesPlanoAtualTendencia)} cx
-        </p>
-        <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-          {fmtTubetes(mesPlanoAtualTendencia)} tubetes
-        </p>
-        <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-          Real {fmt(mesRealizado)} cx + saldo {fmt(mesSaldoTendencia)} cx
-        </p>
-      </div>
+                <div className="min-h-[116px] bg-white p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <RefreshCw size={14} style={{ color: "#0F766E" }} />
+                    <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                      Plano atualizado
+                    </p>
+                  </div>
+                  <p className="text-2xl font-bold leading-none" style={{ color: "#0F766E" }}>
+                    {fmt(mesPlanoAtualTendencia)} cx
+                  </p>
+                  <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+                    {fmtTubetes(mesPlanoAtualTendencia)} tubetes
+                  </p>
+                  <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                    Real {fmt(mesRealizado)} cx + saldo {fmt(mesSaldoTendencia)} cx
+                  </p>
+                </div>
 
-      <div
-        className="rounded-2xl border bg-white p-3"
-        style={{
-          borderColor: mesDiferencaVsV1 > 0 ? "rgba(220,38,38,0.30)" : "rgba(22,163,74,0.30)",
-          background: mesDiferencaVsV1 > 0 ? "rgba(220,38,38,0.03)" : "rgba(22,163,74,0.03)",
-        }}
-      >
-        <div className="mb-2 flex items-center gap-2">
-          <TrendingDown size={14} style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A" }} />
-          <p
-            className="text-[10px] font-bold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Diferença vs V1
-          </p>
-        </div>
-        <p className="text-xl font-bold" style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A" }}>
-          {mesDiferencaVsV1 > 0 ? "-" : mesDiferencaVsV1 < 0 ? "+" : ""}{fmt(Math.abs(mesDiferencaVsV1))} cx
-        </p>
-        <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-          {fmtTubetes(Math.abs(mesDiferencaVsV1))} tubetes
-        </p>
-        <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-          Vs V1
-        </p>
-      </div>
+                <div
+                  className="min-h-[116px] p-4"
+                  style={{
+                    background: mesDiferencaVsV1 > 0 ? "rgba(254,242,242,0.95)" : "rgba(240,253,244,0.95)",
+                    boxShadow: "inset 0 0 0 1px " + (mesDiferencaVsV1 > 0 ? "rgba(239,68,68,0.22)" : "rgba(34,197,94,0.22)"),
+                  }}
+                >
+                  <div className="mb-3 flex items-center gap-2">
+                    <TrendingDown size={14} style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A" }} />
+                    <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                      Diferença vs V1
+                    </p>
+                  </div>
+                  <p className="text-2xl font-bold leading-none" style={{ color: mesDiferencaVsV1 > 0 ? "#B91C1C" : "#15803D" }}>
+                    {mesDiferencaVsV1 > 0 ? "-" : mesDiferencaVsV1 < 0 ? "+" : ""}{fmt(Math.abs(mesDiferencaVsV1))} cx
+                  </p>
+                  <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+                    {fmtTubetes(Math.abs(mesDiferencaVsV1))} tubetes
+                  </p>
+                  <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                    Líquido vs V1
+                  </p>
+                </div>
 
-      {perdasMes.map((k) => (
-        <button
-          key={k.label}
-          type="button"
-          onClick={() => {
-            if (k.filtro === "ATRASO_PRODUCAO") {
-              setModalPerdaProducao(true);
-            }
-            setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
-            setFiltroEmbalado("");
-            setApenasAtrasados(false);
-            setSelecionados(new Set());
-          }}
-          className="rounded-2xl border bg-white p-3 text-left transition-all hover:shadow-sm"
-          style={{
-            borderColor: filtroEtapa === k.filtro ? k.color : "var(--border)",
-            opacity: k.value === 0 ? 0.45 : 1,
-            cursor: "pointer",
-          }}
-        >
-          <div className="mb-2 flex items-center gap-2">
-            <k.icon size={14} style={{ color: k.color }} />
-            <p
-              className="text-[10px] font-bold uppercase tracking-wider"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {k.label}
-            </p>
+                {perdasMes.map((k) => (
+                  <button
+                    key={k.label}
+                    type="button"
+                    onClick={() => {
+                      if (k.filtro === "ATRASO_PRODUCAO") {
+                        setModalPerdaProducao(true);
+                      }
+                      setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
+                      setFiltroEmbalado("");
+                      setApenasAtrasados(false);
+                      setSelecionados(new Set());
+                    }}
+                    className="min-h-[116px] bg-white p-4 text-left transition-all hover:bg-slate-50"
+                    style={{
+                      boxShadow: filtroEtapa === k.filtro ? `inset 0 0 0 2px ${k.color}` : "none",
+                      opacity: k.value === 0 ? 0.45 : 1,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div className="mb-3 flex items-center gap-2">
+                      <k.icon size={14} style={{ color: k.color }} />
+                      <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                        {k.label}
+                      </p>
+                    </div>
+                    <p className="text-2xl font-bold leading-none" style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}>
+                      {fmt(k.value)} cx
+                    </p>
+                    <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+                      {fmtTubetes(k.value)} tubetes
+                    </p>
+                    <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                      {textoPercentualV1(k.value)}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-          <p className="text-xl font-bold" style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}>
-            {fmt(k.value)} cx
-          </p>
-          <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-            {fmtTubetes(k.value)} tubetes
-          </p>
-          <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-            {textoPercentualV1(k.value)}
-          </p>
-        </button>
-      ))}
-    </div>
-  </div>
-</div>
 
           <div className="card overflow-hidden p-0">
             <div
-              className="border-b px-5 py-4"
-              style={{
-                borderColor: "var(--border)",
-                background: mtdGap > 0 ? "rgba(220,38,38,0.04)" : "rgba(22,163,74,0.04)",
-              }}
+              className="px-5 py-4"
+              style={{ background: "#173A5E", color: "white" }}
             >
-              <div className="flex items-start gap-3">
-                <AlertTriangle
-                  size={16}
-                  className="mt-0.5 flex-shrink-0"
-                  style={{ color: mtdGap > 0 ? "#DC2626" : "#16A34A" }}
-                />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
+                    <AlertTriangle size={16} style={{ color: "#FDE68A" }} />
+                  </div>
 
-                <div>
-                  <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                    Lotes previstos até hoje pela V1
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">
+                      Acompanhamento até hoje
+                    </p>
+                    <h3 className="text-base font-bold text-white">
+                      Lotes previstos até hoje pela V1
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-white/10 px-4 py-2 text-right">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                    Diferença
                   </p>
-                  <p
-                    className="mt-0.5 text-sm"
-                    style={{ color: mtdGap > 0 ? "#DC2626" : "#16A34A", fontWeight: 700 }}
-                  >
-                    {`Planejado até hoje: ${fmt(mtdPrevistoV1)} cx — liberado: ${fmt(mtdLiberado)} cx — diferença: ${fmt(mtdGap)} cx`}
-                  </p>
-                  <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                    Esta régua considera somente lotes com data de liberação V1 até hoje. A tabela abaixo permanece em mês completo até você mudar o filtro de período.
+                  <p className="text-lg font-bold text-white">
+                    {fmt(mtdGap)} cx
                   </p>
                 </div>
               </div>
+            </div>
+
+            <div
+              className="border-b px-5 py-3"
+              style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
+            >
+              <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                {`Planejado até hoje: ${fmt(mtdPrevistoV1)} cx — liberado: ${fmt(mtdLiberado)} cx — diferença: ${fmt(mtdGap)} cx`}
+              </p>
+              <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                Abaixo, os lotes vencidos pela V1 separados pelo status operacional atual.
+              </p>
             </div>
 
             <div
