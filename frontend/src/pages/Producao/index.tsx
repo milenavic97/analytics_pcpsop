@@ -368,7 +368,7 @@ function PageHeader({
           </p>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard de Produção</h1>
           <p className="mt-2 text-slate-500">
-            Visão anual de envase: planejado da programação de OPs x realizado Cogtive, por linha e por mês.
+            Visão anual de envase: planejado pela Programação Mensal + MPS x realizado Cogtive, por linha e por mês.
           </p>
         </div>
 
@@ -878,7 +878,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
           <MonthlyLineChartCard
             key={linha.linha}
             title={`${linha.nome} — planejado x realizado`}
-            subtitle={`Ano fechado ${data.periodo_label}. Planejado pela programação; realizado pelos apontamentos de envase.`}
+            subtitle={`Ano fechado ${data.periodo_label}. Planejado pela Programação Mensal + MPS; realizado pelos apontamentos de envase.`}
             meses={linha.meses}
           />
         ))}
