@@ -147,6 +147,11 @@ interface AcompanhamentoCard {
   total_caixas: number
   total_tubetes: number
   lotes: number
+  planejado_mtd_tubetes?: number | null
+  planejado_mtd_caixas?: number | null
+  realizado_mtd_tubetes?: number | null
+  realizado_mtd_caixas?: number | null
+  atingimento_mtd_pct?: number | null
 }
 
 interface AcompanhamentoLinha {
@@ -176,6 +181,11 @@ interface AcompanhamentoSecao {
   total_caixas: number
   total_tubetes: number
   lotes: number
+  planejado_mtd_tubetes?: number | null
+  planejado_mtd_caixas?: number | null
+  realizado_mtd_tubetes?: number | null
+  realizado_mtd_caixas?: number | null
+  atingimento_mtd_pct?: number | null
   linhas: AcompanhamentoLinha[]
 }
 
@@ -1351,6 +1361,44 @@ function AcompanhamentoSecaoView({ secao }: { secao: AcompanhamentoSecao }) {
 }
 
 
+
+function MiniMtdCard({
+  title,
+  value,
+  subtitle,
+  accent = "slate",
+}: {
+  title: string
+  value: string
+  subtitle?: string
+  accent?: "slate" | "green" | "orange" | "red" | "blue"
+}) {
+  const styles = {
+    slate: "bg-slate-50 text-slate-900 border-slate-200",
+    green: "bg-green-50 text-green-800 border-green-100",
+    orange: "bg-orange-50 text-orange-800 border-orange-100",
+    red: "bg-red-50 text-red-800 border-red-100",
+    blue: "bg-blue-50 text-[#17375E] border-blue-100",
+  }
+
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${styles[accent]}`}>
+      <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">{title}</p>
+      <p className="mt-1 text-base font-black">{value}</p>
+      {subtitle && <p className="mt-0.5 text-[11px] font-bold opacity-60">{subtitle}</p>}
+    </div>
+  )
+}
+
+function atingimentoAccent(value?: number | null): "green" | "orange" | "red" | "slate" {
+  const v = Number(value || 0)
+  if (!v) return "slate"
+  if (v >= 95) return "green"
+  if (v >= 80) return "orange"
+  return "red"
+}
+
+
 function AcompanhamentoPainelCompacto({
   secao,
   card,
@@ -1364,19 +1412,54 @@ function AcompanhamentoPainelCompacto({
   const totalTubetes = Number(card?.total_tubetes ?? secao.total_tubetes ?? 0)
   const totalCaixas = Number(card?.total_caixas ?? secao.total_caixas ?? 0)
   const totalLotes = Number(card?.lotes ?? secao.lotes ?? 0)
+  const planejadoMtdTb = Number(card?.planejado_mtd_tubetes ?? secao.planejado_mtd_tubetes ?? 0)
+  const planejadoMtdCx = Number(card?.planejado_mtd_caixas ?? secao.planejado_mtd_caixas ?? 0)
+  const realizadoMtdTb = Number(card?.realizado_mtd_tubetes ?? secao.realizado_mtd_tubetes ?? totalTubetes)
+  const realizadoMtdCx = Number(card?.realizado_mtd_caixas ?? secao.realizado_mtd_caixas ?? totalCaixas)
+  const atingimentoMtd = Number(card?.atingimento_mtd_pct ?? secao.atingimento_mtd_pct ?? 0)
+  const Icon = secao.linha === "FABRIMA" ? Layers : Factory
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="bg-[#17375E] px-4 py-3 text-white">
-        <p className="text-[11px] font-bold uppercase tracking-widest text-blue-100">
-          {secao.tipo}
-        </p>
-        <div className="mt-1 flex items-end justify-between gap-3">
-          <h3 className="text-lg font-black">{secao.nome}</h3>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-white/10 p-2 text-white">
+              <Icon className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-blue-100">
+                {secao.tipo}
+              </p>
+              <h3 className="mt-1 text-lg font-black">{secao.nome}</h3>
+            </div>
+          </div>
+
           <span className="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-bold">
             {formatNumber(totalTubetes)} tubetes
           </span>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 border-b border-slate-200 bg-white p-3 sm:grid-cols-3">
+        <MiniMtdCard
+          title="Planejado MTD"
+          value={planejadoMtdTb > 0 ? formatNumber(planejadoMtdTb) : "—"}
+          subtitle={planejadoMtdCx > 0 ? formatCx(planejadoMtdCx) : "Até hoje"}
+          accent="blue"
+        />
+        <MiniMtdCard
+          title="Realizado MTD"
+          value={formatNumber(realizadoMtdTb)}
+          subtitle={formatCx(realizadoMtdCx)}
+          accent="green"
+        />
+        <MiniMtdCard
+          title="% ating."
+          value={planejadoMtdTb > 0 ? formatPercent(atingimentoMtd) : "—"}
+          subtitle="Real / planejado"
+          accent={atingimentoAccent(atingimentoMtd)}
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-2 border-b border-slate-200 bg-slate-50 p-3">
@@ -1394,7 +1477,7 @@ function AcompanhamentoPainelCompacto({
         </div>
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Total
+            Total mês
           </p>
           <p className="mt-1 text-sm font-black text-slate-900">
             {formatCx(totalCaixas)}
