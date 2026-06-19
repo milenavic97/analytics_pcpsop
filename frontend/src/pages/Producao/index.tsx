@@ -56,7 +56,7 @@ const MESES = [
   "Dez",
 ]
 
-type TabKey = "dashboard" | "acompanhamento"
+type TabKey = "dashboard" | "acompanhamento" | "perdas"
 type LinhaFiltro = "TODAS" | "L1" | "L2"
 
 interface PrincipalOfensor {
@@ -189,6 +189,82 @@ interface AcompanhamentoResponse {
   secoes: AcompanhamentoSecao[]
   debug?: Record<string, unknown>
 }
+
+
+interface PerdasCards {
+  horas_paradas: number
+  ocorrencias: number
+  dias_com_parada: number
+  media_min: number
+  caixas_potenciais: number
+  gap_ytd: number
+  pct_gap_explicado: number
+}
+
+interface PerdasParetoMacro {
+  macro_categoria: string
+  horas: number
+  ocorrencias: number
+  dias: number
+  media_min: number
+  mediana_min: number
+  p90_min: number
+  min_por_dia: number
+  caixas_potenciais: number
+  pct_gap_explicado: number
+}
+
+interface PerdasParetoMaquina {
+  linha: string
+  maquina: string
+  horas: number
+  ocorrencias: number
+  dias: number
+  media_min: number
+  mediana_min: number
+  p90_min: number
+  min_por_dia: number
+  caixas_potenciais: number
+  pct_gap_explicado: number
+}
+
+interface PerdasDistribuicao {
+  macro_categoria: string
+  faixa_duracao: string
+  horas: number
+  ocorrencias: number
+}
+
+interface PerdasCausa {
+  macro_categoria: string
+  motivo: string
+  linha: string
+  maquina: string
+  equipamento: string
+  horas: number
+  ocorrencias: number
+  dias: number
+  media_min: number
+  mediana_min: number
+  p90_min: number
+  min_por_dia: number
+  caixas_potenciais: number
+  pct_gap_explicado: number
+}
+
+interface PerdasResponse {
+  ano: number
+  mes_final: number
+  periodo_label: string
+  linha: string
+  cards: PerdasCards
+  pareto_macro: PerdasParetoMacro[]
+  pareto_maquina: PerdasParetoMaquina[]
+  distribuicao_duracao: PerdasDistribuicao[]
+  tabela_causas: PerdasCausa[]
+  debug?: Record<string, unknown>
+}
+
 
 function formatNumber(value?: number) {
   return new Intl.NumberFormat("pt-BR").format(Math.round(Number(value || 0)))
@@ -391,7 +467,7 @@ function PageHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {tab === "acompanhamento" && (
+          {tab !== "dashboard" && (
             <select
               value={mes}
               onChange={(event) => onMesChange(Number(event.target.value))}
@@ -408,6 +484,12 @@ function PageHeader({
           {tab === "dashboard" && (
             <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
               Ano fechado: Jan–Dez
+            </div>
+          )}
+
+          {tab === "perdas" && (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
+              Perdas YTD: Jan até o mês selecionado
             </div>
           )}
 
@@ -463,6 +545,16 @@ function PageHeader({
           }`}
         >
           Acompanhamento do Mês
+        </button>
+        <button
+          onClick={() => onTabChange("perdas")}
+          className={`rounded-xl px-5 py-2.5 text-sm font-bold transition ${
+            tab === "perdas"
+              ? "bg-[#17375E] text-white shadow-sm"
+              : "text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          Análise de Perdas
         </button>
       </div>
     </div>
@@ -1461,6 +1553,237 @@ function AcompanhamentoTab({
 }
 
 
+
+function PerdasTab({ data }: { data: PerdasResponse }) {
+  const cards = data.cards
+
+  const topDistribuicao = useMemo(() => {
+    const macros = new Set((data.pareto_macro || []).slice(0, 6).map((item) => item.macro_categoria))
+    return (data.distribuicao_duracao || []).filter((item) => macros.has(item.macro_categoria))
+  }, [data])
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            Excelência operacional
+          </p>
+          <h2 className="text-xl font-bold text-slate-900">
+            Análise de perdas — {data.periodo_label}
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Diagnóstico YTD das paradas: frequência, duração, máquina e impacto estimado no gap.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <MetricCard
+          title="Horas paradas"
+          value={formatHoras(cards.horas_paradas)}
+          subtitle="Paradas de envase YTD"
+          icon={TimerReset}
+          accent="orange"
+        />
+        <MetricCard
+          title="Ocorrências"
+          value={formatNumber(cards.ocorrencias)}
+          subtitle="Registros de parada"
+          icon={BarChart3}
+          accent="slate"
+        />
+        <MetricCard
+          title="Dias com parada"
+          value={formatNumber(cards.dias_com_parada)}
+          subtitle="Frequência por dia"
+          icon={CalendarDays}
+          accent="blue"
+        />
+        <MetricCard
+          title="Duração média"
+          value={`${formatDecimal(cards.media_min, 1)} min`}
+          subtitle="Por ocorrência"
+          icon={Target}
+          accent="purple"
+        />
+        <MetricCard
+          title="Cx potenciais"
+          value={formatCx(cards.caixas_potenciais)}
+          subtitle="Estimativa por taxa da linha"
+          icon={Factory}
+          accent="green"
+        />
+        <MetricCard
+          title="% gap explicado"
+          value={formatPercent(cards.pct_gap_explicado)}
+          subtitle={`Gap YTD: ${formatCx(cards.gap_ytd)}`}
+          icon={AlertTriangle}
+          accent={cards.pct_gap_explicado >= 60 ? "red" : cards.pct_gap_explicado >= 30 ? "orange" : "slate"}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+              Pareto
+            </p>
+            <h3 className="text-lg font-bold text-slate-900">Horas por macro categoria</h3>
+          </div>
+          <div className="h-[360px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={data.pareto_macro || []}
+                layout="vertical"
+                margin={{ top: 8, right: 28, left: 10, bottom: 8 }}
+              >
+                <CartesianGrid horizontal={false} stroke="#EEF2F7" />
+                <XAxis type="number" hide />
+                <YAxis
+                  type="category"
+                  dataKey="macro_categoria"
+                  width={190}
+                  tick={{ fill: "#64748B", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
+                <Bar dataKey="horas" name="Horas" fill={COLORS.orange} radius={[0, 8, 8, 0]} barSize={22}>
+                  <LabelList dataKey="horas" position="right" formatter={(value: number) => formatHoras(value)} fill="#64748B" fontSize={11} fontWeight={700} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+              Máquina
+            </p>
+            <h3 className="text-lg font-bold text-slate-900">Horas por máquina / linha</h3>
+          </div>
+          <div className="h-[360px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={data.pareto_maquina || []}
+                layout="vertical"
+                margin={{ top: 8, right: 28, left: 10, bottom: 8 }}
+              >
+                <CartesianGrid horizontal={false} stroke="#EEF2F7" />
+                <XAxis type="number" hide />
+                <YAxis
+                  type="category"
+                  dataKey="maquina"
+                  width={180}
+                  tick={{ fill: "#64748B", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
+                <Bar dataKey="horas" name="Horas" fill={COLORS.darkBlue} radius={[0, 8, 8, 0]} barSize={22}>
+                  <LabelList dataKey="horas" position="right" formatter={(value: number) => formatHoras(value)} fill="#64748B" fontSize={11} fontWeight={700} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            Duração
+          </p>
+          <h3 className="text-lg font-bold text-slate-900">Distribuição por duração</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Ajuda a separar microparada real de possível erro de classificação.
+          </p>
+        </div>
+
+        <div className="overflow-auto">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3 text-left">Macro categoria</th>
+                <th className="px-4 py-3 text-left">Faixa</th>
+                <th className="px-4 py-3 text-right">Ocorrências</th>
+                <th className="px-4 py-3 text-right">Horas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topDistribuicao.map((row, idx) => (
+                <tr key={`${row.macro_categoria}-${row.faixa_duracao}-${idx}`} className="border-t border-slate-100">
+                  <td className="px-4 py-3 font-bold text-slate-800">{row.macro_categoria}</td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
+                      {row.faixa_duracao}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatNumber(row.ocorrencias)}</td>
+                  <td className="px-4 py-3 text-right font-black text-slate-900">{formatHoras(row.horas)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            Drill down
+          </p>
+          <h3 className="text-lg font-bold text-slate-900">Tabela analítica de causas</h3>
+        </div>
+
+        <div className="overflow-auto">
+          <table className="w-full min-w-[1320px] text-xs">
+            <thead className="bg-slate-50 uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-3 py-3 text-left">Macro</th>
+                <th className="px-3 py-3 text-left">Motivo</th>
+                <th className="px-3 py-3 text-left">Linha</th>
+                <th className="px-3 py-3 text-left">Máquina</th>
+                <th className="px-3 py-3 text-right">Horas</th>
+                <th className="px-3 py-3 text-right">Ocorr.</th>
+                <th className="px-3 py-3 text-right">Dias</th>
+                <th className="px-3 py-3 text-right">Média</th>
+                <th className="px-3 py-3 text-right">Mediana</th>
+                <th className="px-3 py-3 text-right">P90</th>
+                <th className="px-3 py-3 text-right">Min/dia</th>
+                <th className="px-3 py-3 text-right">Cx potencial</th>
+                <th className="px-3 py-3 text-right">% gap</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.tabela_causas || []).map((row, idx) => (
+                <tr key={`${row.macro_categoria}-${row.motivo}-${row.maquina}-${idx}`} className="border-t border-slate-100 hover:bg-slate-50/80">
+                  <td className="px-3 py-3 align-top font-bold text-slate-800">{row.macro_categoria}</td>
+                  <td className="px-3 py-3 align-top text-slate-600">{row.motivo || "—"}</td>
+                  <td className="px-3 py-3 align-top font-bold text-slate-700">{row.linha}</td>
+                  <td className="px-3 py-3 align-top text-slate-600">{row.maquina}</td>
+                  <td className="px-3 py-3 text-right align-top font-black text-slate-900">{formatHoras(row.horas)}</td>
+                  <td className="px-3 py-3 text-right align-top">{formatNumber(row.ocorrencias)}</td>
+                  <td className="px-3 py-3 text-right align-top">{formatNumber(row.dias)}</td>
+                  <td className="px-3 py-3 text-right align-top">{formatDecimal(row.media_min, 1)} min</td>
+                  <td className="px-3 py-3 text-right align-top">{formatDecimal(row.mediana_min, 1)} min</td>
+                  <td className="px-3 py-3 text-right align-top">{formatDecimal(row.p90_min, 1)} min</td>
+                  <td className="px-3 py-3 text-right align-top">{formatDecimal(row.min_por_dia, 1)} min</td>
+                  <td className="px-3 py-3 text-right align-top font-bold text-slate-800">{formatCx(row.caixas_potenciais)}</td>
+                  <td className="px-3 py-3 text-right align-top font-bold text-slate-800">{formatPercent(row.pct_gap_explicado)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export function ProducaoPage() {
   const today = new Date()
   const [tab, setTab] = useState<TabKey>("dashboard")
@@ -1471,6 +1794,7 @@ export function ProducaoPage() {
 
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
   const [acompanhamento, setAcompanhamento] = useState<AcompanhamentoResponse | null>(null)
+  const [perdas, setPerdas] = useState<PerdasResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState("")
 
@@ -1489,6 +1813,15 @@ export function ProducaoPage() {
     setAcompanhamento(json)
   }
 
+  async function loadPerdas() {
+    const json = await apiGet<PerdasResponse>("/producao/perdas", {
+      ano,
+      mes_final: mes,
+      linha,
+    })
+    setPerdas(json)
+  }
+
   async function loadData() {
     try {
       setLoading(true)
@@ -1496,8 +1829,10 @@ export function ProducaoPage() {
 
       if (tab === "dashboard") {
         await loadDashboard()
-      } else {
+      } else if (tab === "acompanhamento") {
         await loadAcompanhamento()
+      } else {
+        await loadPerdas()
       }
     } catch (err) {
       console.error(err)
@@ -1536,13 +1871,13 @@ export function ProducaoPage() {
         loading={loading}
       />
 
-      {loading && !dashboard && !acompanhamento && (
+      {loading && !dashboard && !acompanhamento && !perdas && (
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold text-blue-700 shadow-sm">
           Carregando dados de produção...
         </div>
       )}
 
-      {loading && (dashboard || acompanhamento) && (
+      {loading && (dashboard || acompanhamento || perdas) && (
         <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-500 shadow-sm">
           <RefreshCw className="h-3.5 w-3.5 animate-spin" />
           Atualizando produção em segundo plano...
@@ -1565,6 +1900,8 @@ export function ProducaoPage() {
         <AcompanhamentoTab data={acompanhamento} busca={busca} onBuscaChange={setBusca} />
       )}
 
+      {tab === "perdas" && perdas && <PerdasTab data={perdas} />}
+
       {!loading && !erro && tab === "dashboard" && !dashboard && (
         <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 shadow-sm">
           Nenhum dado de dashboard encontrado.
@@ -1574,6 +1911,12 @@ export function ProducaoPage() {
       {!loading && !erro && tab === "acompanhamento" && !acompanhamento && (
         <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 shadow-sm">
           Nenhum apontamento encontrado.
+        </div>
+      )}
+
+      {!loading && !erro && tab === "perdas" && !perdas && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 shadow-sm">
+          Nenhuma perda encontrada.
         </div>
       )}
     </div>
