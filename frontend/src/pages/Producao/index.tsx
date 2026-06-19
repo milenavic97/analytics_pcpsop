@@ -106,6 +106,10 @@ interface LinhaProducao {
   horas_paradas: number
   lotes: number
   principal_ofensor?: PrincipalOfensor | null
+  planejado_ytd_cx?: number
+  realizado_ytd_cx?: number
+  gap_ytd_cx?: number
+  aderencia_ytd_pct?: number
 }
 
 interface GrupoProducao {
@@ -220,6 +224,16 @@ function formatDateBR(value?: string | null) {
   return `${parts[2]}/${parts[1]}`
 }
 
+function getYtdMonth(ano: number) {
+  const hoje = new Date()
+  const anoAtual = hoje.getFullYear()
+
+  if (Number(ano) < anoAtual) return 12
+  if (Number(ano) > anoAtual) return 1
+
+  return Math.min(12, Math.max(1, hoje.getMonth() + 1))
+}
+
 function formatDateTimeBR(value?: string | null) {
   if (!value) return "—"
   const dt = new Date(value)
@@ -300,7 +314,7 @@ function ChartTooltip({ active, payload, label }: any) {
         const isPct = dataKey.includes("pct") || isAderenciaVisual
         const isHora = dataKey.includes("horas")
         const tooltipValue = isAderenciaVisual
-          ? Number(item.payload?.aderencia_pct || 0)
+          ? Number(item.payload?.aderencia_ytd_pct ?? item.payload?.aderencia_pct ?? 0)
           : Number(item.value || 0)
         const value = isPct
           ? formatPercent(tooltipValue)
@@ -497,7 +511,7 @@ function MetricCard({
 
 function PercentPointLabel(props: any) {
   const { x, y, value, payload } = props
-  const raw = Number(payload?.aderencia_pct ?? value ?? 0)
+  const raw = Number(payload?.aderencia_ytd_pct ?? payload?.aderencia_pct ?? value ?? 0)
 
   if (!x || !y || !raw) return null
 
@@ -610,7 +624,7 @@ function ToggleLegend({
     },
     {
       key: "aderencia",
-      label: "% atingido",
+      label: "% atingido YTD",
       color: COLORS.slate,
       type: "line",
       enabled: true,
@@ -651,10 +665,12 @@ function MonthlyLineChartCard({
   title,
   subtitle,
   meses,
+  ano,
 }: {
   title: string
   subtitle: string
   meses: MesProducao[]
+  ano: number
 }) {
   const [series, setSeries] = useState<MonthlySeriesState>({
     planejado: true,
@@ -664,25 +680,38 @@ function MonthlyLineChartCard({
   })
 
   const chartData = useMemo(() => {
+    const ytdMonth = getYtdMonth(ano)
+    let planejadoAcum = 0
+    let realizadoAcum = 0
+
     return (meses || []).map((item) => {
       const orcadoCx = getOrcadoCx(item)
       const planejadoCx = Number(item.planejado_cx || 0)
       const realizadoCx = Number(item.realizado_cx || 0)
-      const aderenciaPct = Number(item.aderencia_pct || 0)
+
+      let aderenciaYtdPct: number | null = null
+
+      if (Number(item.mes || 0) <= ytdMonth) {
+        planejadoAcum += planejadoCx
+        realizadoAcum += realizadoCx
+        aderenciaYtdPct = planejadoAcum > 0 ? (realizadoAcum / planejadoAcum) * 100 : null
+      }
 
       return {
         ...item,
         planejado_plot_cx: planejadoCx > 0 ? planejadoCx : null,
         realizado_plot_cx: realizadoCx > 0 ? realizadoCx : null,
         orcado_plot_cx: orcadoCx > 0 ? orcadoCx : null,
-        // Mantém o rótulo real em aderencia_pct, mas plota a linha em uma faixa mais alta.
-        // Isso replica o visual do modal: a linha de % fica no topo do gráfico e não disputa
-        // leitura com as barras de planejado/realizado.
-        aderencia_visual: aderenciaPct > 0 ? 126 + (Math.min(110, Math.max(0, aderenciaPct)) / 110) * 3 : null,
-        aderencia_plot_pct: aderenciaPct > 0 ? aderenciaPct : null,
+        aderencia_ytd_pct: aderenciaYtdPct,
+        // Mantém o rótulo real em aderencia_ytd_pct, mas plota a linha comprimida no topo.
+        aderencia_visual:
+          aderenciaYtdPct !== null
+            ? 126 + (Math.min(110, Math.max(0, aderenciaYtdPct)) / 110) * 3
+            : null,
+        aderencia_plot_pct: aderenciaYtdPct,
       }
     })
-  }, [meses])
+  }, [ano, meses])
 
   const aderenciaAxisMax = 130
   const aderenciaTicks = [0, 50, 80, 100, 130]
@@ -713,8 +742,8 @@ function MonthlyLineChartCard({
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={chartData}
-            barCategoryGap="34%"
-            barGap={-40}
+            barCategoryGap="30%"
+            barGap={8}
             margin={{ top: 58, right: 14, left: 0, bottom: 0 }}
           >
             <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
@@ -751,7 +780,7 @@ function MonthlyLineChartCard({
                 name="Planejado"
                 fill={COLORS.softBlue}
                 radius={[7, 7, 0, 0]}
-                barSize={52}
+                barSize={28}
                 isAnimationActive={false}
               >
                 <LabelList dataKey="planejado_cx" content={<TopLabel fill="#64748B" dx={-7} />} />
@@ -794,7 +823,7 @@ function MonthlyLineChartCard({
                 yAxisId="right"
                 type="monotone"
                 dataKey="aderencia_visual"
-                name="% atingido"
+                name="% atingido YTD"
                 stroke="#9AAAC0"
                 strokeWidth={1.5}
                 dot={{ r: 2, fill: "#9AAAC0", stroke: "#9AAAC0" }}
@@ -816,27 +845,40 @@ function MonthlyLineChartCard({
 function resumoLinhaPorMeses(
   linhaMensal: LinhaMensalProducao,
   linhasBackend: LinhaProducao[] = [],
+  ano: number,
 ): LinhaProducao {
   const backend = linhasBackend.find((item) => item.linha === linhaMensal.linha)
+  const ytdMonth = getYtdMonth(ano)
 
   const planejado = (linhaMensal.meses || []).reduce(
     (acc, mes) => acc + Number(mes.planejado_cx || 0),
     0,
   )
-  const realizado = (linhaMensal.meses || []).reduce(
-    (acc, mes) => acc + Number(mes.realizado_cx || 0),
+
+  const planejadoYtd = (linhaMensal.meses || []).reduce(
+    (acc, mes) => Number(mes.mes || 0) <= ytdMonth ? acc + Number(mes.planejado_cx || 0) : acc,
     0,
   )
-  const gap = realizado - planejado
-  const aderencia = planejado > 0 ? (realizado / planejado) * 100 : 0
+
+  const realizadoYtd = (linhaMensal.meses || []).reduce(
+    (acc, mes) => Number(mes.mes || 0) <= ytdMonth ? acc + Number(mes.realizado_cx || 0) : acc,
+    0,
+  )
+
+  const gapYtd = realizadoYtd - planejadoYtd
+  const aderenciaYtd = planejadoYtd > 0 ? (realizadoYtd / planejadoYtd) * 100 : 0
 
   return {
     linha: linhaMensal.linha,
     nome: linhaMensal.nome,
     planejado_cx: planejado,
-    realizado_cx: realizado,
-    gap_cx: gap,
-    aderencia_pct: aderencia,
+    realizado_cx: realizadoYtd,
+    gap_cx: gapYtd,
+    aderencia_pct: aderenciaYtd,
+    planejado_ytd_cx: planejadoYtd,
+    realizado_ytd_cx: realizadoYtd,
+    gap_ytd_cx: gapYtd,
+    aderencia_ytd_pct: aderenciaYtd,
     horas_paradas: Number(backend?.horas_paradas || 0),
     lotes: Number(backend?.lotes || 0),
     principal_ofensor: backend?.principal_ofensor || null,
@@ -853,15 +895,15 @@ function LinhaResumoCards({
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
       <MetricCard
-        title="Planejado"
+        title="Planejado ano"
         value={formatCx(resumo.planejado_cx)}
         detail={formatTubetesFromCx(resumo.planejado_cx)}
-        subtitle={`Linha ${resumo.linha} · ${periodoLabel}`}
+        subtitle={`Programação + MPS · ${periodoLabel}`}
         icon={Layers}
         accent="purple"
       />
       <MetricCard
-        title="Realizado envase"
+        title="Realizado YTD"
         value={formatCx(resumo.realizado_cx)}
         detail={formatTubetesFromCx(resumo.realizado_cx)}
         subtitle={`${formatNumber(resumo.lotes)} lotes envasados`}
@@ -869,14 +911,14 @@ function LinhaResumoCards({
         accent="green"
       />
       <MetricCard
-        title="% atingido"
+        title="% atingido YTD"
         value={formatPercent(resumo.aderencia_pct)}
-        subtitle="Realizado / planejado da linha"
+        subtitle="Realizado / planejado YTD"
         icon={Target}
         accent={resumo.aderencia_pct >= 95 ? "green" : resumo.aderencia_pct >= 80 ? "orange" : "red"}
       />
       <MetricCard
-        title="Gap"
+        title="Gap YTD"
         value={formatCx(resumo.gap_cx)}
         detail={formatTubetesFromCx(resumo.gap_cx)}
         subtitle={resumo.gap_cx >= 0 ? "Acima do planejado" : "Abaixo do planejado"}
@@ -884,7 +926,7 @@ function LinhaResumoCards({
         accent={resumo.gap_cx >= 0 ? "green" : "red"}
       />
       <MetricCard
-        title="Horas paradas"
+        title="Horas paradas YTD"
         value={formatHoras(resumo.horas_paradas)}
         subtitle="Somente esta linha"
         icon={TimerReset}
@@ -909,7 +951,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
   return (
     <div className="space-y-6">
       {linhasMensais.map((linha) => {
-        const resumoLinha = resumoLinhaPorMeses(linha, data.por_linha)
+        const resumoLinha = resumoLinhaPorMeses(linha, data.por_linha, data.ano)
 
         return (
           <section key={linha.linha} className="space-y-4">
@@ -928,8 +970,9 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
 
             <MonthlyLineChartCard
               title={`${linha.nome} — planejado x realizado`}
-              subtitle={`Ano fechado ${data.periodo_label}. Planejado pela Programação Mensal + MPS; realizado pelos apontamentos de envase.`}
+              subtitle={`Ano fechado ${data.periodo_label}. Planejado pela Programação Mensal + MPS; realizado pelos apontamentos de envase; % acumulado YTD.`}
               meses={linha.meses}
+              ano={data.ano}
             />
           </section>
         )
