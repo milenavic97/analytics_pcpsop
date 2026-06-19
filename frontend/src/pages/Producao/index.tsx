@@ -355,7 +355,7 @@ function PageHeader({
           </p>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard de Produção</h1>
           <p className="mt-2 text-slate-500">
-            Visão anual de envase: planejado V1 do MPS x realizado Cogtive, por linha e por mês.
+            Visão anual de envase: planejado da programação de OPs x realizado Cogtive, por linha e por mês.
           </p>
         </div>
 
@@ -545,7 +545,7 @@ function MonthlyLineChartCard({
             <Bar
               yAxisId="left"
               dataKey="planejado_cx"
-              name="Planejado V1"
+              name="Planejado"
               fill={COLORS.softBlue}
               radius={[7, 7, 0, 0]}
               barSize={42}
@@ -642,8 +642,8 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
           {linhasMensais.map((linha) => (
             <MonthlyLineChartCard
               key={linha.linha}
-              title={`${linha.nome} — planejado V1 x realizado`}
-              subtitle={`Ano fechado ${data.periodo_label}. Planejado pela V1 de cada mês usando MES DE PRODUCAO; realizado pelos apontamentos de envase.`}
+              title={`${linha.nome} — planejado x realizado`}
+              subtitle={`Ano fechado ${data.periodo_label}. Planejado pela programação da página Ordens de Produção; realizado pelos apontamentos de envase.`}
               meses={linha.meses}
             />
           ))}
