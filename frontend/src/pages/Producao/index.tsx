@@ -1692,6 +1692,7 @@ function AcompanhamentoTab({
 
 
 
+
 function macroColor(macro?: string) {
   const value = String(macro || "")
 
@@ -1705,6 +1706,21 @@ function macroColor(macro?: string) {
   if (value.includes("Não classificado")) return "#94A3B8"
 
   return "#17375E"
+}
+
+function macroLabelCurto(macro?: string) {
+  const value = String(macro || "")
+
+  if (value.includes("Micro")) return "Microparadas"
+  if (value.includes("Setup")) return "Setup"
+  if (value.includes("Manutenção")) return "Manutenção"
+  if (value.includes("Qualidade")) return "Qualidade"
+  if (value.includes("Falta")) return "Falta/espera"
+  if (value.includes("Limpeza")) return "Limpeza"
+  if (value.includes("Programadas")) return "Programadas"
+  if (value.includes("Não classificado")) return "Não classif."
+
+  return value.split(" / ")[0] || "Causa"
 }
 
 function percentWidth(value: number, max: number, min = 4) {
@@ -1721,6 +1737,18 @@ function causasResumo(item: PerdasParetoMacro) {
     mediaLabel: `${formatDecimal(item.media_min, 1)} min/ocorr.`,
     p90Label: `P90 ${formatDecimal(item.p90_min, 1)} min`,
   }
+}
+
+function leituraQuadrante(item: PerdasParetoMacro, maxOcorrDia: number, maxMediaMin: number) {
+  const ocorrDia = item.dias > 0 ? item.ocorrencias / item.dias : 0
+  const altaFreq = ocorrDia >= maxOcorrDia * 0.45
+  const altaDuracao = Number(item.media_min || 0) >= maxMediaMin * 0.45
+
+  if (altaFreq && altaDuracao) return "crítico estrutural"
+  if (altaFreq) return "crônico / repetitivo"
+  if (altaDuracao) return "pontual grave"
+
+  return "monitorar"
 }
 
 function PerdasTab({ data }: { data: PerdasResponse }) {
@@ -1796,6 +1824,10 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
   const topCausa = topMacros[0]
   const topMaquina = maquinas[0]
 
+  const microparada = topMacros.find((item) => item.macro_categoria.includes("Micro"))
+  const manutencao = topMacros.find((item) => item.macro_categoria.includes("Manutenção"))
+  const setup = topMacros.find((item) => item.macro_categoria.includes("Setup"))
+
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1806,7 +1838,7 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
           Análise de paradas — {data.periodo_label}
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          Leitura visual das causas: quanto tempo consomem, quantas vezes acontecem e qual a duração típica.
+          Leitura visual das causas: frequência, duração, máquina afetada e perfil da parada.
         </p>
       </div>
 
@@ -1855,126 +1887,210 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
         />
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-            Causas de parada
-          </p>
-          <h3 className="text-lg font-bold text-slate-900">
-            Tempo, frequência e duração por macro causa
-          </h3>
-          <p className="mt-1 text-sm text-slate-500">
-            A barra mostra horas totais. Os chips mostram frequência e duração típica da causa.
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          {topMacros.map((macro) => {
-            const resumo = causasResumo(macro)
-            const color = macroColor(macro.macro_categoria)
-            const width = percentWidth(Number(macro.horas || 0), maxHorasMacro)
-
-            return (
-              <div key={macro.macro_categoria} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
-                      <p className="truncate text-sm font-black text-slate-900">{macro.macro_categoria}</p>
-                    </div>
-                    <p className="mt-1 text-xs font-semibold text-slate-500">
-                      {formatNumber(macro.ocorrencias)} ocorrências · {formatNumber(macro.dias)} dias com ocorrência
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
-                      {formatHoras(macro.horas)}
-                    </span>
-                    <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
-                      {resumo.ocorrPorDiaLabel}
-                    </span>
-                    <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
-                      {resumo.mediaLabel}
-                    </span>
-                    <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
-                      {resumo.p90Label}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="h-3 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${width}%`, backgroundColor: color }}
-                  />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1.75fr_0.85fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-5">
-            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-              Matriz
-            </p>
-            <h3 className="text-lg font-bold text-slate-900">Frequência x duração</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              Direita = acontece mais vezes por dia. Alto = dura mais quando acontece.
-            </p>
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                Matriz principal
+              </p>
+              <h3 className="text-xl font-black text-slate-900">Frequência x duração</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Direita = acontece mais vezes por dia. Alto = dura mais quando acontece. Tamanho da bolha = horas totais.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-blue-50 px-3 py-1 font-black text-blue-700">
+                frequência
+              </span>
+              <span className="rounded-full bg-purple-50 px-3 py-1 font-black text-purple-700">
+                duração
+              </span>
+              <span className="rounded-full bg-orange-50 px-3 py-1 font-black text-orange-700">
+                impacto
+              </span>
+            </div>
           </div>
 
-          <div className="relative h-[390px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-            <div className="absolute inset-x-8 top-1/2 border-t border-dashed border-slate-300" />
-            <div className="absolute inset-y-8 left-1/2 border-l border-dashed border-slate-300" />
-            <div className="absolute left-4 top-4 rounded-lg bg-white/90 px-2 py-1 text-[11px] font-bold text-slate-500 shadow-sm">
-              eventos longos
+          <div className="relative h-[560px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+            <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
+              <div className="border-b border-r border-dashed border-slate-300 bg-purple-50/30" />
+              <div className="border-b border-dashed border-slate-300 bg-red-50/30" />
+              <div className="border-r border-dashed border-slate-300 bg-slate-50" />
+              <div className="bg-blue-50/40" />
             </div>
-            <div className="absolute bottom-4 right-4 rounded-lg bg-white/90 px-2 py-1 text-[11px] font-bold text-slate-500 shadow-sm">
+
+            <div className="absolute left-5 top-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-purple-700 shadow-sm ring-1 ring-slate-200">
+              pontual grave
+            </div>
+            <div className="absolute right-5 top-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-red-700 shadow-sm ring-1 ring-slate-200">
+              crítico estrutural
+            </div>
+            <div className="absolute bottom-5 left-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-slate-500 shadow-sm ring-1 ring-slate-200">
+              monitorar
+            </div>
+            <div className="absolute bottom-5 right-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-blue-700 shadow-sm ring-1 ring-slate-200">
               crônico / repetitivo
             </div>
 
             {topMacros.map((macro) => {
-              const ocorrDia = macro.dias > 0 ? macro.ocorrencias / macro.dias : 0
-              const x = 8 + (ocorrDia / maxOcorrDia) * 78
+              const resumo = causasResumo(macro)
+              const ocorrDia = resumo.ocorrPorDia
+              const x = 9 + (ocorrDia / maxOcorrDia) * 78
               const y = 84 - (Number(macro.media_min || 0) / maxMediaMin) * 72
-              const size = 28 + (Number(macro.horas || 0) / maxHorasMacro) * 48
+              const size = 42 + (Number(macro.horas || 0) / maxHorasMacro) * 74
               const color = macroColor(macro.macro_categoria)
+              const leitura = leituraQuadrante(macro, maxOcorrDia, maxMediaMin)
 
               return (
                 <div
                   key={`bubble-${macro.macro_categoria}`}
                   className="absolute -translate-x-1/2 -translate-y-1/2"
                   style={{ left: `${x}%`, top: `${y}%` }}
-                  title={`${macro.macro_categoria}: ${formatHoras(macro.horas)}`}
+                  title={`${macro.macro_categoria}: ${formatHoras(macro.horas)} · ${resumo.ocorrPorDiaLabel} · ${resumo.mediaLabel}`}
                 >
                   <div
-                    className="flex items-center justify-center rounded-full border-4 border-white font-black text-white shadow-lg"
+                    className="flex items-center justify-center rounded-full border-[5px] border-white font-black text-white shadow-xl"
                     style={{
                       width: size,
                       height: size,
                       backgroundColor: color,
-                      opacity: 0.92,
+                      opacity: 0.94,
                     }}
                   >
-                    <span className="text-[10px]">{formatDecimal(ocorrDia, 1)}x</span>
+                    <span className="text-[12px]">{formatDecimal(ocorrDia, 1)}x</span>
                   </div>
-                  <p className="mt-1 w-28 -translate-x-1/3 text-center text-[11px] font-black text-slate-700">
-                    {macro.macro_categoria.split(" / ")[0]}
-                  </p>
+                  <div className="mt-2 w-32 -translate-x-1/4 rounded-xl bg-white/95 px-2 py-1 text-center shadow-sm ring-1 ring-slate-200">
+                    <p className="text-[11px] font-black text-slate-900">{macroLabelCurto(macro.macro_categoria)}</p>
+                    <p className="text-[10px] font-bold text-slate-500">{leitura}</p>
+                  </div>
                 </div>
               )
             })}
 
-            <p className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[11px] font-black uppercase tracking-widest text-slate-400">
               ocorrências por dia
             </p>
-            <p className="absolute left-3 top-1/2 -translate-y-1/2 -rotate-90 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              duração média
+            <p className="absolute left-4 top-1/2 -translate-y-1/2 -rotate-90 text-[11px] font-black uppercase tracking-widest text-slate-400">
+              duração média por ocorrência
             </p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            Leitura rápida
+          </p>
+          <h3 className="text-lg font-black text-slate-900">O que a matriz está dizendo?</h3>
+
+          <div className="mt-5 space-y-3">
+            {microparada && (
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                <p className="text-sm font-black text-blue-900">Microparadas</p>
+                <p className="mt-1 text-xs font-semibold leading-relaxed text-blue-800">
+                  Alta frequência: {causasResumo(microparada).ocorrPorDiaLabel}. Média de {formatDecimal(microparada.media_min, 1)} min por ocorrência.
+                </p>
+                <p className="mt-2 text-[11px] font-black uppercase tracking-wide text-blue-700">
+                  indica instabilidade recorrente
+                </p>
+              </div>
+            )}
+
+            {manutencao && (
+              <div className="rounded-2xl border border-purple-100 bg-purple-50/60 p-4">
+                <p className="text-sm font-black text-purple-900">Manutenção / falha</p>
+                <p className="mt-1 text-xs font-semibold leading-relaxed text-purple-800">
+                  Maior tempo acumulado: {formatHoras(manutencao.horas)}. Duração média de {formatDecimal(manutencao.media_min, 1)} min.
+                </p>
+                <p className="mt-2 text-[11px] font-black uppercase tracking-wide text-purple-700">
+                  investigar eventos longos
+                </p>
+              </div>
+            )}
+
+            {setup && (
+              <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
+                <p className="text-sm font-black text-orange-900">Setup e troca</p>
+                <p className="mt-1 text-xs font-semibold leading-relaxed text-orange-800">
+                  {formatHoras(setup.horas)} no período, com P90 de {formatDecimal(setup.p90_min, 1)} min.
+                </p>
+                <p className="mt-2 text-[11px] font-black uppercase tracking-wide text-orange-700">
+                  oportunidade de padronização
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Como ler</p>
+            <div className="mt-3 space-y-2 text-xs font-semibold text-slate-600">
+              <p><strong className="text-slate-900">Direita:</strong> muita repetição no dia.</p>
+              <p><strong className="text-slate-900">Alto:</strong> evento demora quando acontece.</p>
+              <p><strong className="text-slate-900">Bolha grande:</strong> muito tempo perdido no acumulado.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-5">
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+              Causas de parada
+            </p>
+            <h3 className="text-lg font-bold text-slate-900">
+              Tempo, frequência e duração por macro causa
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              A barra mostra horas totais. Os chips mostram frequência e duração típica da causa.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {topMacros.map((macro) => {
+              const resumo = causasResumo(macro)
+              const color = macroColor(macro.macro_categoria)
+              const width = percentWidth(Number(macro.horas || 0), maxHorasMacro)
+
+              return (
+                <div key={macro.macro_categoria} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
+                        <p className="truncate text-sm font-black text-slate-900">{macro.macro_categoria}</p>
+                      </div>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        {formatNumber(macro.ocorrencias)} ocorrências · {formatNumber(macro.dias)} dias com ocorrência
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
+                        {formatHoras(macro.horas)}
+                      </span>
+                      <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
+                        {resumo.ocorrPorDiaLabel}
+                      </span>
+                      <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
+                        {resumo.mediaLabel}
+                      </span>
+                      <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
+                        {resumo.p90Label}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="h-3 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${width}%`, backgroundColor: color }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
 
