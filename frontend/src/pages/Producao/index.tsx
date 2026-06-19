@@ -497,7 +497,7 @@ function PercentPointLabel(props: any) {
   return (
     <text
       x={x}
-      y={y - 18}
+      y={y - 26}
       textAnchor="middle"
       fontSize={10}
       fontWeight={800}
@@ -669,7 +669,7 @@ function MonthlyLineChartCard({
         // Mantém o rótulo real em aderencia_pct, mas plota a linha em uma faixa mais alta.
         // Isso replica o visual do modal: a linha de % fica no topo do gráfico e não disputa
         // leitura com as barras de planejado/realizado.
-        aderencia_visual: aderenciaPct > 0 ? Math.min(126, Math.max(36, aderenciaPct + 25)) : null,
+        aderencia_visual: aderenciaPct > 0 ? 108 + (Math.min(110, Math.max(0, aderenciaPct)) / 110) * 18 : null,
         aderencia_plot_pct: aderenciaPct > 0 ? aderenciaPct : null,
       }
     })
@@ -706,7 +706,7 @@ function MonthlyLineChartCard({
             data={chartData}
             barCategoryGap="34%"
             barGap={-36}
-            margin={{ top: 50, right: 20, left: 0, bottom: 0 }}
+            margin={{ top: 62, right: 14, left: 0, bottom: 0 }}
           >
             <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
             <XAxis
@@ -717,22 +717,20 @@ function MonthlyLineChartCard({
             />
             <YAxis
               yAxisId="left"
-              tick={{ fill: "#64748B", fontSize: 11 }}
+              hide
               axisLine={false}
               tickLine={false}
-              tickFormatter={(value) => formatNumber(Number(value))}
-              width={58}
+              width={0}
             />
             <YAxis
               yAxisId="right"
               orientation="right"
               domain={[0, aderenciaAxisMax]}
               ticks={aderenciaTicks}
-              tick={{ fill: "#64748B", fontSize: 11 }}
+              hide
               axisLine={false}
               tickLine={false}
-              tickFormatter={(value) => `${value}%`}
-              width={42}
+              width={0}
             />
             <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
 
