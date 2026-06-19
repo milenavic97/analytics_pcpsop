@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useParams, NavLink } from "react-router-dom"
 import {
-  Upload, Download, CheckCircle, XCircle, Clock, AlertCircle,
+  Upload, Download, CheckCircle, XCircle, Clock, AlertCircle, RefreshCw,
   Package, CalendarCheck, TrendingUp, ShoppingCart,
   PackageCheck, Warehouse, Factory, BarChart3, ClipboardList, DollarSign,
 } from "lucide-react"
@@ -22,6 +22,10 @@ type ResultadoUpload = {
   erros: string[]
   logProdutosCsv?: string | null
   logProdutosNome?: string | null
+  modoCarga?: string | null
+  periodosSubstituidos?: { ano: number; mes: number; mes_ref?: string }[]
+  primeiraDataArquivo?: string | null
+  ultimaDataArquivo?: string | null
 }
 
 const MARCADOR_LOG_FORECAST = "LOG_PRODUTOS_NAO_ENCONTRADOS_FORECAST:"
@@ -155,31 +159,88 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
   const [modalAberto, setModalAberto]     = useState(false)
   const [linhaEditando, setLinhaEditando] = useState<Record<string, unknown> | undefined>()
   const inputRef = useRef<HTMLInputElement>(null)
+  const requestSeqRef = useRef(0)
   const Icon = ICON_MAP[base.icone] || Package
 
-  useEffect(() => {
-    setResultado(null)
-    setPage(1)
+  const carregarStatus = async () => {
+    try {
+      const s = await getUploadStatus(base.id)
+      setStatus(s as StatusLocal)
+    } catch (_) {
+    }
+  }
 
-    getUploadStatus(base.id)
-      .then((s: unknown) => setStatus(s as StatusLocal))
-      .catch(() => {})
+  const carregarDados = async (p: number, limparAntes = false) => {
+    const requestSeq = ++requestSeqRef.current
 
-    carregarDados(1)
-  }, [base.id])
+    if (limparAntes) {
+      setDados([])
+      setTotal(0)
+    }
 
-  const carregarDados = async (p: number) => {
     setLoading(true)
 
     try {
       const res = await getDados(base.id, p) as { data: Record<string, unknown>[]; total: number }
+
+      // Evita que uma resposta antiga sobrescreva a tela depois de upload/delete/refetch.
+      if (requestSeq !== requestSeqRef.current) return
+
       setDados(res.data ?? [])
       setTotal(res.total ?? 0)
     } catch (_) {
+      if (requestSeq === requestSeqRef.current) {
+        setDados([])
+        setTotal(0)
+      }
     } finally {
-      setLoading(false)
+      if (requestSeq === requestSeqRef.current) {
+        setLoading(false)
+      }
     }
   }
+
+  const recarregarTela = async (p = page, limparAntes = false) => {
+    await Promise.all([
+      carregarStatus(),
+      carregarDados(p, limparAntes),
+    ])
+  }
+
+  useEffect(() => {
+    requestSeqRef.current += 1
+    setResultado(null)
+    setPage(1)
+    setDados([])
+    setTotal(0)
+
+    recarregarTela(1, true)
+  }, [base.id])
+
+  useEffect(() => {
+    const recarregarSeVisivel = () => {
+      if (document.visibilityState === "visible") {
+        recarregarTela(page, false)
+      }
+    }
+
+    window.addEventListener("focus", recarregarSeVisivel)
+    document.addEventListener("visibilitychange", recarregarSeVisivel)
+
+    // Mantém a tela sincronizada entre usuários/sessões.
+    // Não é cache longo: se alguém troca a base, todos veem a atualização no próximo ciclo.
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !uploading) {
+        recarregarTela(page, false)
+      }
+    }, 30000)
+
+    return () => {
+      window.removeEventListener("focus", recarregarSeVisivel)
+      document.removeEventListener("visibilitychange", recarregarSeVisivel)
+      window.clearInterval(intervalId)
+    }
+  }, [base.id, page, uploading])
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -190,26 +251,40 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
 
     try {
       const res = await uploadBase(base.id, file)
+      const payload = res as {
+        erros?: string[]
+        total_inserido?: number
+        modo_carga?: string | null
+        periodos_substituidos?: { ano: number; mes: number; mes_ref?: string }[]
+        primeira_data_arquivo?: string | null
+        ultima_data_arquivo?: string | null
+      }
 
-      const errosOriginais = res.erros ?? []
+      const errosOriginais = payload.erros ?? []
       const logProdutosCsv = extrairLogProdutosForecast(errosOriginais)
       const errosTela = limparErrosParaTela(errosOriginais)
+      const totalInserido = payload.total_inserido ?? 0
 
       setResultado({
-        total: res.total_inserido,
+        total: totalInserido,
         erros: errosTela,
         logProdutosCsv,
         logProdutosNome: logProdutosCsv ? `produtos_nao_encontrados_forecast_${new Date().toISOString().slice(0, 10)}.csv` : null,
+        modoCarga: payload.modo_carga ?? null,
+        periodosSubstituidos: payload.periodos_substituidos ?? [],
+        primeiraDataArquivo: payload.primeira_data_arquivo ?? null,
+        ultimaDataArquivo: payload.ultima_data_arquivo ?? null,
       })
 
       setStatus({
         status: errosOriginais.length ? "erro" : "sucesso",
         nome_arquivo: file.name,
-        total_registros: res.total_inserido,
+        total_registros: totalInserido,
       })
 
       if (!errosOriginais.length) {
-        carregarDados(1)
+        setPage(1)
+        await recarregarTela(1, true)
       }
     } catch (err: unknown) {
       let erros = [err instanceof Error ? err.message : "Erro desconhecido"]
@@ -240,7 +315,7 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
 
     try {
       await excluirRegistros(base.id, ids)
-      carregarDados(page)
+      await recarregarTela(page, true)
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Erro ao excluir")
     }
@@ -255,7 +330,7 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
         await inserirRegistro(base.id, formData)
       }
 
-      carregarDados(page)
+      await recarregarTela(page, true)
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Erro ao salvar")
     }
@@ -317,6 +392,23 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              disabled={loading || uploading}
+              onClick={() => recarregarTela(page, true)}
+              className="flex items-center gap-1.5 text-xs rounded-lg px-3 py-1.5 font-medium"
+              style={{
+                border: "1px solid var(--border)",
+                color: "var(--text-secondary)",
+                background: "transparent",
+                cursor: loading || uploading ? "not-allowed" : "pointer",
+                opacity: loading || uploading ? 0.6 : 1,
+              }}
+            >
+              <RefreshCw size={14} />
+              Atualizar
+            </button>
+
             {base.template && (
               <a
                 href={`/templates/${base.template}`}
@@ -367,10 +459,32 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
             }}
           >
             {resultado.erros.length === 0 ? (
-              <span className="flex items-center gap-2">
-                <CheckCircle size={14} />
-                {resultado.total.toLocaleString("pt-BR")} registros carregados com sucesso.
-              </span>
+              <div>
+                <span className="flex items-center gap-2">
+                  <CheckCircle size={14} />
+                  {resultado.total.toLocaleString("pt-BR")} registros carregados com sucesso.
+                </span>
+
+                {(resultado.modoCarga || resultado.periodosSubstituidos?.length || resultado.primeiraDataArquivo || resultado.ultimaDataArquivo) && (
+                  <div className="mt-2 text-xs" style={{ opacity: 0.8 }}>
+                    {resultado.modoCarga && (
+                      <p>Modo da carga: {resultado.modoCarga === "replace_month" ? "substituição mensal" : resultado.modoCarga}</p>
+                    )}
+
+                    {!!resultado.periodosSubstituidos?.length && (
+                      <p>
+                        Período substituído: {resultado.periodosSubstituidos.map(p => p.mes_ref || `${p.ano}-${String(p.mes).padStart(2, "0")}`).join(", ")}
+                      </p>
+                    )}
+
+                    {(resultado.primeiraDataArquivo || resultado.ultimaDataArquivo) && (
+                      <p>
+                        Datas do arquivo: {resultado.primeiraDataArquivo || "-"} até {resultado.ultimaDataArquivo || "-"}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <div>
                 <p className="flex items-center gap-2 mb-1">
@@ -415,7 +529,7 @@ function BaseDetail({ base }: { base: typeof BASES[0] }) {
         loading={loading}
         onPageChange={p => {
           setPage(p)
-          carregarDados(p)
+          carregarDados(p, true)
         }}
         onDelete={handleDelete}
         onEdit={row => {
