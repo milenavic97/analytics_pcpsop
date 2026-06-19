@@ -1913,68 +1913,75 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
             </div>
           </div>
 
-          <div className="relative h-[560px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-            <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
-              <div className="border-b border-r border-dashed border-slate-300 bg-purple-50/30" />
-              <div className="border-b border-dashed border-slate-300 bg-red-50/30" />
-              <div className="border-r border-dashed border-slate-300 bg-slate-50" />
-              <div className="bg-blue-50/40" />
+          <div className="mt-1 flex gap-3">
+            <div className="hidden w-10 items-center justify-center md:flex">
+              <p className="-rotate-90 whitespace-nowrap text-[11px] font-black uppercase tracking-widest text-slate-400">
+                duração média por ocorrência
+              </p>
             </div>
 
-            <div className="absolute left-5 top-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-purple-700 shadow-sm ring-1 ring-slate-200">
-              pontual grave
-            </div>
-            <div className="absolute right-5 top-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-red-700 shadow-sm ring-1 ring-slate-200">
-              crítico estrutural
-            </div>
-            <div className="absolute bottom-5 left-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-slate-500 shadow-sm ring-1 ring-slate-200">
-              monitorar
-            </div>
-            <div className="absolute bottom-5 right-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-blue-700 shadow-sm ring-1 ring-slate-200">
-              crônico / repetitivo
-            </div>
-
-            {topMacros.map((macro) => {
-              const resumo = causasResumo(macro)
-              const ocorrDia = resumo.ocorrPorDia
-              const x = 9 + (ocorrDia / maxOcorrDia) * 78
-              const y = 84 - (Number(macro.media_min || 0) / maxMediaMin) * 72
-              const size = 42 + (Number(macro.horas || 0) / maxHorasMacro) * 74
-              const color = macroColor(macro.macro_categoria)
-              const leitura = leituraQuadrante(macro, maxOcorrDia, maxMediaMin)
-
-              return (
-                <div
-                  key={`bubble-${macro.macro_categoria}`}
-                  className="absolute -translate-x-1/2 -translate-y-1/2"
-                  style={{ left: `${x}%`, top: `${y}%` }}
-                  title={`${macro.macro_categoria}: ${formatHoras(macro.horas)} · ${resumo.ocorrPorDiaLabel} · ${resumo.mediaLabel}`}
-                >
-                  <div
-                    className="flex items-center justify-center rounded-full border-[5px] border-white font-black text-white shadow-xl"
-                    style={{
-                      width: size,
-                      height: size,
-                      backgroundColor: color,
-                      opacity: 0.94,
-                    }}
-                  >
-                    <span className="text-[12px]">{formatDecimal(ocorrDia, 1)}x</span>
-                  </div>
-                  <div className="mt-2 w-32 -translate-x-1/4 rounded-xl bg-white/95 px-2 py-1 text-center shadow-sm ring-1 ring-slate-200">
-                    <p className="text-[11px] font-black text-slate-900">{macroLabelCurto(macro.macro_categoria)}</p>
-                    <p className="text-[10px] font-bold text-slate-500">{leitura}</p>
-                  </div>
+            <div className="flex-1">
+              <div className="relative h-[560px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
+                  <div className="border-b border-r border-dashed border-slate-300 bg-purple-50/30" />
+                  <div className="border-b border-dashed border-slate-300 bg-red-50/30" />
+                  <div className="border-r border-dashed border-slate-300 bg-slate-50" />
+                  <div className="bg-blue-50/40" />
                 </div>
-              )
-            })}
 
-            <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[11px] font-black uppercase tracking-widest text-slate-400">
-              ocorrências por dia
-            </p>
-            <p className="absolute left-4 top-1/2 -translate-y-1/2 -rotate-90 text-[11px] font-black uppercase tracking-widest text-slate-400">
-              duração média por ocorrência
-            </p>
+                <div className="absolute left-5 top-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-purple-700 shadow-sm ring-1 ring-slate-200">
+                  pontual grave
+                </div>
+                <div className="absolute right-5 top-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-red-700 shadow-sm ring-1 ring-slate-200">
+                  crítico estrutural
+                </div>
+                <div className="absolute bottom-5 left-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-slate-500 shadow-sm ring-1 ring-slate-200">
+                  monitorar
+                </div>
+                <div className="absolute bottom-5 right-5 rounded-xl bg-white/90 px-3 py-2 text-xs font-black text-blue-700 shadow-sm ring-1 ring-slate-200">
+                  crônico / repetitivo
+                </div>
+
+                {topMacros.map((macro) => {
+                  const resumo = causasResumo(macro)
+                  const ocorrDia = resumo.ocorrPorDia
+                  const x = 9 + (ocorrDia / maxOcorrDia) * 78
+                  const y = 84 - (Number(macro.media_min || 0) / maxMediaMin) * 72
+                  const size = 42 + (Number(macro.horas || 0) / maxHorasMacro) * 74
+                  const color = macroColor(macro.macro_categoria)
+                  const leitura = leituraQuadrante(macro, maxOcorrDia, maxMediaMin)
+
+                  return (
+                    <div
+                      key={`bubble-${macro.macro_categoria}`}
+                      className="absolute -translate-x-1/2 -translate-y-1/2"
+                      style={{ left: `${x}%`, top: `${y}%` }}
+                      title={`${macro.macro_categoria}: ${formatHoras(macro.horas)} · ${resumo.ocorrPorDiaLabel} · ${resumo.mediaLabel}`}
+                    >
+                      <div
+                        className="flex items-center justify-center rounded-full border-[5px] border-white font-black text-white shadow-xl"
+                        style={{
+                          width: size,
+                          height: size,
+                          backgroundColor: color,
+                          opacity: 0.94,
+                        }}
+                      >
+                        <span className="text-[12px]">{formatDecimal(ocorrDia, 1)}x</span>
+                      </div>
+                      <div className="mt-2 w-32 -translate-x-1/4 rounded-xl bg-white/95 px-2 py-1 text-center shadow-sm ring-1 ring-slate-200">
+                        <p className="text-[11px] font-black text-slate-900">{macroLabelCurto(macro.macro_categoria)}</p>
+                        <p className="text-[10px] font-bold text-slate-500">{leitura}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <p className="pt-3 text-center text-[11px] font-black uppercase tracking-widest text-slate-400">
+                ocorrências por dia
+              </p>
+            </div>
           </div>
         </div>
 
