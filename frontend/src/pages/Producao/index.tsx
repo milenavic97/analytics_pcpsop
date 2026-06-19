@@ -201,6 +201,10 @@ function formatTubetes(value?: number) {
   return `${formatNumber(value)} tubetes`
 }
 
+function formatTubetesFromCx(value?: number) {
+  return formatTubetes(Number(value || 0) * 500)
+}
+
 function formatHoras(value?: number) {
   return `${formatDecimal(value, 1)} h`
 }
@@ -451,12 +455,14 @@ function MetricCard({
   title,
   value,
   subtitle,
+  detail,
   icon: Icon,
   accent = "blue",
 }: {
   title: string
   value: string
   subtitle?: string
+  detail?: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   icon: any
   accent?: "blue" | "green" | "orange" | "red" | "purple" | "slate"
@@ -476,6 +482,9 @@ function MetricCard({
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{title}</p>
           <h3 className="mt-4 text-3xl font-bold text-slate-900">{value}</h3>
+          {detail && (
+            <p className="mt-1 text-sm font-bold text-slate-700">{detail}</p>
+          )}
           {subtitle && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{subtitle}</p>}
         </div>
         <div className={`rounded-xl p-3 ${styles[accent]}`}>
@@ -819,6 +828,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
         <MetricCard
           title="Planejado"
           value={formatCx(resumo.planejado_cx)}
+          detail={formatTubetesFromCx(resumo.planejado_cx)}
           subtitle={`Período ${data.periodo_label}`}
           icon={Layers}
           accent="purple"
@@ -826,6 +836,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
         <MetricCard
           title="Realizado envase"
           value={formatCx(resumo.realizado_cx)}
+          detail={formatTubetesFromCx(resumo.realizado_cx)}
           subtitle={`${formatNumber(resumo.lotes_envasados)} lotes envasados`}
           icon={Factory}
           accent="green"
@@ -840,6 +851,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
         <MetricCard
           title="Gap"
           value={formatCx(resumo.gap_cx)}
+          detail={formatTubetesFromCx(resumo.gap_cx)}
           subtitle={resumo.gap_cx >= 0 ? "Acima do planejado" : "Abaixo do planejado"}
           icon={BarChart3}
           accent={resumo.gap_cx >= 0 ? "green" : "red"}
