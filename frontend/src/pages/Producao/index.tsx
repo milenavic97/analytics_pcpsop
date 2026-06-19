@@ -1368,67 +1368,62 @@ function MiniMtdCard({
   subtitle,
   accent = "slate",
   status,
+  icon,
 }: {
   title: string
   value: string
   subtitle?: string
   status?: string
+  icon?: React.ComponentType<{ className?: string }>
   accent?: "slate" | "green" | "orange" | "red" | "blue"
 }) {
+  const Icon = icon || Layers
+
   const styles = {
     slate: {
-      wrap: "bg-white border-slate-200",
-      rail: "bg-slate-300",
-      title: "text-slate-400",
       value: "text-slate-900",
-      chip: "bg-slate-100 text-slate-600",
+      iconWrap: "bg-slate-100 text-slate-500",
+      status: "text-slate-500",
     },
     blue: {
-      wrap: "bg-[#F6F9FD] border-blue-100",
-      rail: "bg-[#17375E]",
-      title: "text-slate-400",
       value: "text-[#17375E]",
-      chip: "bg-white text-slate-500",
+      iconWrap: "bg-blue-50 text-[#17375E]",
+      status: "text-[#17375E]",
     },
     green: {
-      wrap: "bg-[#F4FBF7] border-green-100",
-      rail: "bg-green-500",
-      title: "text-slate-400",
-      value: "text-green-800",
-      chip: "bg-white text-green-700",
+      value: "text-green-700",
+      iconWrap: "bg-green-50 text-green-600",
+      status: "text-green-700",
     },
     orange: {
-      wrap: "bg-[#FFF8F1] border-orange-100",
-      rail: "bg-orange-400",
-      title: "text-slate-400",
-      value: "text-orange-800",
-      chip: "bg-white text-orange-700",
+      value: "text-orange-700",
+      iconWrap: "bg-orange-50 text-orange-600",
+      status: "text-orange-700",
     },
     red: {
-      wrap: "bg-[#FFF7F7] border-red-100",
-      rail: "bg-red-400",
-      title: "text-slate-400",
-      value: "text-red-700",
-      chip: "bg-white text-red-700",
+      value: "text-red-600",
+      iconWrap: "bg-red-50 text-red-500",
+      status: "text-red-600",
     },
   }[accent]
 
   return (
-    <div className={`relative overflow-hidden rounded-xl border px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${styles.wrap}`}>
-      <div className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${styles.rail}`} />
-      <div className="pl-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className={`text-[10px] font-black uppercase tracking-[0.16em] ${styles.title}`}>
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
             {title}
           </p>
-          {status && (
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${styles.chip}`}>
-              {status}
-            </span>
-          )}
+          <p className={`mt-2 text-[28px] font-black leading-none ${styles.value}`}>{value}</p>
         </div>
-        <p className={`mt-1.5 text-lg font-black leading-none ${styles.value}`}>{value}</p>
-        {subtitle && <p className="mt-1 text-[11px] font-bold text-slate-500">{subtitle}</p>}
+        <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${styles.iconWrap}`}>
+          <Icon className="h-4.5 w-4.5" />
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between gap-2">
+        {subtitle ? <p className="text-[11px] font-bold text-slate-500">{subtitle}</p> : <span />}
+        {status ? <p className={`text-[10px] font-black uppercase tracking-wide ${styles.status}`}>{status}</p> : null}
       </div>
     </div>
   )
@@ -1502,12 +1497,14 @@ function AcompanhamentoPainelCompacto({
           value={planejadoMtdTb > 0 ? formatNumber(planejadoMtdTb) : "—"}
           subtitle={planejadoMtdCx > 0 ? `${formatCx(planejadoMtdCx)} · meta até hoje` : "meta até hoje"}
           accent="blue"
+          icon={Layers}
         />
         <MiniMtdCard
           title="Realizado MTD"
           value={formatNumber(realizadoMtdTb)}
           subtitle={`${formatCx(realizadoMtdCx)} · apontado`}
           accent="green"
+          icon={BarChart3}
         />
         <MiniMtdCard
           title="Atingimento"
@@ -1515,6 +1512,7 @@ function AcompanhamentoPainelCompacto({
           subtitle="realizado / planejado MTD"
           accent={atingimentoAccent(atingimentoMtd)}
           status={atingimentoStatus(atingimentoMtd)}
+          icon={Target}
         />
       </div>
 
