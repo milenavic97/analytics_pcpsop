@@ -492,7 +492,7 @@ function PercentPointLabel(props: any) {
   return (
     <text
       x={x}
-      y={y - 12}
+      y={y - 16}
       textAnchor="middle"
       fontSize={10}
       fontWeight={800}
@@ -520,6 +520,25 @@ function LineValueLabel(props: any) {
     >
       {formatNumber(v)}
     </text>
+  )
+}
+
+function OrcadoMarkerDot(props: any) {
+  const { cx, cy, payload } = props
+  const value = Number(payload?.orcado_plot_cx || 0)
+
+  if (!cx || !cy || !value) return null
+
+  return (
+    <line
+      x1={cx - 20}
+      x2={cx + 20}
+      y1={cy}
+      y2={cy}
+      stroke={COLORS.orange}
+      strokeWidth={3}
+      strokeLinecap="round"
+    />
   )
 }
 
@@ -642,10 +661,31 @@ function MonthlyLineChartCard({
         planejado_plot_cx: planejadoCx > 0 ? planejadoCx : null,
         realizado_plot_cx: realizadoCx > 0 ? realizadoCx : null,
         orcado_plot_cx: orcadoCx > 0 ? orcadoCx : null,
-        aderencia_plot_pct: aderenciaPct > 0 ? Math.min(aderenciaPct, 130) : null,
+        aderencia_plot_pct: aderenciaPct > 0 ? aderenciaPct : null,
       }
     })
   }, [meses])
+
+  const aderenciaAxisMax = useMemo(() => {
+    const maxPct = Math.max(
+      0,
+      ...chartData.map((item) => Number(item.aderencia_plot_pct || 0)),
+    )
+
+    if (maxPct > 115) {
+      return Math.ceil((maxPct + 5) / 10) * 10
+    }
+
+    return 110
+  }, [chartData])
+
+  const aderenciaTicks = useMemo(() => {
+    if (aderenciaAxisMax <= 110) {
+      return [0, 50, 80, 100, 110]
+    }
+
+    return [0, 50, 80, 100, aderenciaAxisMax]
+  }, [aderenciaAxisMax])
 
   const showOrcado = useMemo(() => {
     return chartData.some((item) => Number(item.orcado_plot_cx || 0) > 0)
@@ -695,8 +735,8 @@ function MonthlyLineChartCard({
             <YAxis
               yAxisId="right"
               orientation="right"
-              domain={[0, 130]}
-              ticks={[0, 50, 80, 100, 130]}
+              domain={[0, aderenciaAxisMax]}
+              ticks={aderenciaTicks}
               tick={{ fill: "#64748B", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
@@ -736,13 +776,13 @@ function MonthlyLineChartCard({
             {showOrcado && series.orcado && (
               <Line
                 yAxisId="left"
-                type="monotone"
+                type="linear"
                 dataKey="orcado_plot_cx"
                 name="Orçado"
-                stroke={COLORS.orange}
-                strokeWidth={2.5}
-                dot={false}
-                activeDot={{ r: 4, fill: COLORS.orange, stroke: COLORS.orange }}
+                stroke="rgba(249, 115, 22, 0)"
+                strokeWidth={0}
+                dot={<OrcadoMarkerDot />}
+                activeDot={false}
                 connectNulls={false}
                 isAnimationActive={false}
               >
@@ -756,10 +796,10 @@ function MonthlyLineChartCard({
                 type="monotone"
                 dataKey="aderencia_plot_pct"
                 name="% atingido"
-                stroke={COLORS.slate}
+                stroke="#8EA0B8"
                 strokeWidth={2.5}
-                dot={{ r: 3, fill: COLORS.slate, stroke: COLORS.slate }}
-                activeDot={{ r: 4, fill: COLORS.slate, stroke: COLORS.slate }}
+                dot={{ r: 3, fill: "#8EA0B8", stroke: "#8EA0B8" }}
+                activeDot={{ r: 4, fill: "#8EA0B8", stroke: "#8EA0B8" }}
                 connectNulls={false}
                 isAnimationActive={false}
               >
