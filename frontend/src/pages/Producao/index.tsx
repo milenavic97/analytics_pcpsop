@@ -564,7 +564,7 @@ function PageHeader({
               : "text-slate-500 hover:bg-slate-50"
           }`}
         >
-          Análise de Perdas
+          Análise de Paradas
         </button>
       </div>
     </div>
@@ -1367,25 +1367,69 @@ function MiniMtdCard({
   value,
   subtitle,
   accent = "slate",
+  status,
 }: {
   title: string
   value: string
   subtitle?: string
+  status?: string
   accent?: "slate" | "green" | "orange" | "red" | "blue"
 }) {
   const styles = {
-    slate: "bg-slate-50 text-slate-900 border-slate-200",
-    green: "bg-green-50 text-green-800 border-green-100",
-    orange: "bg-orange-50 text-orange-800 border-orange-100",
-    red: "bg-red-50 text-red-800 border-red-100",
-    blue: "bg-blue-50 text-[#17375E] border-blue-100",
-  }
+    slate: {
+      wrap: "bg-white border-slate-200",
+      rail: "bg-slate-300",
+      title: "text-slate-400",
+      value: "text-slate-900",
+      chip: "bg-slate-100 text-slate-600",
+    },
+    blue: {
+      wrap: "bg-[#F6F9FD] border-blue-100",
+      rail: "bg-[#17375E]",
+      title: "text-slate-400",
+      value: "text-[#17375E]",
+      chip: "bg-white text-slate-500",
+    },
+    green: {
+      wrap: "bg-[#F4FBF7] border-green-100",
+      rail: "bg-green-500",
+      title: "text-slate-400",
+      value: "text-green-800",
+      chip: "bg-white text-green-700",
+    },
+    orange: {
+      wrap: "bg-[#FFF8F1] border-orange-100",
+      rail: "bg-orange-400",
+      title: "text-slate-400",
+      value: "text-orange-800",
+      chip: "bg-white text-orange-700",
+    },
+    red: {
+      wrap: "bg-[#FFF7F7] border-red-100",
+      rail: "bg-red-400",
+      title: "text-slate-400",
+      value: "text-red-700",
+      chip: "bg-white text-red-700",
+    },
+  }[accent]
 
   return (
-    <div className={`rounded-xl border px-3 py-2 ${styles[accent]}`}>
-      <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">{title}</p>
-      <p className="mt-1 text-base font-black">{value}</p>
-      {subtitle && <p className="mt-0.5 text-[11px] font-bold opacity-60">{subtitle}</p>}
+    <div className={`relative overflow-hidden rounded-xl border px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${styles.wrap}`}>
+      <div className={`absolute inset-y-3 left-0 w-1 rounded-r-full ${styles.rail}`} />
+      <div className="pl-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className={`text-[10px] font-black uppercase tracking-[0.16em] ${styles.title}`}>
+            {title}
+          </p>
+          {status && (
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${styles.chip}`}>
+              {status}
+            </span>
+          )}
+        </div>
+        <p className={`mt-1.5 text-lg font-black leading-none ${styles.value}`}>{value}</p>
+        {subtitle && <p className="mt-1 text-[11px] font-bold text-slate-500">{subtitle}</p>}
+      </div>
     </div>
   )
 }
@@ -1396,6 +1440,14 @@ function atingimentoAccent(value?: number | null): "green" | "orange" | "red" | 
   if (v >= 95) return "green"
   if (v >= 80) return "orange"
   return "red"
+}
+
+function atingimentoStatus(value?: number | null) {
+  const v = Number(value || 0)
+  if (!v) return "sem plano"
+  if (v >= 95) return "no ritmo"
+  if (v >= 80) return "atenção"
+  return "abaixo"
 }
 
 
@@ -1424,18 +1476,21 @@ function AcompanhamentoPainelCompacto({
       <div className="bg-[#17375E] px-4 py-3 text-white">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <div className="rounded-xl bg-white/10 p-2 text-white">
+            <div className="rounded-xl bg-white/10 p-2 text-white ring-1 ring-white/10">
               <Icon className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-widest text-blue-100">
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-blue-100">
                 {secao.tipo}
               </p>
               <h3 className="mt-1 text-lg font-black">{secao.nome}</h3>
+              <p className="mt-0.5 text-xs font-semibold text-blue-100/80">
+                Acompanhamento MTD até {ultimaData}
+              </p>
             </div>
           </div>
 
-          <span className="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-bold">
+          <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black ring-1 ring-white/10">
             {formatNumber(totalTubetes)} tubetes
           </span>
         </div>
@@ -1445,38 +1500,39 @@ function AcompanhamentoPainelCompacto({
         <MiniMtdCard
           title="Planejado MTD"
           value={planejadoMtdTb > 0 ? formatNumber(planejadoMtdTb) : "—"}
-          subtitle={planejadoMtdCx > 0 ? formatCx(planejadoMtdCx) : "Até hoje"}
+          subtitle={planejadoMtdCx > 0 ? `${formatCx(planejadoMtdCx)} · meta até hoje` : "meta até hoje"}
           accent="blue"
         />
         <MiniMtdCard
           title="Realizado MTD"
           value={formatNumber(realizadoMtdTb)}
-          subtitle={formatCx(realizadoMtdCx)}
+          subtitle={`${formatCx(realizadoMtdCx)} · apontado`}
           accent="green"
         />
         <MiniMtdCard
-          title="% ating."
+          title="Atingimento"
           value={planejadoMtdTb > 0 ? formatPercent(atingimentoMtd) : "—"}
-          subtitle="Real / planejado"
+          subtitle="realizado / planejado MTD"
           accent={atingimentoAccent(atingimentoMtd)}
+          status={atingimentoStatus(atingimentoMtd)}
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-2 border-b border-slate-200 bg-slate-50 p-3">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+      <div className="grid grid-cols-3 gap-0 border-b border-slate-200 bg-slate-50/80">
+        <div className="px-3 py-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
             Último lote
           </p>
           <p className="mt-1 truncate text-sm font-black text-slate-900">{ultimoLote}</p>
         </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <div className="border-l border-slate-200 px-3 py-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
             Última data
           </p>
           <p className="mt-1 text-sm font-black text-slate-900">{ultimaData}</p>
         </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <div className="border-l border-slate-200 px-3 py-3">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
             Total mês
           </p>
           <p className="mt-1 text-sm font-black text-slate-900">
@@ -1653,10 +1709,10 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
             Excelência operacional
           </p>
           <h2 className="text-xl font-bold text-slate-900">
-            Análise de perdas — {data.periodo_label}
+            Análise de paradas — {data.periodo_label}
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Diagnóstico YTD das paradas: frequência, duração, máquina e impacto estimado no gap.
+            Frequência, duração, máquinas afetadas e impacto estimado na produção.
           </p>
         </div>
       </div>
