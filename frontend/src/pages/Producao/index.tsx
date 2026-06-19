@@ -160,6 +160,8 @@ interface AcompanhamentoLinha {
   equipamentos: string
   qtd_tubetes: number
   qtd_caixas: number
+  qtd_planejada_tubetes?: number | null
+  qtd_planejada_caixas?: number | null
   primeiro_apontamento: string
   ultimo_apontamento: string
   registros: number
@@ -1315,6 +1317,7 @@ function AcompanhamentoPainelCompacto({
               <th className="px-3 py-2 text-left">Data</th>
               <th className="px-3 py-2 text-left">Lote / OP</th>
               <th className="px-3 py-2 text-left">Mês liberação</th>
+              <th className="px-3 py-2 text-right">Qtd. planejada</th>
               <th className="px-3 py-2 text-right">Qtd. produzida</th>
             </tr>
           </thead>
@@ -1322,7 +1325,7 @@ function AcompanhamentoPainelCompacto({
           <tbody>
             {linhas.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-10 text-center text-sm text-slate-400">
+                <td colSpan={5} className="px-3 py-10 text-center text-sm text-slate-400">
                   Nenhum apontamento encontrado.
                 </td>
               </tr>
@@ -1346,6 +1349,18 @@ function AcompanhamentoPainelCompacto({
                   <span className="inline-flex rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
                     {row.mes_liberacao || "—"}
                   </span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right align-top">
+                  {Number(row.qtd_planejada_tubetes || 0) > 0 ? (
+                    <>
+                      <p className="font-black text-slate-700">{formatNumber(row.qtd_planejada_tubetes || 0)}</p>
+                      <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                        {formatCx(row.qtd_planejada_caixas || 0)}
+                      </p>
+                    </>
+                  ) : (
+                    <span className="font-black text-slate-300">—</span>
+                  )}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right align-top">
                   <p className="font-black text-slate-900">{formatNumber(row.qtd_tubetes)}</p>
