@@ -1240,6 +1240,117 @@ function AcompanhamentoSecaoView({ secao }: { secao: AcompanhamentoSecao }) {
   )
 }
 
+
+function AcompanhamentoPainelCompacto({
+  secao,
+  card,
+}: {
+  secao: AcompanhamentoSecao
+  card?: AcompanhamentoCard
+}) {
+  const linhas = secao.linhas || []
+  const ultimoLote = card?.ultimo_lote || "—"
+  const ultimaData = formatDateBR(card?.ultima_data)
+  const totalTubetes = Number(card?.total_tubetes ?? secao.total_tubetes ?? 0)
+  const totalCaixas = Number(card?.total_caixas ?? secao.total_caixas ?? 0)
+  const totalLotes = Number(card?.lotes ?? secao.lotes ?? 0)
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="bg-[#17375E] px-4 py-3 text-white">
+        <p className="text-[11px] font-bold uppercase tracking-widest text-blue-100">
+          {secao.tipo}
+        </p>
+        <div className="mt-1 flex items-end justify-between gap-3">
+          <h3 className="text-lg font-black">{secao.nome}</h3>
+          <span className="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-bold">
+            {formatNumber(totalTubetes)} tubetes
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 border-b border-slate-200 bg-slate-50 p-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Último lote
+          </p>
+          <p className="mt-1 truncate text-sm font-black text-slate-900">{ultimoLote}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Última data
+          </p>
+          <p className="mt-1 text-sm font-black text-slate-900">{ultimaData}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Total
+          </p>
+          <p className="mt-1 text-sm font-black text-slate-900">
+            {formatCx(totalCaixas)}
+          </p>
+        </div>
+      </div>
+
+      <div className="max-h-[560px] overflow-auto">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 z-10 bg-blue-50 text-[11px] uppercase tracking-wide text-[#17375E]">
+            <tr>
+              <th className="px-3 py-2 text-left">Data</th>
+              <th className="px-3 py-2 text-left">Lote / OP</th>
+              <th className="px-3 py-2 text-right">Qtd. produzida</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {linhas.length === 0 && (
+              <tr>
+                <td colSpan={3} className="px-3 py-10 text-center text-sm text-slate-400">
+                  Nenhum apontamento encontrado.
+                </td>
+              </tr>
+            )}
+
+            {linhas.map((row, idx) => (
+              <tr
+                key={`${secao.linha}-${row.data}-${row.lote}-${row.op}-${idx}`}
+                className="border-t border-slate-100 hover:bg-slate-50/80"
+              >
+                <td className="whitespace-nowrap px-3 py-2 align-top font-black text-[#A34713]">
+                  {formatDateBR(row.data)}
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <p className="truncate font-black text-slate-900">{row.lote || "—"}</p>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-400">
+                    OP {row.op || "—"}
+                  </p>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right align-top">
+                  <p className="font-black text-slate-900">{formatNumber(row.qtd_tubetes)}</p>
+                  <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                    {formatCx(row.qtd_caixas)}
+                  </p>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+        <div>
+          <span className="font-bold text-slate-400">Lotes: </span>
+          <span className="font-black text-slate-800">{formatNumber(totalLotes)}</span>
+        </div>
+        <div className="text-right">
+          <span className="font-bold text-slate-400">Registros: </span>
+          <span className="font-black text-slate-800">{formatNumber(linhas.length)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AcompanhamentoTab({
   data,
   busca,
@@ -1249,6 +1360,23 @@ function AcompanhamentoTab({
   busca: string
   onBuscaChange: (value: string) => void
 }) {
+  const secoesOrdenadas = useMemo(() => {
+    const ordem = ["L1", "L2", "FABRIMA"]
+    const mapa = new Map((data.secoes || []).map((secao) => [secao.linha, secao]))
+
+    const ordenadas = ordem
+      .map((linha) => mapa.get(linha))
+      .filter(Boolean) as AcompanhamentoSecao[]
+
+    const extras = (data.secoes || []).filter((secao) => !ordem.includes(secao.linha))
+
+    return [...ordenadas, ...extras]
+  }, [data.secoes])
+
+  function cardDaSecao(secao: AcompanhamentoSecao) {
+    return (data.cards || []).find((card) => card.linha === secao.linha)
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1262,10 +1390,10 @@ function AcompanhamentoTab({
                 Acompanhamento do mês
               </p>
               <h2 className="text-xl font-bold text-slate-900">
-                Envase operacional — {data.mes_label}/{data.ano}
+                Operação rápida — {data.mes_label}/{data.ano}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Visão rápida para bater o mês: até qual lote cada linha já envasou.
+                Visão paralela para bater rapidamente Linha 1, Linha 2 e Fabrima.
               </p>
             </div>
           </div>
@@ -1282,20 +1410,19 @@ function AcompanhamentoTab({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {data.cards.map((item) => (
-          <AcompanhamentoCardView key={item.linha} item={item} />
-        ))}
-      </div>
-
-      <div className="space-y-6">
-        {data.secoes.map((secao) => (
-          <AcompanhamentoSecaoView key={secao.linha} secao={secao} />
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        {secoesOrdenadas.map((secao) => (
+          <AcompanhamentoPainelCompacto
+            key={secao.linha}
+            secao={secao}
+            card={cardDaSecao(secao)}
+          />
         ))}
       </div>
     </div>
   )
 }
+
 
 export function ProducaoPage() {
   const today = new Date()
