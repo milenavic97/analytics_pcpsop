@@ -5,7 +5,6 @@ import {
   CartesianGrid,
   ComposedChart,
   LabelList,
-  Legend,
   Line,
   ResponsiveContainer,
   Tooltip,
@@ -84,6 +83,11 @@ interface MesProducao {
   realizado_cx: number
   gap_cx: number
   aderencia_pct: number
+  orcado_cx?: number
+  orcado_producao_cx?: number
+  orcado_liberacao_cx?: number
+  orcado_caixas?: number
+  orcado?: number
 }
 
 interface LinhaMensalProducao {
@@ -323,156 +327,135 @@ function TopLabel(props: any) {
   )
 }
 
-function PageHeader({
-  tab,
-  onTabChange,
-  mes,
-  ano,
-  linha,
-  onMesChange,
-  onAnoChange,
-  onLinhaChange,
-  onRefresh,
-  loading,
-}: {
-  tab: TabKey
-  onTabChange: (tab: TabKey) => void
-  mes: number
-  ano: number
-  linha: LinhaFiltro
-  onMesChange: (value: number) => void
-  onAnoChange: (value: number) => void
-  onLinhaChange: (value: LinhaFiltro) => void
-  onRefresh: () => void
-  loading: boolean
-}) {
+function PercentPointLabel(props: any) {
+  const { x, y, value, payload } = props
+  const raw = Number(payload?.aderencia_pct ?? value ?? 0)
+
+  if (!x || !y || !raw) return null
+
+  const fill = raw >= 95 ? COLORS.green : raw >= 80 ? COLORS.orange : COLORS.red
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-            Produção
-          </p>
-          <h1 className="text-3xl font-bold text-slate-900">Dashboard de Produção</h1>
-          <p className="mt-2 text-slate-500">
-            Visão anual de envase: planejado da programação de OPs x realizado Cogtive, por linha e por mês.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {tab === "acompanhamento" && (
-            <select
-              value={mes}
-              onChange={(event) => onMesChange(Number(event.target.value))}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-            >
-              {MESES.map((label, idx) => (
-                <option key={label} value={idx + 1}>
-                  {`${label}/${ano}`}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {tab === "dashboard" && (
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
-              Ano fechado: Jan–Dez
-            </div>
-          )}
-
-          <select
-            value={ano}
-            onChange={(event) => onAnoChange(Number(event.target.value))}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-          >
-            {[2024, 2025, 2026, 2027].map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={linha}
-            onChange={(event) => onLinhaChange(event.target.value as LinhaFiltro)}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-          >
-            <option value="TODAS">Todas as linhas</option>
-            <option value="L1">Envase — Linha 1</option>
-            <option value="L2">Envase — Linha 2</option>
-          </select>
-
-          <button
-            onClick={onRefresh}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
-          </button>
-        </div>
-      </div>
-
-      <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-        <button
-          onClick={() => onTabChange("dashboard")}
-          className={`rounded-xl px-5 py-2.5 text-sm font-bold transition ${
-            tab === "dashboard"
-              ? "bg-[#17375E] text-white shadow-sm"
-              : "text-slate-500 hover:bg-slate-50"
-          }`}
-        >
-          Dashboard
-        </button>
-        <button
-          onClick={() => onTabChange("acompanhamento")}
-          className={`rounded-xl px-5 py-2.5 text-sm font-bold transition ${
-            tab === "acompanhamento"
-              ? "bg-[#17375E] text-white shadow-sm"
-              : "text-slate-500 hover:bg-slate-50"
-          }`}
-        >
-          Acompanhamento do Mês
-        </button>
-      </div>
-    </div>
+    <text
+      x={x}
+      y={y - 12}
+      textAnchor="middle"
+      fontSize={10}
+      fontWeight={800}
+      fill={fill}
+    >
+      {`${formatDecimal(raw, 0)}%`}
+    </text>
   )
 }
 
-function MetricCard({
-  title,
-  value,
-  subtitle,
-  icon: Icon,
-  accent = "blue",
-}: {
-  title: string
-  value: string
-  subtitle?: string
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  icon: any
-  accent?: "blue" | "green" | "orange" | "red" | "purple" | "slate"
-}) {
-  const styles = {
-    blue: "bg-blue-50 text-blue-600",
-    green: "bg-green-50 text-green-600",
-    orange: "bg-orange-50 text-orange-600",
-    red: "bg-red-50 text-red-600",
-    purple: "bg-violet-50 text-violet-600",
-    slate: "bg-slate-100 text-slate-600",
-  }
+function LineValueLabel(props: any) {
+  const { x, y, value, fill = COLORS.orange } = props
+  const v = Number(value || 0)
+
+  if (!x || !y || !v) return null
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{title}</p>
-          <h3 className="mt-4 text-3xl font-bold text-slate-900">{value}</h3>
-          {subtitle && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{subtitle}</p>}
-        </div>
-        <div className={`rounded-xl p-3 ${styles[accent]}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
+    <text
+      x={x}
+      y={y - 8}
+      textAnchor="middle"
+      fontSize={10}
+      fontWeight={800}
+      fill={fill}
+    >
+      {formatNumber(v)}
+    </text>
+  )
+}
+
+type MonthlySeriesKey = "planejado" | "realizado" | "orcado" | "aderencia"
+
+type MonthlySeriesState = Record<MonthlySeriesKey, boolean>
+
+function getOrcadoCx(item: MesProducao) {
+  return Number(
+    item.orcado_cx ??
+      item.orcado_producao_cx ??
+      item.orcado_liberacao_cx ??
+      item.orcado_caixas ??
+      item.orcado ??
+      0,
+  )
+}
+
+function ToggleLegend({
+  series,
+  onToggle,
+  showOrcado,
+}: {
+  series: MonthlySeriesState
+  onToggle: (key: MonthlySeriesKey) => void
+  showOrcado: boolean
+}) {
+  const items: Array<{
+    key: MonthlySeriesKey
+    label: string
+    color: string
+    type: "bar" | "line"
+    enabled: boolean
+  }> = [
+    {
+      key: "planejado",
+      label: "Planejado",
+      color: COLORS.softBlue,
+      type: "bar",
+      enabled: true,
+    },
+    {
+      key: "realizado",
+      label: "Realizado envase",
+      color: COLORS.darkBlue,
+      type: "bar",
+      enabled: true,
+    },
+    {
+      key: "orcado",
+      label: "Orçado",
+      color: COLORS.orange,
+      type: "line",
+      enabled: showOrcado,
+    },
+    {
+      key: "aderencia",
+      label: "% atingido",
+      color: COLORS.slate,
+      type: "line",
+      enabled: true,
+    },
+  ]
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {items.filter((item) => item.enabled).map((item) => {
+        const active = series[item.key]
+
+        return (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => onToggle(item.key)}
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition ${
+              active
+                ? "border-slate-200 bg-white text-slate-700 shadow-sm"
+                : "border-slate-200 bg-slate-50 text-slate-400 opacity-60"
+            }`}
+            title={active ? `Ocultar ${item.label}` : `Mostrar ${item.label}`}
+          >
+            {item.type === "bar" ? (
+              <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: item.color }} />
+            ) : (
+              <span className="h-0.5 w-5 rounded-full" style={{ backgroundColor: item.color }} />
+            )}
+            {item.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -486,32 +469,59 @@ function MonthlyLineChartCard({
   subtitle: string
   meses: MesProducao[]
 }) {
+  const [series, setSeries] = useState<MonthlySeriesState>({
+    planejado: true,
+    realizado: true,
+    orcado: true,
+    aderencia: true,
+  })
+
   const chartData = useMemo(() => {
-    return (meses || []).map((item) => ({
-      ...item,
-      aderencia_plot_pct: item.aderencia_pct > 0 ? Math.min(item.aderencia_pct, 130) : null,
-    }))
+    return (meses || []).map((item) => {
+      const orcadoCx = getOrcadoCx(item)
+      const planejadoCx = Number(item.planejado_cx || 0)
+      const realizadoCx = Number(item.realizado_cx || 0)
+      const aderenciaPct = Number(item.aderencia_pct || 0)
+
+      return {
+        ...item,
+        planejado_plot_cx: planejadoCx > 0 ? planejadoCx : null,
+        realizado_plot_cx: realizadoCx > 0 ? realizadoCx : null,
+        orcado_plot_cx: orcadoCx > 0 ? orcadoCx : null,
+        aderencia_plot_pct: aderenciaPct > 0 ? Math.min(aderenciaPct, 130) : null,
+      }
+    })
   }, [meses])
 
+  const showOrcado = useMemo(() => {
+    return chartData.some((item) => Number(item.orcado_plot_cx || 0) > 0)
+  }, [chartData])
+
+  function toggleSeries(key: MonthlySeriesKey) {
+    setSeries((current) => ({ ...current, [key]: !current[key] }))
+  }
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
             Evolução mensal
           </p>
-          <h2 className="text-xl font-bold text-slate-900">{title}</h2>
-          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+          <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
         </div>
+
+        <ToggleLegend series={series} onToggle={toggleSeries} showOrcado={showOrcado} />
       </div>
 
       <div className="h-[330px] rounded-2xl border border-slate-200 bg-white p-4">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={chartData}
-            barCategoryGap="28%"
-            barGap={-18}
-            margin={{ top: 34, right: 20, left: 0, bottom: 0 }}
+            barCategoryGap="34%"
+            barGap={-36}
+            margin={{ top: 36, right: 20, left: 0, bottom: 0 }}
           >
             <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
             <XAxis
@@ -526,7 +536,7 @@ function MonthlyLineChartCard({
               axisLine={false}
               tickLine={false}
               tickFormatter={(value) => formatNumber(Number(value))}
-              width={62}
+              width={58}
             />
             <YAxis
               yAxisId="right"
@@ -537,41 +547,71 @@ function MonthlyLineChartCard({
               axisLine={false}
               tickLine={false}
               tickFormatter={(value) => `${value}%`}
-              width={46}
+              width={42}
             />
             <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
-            <Legend />
 
-            <Bar
-              yAxisId="left"
-              dataKey="planejado_cx"
-              name="Planejado"
-              fill={COLORS.softBlue}
-              radius={[7, 7, 0, 0]}
-              barSize={42}
-            >
-              <LabelList dataKey="planejado_cx" content={<TopLabel fill="#64748B" />} />
-            </Bar>
-            <Bar
-              yAxisId="left"
-              dataKey="realizado_cx"
-              name="Realizado envase"
-              fill={COLORS.darkBlue}
-              radius={[7, 7, 0, 0]}
-              barSize={28}
-            >
-              <LabelList dataKey="realizado_cx" content={<TopLabel fill="#2F3B7C" />} />
-            </Bar>
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey="aderencia_plot_pct"
-              name="% atingido"
-              stroke={COLORS.orange}
-              strokeWidth={2.5}
-              dot={{ r: 3, fill: COLORS.orange, stroke: COLORS.orange }}
-              connectNulls={false}
-            />
+            {series.planejado && (
+              <Bar
+                yAxisId="left"
+                dataKey="planejado_plot_cx"
+                name="Planejado"
+                fill={COLORS.softBlue}
+                radius={[7, 7, 0, 0]}
+                barSize={44}
+                isAnimationActive={false}
+              >
+                <LabelList dataKey="planejado_cx" content={<TopLabel fill="#64748B" />} />
+              </Bar>
+            )}
+
+            {series.realizado && (
+              <Bar
+                yAxisId="left"
+                dataKey="realizado_plot_cx"
+                name="Realizado envase"
+                fill={COLORS.darkBlue}
+                radius={[7, 7, 0, 0]}
+                barSize={30}
+                isAnimationActive={false}
+              >
+                <LabelList dataKey="realizado_cx" content={<TopLabel fill="#2F3B7C" />} />
+              </Bar>
+            )}
+
+            {showOrcado && series.orcado && (
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="orcado_plot_cx"
+                name="Orçado"
+                stroke={COLORS.orange}
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={{ r: 4, fill: COLORS.orange, stroke: COLORS.orange }}
+                connectNulls={false}
+                isAnimationActive={false}
+              >
+                <LabelList dataKey="orcado_plot_cx" content={<LineValueLabel fill={COLORS.orange} />} />
+              </Line>
+            )}
+
+            {series.aderencia && (
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="aderencia_plot_pct"
+                name="% atingido"
+                stroke={COLORS.slate}
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: COLORS.slate, stroke: COLORS.slate }}
+                activeDot={{ r: 4, fill: COLORS.slate, stroke: COLORS.slate }}
+                connectNulls={false}
+                isAnimationActive={false}
+              >
+                <LabelList dataKey="aderencia_pct" content={<PercentPointLabel />} />
+              </Line>
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -637,20 +677,20 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.55fr_1fr]">
-        <div className="space-y-6">
-          {linhasMensais.map((linha) => (
-            <MonthlyLineChartCard
-              key={linha.linha}
-              title={`${linha.nome} — planejado x realizado`}
-              subtitle={`Ano fechado ${data.periodo_label}. Planejado pela programação da página Ordens de Produção; realizado pelos apontamentos de envase.`}
-              meses={linha.meses}
-            />
-          ))}
-        </div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {linhasMensais.map((linha) => (
+          <MonthlyLineChartCard
+            key={linha.linha}
+            title={`${linha.nome} — planejado x realizado`}
+            subtitle={`Ano fechado ${data.periodo_label}. Planejado pela programação; realizado pelos apontamentos de envase.`}
+            meses={linha.meses}
+          />
+        ))}
+      </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+          <div>
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
               Principais ofensores
             </p>
@@ -659,41 +699,46 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
               Maiores motivos de parada/setup/manutenção em envase no período.
             </p>
           </div>
-
-          {data.top_ofensores.length === 0 ? (
-            <div className="flex h-[420px] items-center justify-center rounded-2xl border border-dashed border-slate-200 text-sm text-slate-400">
-              Nenhuma parada encontrada no período.
-            </div>
-          ) : (
-            <div className="h-[420px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={data.top_ofensores}
-                  layout="vertical"
-                  margin={{ top: 8, right: 20, left: 10, bottom: 8 }}
-                >
-                  <CartesianGrid horizontal={false} stroke="#EEF2F7" />
-                  <XAxis
-                    type="number"
-                    tick={{ fill: "#64748B", fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="motivo"
-                    width={150}
-                    tick={{ fill: "#64748B", fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
-                  <Bar dataKey="horas" name="Horas" fill={COLORS.orange} radius={[0, 8, 8, 0]} barSize={22} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+          <div className="rounded-xl bg-orange-50 px-4 py-2 text-sm font-bold text-orange-600">
+            {formatHoras(resumo.horas_paradas)} no período
+          </div>
         </div>
+
+        {data.top_ofensores.length === 0 ? (
+          <div className="flex h-[340px] items-center justify-center rounded-2xl border border-dashed border-slate-200 text-sm text-slate-400">
+            Nenhuma parada encontrada no período.
+          </div>
+        ) : (
+          <div className="h-[340px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={data.top_ofensores}
+                layout="vertical"
+                margin={{ top: 8, right: 28, left: 10, bottom: 8 }}
+              >
+                <CartesianGrid horizontal={false} stroke="#EEF2F7" />
+                <XAxis
+                  type="number"
+                  tick={{ fill: "#64748B", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="motivo"
+                  width={180}
+                  tick={{ fill: "#64748B", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
+                <Bar dataKey="horas" name="Horas" fill={COLORS.orange} radius={[0, 8, 8, 0]} barSize={22}>
+                  <LabelList dataKey="horas" position="right" formatter={(value: number) => formatHoras(value)} fill="#64748B" fontSize={11} fontWeight={700} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
