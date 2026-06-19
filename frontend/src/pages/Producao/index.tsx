@@ -1374,7 +1374,7 @@ function MiniMtdCard({
   value: string
   subtitle?: string
   status?: string
-  icon?: React.ComponentType<{ className?: string }>
+  icon?: any
   accent?: "slate" | "green" | "orange" | "red" | "blue"
 }) {
   const Icon = icon || Layers
@@ -1691,51 +1691,139 @@ function AcompanhamentoTab({
 
 
 
+
+function macroColor(macro?: string) {
+  const value = String(macro || "")
+
+  if (value.includes("Micro")) return "#2563EB"
+  if (value.includes("Setup")) return "#F97316"
+  if (value.includes("Manutenção")) return "#7C3AED"
+  if (value.includes("Qualidade")) return "#16A34A"
+  if (value.includes("Falta")) return "#DC2626"
+  if (value.includes("Limpeza")) return "#0F766E"
+  if (value.includes("Programadas")) return "#64748B"
+  if (value.includes("Não classificado")) return "#94A3B8"
+
+  return "#17375E"
+}
+
+function percentWidth(value: number, max: number, min = 4) {
+  if (!max || max <= 0 || !value) return 0
+  return Math.max(min, Math.min(100, (value / max) * 100))
+}
+
+function causasResumo(item: PerdasParetoMacro) {
+  const ocorrPorDia = item.dias > 0 ? item.ocorrencias / item.dias : 0
+
+  return {
+    ocorrPorDia,
+    ocorrPorDiaLabel: `${formatDecimal(ocorrPorDia, 1)}x/dia`,
+    mediaLabel: `${formatDecimal(item.media_min, 1)} min/ocorr.`,
+    p90Label: `P90 ${formatDecimal(item.p90_min, 1)} min`,
+  }
+}
+
 function PerdasTab({ data }: { data: PerdasResponse }) {
   const cards = data.cards
+  const topMacros = (data.pareto_macro || []).slice(0, 8)
+  const buckets = ["0–2 min", "2–5 min", "5–15 min", "15–60 min", ">60 min"]
+  const maxHorasMacro = Math.max(1, ...topMacros.map((item) => Number(item.horas || 0)))
 
-  const topDistribuicao = useMemo(() => {
-    const macros = new Set((data.pareto_macro || []).slice(0, 6).map((item) => item.macro_categoria))
-    return (data.distribuicao_duracao || []).filter((item) => macros.has(item.macro_categoria))
-  }, [data])
+  const distMap = useMemo(() => {
+    const map = new Map<string, PerdasDistribuicao>()
+
+    ;(data.distribuicao_duracao || []).forEach((item) => {
+      map.set(`${item.macro_categoria}__${item.faixa_duracao}`, item)
+    })
+
+    return map
+  }, [data.distribuicao_duracao])
+
+  const maxHorasBucket = Math.max(
+    1,
+    ...(data.distribuicao_duracao || []).map((item) => Number(item.horas || 0)),
+  )
+
+  const maquinas = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        maquina: string
+        linha: string
+        horas: number
+        ocorrencias: number
+        macros: Record<string, number>
+        principal: string
+      }
+    >()
+
+    ;(data.tabela_causas || []).forEach((row) => {
+      const key = row.maquina || row.linha || "Sem máquina"
+
+      if (!map.has(key)) {
+        map.set(key, {
+          maquina: key,
+          linha: row.linha,
+          horas: 0,
+          ocorrencias: 0,
+          macros: {},
+          principal: "",
+        })
+      }
+
+      const atual = map.get(key)!
+      atual.horas += Number(row.horas || 0)
+      atual.ocorrencias += Number(row.ocorrencias || 0)
+      atual.macros[row.macro_categoria] =
+        Number(atual.macros[row.macro_categoria] || 0) + Number(row.horas || 0)
+    })
+
+    return Array.from(map.values())
+      .map((item) => {
+        const principal = Object.entries(item.macros).sort((a, b) => b[1] - a[1])[0]?.[0] || "—"
+        return { ...item, principal }
+      })
+      .sort((a, b) => b.horas - a.horas)
+      .slice(0, 8)
+  }, [data.tabela_causas])
+
+  const maxHorasMaquina = Math.max(1, ...maquinas.map((item) => item.horas))
+  const maxOcorrDia = Math.max(
+    1,
+    ...topMacros.map((item) => (item.dias > 0 ? item.ocorrencias / item.dias : 0)),
+  )
+  const maxMediaMin = Math.max(1, ...topMacros.map((item) => Number(item.media_min || 0)))
+  const topCausa = topMacros[0]
+  const topMaquina = maquinas[0]
 
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-            Excelência operacional
-          </p>
-          <h2 className="text-xl font-bold text-slate-900">
-            Análise de paradas — {data.periodo_label}
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Frequência, duração, máquinas afetadas e impacto estimado na produção.
-          </p>
-        </div>
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+          Excelência operacional
+        </p>
+        <h2 className="text-xl font-bold text-slate-900">
+          Análise de paradas — {data.periodo_label}
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Leitura visual das causas: quanto tempo consomem, quantas vezes acontecem e qual a duração típica.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
         <MetricCard
           title="Horas paradas"
           value={formatHoras(cards.horas_paradas)}
-          subtitle="Paradas de envase YTD"
+          subtitle="Tempo total apontado"
           icon={TimerReset}
           accent="orange"
         />
         <MetricCard
           title="Ocorrências"
           value={formatNumber(cards.ocorrencias)}
-          subtitle="Registros de parada"
+          subtitle={`${formatDecimal(cards.ocorrencias / Math.max(1, cards.dias_com_parada), 1)}x por dia`}
           icon={BarChart3}
           accent="slate"
-        />
-        <MetricCard
-          title="Dias com parada"
-          value={formatNumber(cards.dias_com_parada)}
-          subtitle="Frequência por dia"
-          icon={CalendarDays}
-          accent="blue"
         />
         <MetricCard
           title="Duração média"
@@ -1745,171 +1833,310 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
           accent="purple"
         />
         <MetricCard
-          title="Cx potenciais"
-          value={formatCx(cards.caixas_potenciais)}
-          subtitle="Estimativa por taxa da linha"
+          title="Dias com parada"
+          value={formatNumber(cards.dias_com_parada)}
+          subtitle="No período"
+          icon={CalendarDays}
+          accent="blue"
+        />
+        <MetricCard
+          title="Principal causa"
+          value={topCausa ? formatHoras(topCausa.horas) : "—"}
+          subtitle={topCausa?.macro_categoria || "Sem causa"}
+          icon={AlertTriangle}
+          accent="red"
+        />
+        <MetricCard
+          title="Principal máquina"
+          value={topMaquina ? formatHoras(topMaquina.horas) : "—"}
+          subtitle={topMaquina?.maquina || "Sem máquina"}
           icon={Factory}
           accent="green"
         />
-        <MetricCard
-          title="% gap explicado"
-          value={formatPercent(cards.pct_gap_explicado)}
-          subtitle={`Gap YTD: ${formatCx(cards.gap_ytd)}`}
-          icon={AlertTriangle}
-          accent={cards.pct_gap_explicado >= 60 ? "red" : cards.pct_gap_explicado >= 30 ? "orange" : "slate"}
-        />
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-5">
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            Causas de parada
+          </p>
+          <h3 className="text-lg font-bold text-slate-900">
+            Tempo, frequência e duração por macro causa
+          </h3>
+          <p className="mt-1 text-sm text-slate-500">
+            A barra mostra horas totais. Os chips mostram frequência e duração típica da causa.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {topMacros.map((macro) => {
+            const resumo = causasResumo(macro)
+            const color = macroColor(macro.macro_categoria)
+            const width = percentWidth(Number(macro.horas || 0), maxHorasMacro)
+
+            return (
+              <div key={macro.macro_categoria} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="mb-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
+                      <p className="truncate text-sm font-black text-slate-900">{macro.macro_categoria}</p>
+                    </div>
+                    <p className="mt-1 text-xs font-semibold text-slate-500">
+                      {formatNumber(macro.ocorrencias)} ocorrências · {formatNumber(macro.dias)} dias com ocorrência
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
+                      {formatHoras(macro.horas)}
+                    </span>
+                    <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
+                      {resumo.ocorrPorDiaLabel}
+                    </span>
+                    <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
+                      {resumo.mediaLabel}
+                    </span>
+                    <span className="rounded-full bg-white px-3 py-1 font-black text-slate-700 ring-1 ring-slate-200">
+                      {resumo.p90Label}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+                  <div
+                    className="h-full rounded-full"
+                    style={{ width: `${width}%`, backgroundColor: color }}
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4">
+          <div className="mb-5">
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-              Pareto
+              Matriz
             </p>
-            <h3 className="text-lg font-bold text-slate-900">Horas por macro categoria</h3>
+            <h3 className="text-lg font-bold text-slate-900">Frequência x duração</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Direita = acontece mais vezes por dia. Alto = dura mais quando acontece.
+            </p>
           </div>
-          <div className="h-[360px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={data.pareto_macro || []}
-                layout="vertical"
-                margin={{ top: 8, right: 28, left: 10, bottom: 8 }}
-              >
-                <CartesianGrid horizontal={false} stroke="#EEF2F7" />
-                <XAxis type="number" hide />
-                <YAxis
-                  type="category"
-                  dataKey="macro_categoria"
-                  width={190}
-                  tick={{ fill: "#64748B", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
-                <Bar dataKey="horas" name="Horas" fill={COLORS.orange} radius={[0, 8, 8, 0]} barSize={22}>
-                  <LabelList dataKey="horas" position="right" formatter={(value: number) => formatHoras(value)} fill="#64748B" fontSize={11} fontWeight={700} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+
+          <div className="relative h-[390px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+            <div className="absolute inset-x-8 top-1/2 border-t border-dashed border-slate-300" />
+            <div className="absolute inset-y-8 left-1/2 border-l border-dashed border-slate-300" />
+            <div className="absolute left-4 top-4 rounded-lg bg-white/90 px-2 py-1 text-[11px] font-bold text-slate-500 shadow-sm">
+              eventos longos
+            </div>
+            <div className="absolute bottom-4 right-4 rounded-lg bg-white/90 px-2 py-1 text-[11px] font-bold text-slate-500 shadow-sm">
+              crônico / repetitivo
+            </div>
+
+            {topMacros.map((macro) => {
+              const ocorrDia = macro.dias > 0 ? macro.ocorrencias / macro.dias : 0
+              const x = 8 + (ocorrDia / maxOcorrDia) * 78
+              const y = 84 - (Number(macro.media_min || 0) / maxMediaMin) * 72
+              const size = 28 + (Number(macro.horas || 0) / maxHorasMacro) * 48
+              const color = macroColor(macro.macro_categoria)
+
+              return (
+                <div
+                  key={`bubble-${macro.macro_categoria}`}
+                  className="absolute -translate-x-1/2 -translate-y-1/2"
+                  style={{ left: `${x}%`, top: `${y}%` }}
+                  title={`${macro.macro_categoria}: ${formatHoras(macro.horas)}`}
+                >
+                  <div
+                    className="flex items-center justify-center rounded-full border-4 border-white font-black text-white shadow-lg"
+                    style={{
+                      width: size,
+                      height: size,
+                      backgroundColor: color,
+                      opacity: 0.92,
+                    }}
+                  >
+                    <span className="text-[10px]">{formatDecimal(ocorrDia, 1)}x</span>
+                  </div>
+                  <p className="mt-1 w-28 -translate-x-1/3 text-center text-[11px] font-black text-slate-700">
+                    {macro.macro_categoria.split(" / ")[0]}
+                  </p>
+                </div>
+              )
+            })}
+
+            <p className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              ocorrências por dia
+            </p>
+            <p className="absolute left-3 top-1/2 -translate-y-1/2 -rotate-90 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              duração média
+            </p>
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4">
+          <div className="mb-5">
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-              Máquina
+              Máquinas
             </p>
-            <h3 className="text-lg font-bold text-slate-900">Horas por máquina / linha</h3>
+            <h3 className="text-lg font-bold text-slate-900">Composição por máquina</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Cada barra mostra o total da máquina, dividido pelas principais macro causas.
+            </p>
           </div>
-          <div className="h-[360px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={data.pareto_maquina || []}
-                layout="vertical"
-                margin={{ top: 8, right: 28, left: 10, bottom: 8 }}
-              >
-                <CartesianGrid horizontal={false} stroke="#EEF2F7" />
-                <XAxis type="number" hide />
-                <YAxis
-                  type="category"
-                  dataKey="maquina"
-                  width={180}
-                  tick={{ fill: "#64748B", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
-                <Bar dataKey="horas" name="Horas" fill={COLORS.darkBlue} radius={[0, 8, 8, 0]} barSize={22}>
-                  <LabelList dataKey="horas" position="right" formatter={(value: number) => formatHoras(value)} fill="#64748B" fontSize={11} fontWeight={700} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-            Duração
-          </p>
-          <h3 className="text-lg font-bold text-slate-900">Distribuição por duração</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            Ajuda a separar microparada real de possível erro de classificação.
-          </p>
-        </div>
+          <div className="space-y-4">
+            {maquinas.map((maquina) => {
+              const widthTotal = percentWidth(maquina.horas, maxHorasMaquina, 12)
+              const segmentos = Object.entries(maquina.macros).sort((a, b) => b[1] - a[1])
 
-        <div className="overflow-auto">
-          <table className="w-full min-w-[900px] text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3 text-left">Macro categoria</th>
-                <th className="px-4 py-3 text-left">Faixa</th>
-                <th className="px-4 py-3 text-right">Ocorrências</th>
-                <th className="px-4 py-3 text-right">Horas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topDistribuicao.map((row, idx) => (
-                <tr key={`${row.macro_categoria}-${row.faixa_duracao}-${idx}`} className="border-t border-slate-100">
-                  <td className="px-4 py-3 font-bold text-slate-800">{row.macro_categoria}</td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
-                      {row.faixa_duracao}
+              return (
+                <div key={maquina.maquina} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-slate-900">{maquina.maquina}</p>
+                      <p className="text-xs font-semibold text-slate-500">
+                        Principal causa: {maquina.principal}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-700 ring-1 ring-slate-200">
+                      {formatHoras(maquina.horas)}
                     </span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-700">{formatNumber(row.ocorrencias)}</td>
-                  <td className="px-4 py-3 text-right font-black text-slate-900">{formatHoras(row.horas)}</td>
-                </tr>
+                  </div>
+
+                  <div className="h-4 overflow-hidden rounded-full bg-white ring-1 ring-slate-200" style={{ width: `${widthTotal}%` }}>
+                    <div className="flex h-full w-full">
+                      {segmentos.map(([macro, horas]) => (
+                        <div
+                          key={`${maquina.maquina}-${macro}`}
+                          title={`${macro}: ${formatHoras(horas)}`}
+                          style={{
+                            width: `${Math.max(3, (horas / maquina.horas) * 100)}%`,
+                            backgroundColor: macroColor(macro),
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {segmentos.slice(0, 3).map(([macro, horas]) => (
+                      <span key={macro} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: macroColor(macro) }} />
+                        {macro.split(" / ")[0]} · {formatHoras(horas)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-5">
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            Perfil de duração
+          </p>
+          <h3 className="text-lg font-bold text-slate-900">Mapa de calor por duração</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Mostra se cada causa é formada por muitas paradas curtas ou por eventos longos.
+          </p>
+        </div>
+
+        <div className="overflow-auto">
+          <div className="min-w-[920px]">
+            <div className="grid grid-cols-[220px_repeat(5,1fr)] gap-2">
+              <div />
+              {buckets.map((bucket) => (
+                <div key={bucket} className="rounded-xl bg-slate-100 px-3 py-2 text-center text-xs font-black text-slate-500">
+                  {bucket}
+                </div>
               ))}
-            </tbody>
-          </table>
+
+              {topMacros.map((macro) => (
+                <div key={`row-${macro.macro_categoria}`} className="contents">
+                  <div className="flex items-center rounded-xl bg-slate-50 px-3 py-3">
+                    <div>
+                      <p className="text-sm font-black text-slate-900">{macro.macro_categoria}</p>
+                      <p className="text-xs font-semibold text-slate-500">{formatHoras(macro.horas)} no total</p>
+                    </div>
+                  </div>
+
+                  {buckets.map((bucket) => {
+                    const item = distMap.get(`${macro.macro_categoria}__${bucket}`)
+                    const horas = Number(item?.horas || 0)
+                    const ocorr = Number(item?.ocorrencias || 0)
+                    const intensity = Math.max(0.06, Math.min(0.92, horas / maxHorasBucket))
+                    const color = macroColor(macro.macro_categoria)
+                    const alpha = Math.round(intensity * 255).toString(16).padStart(2, "0")
+                    const strong = horas > maxHorasBucket * 0.35
+
+                    return (
+                      <div
+                        key={`${macro.macro_categoria}-${bucket}`}
+                        className="rounded-xl border border-slate-100 px-3 py-3 text-center"
+                        style={{ backgroundColor: horas > 0 ? `${color}${alpha}` : "#F8FAFC" }}
+                      >
+                        <p className={`text-sm font-black ${strong ? "text-white" : "text-slate-900"}`}>
+                          {horas > 0 ? formatHoras(horas) : "—"}
+                        </p>
+                        <p className={`mt-1 text-[11px] font-bold ${strong ? "text-white/80" : "text-slate-500"}`}>
+                          {ocorr > 0 ? `${formatNumber(ocorr)}x` : ""}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4">
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-            Drill down
+            Detalhe
           </p>
-          <h3 className="text-lg font-bold text-slate-900">Tabela analítica de causas</h3>
+          <h3 className="text-lg font-bold text-slate-900">Top causas para investigação</h3>
         </div>
 
         <div className="overflow-auto">
-          <table className="w-full min-w-[1320px] text-xs">
+          <table className="w-full min-w-[1080px] text-xs">
             <thead className="bg-slate-50 uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-3 py-3 text-left">Macro</th>
                 <th className="px-3 py-3 text-left">Motivo</th>
-                <th className="px-3 py-3 text-left">Linha</th>
                 <th className="px-3 py-3 text-left">Máquina</th>
                 <th className="px-3 py-3 text-right">Horas</th>
                 <th className="px-3 py-3 text-right">Ocorr.</th>
                 <th className="px-3 py-3 text-right">Dias</th>
                 <th className="px-3 py-3 text-right">Média</th>
-                <th className="px-3 py-3 text-right">Mediana</th>
                 <th className="px-3 py-3 text-right">P90</th>
                 <th className="px-3 py-3 text-right">Min/dia</th>
-                <th className="px-3 py-3 text-right">Cx potencial</th>
-                <th className="px-3 py-3 text-right">% gap</th>
               </tr>
             </thead>
             <tbody>
-              {(data.tabela_causas || []).map((row, idx) => (
+              {(data.tabela_causas || []).slice(0, 18).map((row, idx) => (
                 <tr key={`${row.macro_categoria}-${row.motivo}-${row.maquina}-${idx}`} className="border-t border-slate-100 hover:bg-slate-50/80">
-                  <td className="px-3 py-3 align-top font-bold text-slate-800">{row.macro_categoria}</td>
+                  <td className="px-3 py-3 align-top font-bold text-slate-800">
+                    <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: macroColor(row.macro_categoria) }} />
+                    {row.macro_categoria}
+                  </td>
                   <td className="px-3 py-3 align-top text-slate-600">{row.motivo || "—"}</td>
-                  <td className="px-3 py-3 align-top font-bold text-slate-700">{row.linha}</td>
                   <td className="px-3 py-3 align-top text-slate-600">{row.maquina}</td>
                   <td className="px-3 py-3 text-right align-top font-black text-slate-900">{formatHoras(row.horas)}</td>
                   <td className="px-3 py-3 text-right align-top">{formatNumber(row.ocorrencias)}</td>
                   <td className="px-3 py-3 text-right align-top">{formatNumber(row.dias)}</td>
                   <td className="px-3 py-3 text-right align-top">{formatDecimal(row.media_min, 1)} min</td>
-                  <td className="px-3 py-3 text-right align-top">{formatDecimal(row.mediana_min, 1)} min</td>
                   <td className="px-3 py-3 text-right align-top">{formatDecimal(row.p90_min, 1)} min</td>
                   <td className="px-3 py-3 text-right align-top">{formatDecimal(row.min_por_dia, 1)} min</td>
-                  <td className="px-3 py-3 text-right align-top font-bold text-slate-800">{formatCx(row.caixas_potenciais)}</td>
-                  <td className="px-3 py-3 text-right align-top font-bold text-slate-800">{formatPercent(row.pct_gap_explicado)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1919,7 +2146,6 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
     </div>
   )
 }
-
 
 export function ProducaoPage() {
   const today = new Date()
