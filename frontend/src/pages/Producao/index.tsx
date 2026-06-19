@@ -291,13 +291,18 @@ function ChartTooltip({ active, payload, label }: any) {
       <p className="mb-2 font-bold text-slate-800">{label}</p>
       {filtered.length === 0 && <p className="text-slate-400">Sem movimento</p>}
       {filtered.map((item: any) => {
-        const isPct = String(item.dataKey || "").includes("pct")
-        const isHora = String(item.dataKey || "").includes("horas")
+        const dataKey = String(item.dataKey || "")
+        const isAderenciaVisual = dataKey === "aderencia_visual"
+        const isPct = dataKey.includes("pct") || isAderenciaVisual
+        const isHora = dataKey.includes("horas")
+        const tooltipValue = isAderenciaVisual
+          ? Number(item.payload?.aderencia_pct || 0)
+          : Number(item.value || 0)
         const value = isPct
-          ? formatPercent(item.value)
+          ? formatPercent(tooltipValue)
           : isHora
-            ? formatHoras(item.value)
-            : formatCx(item.value)
+            ? formatHoras(tooltipValue)
+            : formatCx(tooltipValue)
 
         return (
           <div key={item.dataKey} className="flex items-center justify-between gap-6 py-0.5">
@@ -492,7 +497,7 @@ function PercentPointLabel(props: any) {
   return (
     <text
       x={x}
-      y={y - 16}
+      y={y - 18}
       textAnchor="middle"
       fontSize={10}
       fontWeight={800}
@@ -661,31 +666,17 @@ function MonthlyLineChartCard({
         planejado_plot_cx: planejadoCx > 0 ? planejadoCx : null,
         realizado_plot_cx: realizadoCx > 0 ? realizadoCx : null,
         orcado_plot_cx: orcadoCx > 0 ? orcadoCx : null,
+        // Mantém o rótulo real em aderencia_pct, mas plota a linha em uma faixa mais alta.
+        // Isso replica o visual do modal: a linha de % fica no topo do gráfico e não disputa
+        // leitura com as barras de planejado/realizado.
+        aderencia_visual: aderenciaPct > 0 ? Math.min(126, Math.max(36, aderenciaPct + 25)) : null,
         aderencia_plot_pct: aderenciaPct > 0 ? aderenciaPct : null,
       }
     })
   }, [meses])
 
-  const aderenciaAxisMax = useMemo(() => {
-    const maxPct = Math.max(
-      0,
-      ...chartData.map((item) => Number(item.aderencia_plot_pct || 0)),
-    )
-
-    if (maxPct > 115) {
-      return Math.ceil((maxPct + 5) / 10) * 10
-    }
-
-    return 110
-  }, [chartData])
-
-  const aderenciaTicks = useMemo(() => {
-    if (aderenciaAxisMax <= 110) {
-      return [0, 50, 80, 100, 110]
-    }
-
-    return [0, 50, 80, 100, aderenciaAxisMax]
-  }, [aderenciaAxisMax])
+  const aderenciaAxisMax = 130
+  const aderenciaTicks = [0, 50, 80, 100, 130]
 
   const showOrcado = useMemo(() => {
     return chartData.some((item) => Number(item.orcado_plot_cx || 0) > 0)
@@ -715,7 +706,7 @@ function MonthlyLineChartCard({
             data={chartData}
             barCategoryGap="34%"
             barGap={-36}
-            margin={{ top: 36, right: 20, left: 0, bottom: 0 }}
+            margin={{ top: 50, right: 20, left: 0, bottom: 0 }}
           >
             <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
             <XAxis
@@ -794,12 +785,12 @@ function MonthlyLineChartCard({
               <Line
                 yAxisId="right"
                 type="monotone"
-                dataKey="aderencia_plot_pct"
+                dataKey="aderencia_visual"
                 name="% atingido"
-                stroke="#8EA0B8"
-                strokeWidth={2.5}
-                dot={{ r: 3, fill: "#8EA0B8", stroke: "#8EA0B8" }}
-                activeDot={{ r: 4, fill: "#8EA0B8", stroke: "#8EA0B8" }}
+                stroke="#9AAAC0"
+                strokeWidth={2}
+                dot={{ r: 2.6, fill: "#9AAAC0", stroke: "#9AAAC0" }}
+                activeDot={{ r: 4, fill: "#9AAAC0", stroke: "#9AAAC0" }}
                 connectNulls={false}
                 isAnimationActive={false}
               >
