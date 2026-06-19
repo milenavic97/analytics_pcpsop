@@ -330,7 +330,7 @@ function TopLabel(props: any) {
   const { x, y, width, value, fill = "#64748B" } = props
   if (!value || Number(value) === 0) return null
   return (
-    <text x={x + width / 2} y={y - 7} textAnchor="middle" fontSize={11} fontWeight={700} fill={fill}>
+    <text x={x + width / 2} y={y - 8} textAnchor="middle" fontSize={11} fontWeight={700} fill={fill}>
       {formatNumber(Number(value))}
     </text>
   )
@@ -713,8 +713,8 @@ function MonthlyLineChartCard({
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={chartData}
-            barCategoryGap="34%"
-            barGap={-36}
+            barCategoryGap="28%"
+            barGap={6}
             margin={{ top: 46, right: 14, left: 0, bottom: 0 }}
           >
             <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
@@ -750,7 +750,7 @@ function MonthlyLineChartCard({
                 name="Planejado"
                 fill={COLORS.softBlue}
                 radius={[7, 7, 0, 0]}
-                barSize={44}
+                barSize={22}
                 isAnimationActive={false}
               >
                 <LabelList dataKey="planejado_cx" content={<TopLabel fill="#64748B" />} />
@@ -764,7 +764,7 @@ function MonthlyLineChartCard({
                 name="Realizado envase"
                 fill={COLORS.darkBlue}
                 radius={[7, 7, 0, 0]}
-                barSize={30}
+                barSize={22}
                 isAnimationActive={false}
               >
                 <LabelList dataKey="realizado_cx" content={<TopLabel fill="#2F3B7C" />} />
