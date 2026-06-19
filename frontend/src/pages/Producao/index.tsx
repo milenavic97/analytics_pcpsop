@@ -1751,6 +1751,21 @@ function leituraQuadrante(item: PerdasParetoMacro, maxOcorrDia: number, maxMedia
   return "monitorar"
 }
 
+function macroLabelLayout(macro?: string) {
+  const value = String(macro || "")
+
+  if (value.includes("Micro")) return { dx: 72, dy: 56, width: 120 }
+  if (value.includes("Manutenção")) return { dx: 52, dy: 74, width: 120 }
+  if (value.includes("Setup")) return { dx: -4, dy: 74, width: 104 }
+  if (value.includes("Falta")) return { dx: -22, dy: 50, width: 102 }
+  if (value.includes("Qualidade")) return { dx: -8, dy: 62, width: 94 }
+  if (value.includes("Limpeza")) return { dx: 12, dy: 78, width: 94 }
+  if (value.includes("Não classificado")) return { dx: 28, dy: 68, width: 108 }
+  if (value.includes("Programadas")) return { dx: 18, dy: 58, width: 104 }
+
+  return { dx: 24, dy: 64, width: 110 }
+}
+
 function PerdasTab({ data }: { data: PerdasResponse }) {
   const cards = data.cards
   const topMacros = (data.pareto_macro || []).slice(0, 8)
@@ -1950,6 +1965,9 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
                   const size = 42 + (Number(macro.horas || 0) / maxHorasMacro) * 74
                   const color = macroColor(macro.macro_categoria)
                   const leitura = leituraQuadrante(macro, maxOcorrDia, maxMediaMin)
+                  const layout = macroLabelLayout(macro.macro_categoria)
+                  const lineLength = Math.max(18, Math.sqrt(layout.dx * layout.dx + layout.dy * layout.dy) - size / 2)
+                  const lineAngle = Math.atan2(layout.dy, layout.dx) * (180 / Math.PI)
 
                   return (
                     <div
@@ -1959,7 +1977,28 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
                       title={`${macro.macro_categoria}: ${formatHoras(macro.horas)} · ${resumo.ocorrPorDiaLabel} · ${resumo.mediaLabel}`}
                     >
                       <div
-                        className="flex items-center justify-center rounded-full border-[5px] border-white font-black text-white shadow-xl"
+                        className="absolute left-1/2 top-1/2 h-[2px] origin-left rounded-full bg-slate-300"
+                        style={{
+                          width: `${lineLength}px`,
+                          transform: `translate(0, -50%) rotate(${lineAngle}deg)`,
+                        }}
+                      />
+
+                      <div
+                        className="absolute rounded-xl bg-white/95 px-2.5 py-1.5 text-center shadow-sm ring-1 ring-slate-200"
+                        style={{
+                          left: `calc(50% + ${layout.dx}px)`,
+                          top: `calc(50% + ${layout.dy}px)`,
+                          width: `${layout.width}px`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                      >
+                        <p className="text-[11px] font-black text-slate-900">{macroLabelCurto(macro.macro_categoria)}</p>
+                        <p className="text-[10px] font-bold text-slate-500">{leitura}</p>
+                      </div>
+
+                      <div
+                        className="relative z-10 flex items-center justify-center rounded-full border-[5px] border-white font-black text-white shadow-xl"
                         style={{
                           width: size,
                           height: size,
@@ -1968,10 +2007,6 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
                         }}
                       >
                         <span className="text-[12px]">{formatDecimal(ocorrDia, 1)}x</span>
-                      </div>
-                      <div className="mt-2 w-32 -translate-x-1/4 rounded-xl bg-white/95 px-2 py-1 text-center shadow-sm ring-1 ring-slate-200">
-                        <p className="text-[11px] font-black text-slate-900">{macroLabelCurto(macro.macro_categoria)}</p>
-                        <p className="text-[10px] font-bold text-slate-500">{leitura}</p>
                       </div>
                     </div>
                   )
