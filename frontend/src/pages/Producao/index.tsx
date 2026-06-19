@@ -1,4 +1,4 @@
-=import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Bar,
   BarChart,
@@ -709,13 +709,13 @@ function MonthlyLineChartCard({
         <ToggleLegend series={series} onToggle={toggleSeries} showOrcado={showOrcado} />
       </div>
 
-      <div className="h-[440px] rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="h-[430px] rounded-2xl border border-slate-200 bg-white p-4">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={chartData}
             barCategoryGap="34%"
-            barGap={-42}
-            margin={{ top: 64, right: 14, left: 0, bottom: 0 }}
+            barGap={-40}
+            margin={{ top: 58, right: 14, left: 0, bottom: 0 }}
           >
             <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
             <XAxis
@@ -727,7 +727,7 @@ function MonthlyLineChartCard({
             <YAxis
               yAxisId="left"
               hide
-              domain={[0, (dataMax: number) => Math.ceil((Number(dataMax || 0) * 1.22) / 1000) * 1000]}
+              domain={[0, "dataMax + 3000"]}
               axisLine={false}
               tickLine={false}
               width={0}
@@ -751,10 +751,10 @@ function MonthlyLineChartCard({
                 name="Planejado"
                 fill={COLORS.softBlue}
                 radius={[7, 7, 0, 0]}
-                barSize={54}
+                barSize={52}
                 isAnimationActive={false}
               >
-                <LabelList dataKey="planejado_cx" content={<TopLabel fill="#64748B" dx={-8} />} />
+                <LabelList dataKey="planejado_cx" content={<TopLabel fill="#64748B" dx={-7} />} />
               </Bar>
             )}
 
@@ -768,7 +768,7 @@ function MonthlyLineChartCard({
                 barSize={28}
                 isAnimationActive={false}
               >
-                <LabelList dataKey="realizado_cx" content={<TopLabel fill="#2F3B7C" dx={8} />} />
+                <LabelList dataKey="realizado_cx" content={<TopLabel fill="#2F3B7C" dx={7} />} />
               </Bar>
             )}
 
