@@ -110,6 +110,7 @@ interface LinhaProducao {
   realizado_ytd_cx?: number
   gap_ytd_cx?: number
   aderencia_ytd_pct?: number
+  orcado_cx?: number
 }
 
 interface GrupoProducao {
@@ -163,6 +164,7 @@ interface AcompanhamentoLinha {
   ultimo_apontamento: string
   registros: number
   status: string
+  mes_liberacao?: string | null
 }
 
 interface AcompanhamentoSecao {
@@ -855,6 +857,11 @@ function resumoLinhaPorMeses(
     0,
   )
 
+  const orcado = (linhaMensal.meses || []).reduce(
+    (acc, mes) => acc + getOrcadoCx(mes),
+    0,
+  )
+
   const planejadoYtd = (linhaMensal.meses || []).reduce(
     (acc, mes) => Number(mes.mes || 0) <= ytdMonth ? acc + Number(mes.planejado_cx || 0) : acc,
     0,
@@ -879,6 +886,7 @@ function resumoLinhaPorMeses(
     realizado_ytd_cx: realizadoYtd,
     gap_ytd_cx: gapYtd,
     aderencia_ytd_pct: aderenciaYtd,
+    orcado_cx: orcado,
     horas_paradas: Number(backend?.horas_paradas || 0),
     lotes: Number(backend?.lotes || 0),
     principal_ofensor: backend?.principal_ofensor || null,
@@ -893,7 +901,7 @@ function LinhaResumoCards({
   periodoLabel: string
 }) {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
       <MetricCard
         title="Planejado ano"
         value={formatCx(resumo.planejado_cx)}
@@ -901,6 +909,14 @@ function LinhaResumoCards({
         subtitle={`Programação + MPS · ${periodoLabel}`}
         icon={Layers}
         accent="purple"
+      />
+      <MetricCard
+        title="Orçado ano"
+        value={formatCx(resumo.orcado_cx)}
+        detail={formatTubetesFromCx(resumo.orcado_cx)}
+        subtitle="Orçado de produção"
+        icon={Target}
+        accent="orange"
       />
       <MetricCard
         title="Realizado YTD"
@@ -1298,6 +1314,7 @@ function AcompanhamentoPainelCompacto({
             <tr>
               <th className="px-3 py-2 text-left">Data</th>
               <th className="px-3 py-2 text-left">Lote / OP</th>
+              <th className="px-3 py-2 text-left">Mês liberação</th>
               <th className="px-3 py-2 text-right">Qtd. produzida</th>
             </tr>
           </thead>
@@ -1305,7 +1322,7 @@ function AcompanhamentoPainelCompacto({
           <tbody>
             {linhas.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-3 py-10 text-center text-sm text-slate-400">
+                <td colSpan={4} className="px-3 py-10 text-center text-sm text-slate-400">
                   Nenhum apontamento encontrado.
                 </td>
               </tr>
@@ -1324,6 +1341,11 @@ function AcompanhamentoPainelCompacto({
                   <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-400">
                     OP {row.op || "—"}
                   </p>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 align-top">
+                  <span className="inline-flex rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
+                    {row.mes_liberacao || "—"}
+                  </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right align-top">
                   <p className="font-black text-slate-900">{formatNumber(row.qtd_tubetes)}</p>
