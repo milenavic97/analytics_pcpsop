@@ -669,7 +669,7 @@ function MonthlyLineChartCard({
         // Mantém o rótulo real em aderencia_pct, mas plota a linha em uma faixa mais alta.
         // Isso replica o visual do modal: a linha de % fica no topo do gráfico e não disputa
         // leitura com as barras de planejado/realizado.
-        aderencia_visual: aderenciaPct > 0 ? 120 + (Math.min(110, Math.max(0, aderenciaPct)) / 110) * 8 : null,
+        aderencia_visual: aderenciaPct > 0 ? 124 + (Math.min(110, Math.max(0, aderenciaPct)) / 110) * 4 : null,
         aderencia_plot_pct: aderenciaPct > 0 ? aderenciaPct : null,
       }
     })
@@ -706,7 +706,7 @@ function MonthlyLineChartCard({
             data={chartData}
             barCategoryGap="34%"
             barGap={-36}
-            margin={{ top: 96, right: 14, left: 0, bottom: 0 }}
+            margin={{ top: 110, right: 14, left: 0, bottom: 0 }}
           >
             <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
             <XAxis
@@ -786,8 +786,8 @@ function MonthlyLineChartCard({
                 dataKey="aderencia_visual"
                 name="% atingido"
                 stroke="#9AAAC0"
-                strokeWidth={1.8}
-                dot={{ r: 2.2, fill: "#9AAAC0", stroke: "#9AAAC0" }}
+                strokeWidth={1.5}
+                dot={{ r: 2, fill: "#9AAAC0", stroke: "#9AAAC0" }}
                 activeDot={{ r: 4, fill: "#9AAAC0", stroke: "#9AAAC0" }}
                 connectNulls={false}
                 isAnimationActive={false}
