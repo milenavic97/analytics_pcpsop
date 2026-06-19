@@ -288,12 +288,23 @@ async function apiFetchNoCache<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const method = String(options?.method || "GET").toUpperCase()
+
+  let pathComCacheBuster = path
+
+  if (method === "GET") {
+    const separador = path.includes("?") ? "&" : "?"
+    pathComCacheBuster = `${path}${separador}_t=${Date.now()}`
+  }
+
+  const res = await fetch(`${API_URL}${pathComCacheBuster}`, {
     ...options,
     cache: "no-store",
     headers: {
       ...(options?.headers || {}),
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
     },
   })
 
@@ -354,9 +365,18 @@ export async function uploadBase(baseId: string, file: File): Promise<UploadBase
   const form = new FormData()
   form.append("file", file)
 
-  const res = await fetch(`${API_URL}/upload/${baseId}`, {
+  // Garante que nenhuma listagem antiga sobreviva ao início do upload.
+  clearApiCache()
+
+  const res = await fetch(`${API_URL}/upload/${baseId}?_t=${Date.now()}`, {
     method: "POST",
     body: form,
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
   })
 
   const payload = await res
@@ -376,7 +396,7 @@ export async function uploadBase(baseId: string, file: File): Promise<UploadBase
 }
 
 export async function getUploadStatus(baseId: string) {
-  return apiFetch(`/upload/status/${baseId}`)
+  return apiFetchNoCache(`/upload/status/${baseId}`)
 }
 
 export type UltimaAtualizacaoResponse = {
@@ -387,7 +407,7 @@ export type UltimaAtualizacaoResponse = {
 export async function buscarUltimaAtualizacao(
   baseId: string
 ): Promise<UltimaAtualizacaoResponse> {
-  return apiFetch(`/upload/ultima-atualizacao/${baseId}`)
+  return apiFetchNoCache(`/upload/ultima-atualizacao/${baseId}`)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -399,7 +419,9 @@ export async function getDados(
   page = 1,
   perPage = 50
 ) {
-  return apiFetch(
+  // Tela de Bases precisa ser sempre fiel ao banco.
+  // Não usar o cache global de 12h aqui.
+  return apiFetchNoCache(
     `/dados/${tabela}?page=${page}&per_page=${perPage}`
   )
 }
@@ -408,11 +430,16 @@ export async function inserirRegistro(
   tabela: string,
   dados: Record<string, unknown>
 ) {
-  return apiFetch(`/dados/${tabela}`, {
+  clearApiCache()
+
+  const resp = await apiFetchNoCache(`/dados/${tabela}`, {
     method: "POST",
     body: JSON.stringify({ dados }),
     headers: { "Content-Type": "application/json" },
   })
+
+  clearApiCache()
+  return resp
 }
 
 export async function atualizarRegistro(
@@ -420,11 +447,16 @@ export async function atualizarRegistro(
   pkValue: string,
   dados: Record<string, unknown>
 ) {
-  return apiFetch(`/dados/${tabela}/${pkValue}`, {
+  clearApiCache()
+
+  const resp = await apiFetchNoCache(`/dados/${tabela}/${pkValue}`, {
     method: "PUT",
     body: JSON.stringify({ dados }),
     headers: { "Content-Type": "application/json" },
   })
+
+  clearApiCache()
+  return resp
 }
 
 export async function excluirRegistros(
@@ -435,9 +467,14 @@ export async function excluirRegistros(
     .map((id) => `ids=${encodeURIComponent(id)}`)
     .join("&")
 
-  return apiFetch(`/dados/${tabela}?${params}`, {
+  clearApiCache()
+
+  const resp = await apiFetchNoCache(`/dados/${tabela}?${params}`, {
     method: "DELETE",
   })
+
+  clearApiCache()
+  return resp
 }
 
 // ─────────────────────────────────────────────────────────────
