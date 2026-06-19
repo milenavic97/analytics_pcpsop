@@ -327,6 +327,160 @@ function TopLabel(props: any) {
   )
 }
 
+function PageHeader({
+  tab,
+  onTabChange,
+  mes,
+  ano,
+  linha,
+  onMesChange,
+  onAnoChange,
+  onLinhaChange,
+  onRefresh,
+  loading,
+}: {
+  tab: TabKey
+  onTabChange: (tab: TabKey) => void
+  mes: number
+  ano: number
+  linha: LinhaFiltro
+  onMesChange: (value: number) => void
+  onAnoChange: (value: number) => void
+  onLinhaChange: (value: LinhaFiltro) => void
+  onRefresh: () => void
+  loading: boolean
+}) {
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            Produção
+          </p>
+          <h1 className="text-3xl font-bold text-slate-900">Dashboard de Produção</h1>
+          <p className="mt-2 text-slate-500">
+            Visão anual de envase: planejado da programação de OPs x realizado Cogtive, por linha e por mês.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {tab === "acompanhamento" && (
+            <select
+              value={mes}
+              onChange={(event) => onMesChange(Number(event.target.value))}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+            >
+              {MESES.map((label, idx) => (
+                <option key={label} value={idx + 1}>
+                  {`${label}/${ano}`}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {tab === "dashboard" && (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
+              Ano fechado: Jan–Dez
+            </div>
+          )}
+
+          <select
+            value={ano}
+            onChange={(event) => onAnoChange(Number(event.target.value))}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            {[2024, 2025, 2026, 2027].map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={linha}
+            onChange={(event) => onLinhaChange(event.target.value as LinhaFiltro)}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            <option value="TODAS">Todas as linhas</option>
+            <option value="L1">Envase — Linha 1</option>
+            <option value="L2">Envase — Linha 2</option>
+          </select>
+
+          <button
+            onClick={onRefresh}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+        <button
+          onClick={() => onTabChange("dashboard")}
+          className={`rounded-xl px-5 py-2.5 text-sm font-bold transition ${
+            tab === "dashboard"
+              ? "bg-[#17375E] text-white shadow-sm"
+              : "text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          Dashboard
+        </button>
+        <button
+          onClick={() => onTabChange("acompanhamento")}
+          className={`rounded-xl px-5 py-2.5 text-sm font-bold transition ${
+            tab === "acompanhamento"
+              ? "bg-[#17375E] text-white shadow-sm"
+              : "text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          Acompanhamento do Mês
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function MetricCard({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+  accent = "blue",
+}: {
+  title: string
+  value: string
+  subtitle?: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: any
+  accent?: "blue" | "green" | "orange" | "red" | "purple" | "slate"
+}) {
+  const styles = {
+    blue: "bg-blue-50 text-blue-600",
+    green: "bg-green-50 text-green-600",
+    orange: "bg-orange-50 text-orange-600",
+    red: "bg-red-50 text-red-600",
+    purple: "bg-violet-50 text-violet-600",
+    slate: "bg-slate-100 text-slate-600",
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{title}</p>
+          <h3 className="mt-4 text-3xl font-bold text-slate-900">{value}</h3>
+          {subtitle && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{subtitle}</p>}
+        </div>
+        <div className={`rounded-xl p-3 ${styles[accent]}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PercentPointLabel(props: any) {
   const { x, y, value, payload } = props
   const raw = Number(payload?.aderencia_pct ?? value ?? 0)
