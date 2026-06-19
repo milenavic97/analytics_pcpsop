@@ -812,6 +812,89 @@ function MonthlyLineChartCard({
   )
 }
 
+
+function resumoLinhaPorMeses(
+  linhaMensal: LinhaMensalProducao,
+  linhasBackend: LinhaProducao[] = [],
+): LinhaProducao {
+  const backend = linhasBackend.find((item) => item.linha === linhaMensal.linha)
+
+  const planejado = (linhaMensal.meses || []).reduce(
+    (acc, mes) => acc + Number(mes.planejado_cx || 0),
+    0,
+  )
+  const realizado = (linhaMensal.meses || []).reduce(
+    (acc, mes) => acc + Number(mes.realizado_cx || 0),
+    0,
+  )
+  const gap = realizado - planejado
+  const aderencia = planejado > 0 ? (realizado / planejado) * 100 : 0
+
+  return {
+    linha: linhaMensal.linha,
+    nome: linhaMensal.nome,
+    planejado_cx: planejado,
+    realizado_cx: realizado,
+    gap_cx: gap,
+    aderencia_pct: aderencia,
+    horas_paradas: Number(backend?.horas_paradas || 0),
+    lotes: Number(backend?.lotes || 0),
+    principal_ofensor: backend?.principal_ofensor || null,
+  }
+}
+
+function LinhaResumoCards({
+  resumo,
+  periodoLabel,
+}: {
+  resumo: LinhaProducao
+  periodoLabel: string
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <MetricCard
+        title="Planejado"
+        value={formatCx(resumo.planejado_cx)}
+        detail={formatTubetesFromCx(resumo.planejado_cx)}
+        subtitle={`Linha ${resumo.linha} · ${periodoLabel}`}
+        icon={Layers}
+        accent="purple"
+      />
+      <MetricCard
+        title="Realizado envase"
+        value={formatCx(resumo.realizado_cx)}
+        detail={formatTubetesFromCx(resumo.realizado_cx)}
+        subtitle={`${formatNumber(resumo.lotes)} lotes envasados`}
+        icon={Factory}
+        accent="green"
+      />
+      <MetricCard
+        title="% atingido"
+        value={formatPercent(resumo.aderencia_pct)}
+        subtitle="Realizado / planejado da linha"
+        icon={Target}
+        accent={resumo.aderencia_pct >= 95 ? "green" : resumo.aderencia_pct >= 80 ? "orange" : "red"}
+      />
+      <MetricCard
+        title="Gap"
+        value={formatCx(resumo.gap_cx)}
+        detail={formatTubetesFromCx(resumo.gap_cx)}
+        subtitle={resumo.gap_cx >= 0 ? "Acima do planejado" : "Abaixo do planejado"}
+        icon={BarChart3}
+        accent={resumo.gap_cx >= 0 ? "green" : "red"}
+      />
+      <MetricCard
+        title="Horas paradas"
+        value={formatHoras(resumo.horas_paradas)}
+        subtitle="Somente esta linha"
+        icon={TimerReset}
+        accent="orange"
+      />
+    </div>
+  )
+}
+
+
 function DashboardTab({ data }: { data: DashboardResponse }) {
   const resumo = data.resumo
 
@@ -825,64 +908,32 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <MetricCard
-          title="Planejado"
-          value={formatCx(resumo.planejado_cx)}
-          detail={formatTubetesFromCx(resumo.planejado_cx)}
-          subtitle={`Período ${data.periodo_label}`}
-          icon={Layers}
-          accent="purple"
-        />
-        <MetricCard
-          title="Realizado envase"
-          value={formatCx(resumo.realizado_cx)}
-          detail={formatTubetesFromCx(resumo.realizado_cx)}
-          subtitle={`${formatNumber(resumo.lotes_envasados)} lotes envasados`}
-          icon={Factory}
-          accent="green"
-        />
-        <MetricCard
-          title="% atingido"
-          value={formatPercent(resumo.aderencia_pct)}
-          subtitle="Realizado / planejado"
-          icon={Target}
-          accent={resumo.aderencia_pct >= 95 ? "green" : resumo.aderencia_pct >= 80 ? "orange" : "red"}
-        />
-        <MetricCard
-          title="Gap"
-          value={formatCx(resumo.gap_cx)}
-          detail={formatTubetesFromCx(resumo.gap_cx)}
-          subtitle={resumo.gap_cx >= 0 ? "Acima do planejado" : "Abaixo do planejado"}
-          icon={BarChart3}
-          accent={resumo.gap_cx >= 0 ? "green" : "red"}
-        />
-        <MetricCard
-          title="Horas paradas"
-          value={formatHoras(resumo.horas_paradas)}
-          subtitle="Somente linhas de envase"
-          icon={TimerReset}
-          accent="orange"
-        />
-        <MetricCard
-          title="Principal ofensor"
-          value={resumo.principal_ofensor ? formatHoras(resumo.principal_ofensor.horas) : "—"}
-          subtitle={resumo.principal_ofensor?.motivo || "Sem parada no período"}
-          icon={AlertTriangle}
-          accent="slate"
-        />
-      </div>
+      {linhasMensais.map((linha) => {
+        const resumoLinha = resumoLinhaPorMeses(linha, data.por_linha)
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        {linhasMensais.map((linha) => (
-          <MonthlyLineChartCard
-            key={linha.linha}
-            title={`${linha.nome} — planejado x realizado`}
-            subtitle={`Ano fechado ${data.periodo_label}. Planejado pela Programação Mensal + MPS; realizado pelos apontamentos de envase.`}
-            meses={linha.meses}
-          />
-        ))}
-      </div>
+        return (
+          <section key={linha.linha} className="space-y-4">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                  {linha.nome}
+                </p>
+                <h2 className="text-xl font-bold text-slate-900">
+                  Resumo da {linha.nome}
+                </h2>
+              </div>
+            </div>
+
+            <LinhaResumoCards resumo={resumoLinha} periodoLabel={data.periodo_label} />
+
+            <MonthlyLineChartCard
+              title={`${linha.nome} — planejado x realizado`}
+              subtitle={`Ano fechado ${data.periodo_label}. Planejado pela Programação Mensal + MPS; realizado pelos apontamentos de envase.`}
+              meses={linha.meses}
+            />
+          </section>
+        )
+      })}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
