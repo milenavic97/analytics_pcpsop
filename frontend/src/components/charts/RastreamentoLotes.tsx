@@ -18,7 +18,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
-import { clearApiCache, getRastreamentoLotes } from "@/services/api";
+import { clearApiCache, getRastreamentoLotes, getRastreamentoLotesCacheVersao } from "@/services/api";
 
 interface DesvioInfo {
   serial?: string | null;
@@ -140,6 +140,7 @@ async function buscarUltimaAtualizacaoProducaoNoCache(): Promise<string | null> 
 interface RastreamentoCacheEntry {
   createdAt: number;
   apontamentoAtualizadoEm: string | null;
+  versaoBase?: string | null;
   data: RastreamentoData;
 }
 
