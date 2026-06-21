@@ -2579,10 +2579,6 @@ export function ProducaoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca])
 
-  return () => window.clearTimeout(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busca])
-
   return (
     <div className="space-y-6 p-6">
       <PageHeader
