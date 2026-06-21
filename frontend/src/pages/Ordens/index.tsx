@@ -3077,9 +3077,14 @@ function exportarExcel(ops: OPEditavel[], mesRef: string) {
 
 export function OrdensPage() {
   const mesesCacheInicial = useMemo(() => lerCacheMesesOrdens(), [])
-  const [meses, setMeses]                   = useState<string[]>(mesesCacheInicial)
-  const [mesSel, setMesSel]                 = useState<string>(mesesCacheInicial[0] || "")
-  const [inicializando, setInicializando]   = useState(mesesCacheInicial.length === 0)
+  const mesFallbackInicial = useMemo(() => {
+    const hoje = new Date()
+    return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`
+  }, [])
+  const mesesIniciais = mesesCacheInicial.length > 0 ? mesesCacheInicial : [mesFallbackInicial]
+  const [meses, setMeses]                   = useState<string[]>(mesesIniciais)
+  const [mesSel, setMesSel]                 = useState<string>(mesesIniciais[0] || mesFallbackInicial)
+  const [inicializando, setInicializando]   = useState(false)
   const [linhasSel, setLinhasSel]           = useState<string[]>([])
   const [statusesSel, setStatusesSel]       = useState<string[]>([])
   const [tiposSel, setTiposSel]             = useState<string[]>([])
@@ -3353,34 +3358,42 @@ export function OrdensPage() {
 
   useEffect(() => {
     async function inicializar() {
-      try {
-        const [resMeses, ajustesSalvos] = await Promise.all([
-          getOpsMeses(),
-          getAjustesComprasOps().catch(() => [] as AjusteCompraOP[]),
-        ])
+      setInicializando(false)
 
-        const configLeadtime = ajustesSalvos.find(a =>
-          String(a.op_id) === "__CONFIG__" &&
-          String(a.codigo_comp) === "leadtime_compra_dias"
-        )
+      getOpsMeses()
+        .then((resMeses) => {
+          const mesesDisponiveis = Array.isArray(resMeses.meses) ? resMeses.meses : []
 
-        if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
-          setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
-        }
+          if (mesesDisponiveis.length > 0) {
+            setMeses(mesesDisponiveis)
+            salvarCacheMesesOrdens(mesesDisponiveis)
+            setMesSel((atual) =>
+              atual && mesesDisponiveis.includes(atual)
+                ? atual
+                : mesesDisponiveis[0]
+            )
+          }
+        })
+        .catch((e) => {
+          console.warn("Não foi possível buscar meses de OPs", e)
+        })
 
-        setMeses(resMeses.meses)
-        salvarCacheMesesOrdens(resMeses.meses)
+      getAjustesComprasOps()
+        .then((ajustesSalvos) => {
+          const configLeadtime = ajustesSalvos.find(a =>
+            String(a.op_id) === "__CONFIG__" &&
+            String(a.codigo_comp) === "leadtime_compra_dias"
+          )
 
-        if (resMeses.meses.length > 0) {
-          setMesSel((atual) => atual || resMeses.meses[0])
-        }
+          if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
+            setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
+          }
+        })
+        .catch((e) => {
+          console.warn("Não foi possível carregar configuração de lead time", e)
+        })
 
-        await carregarAtualizacoesBases()
-      } catch (e) {
-        console.warn("Não foi possível inicializar OPs", e)
-      } finally {
-        setInicializando(false)
-      }
+      void carregarAtualizacoesBases()
     }
 
     inicializar()
@@ -3440,7 +3453,10 @@ export function OrdensPage() {
       res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
     )
     setOps(opsTratadas)
-    await carregarAjustesSalvos(opsTratadas)
+
+    // Não bloqueia a primeira renderização das OPs.
+    // Os ajustes manuais entram logo depois, quando a chamada terminar.
+    void carregarAjustesSalvos(opsTratadas)
   }
 
   const buscar = async (mesRefOverride?: string, forceRefresh = false) => {
@@ -3465,9 +3481,8 @@ export function OrdensPage() {
       const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias, forceRefresh)
       await aplicarResumoOps(res)
 
-      if ((res as { _cache_light?: boolean })._cache_light) {
-        void hidratarOpsComCacheCompleto(mesBusca, leadtimeCompraDias, aplicarResumoOps)
-      }
+      // A primeira abertura deve usar somente o cache leve.
+      // Buscar o cache completo automaticamente travava a tela e ocupava conexões.
     } catch (e: unknown) {
       if (!cached?.payload) {
         setErro(e instanceof Error ? e.message : "Erro ao carregar OPs")
@@ -3853,7 +3868,7 @@ export function OrdensPage() {
       {(loading || inicializando) && !dados && (
         <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>
           <RefreshCw size={24} className="animate-spin mx-auto mb-3" style={{ opacity: 0.4 }} />
-          {inicializando ? "Carregando programação..." : "Verificando estoque e BOM..."}
+          {inicializando ? "Carregando programação..." : "Carregando OPs em cache..."}
         </div>
       )}
 
