@@ -94,6 +94,66 @@ interface DisponibilidadePayload { mes_atual: number; entradas_previstas_mtd: nu
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
+const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v1"
+const OVERVIEW_PAGE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+
+type OverviewPageSnapshot = {
+  savedAt: number
+  version: string | null
+  orcadoLib: { total_caixas: number; total_tubetes: number } | null
+  orcadoFat: { total_caixas: number } | null
+  projFat: ProjFat | null
+  projLib: ProjLib | null
+  estoqueJan: number
+  previstoHoje: number
+  realMtd: number
+  detalhePrevistoHoje: PrevistoHojeItem[]
+  ultimaAtualizacao: string | null
+  mtdCxPrevisto: number
+  mtdCxLiberado: number
+}
+
+function readOverviewPageCache(): OverviewPageSnapshot | null {
+  try {
+    if (typeof window === "undefined") return null
+
+    const raw = window.localStorage.getItem(OVERVIEW_PAGE_CACHE_KEY)
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as OverviewPageSnapshot
+
+    if (!parsed || typeof parsed.savedAt !== "number") {
+      window.localStorage.removeItem(OVERVIEW_PAGE_CACHE_KEY)
+      return null
+    }
+
+    if (Date.now() - parsed.savedAt > OVERVIEW_PAGE_CACHE_TTL_MS) {
+      window.localStorage.removeItem(OVERVIEW_PAGE_CACHE_KEY)
+      return null
+    }
+
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeOverviewPageCache(snapshot: Omit<OverviewPageSnapshot, "savedAt">) {
+  try {
+    if (typeof window === "undefined") return
+
+    window.localStorage.setItem(
+      OVERVIEW_PAGE_CACHE_KEY,
+      JSON.stringify({
+        ...snapshot,
+        savedAt: Date.now(),
+      })
+    )
+  } catch {
+    // Cache local é apenas acelerador de tela.
+  }
+}
+
 async function buscarVersaoOverview() {
   try {
     const payload = (await buscarUltimaAtualizacao("sd3_entradas")) as UltimaAtualizacaoPayload
@@ -103,7 +163,36 @@ async function buscarVersaoOverview() {
   }
 }
 
+
+const API_URL = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
+const OVERVIEW_CACHE_VERSION = "overview-liberacoes-ajustadas-2026-06-18-v4"
+
+async function getProjecaoLiberacoesFresh(): Promise<ProjLib> {
+  const params = new URLSearchParams({
+    cache_version: OVERVIEW_CACHE_VERSION,
+    t: String(Date.now()),
+  })
+
+  const response = await fetch(`${API_URL}/overview/projecao-liberacoes?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Erro ao carregar projeção de liberações: ${response.status}`)
+  }
+
+  return response.json() as Promise<ProjLib>
+}
+
 export function OverviewPage() {
+  const [cacheInicial] = useState<OverviewPageSnapshot | null>(() => readOverviewPageCache())
+
   const [modalLib, setModalLib]               = useState(false)
   const [modalFatOrc, setModalFatOrc]         = useState(false)
   const [modalFatProj, setModalFatProj]       = useState(false)
@@ -111,62 +200,102 @@ export function OverviewPage() {
   const [modalPrevistoHoje, setModalPrevistoHoje] = useState(false)
   const [atendimentoAberto, setAtendimentoAberto] = useState(false)
 
-  const [orcadoLib, setOrcadoLib]             = useState<{ total_caixas: number; total_tubetes: number } | null>(null)
-  const [orcadoFat, setOrcadoFat]             = useState<{ total_caixas: number } | null>(null)
-  const [projFat, setProjFat]                 = useState<ProjFat | null>(null)
-  const [projLib, setProjLib]                 = useState<ProjLib | null>(null)
-  const [estoqueJan, setEstoqueJan]           = useState(0)
-  const [previstoHoje, setPrevistoHoje]       = useState(0)
-  const [realMtd, setRealMtd]                 = useState(0)
-  const [detalhePrevistoHoje, setDetalhePrevistoHoje] = useState<PrevistoHojeItem[]>([])
-  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null)
-  const [mtdCxPrevisto, setMtdCxPrevisto] = useState<number>(0)
-  const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(0)
+  const [orcadoLib, setOrcadoLib]             = useState<{ total_caixas: number; total_tubetes: number } | null>(cacheInicial?.orcadoLib ?? null)
+  const [orcadoFat, setOrcadoFat]             = useState<{ total_caixas: number } | null>(cacheInicial?.orcadoFat ?? null)
+  const [projFat, setProjFat]                 = useState<ProjFat | null>(cacheInicial?.projFat ?? null)
+  const [projLib, setProjLib]                 = useState<ProjLib | null>(cacheInicial?.projLib ?? null)
+  const [estoqueJan, setEstoqueJan]           = useState(cacheInicial?.estoqueJan ?? 0)
+  const [previstoHoje, setPrevistoHoje]       = useState(cacheInicial?.previstoHoje ?? 0)
+  const [realMtd, setRealMtd]                 = useState(cacheInicial?.realMtd ?? 0)
+  const [detalhePrevistoHoje, setDetalhePrevistoHoje] = useState<PrevistoHojeItem[]>(cacheInicial?.detalhePrevistoHoje ?? [])
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(cacheInicial?.ultimaAtualizacao ?? null)
+  const [mtdCxPrevisto, setMtdCxPrevisto] = useState<number>(cacheInicial?.mtdCxPrevisto ?? 0)
+  const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(cacheInicial?.mtdCxLiberado ?? 0)
 
   useEffect(() => {
     let alive = true
 
     async function carregarOverview() {
-      const versaoLiberacoes = await buscarVersaoOverview()
+      const versaoAtual = await buscarVersaoOverview()
 
       if (!alive) return
-      setUltimaAtualizacao(versaoLiberacoes === "sem-sd3" ? null : versaoLiberacoes)
 
-      getOrcadoLiberacao().then((d: unknown) => alive && setOrcadoLib(d as any)).catch(() => {})
-      getOrcadoFaturamento().then((d: unknown) => alive && setOrcadoFat(d as any)).catch(() => {})
-      getProjecaoFaturamento().then((d: unknown) => alive && setProjFat(d as ProjFat)).catch(() => {})
-      getProjecaoLiberacoes({ cache_version: versaoLiberacoes })
-        .then((d: unknown) => alive && setProjLib(d as ProjLib))
-        .catch(() => {})
+      const ultima = versaoAtual === "sem-sd3" ? null : versaoAtual
+      setUltimaAtualizacao(ultima)
 
-      getEstoqueMensal().then((d: unknown) => {
+      // Se já temos snapshot local da mesma versão, mantém tudo instantâneo
+      // e não refaz as chamadas pesadas ao voltar para a Overview.
+      if (cacheInicial?.version === versaoAtual) {
+        return
+      }
+
+      try {
+        const [
+          novoOrcadoLib,
+          novoOrcadoFat,
+          novaProjFat,
+          novaProjLib,
+          estoqueMensal,
+          disponibilidade,
+        ] = await Promise.all([
+          getOrcadoLiberacao(),
+          getOrcadoFaturamento(),
+          getProjecaoFaturamento(),
+          getProjecaoLiberacoes({ cache_version: versaoAtual }),
+          getEstoqueMensal(),
+          getDisponibilidadeMensal(),
+        ])
+
         if (!alive) return
-        const meses = d as EstoqueMes[]
-        const jan = meses.find((m) => Number(m.mes) === 1)
-        setEstoqueJan(Number(jan?.qtd_caixas || 0))
-      }).catch(() => alive && setEstoqueJan(0))
 
-      getDisponibilidadeMensal().then((d: unknown) => {
-        if (!alive) return
-        const data = d as DisponibilidadePayload
-        const mesAtual = data.meses?.find((m) => Number(m.mes) === Number(data.mes_atual))
-        const realizado = Number(mesAtual?.entradas_real_mes_atual || 0)
-        setRealMtd(realizado)
-        const previstoGrupos = data.entradas_previstas_mtd_por_grupo || mesAtual?.entradas_previstas_mtd_por_grupo || []
+        const orcadoLibPayload = novoOrcadoLib as { total_caixas: number; total_tubetes: number }
+        const orcadoFatPayload = novoOrcadoFat as { total_caixas: number }
+        const projFatPayload = novaProjFat as ProjFat
+        const projLibPayload = novaProjLib as ProjLib
+
+        const mesesEstoque = estoqueMensal as EstoqueMes[]
+        const jan = mesesEstoque.find((m) => Number(m.mes) === 1)
+        const novoEstoqueJan = Number(jan?.qtd_caixas || 0)
+
+        const disponibilidadePayload = disponibilidade as DisponibilidadePayload
+        const mesAtual = disponibilidadePayload.meses?.find((m) => Number(m.mes) === Number(disponibilidadePayload.mes_atual))
+        const novoRealMtd = Number(mesAtual?.entradas_real_mes_atual || 0)
+        const previstoGrupos = disponibilidadePayload.entradas_previstas_mtd_por_grupo || mesAtual?.entradas_previstas_mtd_por_grupo || []
         const realGrupos = mesAtual?.entradas_real_mes_atual_por_grupo || []
         const realMap = new Map<string, number>()
         realGrupos.forEach((g) => realMap.set(g.grupo, Number(g.qtd_caixas || 0)))
-        setDetalhePrevistoHoje(previstoGrupos.map((g) => ({
+
+        const novoDetalhePrevistoHoje = previstoGrupos.map((g) => ({
           grupo: g.grupo,
           previsto_ate_hoje: Number(g.qtd_caixas || 0),
           realizado_mtd: Number(realMap.get(g.grupo) || 0),
-        })))
-      }).catch(() => {
-        if (!alive) return
-        setPrevistoHoje(0)
-        setRealMtd(0)
-        setDetalhePrevistoHoje([])
-      })
+        }))
+
+        setOrcadoLib(orcadoLibPayload)
+        setOrcadoFat(orcadoFatPayload)
+        setProjFat(projFatPayload)
+        setProjLib(projLibPayload)
+        setEstoqueJan(novoEstoqueJan)
+        setRealMtd(novoRealMtd)
+        setDetalhePrevistoHoje(novoDetalhePrevistoHoje)
+
+        writeOverviewPageCache({
+          version: versaoAtual,
+          orcadoLib: orcadoLibPayload,
+          orcadoFat: orcadoFatPayload,
+          projFat: projFatPayload,
+          projLib: projLibPayload,
+          estoqueJan: novoEstoqueJan,
+          previstoHoje,
+          realMtd: novoRealMtd,
+          detalhePrevistoHoje: novoDetalhePrevistoHoje,
+          ultimaAtualizacao: ultima,
+          mtdCxPrevisto,
+          mtdCxLiberado,
+        })
+      } catch {
+        // Mantém o cache antigo visível se alguma chamada falhar.
+      }
     }
 
     void carregarOverview()
@@ -174,7 +303,9 @@ export function OverviewPage() {
     return () => {
       alive = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
 
   const pctFat = projFat?.pct_atingimento ?? 0
   const pctLib = projLib?.pct_atingimento ?? 0
@@ -270,7 +401,19 @@ export function OverviewPage() {
         </div>
 
         <div className="mt-6">
-          <RastreamentoLotes onMtdLoad={(p, l) => { setMtdCxPrevisto(p); setMtdCxLiberado(l); }} />
+          <RastreamentoLotes onMtdLoad={(p, l) => {
+            setMtdCxPrevisto(p)
+            setMtdCxLiberado(l)
+
+            const snapshot = readOverviewPageCache()
+            if (snapshot) {
+              writeOverviewPageCache({
+                ...snapshot,
+                mtdCxPrevisto: p,
+                mtdCxLiberado: l,
+              })
+            }
+          }} />
         </div>
 
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
