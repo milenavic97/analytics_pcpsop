@@ -692,6 +692,7 @@ function lerRastreamentoCache(mes: number, ano: number): RastreamentoCacheEntry 
     return {
       createdAt,
       apontamentoAtualizadoEm: parsed?.apontamentoAtualizadoEm || null,
+      versaoBase: parsed?.versaoBase || null,
       data: parsed.data as RastreamentoData,
     };
   } catch (_) {
@@ -703,7 +704,8 @@ function salvarRastreamentoCache(
   mes: number,
   ano: number,
   data: RastreamentoData,
-  apontamentoAtualizadoEm: string | null
+  apontamentoAtualizadoEm: string | null,
+  versaoBase: string | null
 ) {
   try {
     window.localStorage.setItem(
@@ -711,6 +713,7 @@ function salvarRastreamentoCache(
       JSON.stringify({
         createdAt: Date.now(),
         apontamentoAtualizadoEm,
+        versaoBase,
         data,
       })
     );
@@ -728,9 +731,16 @@ function limparRastreamentoCache(mes: number, ano: number) {
 }
 
 export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto: number, mtd_cx_liberado: number) => void } = {}) {
-  const [data, setData] = useState<RastreamentoData | null>(null);
-  const [ultimaAtualizacaoProducao, setUltimaAtualizacaoProducao] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const hojeBase = new Date();
+  const mesInicial = hojeBase.getMonth() + 1;
+  const anoInicial = hojeBase.getFullYear();
+  const cacheInicial = lerRastreamentoCache(mesInicial, anoInicial);
+
+  const [data, setData] = useState<RastreamentoData | null>(cacheInicial?.data ?? null);
+  const [ultimaAtualizacaoProducao, setUltimaAtualizacaoProducao] = useState<string | null>(
+    cacheInicial?.apontamentoAtualizadoEm ?? null
+  );
+  const [loading, setLoading] = useState(!cacheInicial?.data);
   const [refreshing, setRefreshing] = useState(false);
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
@@ -745,15 +755,27 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [sortDataLib, setSortDataLib] = useState<"asc" | "desc" | null>(null);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
 
-  const hojeBase = new Date();
-  const [mesSelecionado, setMesSelecionado] = useState(hojeBase.getMonth() + 1);
-  const [anoSelecionado, setAnoSelecionado] = useState(hojeBase.getFullYear());
+  const [mesSelecionado, setMesSelecionado] = useState(mesInicial);
+  const [anoSelecionado, setAnoSelecionado] = useState(anoInicial);
 
-  const buscarAtualizacaoProducao = async () => {
+  const aplicarDadosRastreamento = (
+    json: RastreamentoData,
+    atualizacaoServidor: string | null
+  ) => {
+    setData(json);
+    setUltimaAtualizacaoProducao(atualizacaoServidor || null);
+
+    if (onMtdLoad) {
+      onMtdLoad(json.mtd_cx_previsto ?? 0, json.mtd_cx_liberado ?? 0);
+    }
+  };
+
+  const buscarVersaoRastreamento = async () => {
     try {
-      // Importante: esta checagem não pode usar o cache global de 12h do api.ts.
-      // Ela é o gatilho que faz outras pessoas receberem a base nova quando você sobe apontamento.
-      return await buscarUltimaAtualizacaoProducaoNoCache();
+      return await getRastreamentoLotesCacheVersao({
+        mes: mesSelecionado,
+        ano: anoSelecionado,
+      });
     } catch (_) {
       return null;
     }
@@ -762,27 +784,37 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const carregar = async (
     forceRefresh = false,
     manterTabelaDuranteRefresh = false,
-    apontamentoAtualizadoEmRef?: string | null
+    versaoServidorRef?: string | null,
+    atualizacaoServidorRef?: string | null
   ) => {
-    // Fluxo normal: usa cache local de 12h para voltar de outra página sem recarregar.
-    // Mas antes/assim que possível valida a versão da base de produção no backend.
-    // Se você subir uma base nova, qualquer usuário detecta a nova atualização e recarrega sozinho.
+    // Fluxo normal: se já existe cache local, mostra imediatamente.
+    // A checagem da versão roda em segundo plano e só troca os dados se o backend mudou.
     if (!forceRefresh) {
       const cached = lerRastreamentoCache(mesSelecionado, anoSelecionado);
+
       if (cached) {
-        setData(cached.data);
-        setUltimaAtualizacaoProducao(cached.apontamentoAtualizadoEm || null);
+        aplicarDadosRastreamento(cached.data, cached.apontamentoAtualizadoEm || null);
         setLoading(false);
         setRefreshing(false);
-        if (onMtdLoad) {
-          onMtdLoad(cached.data.mtd_cx_previsto ?? 0, cached.data.mtd_cx_liberado ?? 0);
-        }
 
-        // Checagem leve em segundo plano: só consulta a data da última base.
-        // Se mudou, força recarga e grava o cache novo para as próximas entradas.
-        buscarAtualizacaoProducao().then((ultimaServidor) => {
-          if (ultimaServidor && ultimaServidor !== cached.apontamentoAtualizadoEm) {
-            carregar(true, true, ultimaServidor);
+        buscarVersaoRastreamento().then((versaoServidor) => {
+          const versaoBaseServidor = versaoServidor?.versao_base || null;
+          const atualizacaoServidor = versaoServidor?.ultima_atualizacao || null;
+
+          if (atualizacaoServidor) {
+            setUltimaAtualizacaoProducao(atualizacaoServidor);
+          }
+
+          if (
+            versaoBaseServidor &&
+            cached.versaoBase &&
+            versaoBaseServidor === cached.versaoBase
+          ) {
+            return;
+          }
+
+          if (versaoBaseServidor && versaoBaseServidor !== cached.versaoBase) {
+            void carregar(true, true, versaoBaseServidor, atualizacaoServidor);
           }
         });
 
@@ -790,6 +822,8 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       }
     }
 
+    // Stale while refresh:
+    // se já tem dado na tela, não apaga a seção; só mostra "Atualizando..."
     if (manterTabelaDuranteRefresh || data) {
       setRefreshing(true);
       setLoading(false);
@@ -798,34 +832,37 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     }
 
     try {
-      if (forceRefresh) {
-        limparRastreamentoCache(mesSelecionado, anoSelecionado);
-        clearApiCache("/overview/rastreamento-lotes");
-      }
-
       const params: any = {
         mes: mesSelecionado,
         ano: anoSelecionado,
       };
 
       if (forceRefresh) {
-        params.force_refresh = true;
         params._t = Date.now();
       }
 
-      const [json, atualizacaoServidor] = await Promise.all([
+      const [json, versaoServidor] = await Promise.all([
         getRastreamentoLotes(params) as Promise<RastreamentoData>,
-        apontamentoAtualizadoEmRef !== undefined
-          ? Promise.resolve(apontamentoAtualizadoEmRef)
-          : buscarAtualizacaoProducao(),
+        versaoServidorRef !== undefined
+          ? Promise.resolve({
+              versao_base: versaoServidorRef,
+              ultima_atualizacao: atualizacaoServidorRef ?? null,
+            })
+          : buscarVersaoRastreamento(),
       ]);
 
-      setData(json);
-      setUltimaAtualizacaoProducao(atualizacaoServidor || null);
-      salvarRastreamentoCache(mesSelecionado, anoSelecionado, json, atualizacaoServidor || null);
-      if (onMtdLoad) {
-        onMtdLoad(json.mtd_cx_previsto ?? 0, json.mtd_cx_liberado ?? 0);
-      }
+      const versaoBase = versaoServidor?.versao_base || versaoServidorRef || null;
+      const atualizacaoServidor =
+        versaoServidor?.ultima_atualizacao || atualizacaoServidorRef || null;
+
+      aplicarDadosRastreamento(json, atualizacaoServidor);
+      salvarRastreamentoCache(
+        mesSelecionado,
+        anoSelecionado,
+        json,
+        atualizacaoServidor,
+        versaoBase
+      );
     } catch (_) {
       // Se for atualização automática/manual, preserva a tabela antiga para não sumir tudo.
       if (!manterTabelaDuranteRefresh && !data) {
@@ -839,17 +876,33 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   };
 
   const verificarBaseNovaEAtualizar = async () => {
-    const ultimaServidor = await buscarAtualizacaoProducao();
-    if (!ultimaServidor) return;
+    const versaoServidor = await buscarVersaoRastreamento();
+    if (!versaoServidor?.versao_base) return;
 
-    setUltimaAtualizacaoProducao(ultimaServidor);
+    const atualizacaoServidor = versaoServidor.ultima_atualizacao || null;
+    if (atualizacaoServidor) {
+      setUltimaAtualizacaoProducao(atualizacaoServidor);
+    }
 
     const cached = lerRastreamentoCache(mesSelecionado, anoSelecionado);
-    const ultimaLocal = cached?.apontamentoAtualizadoEm || ultimaAtualizacaoProducao;
 
-    if (ultimaLocal && ultimaServidor === ultimaLocal) return;
+    if (cached?.versaoBase && cached.versaoBase === versaoServidor.versao_base) {
+      return;
+    }
 
-    await carregar(true, true, ultimaServidor);
+    if (!cached && data) {
+      // Se a tela tem dados mas o localStorage não tem, apenas salva a versão atual.
+      salvarRastreamentoCache(
+        mesSelecionado,
+        anoSelecionado,
+        data,
+        atualizacaoServidor,
+        versaoServidor.versao_base
+      );
+      return;
+    }
+
+    await carregar(true, true, versaoServidor.versao_base, atualizacaoServidor);
   };
 
   useEffect(() => {
@@ -878,7 +931,8 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       window.removeEventListener("focus", onFocusOrVisible);
       document.removeEventListener("visibilitychange", onFocusOrVisible);
     };
-  }, [mesSelecionado, anoSelecionado, ultimaAtualizacaoProducao]);
+  }, [mesSelecionado, anoSelecionado, data]);
+
 
   const mesLabel = data ? MES_LABELS[(data.mes ?? 1) - 1] : "";
 
