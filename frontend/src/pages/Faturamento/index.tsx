@@ -306,15 +306,181 @@ function SectionCard({
   )
 }
 
-export default function FaturamentoPage() {
-  const [dados, setDados] = useState<ResumoFaturamento | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
 
-  const [ano, setAno] = useState(2026)
-  const [bloco, setBloco] = useState("TODOS")
+type FaturamentoCacheEntry = {
+  savedAt: number
+  version: string | null
+  data: ResumoFaturamento
+}
+
+type FaturamentoCacheResponse = {
+  chave: string
+  ano: number
+  bloco: string
+  produto?: string | null
+  versao_base: string
+  from_cache?: boolean
+  atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  payload: ResumoFaturamento
+}
+
+type FaturamentoVersaoResponse = {
+  chave: string
+  ano: number
+  bloco: string
+  produto?: string | null
+  versao_base: string
+  cache_disponivel: boolean
+  cache_versao?: string | null
+  cache_atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  bases?: Record<string, string | null>
+}
+
+const FATURAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v60:"
+const faturamentoRuntimeCache = new Map<string, FaturamentoCacheEntry>()
+
+function faturamentoCacheKey(ano: number, bloco: string, produtoFiltro: string) {
+  return `${ano}|${bloco || "TODOS"}|${produtoFiltro.trim().toLowerCase()}`
+}
+
+function readFaturamentoCache(ano: number, bloco: string, produtoFiltro: string): FaturamentoCacheEntry | null {
+  const key = faturamentoCacheKey(ano, bloco, produtoFiltro)
+  const runtime = faturamentoRuntimeCache.get(key)
+
+  if (runtime?.data && Date.now() - runtime.savedAt <= FATURAMENTO_CACHE_TTL_MS) {
+    return runtime
+  }
+
+  if (runtime) {
+    faturamentoRuntimeCache.delete(key)
+  }
+
+  try {
+    const raw = window.localStorage.getItem(`${FATURAMENTO_CACHE_PREFIX}${key}`)
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as FaturamentoCacheEntry
+    if (!parsed?.data || !parsed.savedAt || Date.now() - parsed.savedAt > FATURAMENTO_CACHE_TTL_MS) {
+      window.localStorage.removeItem(`${FATURAMENTO_CACHE_PREFIX}${key}`)
+      return null
+    }
+
+    faturamentoRuntimeCache.set(key, parsed)
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeFaturamentoCache(
+  ano: number,
+  bloco: string,
+  produtoFiltro: string,
+  data: ResumoFaturamento,
+  version: string | null,
+) {
+  const key = faturamentoCacheKey(ano, bloco, produtoFiltro)
+  const entry: FaturamentoCacheEntry = {
+    savedAt: Date.now(),
+    version,
+    data,
+  }
+
+  faturamentoRuntimeCache.set(key, entry)
+
+  try {
+    window.localStorage.setItem(`${FATURAMENTO_CACHE_PREFIX}${key}`, JSON.stringify(entry))
+  } catch {
+    // localStorage pode estar indisponível; runtime cache continua funcionando enquanto app estiver aberto.
+  }
+}
+
+function buildFaturamentoParams(ano: number, bloco: string, produtoFiltro: string, extra?: Record<string, string>) {
+  const params = new URLSearchParams({
+    ano: String(ano),
+    bloco: bloco || "TODOS",
+  })
+
+  if (produtoFiltro.trim()) {
+    params.set("produto", produtoFiltro.trim())
+  }
+
+  Object.entries(extra || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, value)
+    }
+  })
+
+  return params
+}
+
+async function getFaturamentoVersao(ano: number, bloco: string, produtoFiltro: string) {
+  const params = buildFaturamentoParams(ano, bloco, produtoFiltro)
+  const response = await fetch(`${API_BASE}/faturamento/cache/versao?${params.toString()}`, {
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error("Erro ao consultar versão do faturamento.")
+  }
+
+  return (await response.json()) as FaturamentoVersaoResponse
+}
+
+async function getFaturamentoCache(ano: number, bloco: string, produtoFiltro: string, force = false) {
+  const params = buildFaturamentoParams(
+    ano,
+    bloco,
+    produtoFiltro,
+    force ? { force: "true", _t: String(Date.now()) } : undefined,
+  )
+
+  const response = await fetch(`${API_BASE}/faturamento/cache?${params.toString()}`, {
+    cache: force ? "no-store" : "default",
+    headers: force
+      ? {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        }
+      : undefined,
+  })
+
+  if (!response.ok) {
+    throw new Error("Erro ao carregar cache de faturamento.")
+  }
+
+  return (await response.json()) as FaturamentoCacheResponse
+}
+
+function getInitialFaturamentoData(ano: number, bloco: string, produtoFiltro: string) {
+  return readFaturamentoCache(ano, bloco, produtoFiltro)?.data ?? null
+}
+
+export default function FaturamentoPage() {
+  const anoInicial = 2026
+  const blocoInicial = "TODOS"
+  const produtoFiltroInicial = ""
+  const dadosIniciais = getInitialFaturamentoData(anoInicial, blocoInicial, produtoFiltroInicial)
+
+  const [dados, setDados] = useState<ResumoFaturamento | null>(dadosIniciais)
+  const [loading, setLoading] = useState(!dadosIniciais)
+  const [refreshing, setRefreshing] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [versaoCarregada, setVersaoCarregada] = useState<string | null>(
+    readFaturamentoCache(anoInicial, blocoInicial, produtoFiltroInicial)?.version ?? null,
+  )
+
+  const [ano, setAno] = useState(anoInicial)
+  const [bloco, setBloco] = useState(blocoInicial)
   const [produtoBuscaInput, setProdutoBuscaInput] = useState("")
-  const [produtoFiltro, setProdutoFiltro] = useState("")
+  const [produtoFiltro, setProdutoFiltro] = useState(produtoFiltroInicial)
   const [seriesVisiveis, setSeriesVisiveis] = useState({
     faturamento: true,
     quantidade: true,
@@ -333,32 +499,52 @@ export default function FaturamentoPage() {
   const [statusUploadClientes, setStatusUploadClientes] = useState<string | null>(null)
   const [ultimaAtualizacaoClientes, setUltimaAtualizacaoClientes] = useState<string | null>(null)
 
-  async function carregarResumo() {
+  async function carregarResumo(force = false, manterDadosAtuais = true) {
     try {
-      setLoading(true)
       setErro(null)
 
-      const params = new URLSearchParams({
-        ano: String(ano),
-        bloco,
-      })
+      const cached = !force ? readFaturamentoCache(ano, bloco, produtoFiltro) : null
 
-      if (produtoFiltro.trim()) {
-        params.set("produto", produtoFiltro.trim())
+      if (cached?.data) {
+        setDados(cached.data)
+        setVersaoCarregada(cached.version ?? null)
+        setLoading(false)
       }
 
-      const response = await fetch(`${API_BASE}/faturamento/resumo?${params.toString()}&_t=${Date.now()}`)
-      if (!response.ok) {
-        throw new Error("Erro ao carregar resumo de faturamento.")
+      if (!cached && !dados) {
+        setLoading(true)
+      } else if (manterDadosAtuais) {
+        setRefreshing(true)
       }
 
-      const json = await response.json()
-      setDados(json as ResumoFaturamento)
+      if (!force && cached?.version) {
+        try {
+          const versao = await getFaturamentoVersao(ano, bloco, produtoFiltro)
+
+          if (versao.versao_base === cached.version) {
+            setVersaoCarregada(versao.versao_base)
+            return
+          }
+        } catch {
+          // Se a checagem leve falhar, mantém o cache local visível.
+          return
+        }
+      }
+
+      const response = await getFaturamentoCache(ano, bloco, produtoFiltro, force)
+      const payload = response.payload
+
+      setDados(payload)
+      setVersaoCarregada(response.versao_base)
+      writeFaturamentoCache(ano, bloco, produtoFiltro, payload, response.versao_base)
     } catch (error) {
       console.error(error)
-      setErro("Não foi possível carregar o faturamento agora. Atualize a página ou tente novamente em alguns instantes.")
+      if (!dados) {
+        setErro("Não foi possível carregar o faturamento agora. Atualize a página ou tente novamente em alguns instantes.")
+      }
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -417,12 +603,24 @@ export default function FaturamentoPage() {
   }
 
   useEffect(() => {
-    carregarResumo()
+    carregarResumo(false, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ano, bloco, produtoFiltro])
 
   useEffect(() => {
     carregarUltimaAtualizacaoClientes()
   }, [])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        carregarResumo(false, true)
+      }
+    }, 60 * 1000)
+
+    return () => window.clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ano, bloco, produtoFiltro, versaoCarregada])
 
   const mesesGrafico = useMemo(() => {
     return (dados?.meses ?? []).map((item) => {
@@ -600,7 +798,6 @@ export default function FaturamentoPage() {
     <div className="space-y-6 p-6 font-sans antialiased">
       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Comercial · Faturamento</p>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard de Faturamento</h1>
           <p className="mt-2 text-slate-500">
             Visão executiva por cliente, produto, linha, UF e curva ABC com base na SD2 processada.
@@ -672,19 +869,25 @@ export default function FaturamentoPage() {
           </button>
 
           <button
-            onClick={carregarResumo}
+            onClick={() => carregarResumo(true, true)}
             disabled={loading}
             className="inline-flex items-center gap-2 rounded-xl bg-[#17375E] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#102B4A] disabled:opacity-60"
           >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-            Atualizar
+            {loading || refreshing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            {refreshing && dados ? "Atualizando..." : "Atualizar"}
           </button>
         </div>
       </div>
 
-      {erro && (
+      {erro && !dados && (
         <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {erro}
+        </div>
+      )}
+
+      {loading && !dados && (
+        <div className="mb-5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+          Carregando faturamento...
         </div>
       )}
 
