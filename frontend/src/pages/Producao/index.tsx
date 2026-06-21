@@ -355,8 +355,8 @@ function linhaLabel(linha: LinhaFiltro) {
   return "Todas as linhas"
 }
 
-const PRODUCAO_CACHE_TTL_MS = 15 * 60 * 1000
-const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v1:"
+const PRODUCAO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v57:"
 
 type ProducaoCacheEntry<T = unknown> = {
   timestamp: number
@@ -439,7 +439,7 @@ function clearProducaoCache() {
 }
 
 async function buscarVersaoProducao() {
-  const bases = ["apontamentos", "programacao_ops", "mps"]
+  const bases = ["apontamentos", "programacao_ops", "mps_liberacoes", "mps_producao", "orcado_liberacao", "d_produtos"]
 
   const versoes = await Promise.all(
     bases.map(async (baseId) => {
@@ -468,10 +468,65 @@ async function buscarVersaoProducao() {
   return versoes.join("|")
 }
 
-async function apiGet<T>(
+type ProducaoApiRequest = {
+  path: string
+  params: Record<string, string | number | undefined | null | boolean>
+  unwrapPayload: boolean
+}
+
+function normalizeProducaoApiRequest(
   path: string,
-  params: Record<string, string | number | undefined | null> = {},
-  options?: { force?: boolean },
+  params: Record<string, string | number | undefined | null | boolean> = {},
+): ProducaoApiRequest {
+  if (path === "/producao/dashboard") {
+    return {
+      path: "/producao/cache",
+      params: {
+        tipo: "dashboard",
+        ano: params.ano,
+        mes: params.mes,
+        linha: params.linha,
+        cache_version: params.cache_version as string | undefined,
+      },
+      unwrapPayload: true,
+    }
+  }
+
+  if (path === "/producao/acompanhamento") {
+    return {
+      path: "/producao/cache",
+      params: {
+        tipo: "acompanhamento",
+        ano: params.ano,
+        mes: params.mes,
+        linha: params.linha,
+        busca: params.busca,
+        cache_version: params.cache_version as string | undefined,
+      },
+      unwrapPayload: true,
+    }
+  }
+
+  if (path === "/producao/perdas") {
+    return {
+      path: "/producao/cache",
+      params: {
+        tipo: "perdas",
+        ano: params.ano,
+        mes: (params.mes_final ?? params.mes) as number | string | undefined,
+        linha: params.linha,
+        cache_version: params.cache_version as string | undefined,
+      },
+      unwrapPayload: true,
+    }
+  }
+
+  return { path, params, unwrapPayload: false }
+}
+
+function buildRawApiUrl(
+  path: string,
+  params: Record<string, string | number | undefined | null | boolean> = {},
 ) {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)
 
@@ -481,6 +536,37 @@ async function apiGet<T>(
     }
   })
 
+  return url
+}
+
+function buildApiUrl(
+  path: string,
+  params: Record<string, string | number | undefined | null | boolean> = {},
+) {
+  const request = normalizeProducaoApiRequest(path, params)
+  return buildRawApiUrl(request.path, request.params)
+}
+
+function peekApiCache<T>(
+  path: string,
+  params: Record<string, string | number | undefined | null | boolean> = {},
+) {
+  const url = buildApiUrl(path, params)
+  return readProducaoCache<T>(url.toString())
+}
+
+async function apiGet<T>(
+  path: string,
+  params: Record<string, string | number | undefined | null | boolean> = {},
+  options?: { force?: boolean },
+) {
+  const request = normalizeProducaoApiRequest(path, params)
+  const requestParams = {
+    ...request.params,
+    ...(options?.force && request.unwrapPayload ? { force: true, _t: Date.now() } : {}),
+  }
+
+  const url = buildRawApiUrl(request.path, requestParams)
   const cacheKey = url.toString()
 
   if (!options?.force) {
@@ -494,7 +580,13 @@ async function apiGet<T>(
   const requestPromise = (async () => {
     const response = await fetch(url.toString(), {
       method: "GET",
-      cache: "default",
+      cache: options?.force ? "no-store" : "default",
+      headers: options?.force
+        ? {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+          }
+        : undefined,
     })
 
     if (!response.ok) {
@@ -509,9 +601,10 @@ async function apiGet<T>(
       throw new Error(detail)
     }
 
-    const json = (await response.json()) as T
-    writeProducaoCache(cacheKey, json)
-    return json
+    const json = await response.json()
+    const data = (request.unwrapPayload ? json?.payload : json) as T
+    writeProducaoCache(cacheKey, data)
+    return data
   })()
 
   producaoCache.set(cacheKey, { timestamp: Date.now(), promise: requestPromise })
@@ -2453,11 +2546,57 @@ export function ProducaoPage() {
   const [erro, setErro] = useState("")
   const [cacheVersion, setCacheVersion] = useState<string | null>(null)
 
+  function dashboardParams() {
+    return { ano, mes, linha, cache_version: cacheVersion }
+  }
+
+  function acompanhamentoParams() {
+    return {
+      ano,
+      mes,
+      linha,
+      busca,
+      cache_version: cacheVersion,
+    }
+  }
+
+  function perdasParams() {
+    return {
+      ano,
+      mes_final: mes,
+      linha,
+      cache_version: cacheVersion,
+    }
+  }
+
+  function aplicarCacheDaAbaAtual() {
+    if (!cacheVersion) return false
+
+    if (tab === "dashboard") {
+      const cached = peekApiCache<DashboardResponse>("/producao/dashboard", dashboardParams())
+      if (!cached) return false
+      setDashboard(cached)
+      return true
+    }
+
+    if (tab === "acompanhamento") {
+      const cached = peekApiCache<AcompanhamentoResponse>("/producao/acompanhamento", acompanhamentoParams())
+      if (!cached) return false
+      setAcompanhamento(cached)
+      return true
+    }
+
+    const cached = peekApiCache<PerdasResponse>("/producao/perdas", perdasParams())
+    if (!cached) return false
+    setPerdas(cached)
+    return true
+  }
+
   async function loadDashboard(force = false) {
     if (!cacheVersion) return
     const json = await apiGet<DashboardResponse>(
       "/producao/dashboard",
-      { ano, mes, linha, cache_version: cacheVersion },
+      dashboardParams(),
       { force },
     )
     setDashboard(json)
@@ -2467,13 +2606,7 @@ export function ProducaoPage() {
     if (!cacheVersion) return
     const json = await apiGet<AcompanhamentoResponse>(
       "/producao/acompanhamento",
-      {
-        ano,
-        mes,
-        linha,
-        busca,
-        cache_version: cacheVersion,
-      },
+      acompanhamentoParams(),
       { force },
     )
     setAcompanhamento(json)
@@ -2483,12 +2616,7 @@ export function ProducaoPage() {
     if (!cacheVersion) return
     const json = await apiGet<PerdasResponse>(
       "/producao/perdas",
-      {
-        ano,
-        mes_final: mes,
-        linha,
-        cache_version: cacheVersion,
-      },
+      perdasParams(),
       { force },
     )
     setPerdas(json)
@@ -2497,12 +2625,27 @@ export function ProducaoPage() {
   async function loadData(force = false) {
     if (!cacheVersion) return
 
+    const encontrouCache = !force && aplicarCacheDaAbaAtual()
+    const temAlgoNaTela =
+      (tab === "dashboard" && Boolean(dashboard)) ||
+      (tab === "acompanhamento" && Boolean(acompanhamento)) ||
+      (tab === "perdas" && Boolean(perdas)) ||
+      encontrouCache
+
     try {
-      setLoading(true)
       setErro("")
 
       if (force) {
         clearProducaoCache()
+      }
+
+      // Se já tem dado em memória/localStorage, não deixa a página em branco.
+      // A chamada pesada só aparece como atualização discreta em segundo plano.
+      setLoading(!temAlgoNaTela || force)
+
+      if (encontrouCache && !force) {
+        setLoading(false)
+        return
       }
 
       if (tab === "dashboard") {
@@ -2518,6 +2661,16 @@ export function ProducaoPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function prefetchAbasProducao() {
+    if (!cacheVersion) return
+
+    await Promise.allSettled([
+      loadDashboard(false),
+      loadAcompanhamento(false),
+      loadPerdas(false),
+    ])
   }
 
   useEffect(() => {
@@ -2553,18 +2706,10 @@ export function ProducaoPage() {
 
   useEffect(() => {
     if (!cacheVersion) return
-    if (tab !== "dashboard") return
 
     const id = window.setTimeout(() => {
-      void (async () => {
-        try {
-          await loadPerdas()
-          await loadAcompanhamento()
-        } catch {
-          // Prefetch é apenas aquecimento de cache; não deve quebrar a tela principal.
-        }
-      })()
-    }, 1500)
+      void prefetchAbasProducao()
+    }, 350)
 
     return () => window.clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
