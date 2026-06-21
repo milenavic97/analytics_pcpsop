@@ -488,6 +488,7 @@ export type OverviewFiltros = {
   grupo?: string
   mercado?: string
   status_portfolio?: string
+  cache_version?: string
 }
 
 export type OverviewPeriodo = {
@@ -1936,7 +1937,7 @@ export function prefetchAppData(options?: { initialDelayMs?: number }) {
   appPrefetchStarted = true
 
   let cancelled = false
-  const initialDelayMs = options?.initialDelayMs ?? 5000
+  const initialDelayMs = options?.initialDelayMs ?? 20000
 
   const timer = window.setTimeout(() => {
     void (async () => {
@@ -1945,63 +1946,27 @@ export function prefetchAppData(options?: { initialDelayMs?: number }) {
       const hoje = new Date()
       const ano = hoje.getFullYear()
       const mes = hoje.getMonth() + 1
-      const mesRefAtual = `${ano}-${String(mes).padStart(2, "0")}`
 
-      // 1) Overview e indicadores principais.
-      // Se a usuária já abriu a Overview, essas chamadas reaproveitam a mesma promise/cache.
+      // Prefetch bem conservador.
+      // Antes esta rotina disparava Overview, Ordens, Desvios, Produção, MRP e Faturamento em background.
+      // Em uma única máquina no Fly isso competia com a tela aberta e deixava tudo "carregando".
+      // Agora só aquecemos chamadas leves/essenciais da Overview, com atraso maior.
       await Promise.allSettled([
-        safePrefetch("overview/projecao-faturamento", () => getProjecaoFaturamento()),
-        safePrefetch("overview/projecao-liberacoes", () => getProjecaoLiberacoes()),
         safePrefetch("overview/orcado-faturamento", () => getOrcadoFaturamento()),
         safePrefetch("overview/orcado-liberacao", () => getOrcadoLiberacao()),
+        safePrefetch("overview/projecao-faturamento", () => getProjecaoFaturamento()),
+      ])
+
+      if (cancelled) return
+      await delay(2500)
+
+      await Promise.allSettled([
         safePrefetch("overview/estoque-mensal", () => getEstoqueMensal()),
         safePrefetch("overview/disponibilidade-mensal", () => getDisponibilidadeMensal({ mes, ano })),
-        safePrefetch("overview/rastreamento-lotes", () => getRastreamentoLotes({ mes, ano })),
-        safePrefetch("overview/sd3-realizado-mensal", () => getSd3RealizadoMensal(ano)),
       ])
 
-      if (cancelled) return
-      await delay(1200)
-
-      // 2) Ordens — busca os meses e pré-carrega o mês atual quando existir.
-      await safePrefetch("ops", async () => {
-        const resp = await getOpsMeses()
-        const meses = Array.isArray(resp?.meses) ? resp.meses : []
-        const mesRef = meses.includes(mesRefAtual) ? mesRefAtual : meses[meses.length - 1]
-
-        if (!mesRef) return
-
-        await Promise.allSettled([
-          getOpsViabilidadeComLeadtime(mesRef, 2),
-          getOpsResumo(mesRef),
-        ])
-      })
-
-      if (cancelled) return
-      await delay(1200)
-
-      // 3) Desvios — tela normalmente usada junto com Overview/Ordens.
-      await Promise.allSettled([
-        safePrefetch("desvios/resumo", () => getDesviosResumo()),
-        safePrefetch("desvios/eventos", () => getDesviosEventos()),
-        safePrefetch("desvios/snapshots", () => getDesviosSnapshots()),
-        safePrefetch("desvios/atual", () => getDesviosAtuais()),
-        safePrefetch(`desvios/historico-anual/${ano}`, () => getDesviosHistoricoAnual(ano)),
-      ])
-
-      if (cancelled) return
-      await delay(1200)
-
-      // 4) Produção/MPS/Faturamento — pré-carrega só os endpoints de resumo.
-      await Promise.allSettled([
-        safePrefetch("overview-producao/resumo", () => getOverviewProducaoResumo({ ano, mes, linha: "TODAS" })),
-        safePrefetch("producao/resumo", () => getProducaoResumoMensal(ano)),
-        safePrefetch("producao/mps-resumo", () => getMpsResumoMensal(ano)),
-        safePrefetch("producao/mps-comparativo", () => getMpsComparativoRealPlanejado(ano)),
-        safePrefetch("mrp/rodadas", () => getMrpRodadas()),
-        safePrefetch("analise-mrp/resumo", () => getAnaliseMrpResumo()),
-        safePrefetch("faturamento/resumo", () => getResumoFaturamento({ ano })),
-      ])
+      // Produção, MRP, Ordens, Desvios e Faturamento não entram mais no prefetch global.
+      // Essas páginas carregam sob demanda e mantêm cache próprio depois da primeira abertura.
     })()
   }, initialDelayMs)
 
