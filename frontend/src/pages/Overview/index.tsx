@@ -113,6 +113,17 @@ type OverviewPageSnapshot = {
   mtdCxLiberado: number
 }
 
+function isOverviewSnapshotCompleto(snapshot: OverviewPageSnapshot | null): snapshot is OverviewPageSnapshot {
+  return Boolean(
+    snapshot &&
+    snapshot.version &&
+    snapshot.orcadoLib &&
+    snapshot.orcadoFat &&
+    snapshot.projFat &&
+    snapshot.projLib
+  )
+}
+
 function readOverviewPageCache(): OverviewPageSnapshot | null {
   try {
     if (typeof window === "undefined") return null
@@ -128,6 +139,11 @@ function readOverviewPageCache(): OverviewPageSnapshot | null {
     }
 
     if (Date.now() - parsed.savedAt > OVERVIEW_PAGE_CACHE_TTL_MS) {
+      window.localStorage.removeItem(OVERVIEW_PAGE_CACHE_KEY)
+      return null
+    }
+
+    if (!isOverviewSnapshotCompleto(parsed)) {
       window.localStorage.removeItem(OVERVIEW_PAGE_CACHE_KEY)
       return null
     }
@@ -165,6 +181,8 @@ export function OverviewPage() {
   const [modalPrevistoHoje, setModalPrevistoHoje] = useState(false)
   const [atendimentoAberto, setAtendimentoAberto] = useState(false)
   const [carregarDetalhes, setCarregarDetalhes] = useState(Boolean(cacheInicial))
+  const [versaoCarregada, setVersaoCarregada] = useState<string | null>(cacheInicial?.version ?? null)
+  const [atualizandoAutomatico, setAtualizandoAutomatico] = useState(false)
 
   const [orcadoLib, setOrcadoLib]             = useState<{ total_caixas: number; total_tubetes: number } | null>(cacheInicial?.orcadoLib ?? null)
   const [orcadoFat, setOrcadoFat]             = useState<{ total_caixas: number } | null>(cacheInicial?.orcadoFat ?? null)
@@ -214,6 +232,7 @@ export function OverviewPage() {
 
     const ultima = resumo.ultima_atualizacao || payload.ultima_atualizacao || null
 
+    setVersaoCarregada(resumo.versao_base)
     setOrcadoLib(orcadoLibPayload)
     setOrcadoFat(orcadoFatPayload)
     setProjFat(projFatPayload)
@@ -244,9 +263,14 @@ export function OverviewPage() {
 
   useEffect(() => {
     let alive = true
+    let intervalId: number | null = null
 
-    async function carregarOverview() {
+    async function verificarEAtualizar(silencioso = false) {
       try {
+        if (silencioso) {
+          setAtualizandoAutomatico(true)
+        }
+
         const versao = await getOverviewResumoVersao()
 
         if (!alive) return
@@ -254,12 +278,17 @@ export function OverviewPage() {
         const ultima = versao.ultima_atualizacao || null
         setUltimaAtualizacao(ultima)
 
-        // Se já tem snapshot local da versão atual, mantém a tela instantânea.
-        // Não chama os endpoints pesados de novo ao voltar de Produção para Overview.
-        if (cacheInicial?.version === versao.versao_base) {
-          window.setTimeout(() => {
-            if (alive) setCarregarDetalhes(true)
-          }, 500)
+        // Se a versão do banco é a mesma que já está na tela,
+        // não refaz nenhuma chamada pesada.
+        if (
+          versaoCarregada === versao.versao_base &&
+          isOverviewSnapshotCompleto(readOverviewPageCache())
+        ) {
+          if (!carregarDetalhes) {
+            window.setTimeout(() => {
+              if (alive) setCarregarDetalhes(true)
+            }, 500)
+          }
           return
         }
 
@@ -269,20 +298,33 @@ export function OverviewPage() {
 
         aplicarResumo(resumo)
       } catch {
-        // Se falhar a checagem do backend, mantém o cache local visível.
-        if (alive) {
+        // Mantém os dados atuais/cache local visíveis se a checagem falhar.
+        if (alive && !carregarDetalhes) {
           window.setTimeout(() => setCarregarDetalhes(true), 700)
+        }
+      } finally {
+        if (alive) {
+          setAtualizandoAutomatico(false)
         }
       }
     }
 
-    void carregarOverview()
+    void verificarEAtualizar(false)
+
+    // Atualização automática entre PCs:
+    // a cada 60s consulta só /overview/resumo/versao, que é leve.
+    // Só busca /overview/resumo quando a versão da base mudou.
+    intervalId = window.setInterval(() => {
+      void verificarEAtualizar(true)
+    }, 60 * 1000)
 
     return () => {
       alive = false
+      if (intervalId) window.clearInterval(intervalId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [versaoCarregada])
+
 
 
   const pctFat = projFat?.pct_atingimento ?? 0
@@ -316,6 +358,12 @@ export function OverviewPage() {
             <span className="text-sm text-slate-500">
 {ultimaAtualizacao ? formatarDataHoraAtualizacao(ultimaAtualizacao) : "--"}
             </span>
+
+            {atualizandoAutomatico && (
+              <span className="ml-2 text-xs font-semibold text-blue-500">
+                verificando atualização...
+              </span>
+            )}
           </div>
         </div>
       </div>
