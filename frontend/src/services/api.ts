@@ -2138,3 +2138,59 @@ export async function recalcularFaturamentoCache(filtros?: { ano?: number; bloco
   )
 }
 
+// ─────────────────────────────────────────────────────────────
+// Ordens / OPs cache
+// ─────────────────────────────────────────────────────────────
+
+export type OpsCacheResponse<TPayload = unknown> = {
+  chave: string
+  mes_ref: string
+  leadtime_compra_dias: number
+  versao_base: string
+  from_cache?: boolean
+  atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  payload: TPayload
+}
+
+export type OpsCacheVersaoResponse = {
+  chave: string
+  mes_ref: string
+  leadtime_compra_dias: number
+  versao_base: string
+  cache_disponivel: boolean
+  cache_versao?: string | null
+  cache_atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  bases?: Record<string, string | null>
+}
+
+function buildOpsCacheQuery(filtros: { mes_ref: string; leadtime_compra_dias?: number; force?: boolean }) {
+  const params = new URLSearchParams()
+  params.set("mes_ref", filtros.mes_ref)
+  params.set("leadtime_compra_dias", String(filtros.leadtime_compra_dias ?? 2))
+  if (filtros.force) params.set("force", "true")
+  return `?${params.toString()}`
+}
+
+export async function getOpsCacheVersao(filtros: { mes_ref: string; leadtime_compra_dias?: number }) {
+  return apiFetchNoCache<OpsCacheVersaoResponse>(
+    `/ops/cache/versao${buildOpsCacheQuery(filtros)}`
+  )
+}
+
+export async function getOpsCache<TPayload = unknown>(
+  filtros: { mes_ref: string; leadtime_compra_dias?: number; force?: boolean }
+) {
+  return apiFetch<OpsCacheResponse<TPayload>>(
+    `/ops/cache${buildOpsCacheQuery(filtros)}`
+  )
+}
+
+export async function recalcularOpsCache(filtros: { mes_ref: string; leadtime_compra_dias?: number }) {
+  return apiFetchNoCache<OpsCacheResponse>(
+    `/ops/cache/recalcular${buildOpsCacheQuery(filtros)}`,
+    { method: "POST" }
+  )
+}
+
