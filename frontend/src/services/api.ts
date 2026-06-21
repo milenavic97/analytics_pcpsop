@@ -2076,3 +2076,65 @@ export async function recalcularOverviewResumo() {
   })
 }
 
+// ─────────────────────────────────────────────────────────────
+// Faturamento cache
+// ─────────────────────────────────────────────────────────────
+
+export type FaturamentoCacheResponse<TPayload = unknown> = {
+  chave: string
+  ano: number
+  bloco: string
+  produto?: string | null
+  versao_base: string
+  from_cache?: boolean
+  atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  payload: TPayload
+}
+
+export type FaturamentoCacheVersaoResponse = {
+  chave: string
+  ano: number
+  bloco: string
+  produto?: string | null
+  versao_base: string
+  cache_disponivel: boolean
+  cache_versao?: string | null
+  cache_atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  bases?: Record<string, string | null>
+}
+
+function buildFaturamentoQuery(filtros?: { ano?: number; bloco?: string; produto?: string; force?: boolean }) {
+  const params = new URLSearchParams()
+
+  if (filtros?.ano) params.set("ano", String(filtros.ano))
+  if (filtros?.bloco) params.set("bloco", filtros.bloco)
+  if (filtros?.produto) params.set("produto", filtros.produto)
+  if (filtros?.force) params.set("force", "true")
+
+  const query = params.toString()
+  return query ? `?${query}` : ""
+}
+
+export async function getFaturamentoCacheVersao(filtros?: { ano?: number; bloco?: string; produto?: string }) {
+  return apiFetchNoCache<FaturamentoCacheVersaoResponse>(
+    `/faturamento/cache/versao${buildFaturamentoQuery(filtros)}`
+  )
+}
+
+export async function getFaturamentoCache<TPayload = unknown>(
+  filtros?: { ano?: number; bloco?: string; produto?: string; force?: boolean }
+) {
+  return apiFetch<FaturamentoCacheResponse<TPayload>>(
+    `/faturamento/cache${buildFaturamentoQuery(filtros)}`
+  )
+}
+
+export async function recalcularFaturamentoCache(filtros?: { ano?: number; bloco?: string; produto?: string }) {
+  return apiFetchNoCache<FaturamentoCacheResponse>(
+    `/faturamento/cache/recalcular${buildFaturamentoQuery(filtros)}`,
+    { method: "POST" }
+  )
+}
+
