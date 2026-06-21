@@ -3053,6 +3053,31 @@ export function OrdensPage() {
     setAtualizacoesBases(Object.fromEntries(pares) as Partial<Record<BaseOperacionalOrdensId, string | null>>)
   }
 
+  const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
+  async function aguardarCacheOrdensEAtualizar(mesRef: string) {
+    // O upload responde rápido e o backend recalcula os snapshots em segundo plano.
+    // Aqui esperamos o cache novo ficar disponível antes de recarregar a tela,
+    // sem chamar /ops/cache?force=true e travar o usuário novamente.
+    for (let tentativa = 0; tentativa < 24; tentativa += 1) {
+      await delay(tentativa === 0 ? 4000 : 5000)
+
+      try {
+        const versao = await getOpsCacheVersao(mesRef, leadtimeCompraDias)
+
+        if (versao.cache_disponivel) {
+          await buscar(mesRef, false)
+          mostrarToast("success", "Ordens atualizada com a nova base.")
+          return
+        }
+      } catch {
+        // Mantém a tela atual. A próxima tentativa tenta de novo.
+      }
+    }
+
+    mostrarToast("info", "Base enviada. O cache ainda está recalculando; a tela vai atualizar ao entrar novamente ou pelo botão Atualizar.")
+  }
+
   async function handleUploadBaseOperacional(baseId: BaseOperacionalOrdensId, arquivoSelecionado?: File) {
     const arquivoBase = arquivoSelecionado || arquivosBases[baseId]
 
@@ -3090,12 +3115,24 @@ export function OrdensPage() {
 
       await carregarAtualizacoesBases()
 
+      const base = BASES_OPERACIONAIS_ORDENS.find(b => b.id === baseId)
+      const cacheAgendado = Array.isArray((resp as { cache_agendado?: unknown[] }).cache_agendado)
+        ? (resp as { cache_agendado?: unknown[] }).cache_agendado || []
+        : []
+
       if (mesParaBuscar) {
-        await buscar(mesParaBuscar, true)
+        if (cacheAgendado.length > 0) {
+          void aguardarCacheOrdensEAtualizar(mesParaBuscar)
+        } else {
+          await buscar(mesParaBuscar, false)
+        }
       }
 
-      const base = BASES_OPERACIONAIS_ORDENS.find(b => b.id === baseId)
-      mostrarToast("success", `${base?.titulo || "Base"} atualizada com sucesso (${resp.total_inserido ?? 0} registros).`)
+      const complementoCache = cacheAgendado.length > 0
+        ? " Caches recalculando em segundo plano."
+        : ""
+
+      mostrarToast("success", `${base?.titulo || "Base"} atualizada com sucesso (${resp.total_inserido ?? 0} registros).${complementoCache}`)
     } catch (e: unknown) {
       mostrarToast("error", e instanceof Error ? e.message : "Erro ao subir arquivo.")
     } finally {
