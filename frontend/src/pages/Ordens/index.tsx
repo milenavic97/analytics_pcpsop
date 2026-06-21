@@ -3102,6 +3102,7 @@ export function OrdensPage() {
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null)
   const [arquivosBases, setArquivosBases] = useState<Partial<Record<BaseOperacionalOrdensId, File | null>>>({})
   const [uploadingBase, setUploadingBase] = useState<BaseOperacionalOrdensId | null>(null)
+  const [programacaoPendente, setProgramacaoPendente] = useState(false)
   const [atualizacoesBases, setAtualizacoesBases] = useState<Partial<Record<BaseOperacionalOrdensId, string | null>>>({})
   const [modalBasesAberto, setModalBasesAberto] = useState(false)
   const [confirmarExclusaoMes, setConfirmarExclusaoMes] = useState<string | null>(null)
@@ -3212,12 +3213,14 @@ export function OrdensPage() {
             void aguardarCacheOrdensEAtualizar(mesParaBuscar)
           }
 
+          setProgramacaoPendente(false)
           mostrarToast("success", `Programação processada com sucesso (${status.total_registros ?? 0} registros).`)
           return
         }
 
         if (status.status === "erro") {
           const erros = Array.isArray(status.erros) ? status.erros.filter(Boolean) : []
+          setProgramacaoPendente(false)
           mostrarToast("error", erros.slice(0, 2).join(" | ") || "Erro ao processar programação.")
           return
         }
@@ -3226,6 +3229,7 @@ export function OrdensPage() {
       }
     }
 
+    setProgramacaoPendente(false)
     mostrarToast("info", "Programação ainda está processando. Você pode continuar usando a ferramenta e atualizar em alguns instantes.")
   }
 
@@ -3240,6 +3244,68 @@ export function OrdensPage() {
     setUploadingBase(baseId)
     setErro("")
 
+    if (baseId === "programacao_ops") {
+      setProgramacaoPendente(true)
+
+      let respondeu = false
+
+      const liberarBotaoSeDemorar = window.setTimeout(() => {
+        if (!respondeu) {
+          setUploadingBase(null)
+          mostrarToast(
+            "info",
+            "Programação enviada. O processamento vai continuar em segundo plano."
+          )
+        }
+      }, 1800)
+
+      try {
+        const resp = await uploadBase(baseId, arquivoBase)
+        respondeu = true
+        window.clearTimeout(liberarBotaoSeDemorar)
+
+        const erros = Array.isArray(resp.erros) ? resp.erros.filter(Boolean) : []
+
+        if (erros.length > 0) {
+          setProgramacaoPendente(false)
+          mostrarToast("error", erros.slice(0, 2).join(" | "))
+          return
+        }
+
+        setArquivosBases(prev => ({ ...prev, [baseId]: null }))
+
+        if (Boolean((resp as { processamento_assincrono?: boolean }).processamento_assincrono)) {
+          setUploadingBase(null)
+          void acompanharProgramacaoAssincrona(mesSel)
+          return
+        }
+
+        setProgramacaoPendente(false)
+        limparCacheOrdensLocal()
+
+        const resMeses = await getOpsMeses().catch(() => null)
+        if (resMeses?.meses?.length) {
+          setMeses(resMeses.meses)
+          salvarCacheMesesOrdens(resMeses.meses)
+          const mesNovo = resMeses.meses[0]
+          setMesSel(mesNovo)
+          await buscar(mesNovo, false)
+        }
+
+        await carregarAtualizacoesBases()
+        mostrarToast("success", `Programação atualizada com sucesso (${resp.total_inserido ?? 0} registros).`)
+      } catch (e: unknown) {
+        respondeu = true
+        window.clearTimeout(liberarBotaoSeDemorar)
+        setProgramacaoPendente(false)
+        mostrarToast("error", e instanceof Error ? e.message : "Erro ao subir arquivo.")
+      } finally {
+        setUploadingBase(null)
+      }
+
+      return
+    }
+
     try {
       const resp = await uploadBase(baseId, arquivoBase)
       const erros = Array.isArray(resp.erros) ? resp.erros.filter(Boolean) : []
@@ -3250,15 +3316,6 @@ export function OrdensPage() {
       }
 
       setArquivosBases(prev => ({ ...prev, [baseId]: null }))
-
-      if (
-        baseId === "programacao_ops" &&
-        Boolean((resp as { processamento_assincrono?: boolean }).processamento_assincrono)
-      ) {
-        void acompanharProgramacaoAssincrona(mesSel)
-        return
-      }
-
       limparCacheOrdensLocal()
 
       const resMeses = await getOpsMeses().catch(() => null)
@@ -3267,11 +3324,6 @@ export function OrdensPage() {
       if (resMeses?.meses?.length) {
         setMeses(resMeses.meses)
         salvarCacheMesesOrdens(resMeses.meses)
-
-        if (baseId === "programacao_ops") {
-          mesParaBuscar = resMeses.meses[0]
-          setMesSel(mesParaBuscar)
-        }
       }
 
       await carregarAtualizacoesBases()
@@ -3295,12 +3347,7 @@ export function OrdensPage() {
 
       mostrarToast("success", `${base?.titulo || "Base"} atualizada com sucesso (${resp.total_inserido ?? 0} registros).${complementoCache}`)
     } catch (e: unknown) {
-      const mensagem =
-        e instanceof Error
-          ? e.message
-          : "Erro ao subir arquivo."
-
-      mostrarToast("error", mensagem)
+      mostrarToast("error", e instanceof Error ? e.message : "Erro ao subir arquivo.")
     } finally {
       setUploadingBase(null)
     }
@@ -3946,6 +3993,8 @@ export function OrdensPage() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
                 {BASES_OPERACIONAIS_ORDENS.map((base) => {
                   const enviando = uploadingBase === base.id
+                  const programacaoProcessando = base.id === "programacao_ops" && programacaoPendente
+                  const bloqueadoPorUpload = uploadingBase !== null || programacaoPendente
                   const atualizadoEm = fmtDataHora(atualizacoesBases[base.id] || null)
                   const inputId = `upload-ordens-${base.id}`
 
@@ -4012,7 +4061,7 @@ export function OrdensPage() {
                           type="file"
                           className="hidden"
                           accept={base.accept}
-                          disabled={uploadingBase !== null}
+                          disabled={bloqueadoPorUpload}
                           onChange={(e) => {
                             const file = e.target.files?.[0]
                             e.target.value = ""
@@ -4021,11 +4070,11 @@ export function OrdensPage() {
                         />
                         <label
                           htmlFor={inputId}
-                          className={`inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white transition ${uploadingBase !== null ? "pointer-events-none opacity-60" : "hover:brightness-95"}`}
+                          className={`inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white transition ${bloqueadoPorUpload ? "pointer-events-none opacity-60" : "hover:brightness-95"}`}
                           style={{ background: "#163B63" }}
                         >
                           {enviando ? <RefreshCw size={16} className="animate-spin" /> : <UploadCloud size={16} />}
-                          {enviando ? "Carregando..." : "Subir arquivo"}
+                          {programacaoProcessando ? "Processando..." : enviando ? "Enviando..." : "Subir arquivo"}
                         </label>
                       </div>
                     </div>
