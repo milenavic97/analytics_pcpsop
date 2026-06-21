@@ -108,6 +108,7 @@ type OverviewPageSnapshot = {
   previstoHoje: number
   realMtd: number
   detalhePrevistoHoje: PrevistoHojeItem[]
+  disponibilidadeMensal?: DisponibilidadePayload | null
   ultimaAtualizacao: string | null
   mtdCxPrevisto: number
   mtdCxLiberado: number
@@ -192,6 +193,7 @@ export function OverviewPage() {
   const [previstoHoje, setPrevistoHoje]       = useState(cacheInicial?.previstoHoje ?? 0)
   const [realMtd, setRealMtd]                 = useState(cacheInicial?.realMtd ?? 0)
   const [detalhePrevistoHoje, setDetalhePrevistoHoje] = useState<PrevistoHojeItem[]>(cacheInicial?.detalhePrevistoHoje ?? [])
+  const [disponibilidadeMensal, setDisponibilidadeMensal] = useState<DisponibilidadePayload | null>((cacheInicial as any)?.disponibilidadeMensal ?? null)
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(cacheInicial?.ultimaAtualizacao ?? null)
   const [mtdCxPrevisto, setMtdCxPrevisto] = useState<number>(cacheInicial?.mtdCxPrevisto ?? 0)
   const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(cacheInicial?.mtdCxLiberado ?? 0)
@@ -212,6 +214,8 @@ export function OverviewPage() {
     let novoRealMtd = 0
     let novoPrevistoHoje = 0
     let novoDetalhePrevistoHoje: PrevistoHojeItem[] = []
+
+    setDisponibilidadeMensal(disponibilidadePayload)
 
     if (disponibilidadePayload) {
       const mesAtual = disponibilidadePayload.meses?.find((m) => Number(m.mes) === Number(disponibilidadePayload.mes_atual))
@@ -253,12 +257,13 @@ export function OverviewPage() {
       previstoHoje: novoPrevistoHoje,
       realMtd: novoRealMtd,
       detalhePrevistoHoje: novoDetalhePrevistoHoje,
+      disponibilidadeMensal: disponibilidadePayload,
       ultimaAtualizacao: ultima,
       mtdCxPrevisto,
       mtdCxLiberado,
     })
 
-    window.setTimeout(() => setCarregarDetalhes(true), 700)
+    window.setTimeout(() => setCarregarDetalhes(true), 150)
   }
 
   useEffect(() => {
@@ -300,7 +305,7 @@ export function OverviewPage() {
       } catch {
         // Mantém os dados atuais/cache local visíveis se a checagem falhar.
         if (alive && !carregarDetalhes) {
-          window.setTimeout(() => setCarregarDetalhes(true), 700)
+          window.setTimeout(() => setCarregarDetalhes(true), 150)
         }
       } finally {
         if (alive) {
@@ -423,7 +428,7 @@ export function OverviewPage() {
         <div className="overflow-x-auto rounded-2xl">
           <div className="min-w-[860px] md:min-w-0">
             {carregarDetalhes ? (
-              <DemandaDisponibilidadeChart />
+              <DemandaDisponibilidadeChart initialData={disponibilidadeMensal} />
             ) : (
               <div className="flex h-[260px] items-center justify-center text-sm font-medium text-slate-400">
                 Preparando gráfico...
