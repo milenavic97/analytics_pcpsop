@@ -3153,6 +3153,74 @@ export function OrdensPage() {
     mostrarToast("info", "Base enviada. O cache ainda está recalculando; a tela vai atualizar ao entrar novamente ou pelo botão Atualizar.")
   }
 
+  async function buscarStatusUploadBaseOperacional(baseId: BaseOperacionalOrdensId) {
+    const res = await fetch(`${API_URL_ORDENS}/upload/status/${baseId}?_ts=${Date.now()}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+      },
+    })
+
+    const payload = await res.json().catch(() => ({ status: "erro", erros: [res.statusText] }))
+
+    if (!res.ok) {
+      throw new Error((payload as { detail?: string }).detail || "Erro ao consultar status do upload.")
+    }
+
+    return payload as {
+      status?: string
+      total_registros?: number
+      erros?: string[] | null
+      processado_em?: string | null
+    }
+  }
+
+  async function acompanharProgramacaoAssincrona(mesAtual: string) {
+    mostrarToast("info", "Programação recebida. Processando em segundo plano...")
+
+    for (let tentativa = 0; tentativa < 72; tentativa += 1) {
+      await delay(tentativa === 0 ? 4000 : 5000)
+
+      try {
+        const status = await buscarStatusUploadBaseOperacional("programacao_ops")
+
+        if (status.status === "sucesso") {
+          await carregarAtualizacoesBases()
+
+          const resMeses = await getOpsMeses().catch(() => null)
+          let mesParaBuscar = mesAtual
+
+          if (resMeses?.meses?.length) {
+            setMeses(resMeses.meses)
+            salvarCacheMesesOrdens(resMeses.meses)
+            mesParaBuscar = resMeses.meses[0]
+            setMesSel(mesParaBuscar)
+          }
+
+          if (mesParaBuscar) {
+            void aguardarCacheOrdensEAtualizar(mesParaBuscar)
+          }
+
+          mostrarToast("success", `Programação processada com sucesso (${status.total_registros ?? 0} registros).`)
+          return
+        }
+
+        if (status.status === "erro") {
+          const erros = Array.isArray(status.erros) ? status.erros.filter(Boolean) : []
+          mostrarToast("error", erros.slice(0, 2).join(" | ") || "Erro ao processar programação.")
+          return
+        }
+      } catch {
+        // Tenta novamente até o limite.
+      }
+    }
+
+    mostrarToast("info", "Programação ainda está processando. Você pode continuar usando a ferramenta e atualizar em alguns instantes.")
+  }
+
   async function handleUploadBaseOperacional(baseId: BaseOperacionalOrdensId, arquivoSelecionado?: File) {
     const arquivoBase = arquivoSelecionado || arquivosBases[baseId]
 
@@ -3166,7 +3234,6 @@ export function OrdensPage() {
 
     try {
       const resp = await uploadBase(baseId, arquivoBase)
-      limparCacheOrdensLocal()
       const erros = Array.isArray(resp.erros) ? resp.erros.filter(Boolean) : []
 
       if (erros.length > 0) {
@@ -3175,6 +3242,16 @@ export function OrdensPage() {
       }
 
       setArquivosBases(prev => ({ ...prev, [baseId]: null }))
+
+      if (
+        baseId === "programacao_ops" &&
+        Boolean((resp as { processamento_assincrono?: boolean }).processamento_assincrono)
+      ) {
+        void acompanharProgramacaoAssincrona(mesSel)
+        return
+      }
+
+      limparCacheOrdensLocal()
 
       const resMeses = await getOpsMeses().catch(() => null)
       let mesParaBuscar = mesSel
@@ -3592,13 +3669,23 @@ export function OrdensPage() {
         <div
           className="fixed right-5 top-5 z-[9999] flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-2xl backdrop-blur-md"
           style={{
-            background: toast.type === "success" ? "rgba(22,163,74,0.96)" : "rgba(220,38,38,0.96)",
-            borderColor: toast.type === "success" ? "rgba(187,247,208,0.5)" : "rgba(254,202,202,0.5)",
+            background:
+              toast.type === "success"
+                ? "rgba(22,163,74,0.96)"
+                : toast.type === "info"
+                  ? "rgba(30,64,175,0.96)"
+                  : "rgba(220,38,38,0.96)",
+            borderColor:
+              toast.type === "success"
+                ? "rgba(187,247,208,0.5)"
+                : toast.type === "info"
+                  ? "rgba(191,219,254,0.5)"
+                  : "rgba(254,202,202,0.5)",
             color: "#fff",
           }}
         >
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
-            {toast.type === "success" ? "✓" : "!"}
+            {toast.type === "success" ? "✓" : toast.type === "info" ? "i" : "!"}
           </span>
           <span>{toast.message}</span>
         </div>
