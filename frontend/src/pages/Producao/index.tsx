@@ -355,7 +355,124 @@ function linhaLabel(linha: LinhaFiltro) {
   return "Todas as linhas"
 }
 
-async function apiGet<T>(path: string, params: Record<string, string | number | undefined | null> = {}) {
+const PRODUCAO_CACHE_TTL_MS = 15 * 60 * 1000
+const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v1:"
+
+type ProducaoCacheEntry<T = unknown> = {
+  timestamp: number
+  data?: T
+  promise?: Promise<T>
+}
+
+const producaoCache = new Map<string, ProducaoCacheEntry>()
+
+function getProducaoStorage() {
+  try {
+    if (typeof window === "undefined") return null
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+function readProducaoCache<T>(key: string): T | null {
+  const memory = producaoCache.get(key) as ProducaoCacheEntry<T> | undefined
+
+  if (memory?.data !== undefined && Date.now() - memory.timestamp < PRODUCAO_CACHE_TTL_MS) {
+    return memory.data
+  }
+
+  const storage = getProducaoStorage()
+  if (!storage) return null
+
+  try {
+    const raw = storage.getItem(`${PRODUCAO_STORAGE_PREFIX}${key}`)
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as { timestamp: number; data: T }
+
+    if (!parsed || typeof parsed.timestamp !== "number" || Date.now() - parsed.timestamp > PRODUCAO_CACHE_TTL_MS) {
+      storage.removeItem(`${PRODUCAO_STORAGE_PREFIX}${key}`)
+      return null
+    }
+
+    producaoCache.set(key, { timestamp: parsed.timestamp, data: parsed.data })
+    return parsed.data
+  } catch {
+    storage.removeItem(`${PRODUCAO_STORAGE_PREFIX}${key}`)
+    return null
+  }
+}
+
+function writeProducaoCache<T>(key: string, data: T) {
+  const timestamp = Date.now()
+  producaoCache.set(key, { timestamp, data })
+
+  const storage = getProducaoStorage()
+  if (!storage) return
+
+  try {
+    storage.setItem(`${PRODUCAO_STORAGE_PREFIX}${key}`, JSON.stringify({ timestamp, data }))
+  } catch {
+    // Mantém somente em memória quando o navegador bloquear localStorage.
+  }
+}
+
+function clearProducaoCache() {
+  producaoCache.clear()
+
+  const storage = getProducaoStorage()
+  if (!storage) return
+
+  try {
+    const keys: string[] = []
+
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i)
+      if (key?.startsWith(PRODUCAO_STORAGE_PREFIX)) keys.push(key)
+    }
+
+    keys.forEach((key) => storage.removeItem(key))
+  } catch {
+    // Não bloqueia a tela se o storage falhar.
+  }
+}
+
+async function buscarVersaoProducao() {
+  const bases = ["apontamentos", "programacao_ops", "mps"]
+
+  const versoes = await Promise.all(
+    bases.map(async (baseId) => {
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/upload/ultima-atualizacao/${baseId}?_t=${Date.now()}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+              Pragma: "no-cache",
+            },
+          },
+        )
+
+        if (!response.ok) return `${baseId}:sem-status`
+        const payload = (await response.json()) as { ultima_atualizacao?: string | null }
+        return `${baseId}:${payload?.ultima_atualizacao || "sem-atualizacao"}`
+      } catch {
+        return `${baseId}:sem-status`
+      }
+    }),
+  )
+
+  return versoes.join("|")
+}
+
+async function apiGet<T>(
+  path: string,
+  params: Record<string, string | number | undefined | null> = {},
+  options?: { force?: boolean },
+) {
   const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)
 
   Object.entries(params).forEach(([key, value]) => {
@@ -364,32 +481,48 @@ async function apiGet<T>(path: string, params: Record<string, string | number | 
     }
   })
 
-  url.searchParams.set("t", String(Date.now()))
+  const cacheKey = url.toString()
 
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-    },
-  })
+  if (!options?.force) {
+    const cached = readProducaoCache<T>(cacheKey)
+    if (cached) return cached
 
-  if (!response.ok) {
-    let detail = "Erro ao carregar dados de produção."
-    try {
-      const json = await response.json()
-      detail = json?.detail || detail
-    } catch {
-      // mantém mensagem padrão
-    }
-    throw new Error(detail)
+    const pending = producaoCache.get(cacheKey)?.promise as Promise<T> | undefined
+    if (pending) return pending
   }
 
-  return response.json() as Promise<T>
+  const requestPromise = (async () => {
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      cache: "default",
+    })
+
+    if (!response.ok) {
+      let detail = "Erro ao carregar dados de produção."
+      try {
+        const payload = await response.json()
+        detail = payload?.detail || detail
+      } catch {
+        // mantém mensagem padrão
+      }
+
+      throw new Error(detail)
+    }
+
+    const json = (await response.json()) as T
+    writeProducaoCache(cacheKey, json)
+    return json
+  })()
+
+  producaoCache.set(cacheKey, { timestamp: Date.now(), promise: requestPromise })
+
+  requestPromise.catch(() => {
+    producaoCache.delete(cacheKey)
+  })
+
+  return requestPromise
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   const filtered = payload.filter((item: any) => Number(item.value || 0) !== 0)
@@ -2318,42 +2451,66 @@ export function ProducaoPage() {
   const [perdas, setPerdas] = useState<PerdasResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState("")
+  const [cacheVersion, setCacheVersion] = useState<string | null>(null)
 
-  async function loadDashboard() {
-    const json = await apiGet<DashboardResponse>("/producao/dashboard", { ano, mes, linha })
+  async function loadDashboard(force = false) {
+    if (!cacheVersion) return
+    const json = await apiGet<DashboardResponse>(
+      "/producao/dashboard",
+      { ano, mes, linha, cache_version: cacheVersion },
+      { force },
+    )
     setDashboard(json)
   }
 
-  async function loadAcompanhamento() {
-    const json = await apiGet<AcompanhamentoResponse>("/producao/acompanhamento", {
-      ano,
-      mes,
-      linha,
-      busca,
-    })
+  async function loadAcompanhamento(force = false) {
+    if (!cacheVersion) return
+    const json = await apiGet<AcompanhamentoResponse>(
+      "/producao/acompanhamento",
+      {
+        ano,
+        mes,
+        linha,
+        busca,
+        cache_version: cacheVersion,
+      },
+      { force },
+    )
     setAcompanhamento(json)
   }
 
-  async function loadPerdas() {
-    const json = await apiGet<PerdasResponse>("/producao/perdas", {
-      ano,
-      mes_final: mes,
-      linha,
-    })
+  async function loadPerdas(force = false) {
+    if (!cacheVersion) return
+    const json = await apiGet<PerdasResponse>(
+      "/producao/perdas",
+      {
+        ano,
+        mes_final: mes,
+        linha,
+        cache_version: cacheVersion,
+      },
+      { force },
+    )
     setPerdas(json)
   }
 
-  async function loadData() {
+  async function loadData(force = false) {
+    if (!cacheVersion) return
+
     try {
       setLoading(true)
       setErro("")
 
+      if (force) {
+        clearProducaoCache()
+      }
+
       if (tab === "dashboard") {
-        await loadDashboard()
+        await loadDashboard(force)
       } else if (tab === "acompanhamento") {
-        await loadAcompanhamento()
+        await loadAcompanhamento(force)
       } else {
-        await loadPerdas()
+        await loadPerdas(force)
       }
     } catch (err) {
       console.error(err)
@@ -2364,9 +2521,54 @@ export function ProducaoPage() {
   }
 
   useEffect(() => {
+    let alive = true
+
+    async function loadVersao() {
+      const versao = await buscarVersaoProducao()
+      if (!alive) return
+
+      setCacheVersion((atual) => {
+        if (atual && atual !== versao) {
+          clearProducaoCache()
+        }
+        return versao
+      })
+    }
+
+    void loadVersao()
+    const id = window.setInterval(() => {
+      void loadVersao()
+    }, 60_000)
+
+    return () => {
+      alive = false
+      window.clearInterval(id)
+    }
+  }, [])
+
+  useEffect(() => {
     void loadData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, ano, mes, linha])
+  }, [tab, ano, mes, linha, cacheVersion])
+
+  useEffect(() => {
+    if (!cacheVersion) return
+    if (tab !== "dashboard") return
+
+    const id = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await loadPerdas()
+          await loadAcompanhamento()
+        } catch {
+          // Prefetch é apenas aquecimento de cache; não deve quebrar a tela principal.
+        }
+      })()
+    }, 1500)
+
+    return () => window.clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheVersion, ano, mes, linha])
 
   useEffect(() => {
     if (tab !== "acompanhamento") return
@@ -2374,6 +2576,10 @@ export function ProducaoPage() {
       void loadData()
     }, 350)
     return () => window.clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busca])
+
+  return () => window.clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca])
 
@@ -2388,7 +2594,7 @@ export function ProducaoPage() {
         onMesChange={setMes}
         onAnoChange={setAno}
         onLinhaChange={setLinha}
-        onRefresh={() => void loadData()}
+        onRefresh={() => void loadData(true)}
         loading={loading}
       />
 
