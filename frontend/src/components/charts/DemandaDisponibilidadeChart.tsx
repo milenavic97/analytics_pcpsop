@@ -346,9 +346,9 @@ function LegendItem({ color, label, hidden, line = false, dashed = false, onClic
   )
 }
 
-export function DemandaDisponibilidadeChart() {
-  const [data, setData] = useState<DisponibilidadeResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+export function DemandaDisponibilidadeChart({ initialData }: { initialData?: DisponibilidadeResponse | null } = {}) {
+  const [data, setData] = useState<DisponibilidadeResponse | null>(initialData ?? null)
+  const [loading, setLoading] = useState(!initialData)
   const [error, setError] = useState<string | null>(null)
   const [separarEntradasPorLinha, setSepararEntradasPorLinha] = useState(false)
   const [hidden, setHidden] = useState<Record<LegendKey, boolean>>({
@@ -368,6 +368,14 @@ export function DemandaDisponibilidadeChart() {
 
   useEffect(() => {
     let mounted = true
+
+    if (initialData?.meses?.length) {
+      setData(initialData)
+      setError(null)
+      setLoading(false)
+      return () => { mounted = false }
+    }
+
     getDisponibilidadeMensal()
       .then((response: unknown) => {
         if (!mounted) return
@@ -380,7 +388,7 @@ export function DemandaDisponibilidadeChart() {
       })
       .finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
-  }, [])
+  }, [initialData])
 
   const chartData = useMemo(() => toChartData(data), [data])
 
