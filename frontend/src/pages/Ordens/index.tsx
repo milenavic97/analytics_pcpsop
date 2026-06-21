@@ -1109,7 +1109,7 @@ function aplicarSimulacaoComprasNaOP(
   }
 }
 
-const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v61"
+const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v65"
 const ORDENS_VIABILIDADE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 const ORDENS_MESES_CACHE_KEY = "pcp_ordens_meses_cache_v64"
@@ -1166,9 +1166,10 @@ type OpsCacheResponse = {
   leadtime_compra_dias: number
   versao_base: string
   from_cache?: boolean
+  is_light?: boolean
   atualizado_em?: string | null
   ultima_atualizacao?: string | null
-  payload: ResumoViabilidade
+  payload: ResumoViabilidade & { _cache_light?: boolean }
 }
 
 type OpsCacheVersaoResponse = {
@@ -1337,7 +1338,8 @@ async function getOpsCacheVersao(
 async function getOpsCache(
   mesRef: string,
   leadtimeCompraDias: number,
-  forceRefresh = false
+  forceRefresh = false,
+  light = true
 ): Promise<OpsCacheResponse> {
   const query = buildOpsCacheParams(
     mesRef,
@@ -1345,7 +1347,9 @@ async function getOpsCache(
     forceRefresh ? { force: "true", _ts: String(Date.now()) } : undefined
   )
 
-  const res = await fetch(`${API_URL_ORDENS}/ops/cache?${query.toString()}`, {
+  const endpoint = light ? "cache-light" : "cache"
+
+  const res = await fetch(`${API_URL_ORDENS}/ops/${endpoint}?${query.toString()}`, {
     method: "GET",
     cache: forceRefresh ? "no-store" : "default",
     headers: forceRefresh
@@ -1369,6 +1373,13 @@ async function getOpsCache(
   }
 
   return payload as OpsCacheResponse
+}
+
+async function getOpsCacheCompleto(
+  mesRef: string,
+  leadtimeCompraDias: number
+): Promise<OpsCacheResponse> {
+  return getOpsCache(mesRef, leadtimeCompraDias, false, false)
 }
 
 async function getOpsViabilidadeComLeadtime(
@@ -1402,11 +1413,33 @@ async function getOpsViabilidadeComLeadtime(
     limparCacheOrdensLocal()
   }
 
-  const response = await getOpsCache(mesRef, leadtime, forceRefresh)
+  const response = await getOpsCache(mesRef, leadtime, forceRefresh, !forceRefresh)
   const resumo = response.payload
   salvarCacheOrdensViabilidade(mesRef, leadtime, resumo, response.versao_base)
 
   return resumo
+}
+
+async function hidratarOpsComCacheCompleto(
+  mesRef: string,
+  leadtimeCompraDias: number,
+  aplicar: (res: ResumoViabilidade) => Promise<void>
+) {
+  try {
+    const response = await getOpsCacheCompleto(mesRef, leadtimeCompraDias)
+    const resumoCompleto = response.payload
+
+    salvarCacheOrdensViabilidade(
+      mesRef,
+      leadtimeCompraDias,
+      resumoCompleto,
+      response.versao_base
+    )
+
+    await aplicar(resumoCompleto)
+  } catch {
+    // Se a hidratação completa falhar, mantém a lista leve já renderizada.
+  }
 }
 
 // ─── Hook: resize de coluna ───────────────────────────────────────────────────
@@ -3336,6 +3369,10 @@ export function OrdensPage() {
     try {
       const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias, forceRefresh)
       await aplicarResumoOps(res)
+
+      if ((res as { _cache_light?: boolean })._cache_light) {
+        void hidratarOpsComCacheCompleto(mesBusca, leadtimeCompraDias, aplicarResumoOps)
+      }
     } catch (e: unknown) {
       if (!cached?.payload) {
         setErro(e instanceof Error ? e.message : "Erro ao carregar OPs")
