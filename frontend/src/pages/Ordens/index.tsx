@@ -1112,6 +1112,46 @@ function aplicarSimulacaoComprasNaOP(
 const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v61"
 const ORDENS_VIABILIDADE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
+const ORDENS_MESES_CACHE_KEY = "pcp_ordens_meses_cache_v64"
+
+type CacheMesesOrdens = {
+  savedAt: number
+  meses: string[]
+}
+
+function lerCacheMesesOrdens(): string[] {
+  try {
+    if (typeof window === "undefined") return []
+
+    const raw = window.localStorage.getItem(ORDENS_MESES_CACHE_KEY)
+    if (!raw) return []
+
+    const parsed = JSON.parse(raw) as CacheMesesOrdens
+    const meses = Array.isArray(parsed.meses)
+      ? parsed.meses.filter((m) => typeof m === "string" && /^\d{4}-\d{2}$/.test(m))
+      : []
+
+    return meses
+  } catch {
+    return []
+  }
+}
+
+function salvarCacheMesesOrdens(meses: string[]) {
+  try {
+    if (typeof window === "undefined") return
+
+    const limpos = Array.from(new Set((meses || []).filter((m) => /^\d{4}-\d{2}$/.test(String(m)))))
+    window.localStorage.setItem(ORDENS_MESES_CACHE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      meses: limpos,
+    }))
+  } catch {
+    // Se o storage estiver bloqueado, a tela segue sem cache de meses.
+  }
+}
+
+
 type CacheOrdensViabilidade = {
   savedAt: number
   mesRef: string
@@ -3003,8 +3043,10 @@ function exportarExcel(ops: OPEditavel[], mesRef: string) {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export function OrdensPage() {
-  const [meses, setMeses]                   = useState<string[]>([])
-  const [mesSel, setMesSel]                 = useState<string>("")
+  const mesesCacheInicial = useMemo(() => lerCacheMesesOrdens(), [])
+  const [meses, setMeses]                   = useState<string[]>(mesesCacheInicial)
+  const [mesSel, setMesSel]                 = useState<string>(mesesCacheInicial[0] || "")
+  const [inicializando, setInicializando]   = useState(mesesCacheInicial.length === 0)
   const [linhasSel, setLinhasSel]           = useState<string[]>([])
   const [statusesSel, setStatusesSel]       = useState<string[]>([])
   const [tiposSel, setTiposSel]             = useState<string[]>([])
@@ -3024,7 +3066,7 @@ export function OrdensPage() {
   const [ajustesCompraData, setAjustesCompraData] = useState<Record<string, string>>({})
   const [salvandoNegociacaoOpId, setSalvandoNegociacaoOpId] = useState<string | null>(null)
   const [salvandoLeadtime, setSalvandoLeadtime] = useState(false)
-  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null)
   const [arquivosBases, setArquivosBases] = useState<Partial<Record<BaseOperacionalOrdensId, File | null>>>({})
   const [uploadingBase, setUploadingBase] = useState<BaseOperacionalOrdensId | null>(null)
   const [atualizacoesBases, setAtualizacoesBases] = useState<Partial<Record<BaseOperacionalOrdensId, string | null>>>({})
@@ -3032,7 +3074,7 @@ export function OrdensPage() {
   const [confirmarExclusaoMes, setConfirmarExclusaoMes] = useState<string | null>(null)
   const [excluindoMes, setExcluindoMes] = useState(false)
 
-  function mostrarToast(type: "success" | "error", message: string) {
+  function mostrarToast(type: "success" | "error" | "info", message: string) {
     setToast({ type, message })
     window.setTimeout(() => setToast(null), 2600)
   }
@@ -3106,6 +3148,7 @@ export function OrdensPage() {
 
       if (resMeses?.meses?.length) {
         setMeses(resMeses.meses)
+        salvarCacheMesesOrdens(resMeses.meses)
 
         if (baseId === "programacao_ops") {
           mesParaBuscar = resMeses.meses[0]
@@ -3129,7 +3172,7 @@ export function OrdensPage() {
       }
 
       const complementoCache = cacheAgendado.length > 0
-        ? " Caches recalculando em segundo plano."
+        ? " A atualização das páginas está rodando em segundo plano."
         : ""
 
       mostrarToast("success", `${base?.titulo || "Base"} atualizada com sucesso (${resp.total_inserido ?? 0} registros).${complementoCache}`)
@@ -3158,6 +3201,7 @@ export function OrdensPage() {
       const resMeses = await getOpsMeses().catch(() => null)
       const mesesDisponiveis = resMeses?.meses || []
       setMeses(mesesDisponiveis)
+      salvarCacheMesesOrdens(mesesDisponiveis)
 
       if (mesesDisponiveis.length > 0) {
         setMesSel(mesesDisponiveis[0])
@@ -3197,10 +3241,17 @@ export function OrdensPage() {
         }
 
         setMeses(resMeses.meses)
-        if (resMeses.meses.length > 0) setMesSel(resMeses.meses[0])
+        salvarCacheMesesOrdens(resMeses.meses)
+
+        if (resMeses.meses.length > 0) {
+          setMesSel((atual) => atual || resMeses.meses[0])
+        }
+
         await carregarAtualizacoesBases()
       } catch (e) {
         console.warn("Não foi possível inicializar OPs", e)
+      } finally {
+        setInicializando(false)
       }
     }
 
@@ -3657,20 +3708,20 @@ export function OrdensPage() {
         </>
       )}
 
-      {loading && !dados && (
+      {(loading || inicializando) && !dados && (
         <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>
           <RefreshCw size={24} className="animate-spin mx-auto mb-3" style={{ opacity: 0.4 }} />
-          Verificando estoque e BOM...
+          {inicializando ? "Carregando programação..." : "Verificando estoque e BOM..."}
         </div>
       )}
 
-      {!loading && erro && (
+      {!loading && !inicializando && erro && (
         <div className="card p-6 text-sm fade-in" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#991B1B" }}>
           <XCircle size={16} className="inline mr-2" />{erro}
         </div>
       )}
 
-      {!loading && !erro && opsFiltradas.length > 0 && (
+      {!loading && !inicializando && !erro && opsFiltradas.length > 0 && (
         <div className="fade-in space-y-2">
           <p className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
             {opsFiltradas.length} OP{opsFiltradas.length !== 1 ? "s" : ""} encontrada{opsFiltradas.length !== 1 ? "s" : ""}
@@ -3698,11 +3749,11 @@ export function OrdensPage() {
         </div>
       )}
 
-      {!loading && !erro && dados && opsFiltradas.length === 0 && (
+      {!loading && !inicializando && !erro && dados && opsFiltradas.length === 0 && (
         <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>Nenhuma OP encontrada para os filtros selecionados.</div>
       )}
 
-      {!loading && !erro && !dados && !mesSel && (
+      {!loading && !inicializando && !erro && !dados && !mesSel && (
         <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>Nenhuma programação carregada. Faça o upload da planilha de OPs na aba Dados.</div>
       )}
 
