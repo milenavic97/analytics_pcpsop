@@ -88,9 +88,39 @@ const MES_LABELS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out",
 interface ProjFat { total_real: number; total_forecast: number; total_projetado: number; total_orcado: number; pct_atingimento: number; delta_caixas: number; ultimo_mes_fechado: number }
 interface ProjLib { total_real: number; total_previsto: number; total_projetado: number; total_orcado: number; pct_atingimento: number; delta_caixas: number; ultimo_mes_fechado: number }
 interface EstoqueMes { mes: number; qtd_caixas: number }
-interface GrupoItem { grupo: string; qtd_caixas: number; pct?: number }
-interface DisponibilidadeMes { mes: number; entradas_real_mes_atual?: number | null; entradas_previstas_mtd?: number | null; entradas_previstas_mtd_por_grupo?: GrupoItem[] | null; entradas_real_mes_atual_por_grupo?: GrupoItem[] | null }
-interface DisponibilidadePayload { ano: number; mes_atual: number; ultimo_mes_fechado: number; entradas_previstas_mtd: number; entradas_previstas_mtd_por_grupo: GrupoItem[]; meses: DisponibilidadeMes[] }
+interface GrupoItem { grupo: string; qtd_caixas: number; pct: number }
+interface DisponibilidadeMes {
+  mes: number
+  mes_label: string
+  estoque_inicio: number
+  estoque_inicio_tipo: "real" | "projetado"
+  estoque_inicio_por_grupo: GrupoItem[]
+  entradas: number
+  entradas_tipo: "real" | "previsto"
+  entradas_linhas?: { L1?: number; L2?: number } | null
+  entradas_real_mes_atual?: number | null
+  entradas_previstas_mtd?: number | null
+  entradas_previstas_mtd_por_grupo?: GrupoItem[] | null
+  entradas_real_mes_atual_linhas?: { L1?: number; L2?: number } | null
+  entradas_real_mes_atual_por_grupo?: GrupoItem[] | null
+  entradas_previstas_por_grupo_mes_atual?: GrupoItem[] | null
+  entradas_por_grupo?: GrupoItem[] | null
+  saidas: number
+  saidas_tipo: "real" | "forecast"
+  saidas_por_grupo?: GrupoItem[] | null
+  saidas_real_mes_atual?: number | null
+  saidas_real_mes_atual_por_grupo?: GrupoItem[] | null
+  disponibilidade_total: number
+  saldo_final: number
+}
+interface DisponibilidadePayload {
+  ano: number
+  mes_atual: number
+  ultimo_mes_fechado: number
+  entradas_previstas_mtd: number
+  entradas_previstas_mtd_por_grupo: GrupoItem[]
+  meses: DisponibilidadeMes[]
+}
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
