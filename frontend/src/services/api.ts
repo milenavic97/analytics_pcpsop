@@ -1976,3 +1976,57 @@ export function prefetchAppData(options?: { initialDelayMs?: number }) {
   }
 }
 
+
+// ─────────────────────────────────────────────────────────────
+// Overview resumo/snapshot
+// ─────────────────────────────────────────────────────────────
+
+export type OverviewResumoResponse = {
+  chave: string
+  versao_base: string
+  from_cache?: boolean
+  atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  payload: {
+    ano?: number
+    mes_atual?: number
+    versao_base?: string
+    ultima_atualizacao?: string | null
+    gerado_em?: string
+    orcado_faturamento?: unknown
+    projecao_faturamento?: unknown
+    orcado_liberacao?: unknown
+    projecao_liberacoes?: unknown
+    estoque_mensal?: unknown
+    disponibilidade_mensal?: unknown
+  }
+}
+
+export type OverviewResumoVersaoResponse = {
+  chave: string
+  versao_base: string
+  cache_disponivel: boolean
+  cache_versao?: string | null
+  cache_atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  bases?: Record<string, string | null>
+}
+
+export async function getOverviewResumoVersao() {
+  return apiFetchNoCache<OverviewResumoVersaoResponse>("/overview/resumo/versao")
+}
+
+export async function getOverviewResumo(cacheVersion?: string) {
+  const query = cacheVersion
+    ? `?cache_version=${encodeURIComponent(cacheVersion)}`
+    : ""
+
+  return apiFetch<OverviewResumoResponse>(`/overview/resumo${query}`)
+}
+
+export async function recalcularOverviewResumo() {
+  return apiFetchNoCache<OverviewResumoResponse>("/overview/resumo/recalcular", {
+    method: "POST",
+  })
+}
+
