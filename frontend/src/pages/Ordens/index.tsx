@@ -1375,6 +1375,46 @@ async function getOpsCache(
   return payload as OpsCacheResponse
 }
 
+
+async function getOpsCacheLightDireto(
+  mesRef: string,
+  leadtimeCompraDias: number
+): Promise<ResumoViabilidade> {
+  const query = buildOpsCacheParams(mesRef, leadtimeCompraDias, { _ts: String(Date.now()) })
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), 12000)
+
+  try {
+    const res = await fetch(`${API_URL_ORDENS}/ops/cache-light?${query.toString()}`, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+      },
+    })
+
+    const payload = await res.json().catch(() => ({ detail: res.statusText }))
+
+    if (!res.ok) {
+      throw new Error((payload as { detail?: string }).detail || `Erro ${res.status} ao carregar cache leve das OPs.`)
+    }
+
+    const cacheResponse = payload as OpsCacheResponse
+    if (!cacheResponse.payload || !Array.isArray(cacheResponse.payload.ops)) {
+      throw new Error("Cache leve de Ordens voltou sem lista de OPs.")
+    }
+
+    salvarCacheOrdensViabilidade(mesRef, leadtimeCompraDias, cacheResponse.payload, cacheResponse.versao_base)
+    return cacheResponse.payload
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+
 async function getOpsCacheCompleto(
   mesRef: string,
   leadtimeCompraDias: number
@@ -3402,49 +3442,9 @@ export function OrdensPage() {
   useEffect(() => { if (mesSel) buscar() }, [mesSel])
 
   useEffect(() => {
-    if (!mesSel) return
-
-    const verificarAtualizacao = async () => {
-      try {
-        const cached = lerCacheOrdensViabilidadeEntry(mesSel, leadtimeCompraDias)
-        const versao = await getOpsCacheVersao(mesSel, leadtimeCompraDias)
-
-        if (cached?.version && cached.version === versao.versao_base) {
-          return
-        }
-
-        if (cached?.payload && !cached.version) {
-          salvarCacheOrdensViabilidade(mesSel, leadtimeCompraDias, cached.payload, versao.versao_base)
-          return
-        }
-
-        await buscar(undefined, false)
-      } catch {
-        // Mantém último dado visível se a checagem leve falhar.
-      }
-    }
-
-    const onFocusOrVisible = () => {
-      if (document.visibilityState === "visible") {
-        void verificarAtualizacao()
-      }
-    }
-
-    const id = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void verificarAtualizacao()
-      }
-    }, 60 * 1000)
-
-    window.addEventListener("focus", onFocusOrVisible)
-    document.addEventListener("visibilitychange", onFocusOrVisible)
-
-    return () => {
-      window.clearInterval(id)
-      window.removeEventListener("focus", onFocusOrVisible)
-      document.removeEventListener("visibilitychange", onFocusOrVisible)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Não faz checagens automáticas agressivas nesta tela.
+    // O botão Atualizar continua disponível para recarregar sob demanda.
+    return
   }, [mesSel, leadtimeCompraDias])
 
   const aplicarResumoOps = async (res: ResumoViabilidade) => {
@@ -3466,29 +3466,36 @@ export function OrdensPage() {
     setErro("")
     setSelecionados(new Set())
 
+    if (forceRefresh) {
+      limparCacheOrdensLocal()
+    }
+
     const cached = !forceRefresh
       ? lerCacheOrdensViabilidadeEntry(mesBusca, leadtimeCompraDias)
       : null
 
-    if (cached?.payload) {
+    if (cached?.payload?.ops?.length) {
       await aplicarResumoOps(cached.payload)
       setLoading(false)
-    } else {
-      setLoading(true)
+      return
     }
 
-    try {
-      const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias, forceRefresh)
-      await aplicarResumoOps(res)
+    setLoading(true)
 
-      // A primeira abertura deve usar somente o cache leve.
-      // Buscar o cache completo automaticamente travava a tela e ocupava conexões.
+    try {
+      const res = await getOpsCacheLightDireto(mesBusca, leadtimeCompraDias)
+      await aplicarResumoOps(res)
     } catch (e: unknown) {
-      if (!cached?.payload) {
-        setErro(e instanceof Error ? e.message : "Erro ao carregar OPs")
-      }
+      const mensagem =
+        e instanceof Error
+          ? e.message
+          : "Erro ao carregar OPs em cache."
+
+      setErro(mensagem)
+      mostrarToast("error", mensagem)
     } finally {
       setLoading(false)
+      setInicializando(false)
     }
   }
 
