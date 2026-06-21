@@ -671,13 +671,32 @@ const MES_LABELS = [
 
 const RASTREAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
+// Cache em memória do módulo.
+// Diferente do localStorage, ele permanece vivo enquanto a SPA está aberta.
+// Isso evita que o Rastreamento suma ao navegar por várias páginas e voltar.
+const rastreamentoRuntimeCache = new Map<string, RastreamentoCacheEntry>();
+
 function getRastreamentoCacheKey(mes: number, ano: number) {
   return `rastreamento-lotes:${ano}-${String(mes).padStart(2, "0")}`;
 }
 
 function lerRastreamentoCache(mes: number, ano: number): RastreamentoCacheEntry | null {
+  const cacheKey = getRastreamentoCacheKey(mes, ano);
+
+  const runtime = rastreamentoRuntimeCache.get(cacheKey);
+  if (runtime?.data) {
+    const createdAt = Number(runtime.createdAt || 0);
+    const isValid = createdAt > 0 && Date.now() - createdAt <= RASTREAMENTO_CACHE_TTL_MS;
+
+    if (isValid) {
+      return runtime;
+    }
+
+    rastreamentoRuntimeCache.delete(cacheKey);
+  }
+
   try {
-    const raw = window.localStorage.getItem(getRastreamentoCacheKey(mes, ano));
+    const raw = window.localStorage.getItem(cacheKey);
     if (!raw) return null;
 
     const parsed = JSON.parse(raw);
@@ -685,16 +704,20 @@ function lerRastreamentoCache(mes: number, ano: number): RastreamentoCacheEntry 
     const isValid = createdAt > 0 && Date.now() - createdAt <= RASTREAMENTO_CACHE_TTL_MS;
 
     if (!isValid || !parsed?.data) {
-      window.localStorage.removeItem(getRastreamentoCacheKey(mes, ano));
+      window.localStorage.removeItem(cacheKey);
+      rastreamentoRuntimeCache.delete(cacheKey);
       return null;
     }
 
-    return {
+    const entry: RastreamentoCacheEntry = {
       createdAt,
       apontamentoAtualizadoEm: parsed?.apontamentoAtualizadoEm || null,
       versaoBase: parsed?.versaoBase || null,
       data: parsed.data as RastreamentoData,
     };
+
+    rastreamentoRuntimeCache.set(cacheKey, entry);
+    return entry;
   } catch (_) {
     return null;
   }
@@ -707,24 +730,29 @@ function salvarRastreamentoCache(
   apontamentoAtualizadoEm: string | null,
   versaoBase: string | null
 ) {
+  const cacheKey = getRastreamentoCacheKey(mes, ano);
+  const entry: RastreamentoCacheEntry = {
+    createdAt: Date.now(),
+    apontamentoAtualizadoEm,
+    versaoBase,
+    data,
+  };
+
+  rastreamentoRuntimeCache.set(cacheKey, entry);
+
   try {
-    window.localStorage.setItem(
-      getRastreamentoCacheKey(mes, ano),
-      JSON.stringify({
-        createdAt: Date.now(),
-        apontamentoAtualizadoEm,
-        versaoBase,
-        data,
-      })
-    );
+    window.localStorage.setItem(cacheKey, JSON.stringify(entry));
   } catch (_) {
-    // localStorage pode estar indisponível em modo privado; nesse caso só ignora.
+    // localStorage pode estar indisponível; o cache em memória ainda segura a navegação.
   }
 }
 
 function limparRastreamentoCache(mes: number, ano: number) {
+  const cacheKey = getRastreamentoCacheKey(mes, ano);
+  rastreamentoRuntimeCache.delete(cacheKey);
+
   try {
-    window.localStorage.removeItem(getRastreamentoCacheKey(mes, ano));
+    window.localStorage.removeItem(cacheKey);
   } catch (_) {
     // noop
   }
