@@ -1109,15 +1109,41 @@ function aplicarSimulacaoComprasNaOP(
   }
 }
 
-const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v14"
+const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v61"
 const ORDENS_VIABILIDADE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheOrdensViabilidade = {
   savedAt: number
   mesRef: string
   leadtimeCompraDias: number
+  version: string | null
   payload: ResumoViabilidade
 }
+
+type OpsCacheResponse = {
+  chave: string
+  mes_ref: string
+  leadtime_compra_dias: number
+  versao_base: string
+  from_cache?: boolean
+  atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  payload: ResumoViabilidade
+}
+
+type OpsCacheVersaoResponse = {
+  chave: string
+  mes_ref: string
+  leadtime_compra_dias: number
+  versao_base: string
+  cache_disponivel: boolean
+  cache_versao?: string | null
+  cache_atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  bases?: Record<string, string | null>
+}
+
+const ordensRuntimeCache = new Map<string, CacheOrdensViabilidade>()
 
 function _leadtimeNormalizado(leadtimeCompraDias: number) {
   return Math.max(
@@ -1135,6 +1161,8 @@ function limparCacheOrdensLocal() {
   try {
     if (typeof window === "undefined") return
 
+    ordensRuntimeCache.clear()
+
     const keysToRemove: string[] = []
 
     for (let i = 0; i < window.localStorage.length; i += 1) {
@@ -1142,10 +1170,9 @@ function limparCacheOrdensLocal() {
       if (!key) continue
 
       if (
-        key.startsWith(ORDENS_VIABILIDADE_CACHE_PREFIX) ||
+        key.startsWith("pcp_ordens_viabilidade_cache") ||
         key.includes("/ops/viabilidade") ||
-        key.includes("/ops/resumo") ||
-        key.includes("dfl-api-cache")
+        key.includes("/ops/resumo")
       ) {
         keysToRemove.push(key)
       }
@@ -1157,16 +1184,25 @@ function limparCacheOrdensLocal() {
   }
 }
 
-function lerCacheOrdensViabilidade(
+function lerCacheOrdensViabilidadeEntry(
   mesRef: string,
   leadtimeCompraDias: number
-): ResumoViabilidade | null {
+): CacheOrdensViabilidade | null {
   try {
     if (typeof window === "undefined") return null
 
     const key = _cacheKeyOrdensViabilidade(mesRef, leadtimeCompraDias)
-    const raw = window.localStorage.getItem(key)
 
+    const runtime = ordensRuntimeCache.get(key)
+    if (runtime?.payload && Date.now() - Number(runtime.savedAt || 0) <= ORDENS_VIABILIDADE_CACHE_TTL_MS) {
+      return runtime
+    }
+
+    if (runtime) {
+      ordensRuntimeCache.delete(key)
+    }
+
+    const raw = window.localStorage.getItem(key)
     if (!raw) return null
 
     const parsed = JSON.parse(raw) as CacheOrdensViabilidade
@@ -1175,19 +1211,29 @@ function lerCacheOrdensViabilidade(
 
     if (expirado || !parsed.payload) {
       window.localStorage.removeItem(key)
+      ordensRuntimeCache.delete(key)
       return null
     }
 
-    return parsed.payload
+    ordensRuntimeCache.set(key, parsed)
+    return parsed
   } catch {
     return null
   }
 }
 
+function lerCacheOrdensViabilidade(
+  mesRef: string,
+  leadtimeCompraDias: number
+): ResumoViabilidade | null {
+  return lerCacheOrdensViabilidadeEntry(mesRef, leadtimeCompraDias)?.payload ?? null
+}
+
 function salvarCacheOrdensViabilidade(
   mesRef: string,
   leadtimeCompraDias: number,
-  payload: ResumoViabilidade
+  payload: ResumoViabilidade,
+  version: string | null
 ) {
   try {
     if (typeof window === "undefined") return
@@ -1198,13 +1244,91 @@ function salvarCacheOrdensViabilidade(
       savedAt: Date.now(),
       mesRef,
       leadtimeCompraDias: leadtime,
+      version,
       payload,
     }
 
+    ordensRuntimeCache.set(key, value)
     window.localStorage.setItem(key, JSON.stringify(value))
   } catch {
     // Se o storage estiver cheio/bloqueado, a tela continua funcionando sem cache.
   }
+}
+
+function buildOpsCacheParams(mesRef: string, leadtimeCompraDias: number, extra?: Record<string, string>) {
+  const params = new URLSearchParams()
+  params.set("mes_ref", mesRef)
+  params.set("leadtime_compra_dias", String(_leadtimeNormalizado(leadtimeCompraDias)))
+
+  Object.entries(extra || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, value)
+    }
+  })
+
+  return params
+}
+
+async function getOpsCacheVersao(
+  mesRef: string,
+  leadtimeCompraDias: number
+): Promise<OpsCacheVersaoResponse> {
+  const query = buildOpsCacheParams(mesRef, leadtimeCompraDias)
+
+  const res = await fetch(`${API_URL_ORDENS}/ops/cache/versao?${query.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+    },
+  })
+
+  const payload = await res.json().catch(() => ({ detail: res.statusText }))
+
+  if (!res.ok) {
+    throw new Error((payload as { detail?: string }).detail || "Erro ao consultar versão das OPs.")
+  }
+
+  return payload as OpsCacheVersaoResponse
+}
+
+async function getOpsCache(
+  mesRef: string,
+  leadtimeCompraDias: number,
+  forceRefresh = false
+): Promise<OpsCacheResponse> {
+  const query = buildOpsCacheParams(
+    mesRef,
+    leadtimeCompraDias,
+    forceRefresh ? { force: "true", _ts: String(Date.now()) } : undefined
+  )
+
+  const res = await fetch(`${API_URL_ORDENS}/ops/cache?${query.toString()}`, {
+    method: "GET",
+    cache: forceRefresh ? "no-store" : "default",
+    headers: forceRefresh
+      ? {
+          Accept: "application/json",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        }
+      : {
+          Accept: "application/json",
+        },
+  })
+
+  const payload = await res.json().catch(() => ({ detail: res.statusText }))
+
+  if (!res.ok) {
+    throw new Error(
+      (payload as { detail?: string }).detail ||
+        `Erro ${res.status} ao carregar cache das OPs.`
+    )
+  }
+
+  return payload as OpsCacheResponse
 }
 
 async function getOpsViabilidadeComLeadtime(
@@ -1215,41 +1339,32 @@ async function getOpsViabilidadeComLeadtime(
   const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
 
   if (!forceRefresh) {
-    const cached = lerCacheOrdensViabilidade(mesRef, leadtime)
+    const cached = lerCacheOrdensViabilidadeEntry(mesRef, leadtime)
 
-    if (cached) {
-      return cached
+    if (cached?.payload) {
+      try {
+        const versao = await getOpsCacheVersao(mesRef, leadtime)
+
+        if (!cached.version) {
+          salvarCacheOrdensViabilidade(mesRef, leadtime, cached.payload, versao.versao_base)
+          return cached.payload
+        }
+
+        if (versao.versao_base === cached.version) {
+          return cached.payload
+        }
+      } catch {
+        // Se a checagem leve falhar, mantém o último cache local para não travar a tela.
+        return cached.payload
+      }
     }
   } else {
     limparCacheOrdensLocal()
   }
 
-  const query = new URLSearchParams()
-  query.set("mes_ref", mesRef)
-  query.set("leadtime_compra_dias", String(leadtime))
-  query.set("_ts", String(Date.now()))
-
-  const res = await fetch(`${API_URL_ORDENS}/ops/viabilidade?${query.toString()}`, {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-    },
-  })
-
-  const payload = await res.json().catch(() => ({ detail: res.statusText }))
-
-  if (!res.ok) {
-    throw new Error(
-      (payload as { detail?: string }).detail ||
-        `Erro ${res.status} ao carregar viabilidade das OPs.`
-    )
-  }
-
-  const resumo = payload as ResumoViabilidade
-  salvarCacheOrdensViabilidade(mesRef, leadtime, resumo)
+  const response = await getOpsCache(mesRef, leadtime, forceRefresh)
+  const resumo = response.payload
+  salvarCacheOrdensViabilidade(mesRef, leadtime, resumo, response.versao_base)
 
   return resumo
 }
@@ -3057,21 +3172,89 @@ export function OrdensPage() {
 
   useEffect(() => { if (mesSel) buscar() }, [mesSel])
 
+  useEffect(() => {
+    if (!mesSel) return
+
+    const verificarAtualizacao = async () => {
+      try {
+        const cached = lerCacheOrdensViabilidadeEntry(mesSel, leadtimeCompraDias)
+        const versao = await getOpsCacheVersao(mesSel, leadtimeCompraDias)
+
+        if (cached?.version && cached.version === versao.versao_base) {
+          return
+        }
+
+        if (cached?.payload && !cached.version) {
+          salvarCacheOrdensViabilidade(mesSel, leadtimeCompraDias, cached.payload, versao.versao_base)
+          return
+        }
+
+        await buscar(undefined, false)
+      } catch {
+        // Mantém último dado visível se a checagem leve falhar.
+      }
+    }
+
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === "visible") {
+        void verificarAtualizacao()
+      }
+    }
+
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void verificarAtualizacao()
+      }
+    }, 60 * 1000)
+
+    window.addEventListener("focus", onFocusOrVisible)
+    document.addEventListener("visibilitychange", onFocusOrVisible)
+
+    return () => {
+      window.clearInterval(id)
+      window.removeEventListener("focus", onFocusOrVisible)
+      document.removeEventListener("visibilitychange", onFocusOrVisible)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesSel, leadtimeCompraDias])
+
+  const aplicarResumoOps = async (res: ResumoViabilidade) => {
+    setDados(res)
+    const opsTratadas = ordenarESequenciarOps(
+      res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
+    )
+    setOps(opsTratadas)
+    await carregarAjustesSalvos(opsTratadas)
+  }
+
   const buscar = async (mesRefOverride?: string, forceRefresh = false) => {
     const mesBusca = mesRefOverride || mesSel
     if (!mesBusca) return
-    setLoading(true); setErro(""); setSelecionados(new Set())
+
+    setErro("")
+    setSelecionados(new Set())
+
+    const cached = !forceRefresh
+      ? lerCacheOrdensViabilidadeEntry(mesBusca, leadtimeCompraDias)
+      : null
+
+    if (cached?.payload) {
+      await aplicarResumoOps(cached.payload)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
+
     try {
       const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias, forceRefresh)
-      setDados(res)
-      const opsTratadas = ordenarESequenciarOps(
-        res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
-      )
-      setOps(opsTratadas)
-      await carregarAjustesSalvos(opsTratadas)
+      await aplicarResumoOps(res)
     } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : "Erro ao carregar OPs")
-    } finally { setLoading(false) }
+      if (!cached?.payload) {
+        setErro(e instanceof Error ? e.message : "Erro ao carregar OPs")
+      }
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function carregarAjustesSalvos(opsBase: OPEditavel[]) {
@@ -3301,7 +3484,7 @@ export function OrdensPage() {
           <h1 className="mb-1 text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>Verificação de OPs</h1>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Confira quais OPs sem emissão têm material disponível para abertura no Protheus.</p>
 
-          {dados && !loading && (
+          {dados && (
             <div
               className="mt-3 inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium"
               style={{
@@ -3437,7 +3620,7 @@ export function OrdensPage() {
         </>
       )}
 
-      {loading && (
+      {loading && !dados && (
         <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>
           <RefreshCw size={24} className="animate-spin mx-auto mb-3" style={{ opacity: 0.4 }} />
           Verificando estoque e BOM...
