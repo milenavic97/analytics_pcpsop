@@ -625,8 +625,54 @@ export async function getAtendimentoSku(filtros?: OverviewFiltrosComPeriodo) {
   return apiFetch(`/overview/atendimento-sku${buildOverviewQuery(filtros)}`)
 }
 
-export async function getRastreamentoLotes(filtros?: OverviewPeriodo) {
-  return apiFetch(`/overview/rastreamento-lotes${buildOverviewQuery(filtros)}`)
+
+export type OverviewRastreamentoCacheResponse = {
+  chave: string
+  versao_base: string
+  from_cache?: boolean
+  atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  payload: unknown
+}
+
+export type OverviewRastreamentoCacheVersaoResponse = {
+  chave: string
+  mes: number
+  ano: number
+  versao_base: string
+  cache_disponivel: boolean
+  cache_versao?: string | null
+  cache_atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  bases?: Record<string, string | null>
+}
+
+export async function getRastreamentoLotesCacheVersao(filtros?: OverviewPeriodo) {
+  return apiFetchNoCache<OverviewRastreamentoCacheVersaoResponse>(
+    `/overview/rastreamento-lotes-cache/versao${buildOverviewQuery(filtros)}`
+  )
+}
+
+export async function recalcularRastreamentoLotesCache(filtros?: OverviewPeriodo) {
+  return apiFetchNoCache<OverviewRastreamentoCacheResponse>(
+    `/overview/rastreamento-lotes-cache/recalcular${buildOverviewQuery(filtros)}`,
+    { method: "POST" }
+  )
+}
+
+export async function getRastreamentoLotes(filtros?: OverviewPeriodo & Record<string, unknown>) {
+  const query = buildOverviewQuery(filtros)
+
+  try {
+    const response = await apiFetch<OverviewRastreamentoCacheResponse>(
+      `/overview/rastreamento-lotes-cache${query}`
+    )
+
+    return response.payload
+  } catch {
+    // Fallback para não quebrar se o backend ainda não tiver o endpoint novo.
+    return apiFetch(`/overview/rastreamento-lotes${query}`)
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
