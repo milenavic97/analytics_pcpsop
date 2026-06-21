@@ -805,17 +805,27 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
             setUltimaAtualizacaoProducao(atualizacaoServidor);
           }
 
-          if (
-            versaoBaseServidor &&
-            cached.versaoBase &&
-            versaoBaseServidor === cached.versaoBase
-          ) {
+          if (!versaoBaseServidor) return;
+
+          // Compatibilidade com caches antigos salvos antes da versão v54:
+          // se existe dado local mas ainda não existe versaoBase, apenas carimba a versão
+          // no cache local. Não recarrega a seção à toa.
+          if (!cached.versaoBase) {
+            salvarRastreamentoCache(
+              mesSelecionado,
+              anoSelecionado,
+              cached.data,
+              atualizacaoServidor,
+              versaoBaseServidor
+            );
             return;
           }
 
-          if (versaoBaseServidor && versaoBaseServidor !== cached.versaoBase) {
-            void carregar(true, true, versaoBaseServidor, atualizacaoServidor);
+          if (versaoBaseServidor === cached.versaoBase) {
+            return;
           }
+
+          void carregar(true, true, versaoBaseServidor, atualizacaoServidor);
         });
 
         return;
@@ -886,12 +896,30 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
     const cached = lerRastreamentoCache(mesSelecionado, anoSelecionado);
 
-    if (cached?.versaoBase && cached.versaoBase === versaoServidor.versao_base) {
+    if (cached) {
+      // Cache antigo sem versaoBase: carimba a versão atual e não recarrega.
+      if (!cached.versaoBase) {
+        salvarRastreamentoCache(
+          mesSelecionado,
+          anoSelecionado,
+          cached.data,
+          atualizacaoServidor,
+          versaoServidor.versao_base
+        );
+        return;
+      }
+
+      if (cached.versaoBase === versaoServidor.versao_base) {
+        return;
+      }
+
+      await carregar(true, true, versaoServidor.versao_base, atualizacaoServidor);
       return;
     }
 
-    if (!cached && data) {
-      // Se a tela tem dados mas o localStorage não tem, apenas salva a versão atual.
+    if (data) {
+      // Se a tela tem dados mas o localStorage não tem, salva a versão atual
+      // e evita apagar/recarregar a seção ao navegar entre páginas.
       salvarRastreamentoCache(
         mesSelecionado,
         anoSelecionado,
