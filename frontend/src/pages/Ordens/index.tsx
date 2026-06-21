@@ -1381,37 +1381,33 @@ async function getOpsCacheLightDireto(
   leadtimeCompraDias: number
 ): Promise<ResumoViabilidade> {
   const query = buildOpsCacheParams(mesRef, leadtimeCompraDias, { _ts: String(Date.now()) })
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), 12000)
 
-  try {
-    const res = await fetch(`${API_URL_ORDENS}/ops/cache-light?${query.toString()}`, {
-      method: "GET",
-      cache: "no-store",
-      signal: controller.signal,
-      headers: {
-        Accept: "application/json",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        Pragma: "no-cache",
-      },
-    })
+  // Sem AbortController aqui.
+  // A v74 abortava a chamada depois de 12s e gerava o erro confuso:
+  // "signal is aborted without reason".
+  const res = await fetch(`${API_URL_ORDENS}/ops/cache-light?${query.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+    },
+  })
 
-    const payload = await res.json().catch(() => ({ detail: res.statusText }))
+  const payload = await res.json().catch(() => ({ detail: res.statusText }))
 
-    if (!res.ok) {
-      throw new Error((payload as { detail?: string }).detail || `Erro ${res.status} ao carregar cache leve das OPs.`)
-    }
-
-    const cacheResponse = payload as OpsCacheResponse
-    if (!cacheResponse.payload || !Array.isArray(cacheResponse.payload.ops)) {
-      throw new Error("Cache leve de Ordens voltou sem lista de OPs.")
-    }
-
-    salvarCacheOrdensViabilidade(mesRef, leadtimeCompraDias, cacheResponse.payload, cacheResponse.versao_base)
-    return cacheResponse.payload
-  } finally {
-    window.clearTimeout(timeoutId)
+  if (!res.ok) {
+    throw new Error((payload as { detail?: string }).detail || `Erro ${res.status} ao carregar cache leve das OPs.`)
   }
+
+  const cacheResponse = payload as OpsCacheResponse
+  if (!cacheResponse.payload || !Array.isArray(cacheResponse.payload.ops)) {
+    throw new Error("Cache leve de Ordens voltou sem lista de OPs.")
+  }
+
+  salvarCacheOrdensViabilidade(mesRef, leadtimeCompraDias, cacheResponse.payload, cacheResponse.versao_base)
+  return cacheResponse.payload
 }
 
 
@@ -3486,10 +3482,14 @@ export function OrdensPage() {
       const res = await getOpsCacheLightDireto(mesBusca, leadtimeCompraDias)
       await aplicarResumoOps(res)
     } catch (e: unknown) {
-      const mensagem =
+      const mensagemOriginal =
         e instanceof Error
           ? e.message
           : "Erro ao carregar OPs em cache."
+
+      const mensagem = mensagemOriginal.toLowerCase().includes("aborted")
+        ? "A chamada foi interrompida pelo navegador. Clique em Atualizar para tentar novamente."
+        : mensagemOriginal
 
       setErro(mensagem)
       mostrarToast("error", mensagem)
