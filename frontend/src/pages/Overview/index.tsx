@@ -90,7 +90,7 @@ interface ProjLib { total_real: number; total_previsto: number; total_projetado:
 interface EstoqueMes { mes: number; qtd_caixas: number }
 interface GrupoItem { grupo: string; qtd_caixas: number; pct?: number }
 interface DisponibilidadeMes { mes: number; entradas_real_mes_atual?: number | null; entradas_previstas_mtd?: number | null; entradas_previstas_mtd_por_grupo?: GrupoItem[] | null; entradas_real_mes_atual_por_grupo?: GrupoItem[] | null }
-interface DisponibilidadePayload { mes_atual: number; entradas_previstas_mtd: number; entradas_previstas_mtd_por_grupo: GrupoItem[]; meses: DisponibilidadeMes[] }
+interface DisponibilidadePayload { ano: number; mes_atual: number; ultimo_mes_fechado: number; entradas_previstas_mtd: number; entradas_previstas_mtd_por_grupo: GrupoItem[]; meses: DisponibilidadeMes[] }
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
