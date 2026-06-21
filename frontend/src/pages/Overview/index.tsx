@@ -13,7 +13,7 @@ import { RastreamentoLotes } from "@/components/charts/RastreamentoLotes"
 import PrevistoAteHojeModal from "@/components/charts/PrevistoAteHojeModal"
 
 import {
-  getOrcadoLiberacao, getOrcadoFaturamento, getProjecaoFaturamento,
+  getOrcadoLiberacao, getOrcadoFaturamento, getProjecaoFaturamento, getProjecaoLiberacoes,
   getEstoqueMensal, getDisponibilidadeMensal,
   buscarUltimaAtualizacao,
 } from "@/services/api"
@@ -94,30 +94,13 @@ interface DisponibilidadePayload { mes_atual: number; entradas_previstas_mtd: nu
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
-const API_URL = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
-const OVERVIEW_CACHE_VERSION = "overview-liberacoes-ajustadas-2026-06-18-v4"
-
-async function getProjecaoLiberacoesFresh(): Promise<ProjLib> {
-  const params = new URLSearchParams({
-    cache_version: OVERVIEW_CACHE_VERSION,
-    t: String(Date.now()),
-  })
-
-  const response = await fetch(`${API_URL}/overview/projecao-liberacoes?${params.toString()}`, {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      Pragma: "no-cache",
-      Expires: "0",
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error(`Erro ao carregar projeção de liberações: ${response.status}`)
+async function buscarVersaoOverview() {
+  try {
+    const payload = (await buscarUltimaAtualizacao("sd3_entradas")) as UltimaAtualizacaoPayload
+    return payload?.ultima_atualizacao || "sem-sd3"
+  } catch {
+    return "sem-sd3"
   }
-
-  return response.json() as Promise<ProjLib>
 }
 
 export function OverviewPage() {
@@ -141,38 +124,56 @@ export function OverviewPage() {
   const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(0)
 
   useEffect(() => {
-    buscarUltimaAtualizacao("sd3_entradas")
-      .then((d: unknown) => {
-        const payload = d as UltimaAtualizacaoPayload
-        setUltimaAtualizacao(payload?.ultima_atualizacao || null)
+    let alive = true
+
+    async function carregarOverview() {
+      const versaoLiberacoes = await buscarVersaoOverview()
+
+      if (!alive) return
+      setUltimaAtualizacao(versaoLiberacoes === "sem-sd3" ? null : versaoLiberacoes)
+
+      getOrcadoLiberacao().then((d: unknown) => alive && setOrcadoLib(d as any)).catch(() => {})
+      getOrcadoFaturamento().then((d: unknown) => alive && setOrcadoFat(d as any)).catch(() => {})
+      getProjecaoFaturamento().then((d: unknown) => alive && setProjFat(d as ProjFat)).catch(() => {})
+      getProjecaoLiberacoes({ cache_version: versaoLiberacoes })
+        .then((d: unknown) => alive && setProjLib(d as ProjLib))
+        .catch(() => {})
+
+      getEstoqueMensal().then((d: unknown) => {
+        if (!alive) return
+        const meses = d as EstoqueMes[]
+        const jan = meses.find((m) => Number(m.mes) === 1)
+        setEstoqueJan(Number(jan?.qtd_caixas || 0))
+      }).catch(() => alive && setEstoqueJan(0))
+
+      getDisponibilidadeMensal().then((d: unknown) => {
+        if (!alive) return
+        const data = d as DisponibilidadePayload
+        const mesAtual = data.meses?.find((m) => Number(m.mes) === Number(data.mes_atual))
+        const realizado = Number(mesAtual?.entradas_real_mes_atual || 0)
+        setRealMtd(realizado)
+        const previstoGrupos = data.entradas_previstas_mtd_por_grupo || mesAtual?.entradas_previstas_mtd_por_grupo || []
+        const realGrupos = mesAtual?.entradas_real_mes_atual_por_grupo || []
+        const realMap = new Map<string, number>()
+        realGrupos.forEach((g) => realMap.set(g.grupo, Number(g.qtd_caixas || 0)))
+        setDetalhePrevistoHoje(previstoGrupos.map((g) => ({
+          grupo: g.grupo,
+          previsto_ate_hoje: Number(g.qtd_caixas || 0),
+          realizado_mtd: Number(realMap.get(g.grupo) || 0),
+        })))
+      }).catch(() => {
+        if (!alive) return
+        setPrevistoHoje(0)
+        setRealMtd(0)
+        setDetalhePrevistoHoje([])
       })
-      .catch(() => setUltimaAtualizacao(null))
+    }
 
-    getOrcadoLiberacao().then((d: unknown) => setOrcadoLib(d as any)).catch(() => {})
-    getOrcadoFaturamento().then((d: unknown) => setOrcadoFat(d as any)).catch(() => {})
-    getProjecaoFaturamento().then((d: unknown) => setProjFat(d as ProjFat)).catch(() => {})
-    getProjecaoLiberacoesFresh().then((d: ProjLib) => setProjLib(d)).catch(() => {})
-    getEstoqueMensal().then((d: unknown) => {
-      const meses = d as EstoqueMes[]
-      const jan = meses.find((m) => Number(m.mes) === 1)
-      setEstoqueJan(Number(jan?.qtd_caixas || 0))
-    }).catch(() => setEstoqueJan(0))
+    void carregarOverview()
 
-    getDisponibilidadeMensal().then((d: unknown) => {
-      const data = d as DisponibilidadePayload
-      const mesAtual = data.meses?.find((m) => Number(m.mes) === Number(data.mes_atual))
-      const realizado = Number(mesAtual?.entradas_real_mes_atual || 0)
-      setRealMtd(realizado)
-      const previstoGrupos = data.entradas_previstas_mtd_por_grupo || mesAtual?.entradas_previstas_mtd_por_grupo || []
-      const realGrupos = mesAtual?.entradas_real_mes_atual_por_grupo || []
-      const realMap = new Map<string, number>()
-      realGrupos.forEach((g) => realMap.set(g.grupo, Number(g.qtd_caixas || 0)))
-      setDetalhePrevistoHoje(previstoGrupos.map((g) => ({
-        grupo: g.grupo,
-        previsto_ate_hoje: Number(g.qtd_caixas || 0),
-        realizado_mtd: Number(realMap.get(g.grupo) || 0),
-      })))
-    }).catch(() => { setPrevistoHoje(0); setRealMtd(0); setDetalhePrevistoHoje([]) })
+    return () => {
+      alive = false
+    }
   }, [])
 
   const pctFat = projFat?.pct_atingimento ?? 0
