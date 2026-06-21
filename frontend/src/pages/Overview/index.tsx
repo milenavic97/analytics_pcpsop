@@ -13,9 +13,9 @@ import { RastreamentoLotes } from "@/components/charts/RastreamentoLotes"
 import PrevistoAteHojeModal from "@/components/charts/PrevistoAteHojeModal"
 
 import {
-  getOrcadoLiberacao, getOrcadoFaturamento, getProjecaoFaturamento, getProjecaoLiberacoes,
-  getEstoqueMensal, getDisponibilidadeMensal,
-  buscarUltimaAtualizacao,
+  getOverviewResumo,
+  getOverviewResumoVersao,
+  type OverviewResumoResponse,
 } from "@/services/api"
 
 const TUBETES_POR_CAIXA = 500
@@ -154,41 +154,6 @@ function writeOverviewPageCache(snapshot: Omit<OverviewPageSnapshot, "savedAt">)
   }
 }
 
-async function buscarVersaoOverview() {
-  try {
-    const payload = (await buscarUltimaAtualizacao("sd3_entradas")) as UltimaAtualizacaoPayload
-    return payload?.ultima_atualizacao || "sem-sd3"
-  } catch {
-    return "sem-sd3"
-  }
-}
-
-
-const API_URL = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
-const OVERVIEW_CACHE_VERSION = "overview-liberacoes-ajustadas-2026-06-18-v4"
-
-async function getProjecaoLiberacoesFresh(): Promise<ProjLib> {
-  const params = new URLSearchParams({
-    cache_version: OVERVIEW_CACHE_VERSION,
-    t: String(Date.now()),
-  })
-
-  const response = await fetch(`${API_URL}/overview/projecao-liberacoes?${params.toString()}`, {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      Pragma: "no-cache",
-      Expires: "0",
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error(`Erro ao carregar projeção de liberações: ${response.status}`)
-  }
-
-  return response.json() as Promise<ProjLib>
-}
 
 export function OverviewPage() {
   const [cacheInicial] = useState<OverviewPageSnapshot | null>(() => readOverviewPageCache())
@@ -199,6 +164,7 @@ export function OverviewPage() {
   const [modalLibProj, setModalLibProj]       = useState(false)
   const [modalPrevistoHoje, setModalPrevistoHoje] = useState(false)
   const [atendimentoAberto, setAtendimentoAberto] = useState(false)
+  const [carregarDetalhes, setCarregarDetalhes] = useState(Boolean(cacheInicial))
 
   const [orcadoLib, setOrcadoLib]             = useState<{ total_caixas: number; total_tubetes: number } | null>(cacheInicial?.orcadoLib ?? null)
   const [orcadoFat, setOrcadoFat]             = useState<{ total_caixas: number } | null>(cacheInicial?.orcadoFat ?? null)
@@ -212,89 +178,101 @@ export function OverviewPage() {
   const [mtdCxPrevisto, setMtdCxPrevisto] = useState<number>(cacheInicial?.mtdCxPrevisto ?? 0)
   const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(cacheInicial?.mtdCxLiberado ?? 0)
 
+  function aplicarResumo(resumo: OverviewResumoResponse) {
+    const payload = resumo.payload || {}
+
+    const orcadoLibPayload = (payload.orcado_liberacao || null) as { total_caixas: number; total_tubetes: number } | null
+    const orcadoFatPayload = (payload.orcado_faturamento || null) as { total_caixas: number } | null
+    const projFatPayload = (payload.projecao_faturamento || null) as ProjFat | null
+    const projLibPayload = (payload.projecao_liberacoes || null) as ProjLib | null
+    const estoqueMensal = (payload.estoque_mensal || []) as EstoqueMes[]
+    const disponibilidadePayload = (payload.disponibilidade_mensal || null) as DisponibilidadePayload | null
+
+    const jan = estoqueMensal.find((m) => Number(m.mes) === 1)
+    const novoEstoqueJan = Number(jan?.qtd_caixas || 0)
+
+    let novoRealMtd = 0
+    let novoPrevistoHoje = 0
+    let novoDetalhePrevistoHoje: PrevistoHojeItem[] = []
+
+    if (disponibilidadePayload) {
+      const mesAtual = disponibilidadePayload.meses?.find((m) => Number(m.mes) === Number(disponibilidadePayload.mes_atual))
+      novoRealMtd = Number(mesAtual?.entradas_real_mes_atual || 0)
+      novoPrevistoHoje = Number(disponibilidadePayload.entradas_previstas_mtd || 0)
+
+      const previstoGrupos = disponibilidadePayload.entradas_previstas_mtd_por_grupo || mesAtual?.entradas_previstas_mtd_por_grupo || []
+      const realGrupos = mesAtual?.entradas_real_mes_atual_por_grupo || []
+      const realMap = new Map<string, number>()
+      realGrupos.forEach((g) => realMap.set(g.grupo, Number(g.qtd_caixas || 0)))
+
+      novoDetalhePrevistoHoje = previstoGrupos.map((g) => ({
+        grupo: g.grupo,
+        previsto_ate_hoje: Number(g.qtd_caixas || 0),
+        realizado_mtd: Number(realMap.get(g.grupo) || 0),
+      }))
+    }
+
+    const ultima = resumo.ultima_atualizacao || payload.ultima_atualizacao || null
+
+    setOrcadoLib(orcadoLibPayload)
+    setOrcadoFat(orcadoFatPayload)
+    setProjFat(projFatPayload)
+    setProjLib(projLibPayload)
+    setEstoqueJan(novoEstoqueJan)
+    setPrevistoHoje(novoPrevistoHoje)
+    setRealMtd(novoRealMtd)
+    setDetalhePrevistoHoje(novoDetalhePrevistoHoje)
+    setUltimaAtualizacao(ultima)
+
+    writeOverviewPageCache({
+      version: resumo.versao_base,
+      orcadoLib: orcadoLibPayload,
+      orcadoFat: orcadoFatPayload,
+      projFat: projFatPayload,
+      projLib: projLibPayload,
+      estoqueJan: novoEstoqueJan,
+      previstoHoje: novoPrevistoHoje,
+      realMtd: novoRealMtd,
+      detalhePrevistoHoje: novoDetalhePrevistoHoje,
+      ultimaAtualizacao: ultima,
+      mtdCxPrevisto,
+      mtdCxLiberado,
+    })
+
+    window.setTimeout(() => setCarregarDetalhes(true), 700)
+  }
+
   useEffect(() => {
     let alive = true
 
     async function carregarOverview() {
-      const versaoAtual = await buscarVersaoOverview()
-
-      if (!alive) return
-
-      const ultima = versaoAtual === "sem-sd3" ? null : versaoAtual
-      setUltimaAtualizacao(ultima)
-
-      // Se já temos snapshot local da mesma versão, mantém tudo instantâneo
-      // e não refaz as chamadas pesadas ao voltar para a Overview.
-      if (cacheInicial?.version === versaoAtual) {
-        return
-      }
-
       try {
-        const [
-          novoOrcadoLib,
-          novoOrcadoFat,
-          novaProjFat,
-          novaProjLib,
-          estoqueMensal,
-          disponibilidade,
-        ] = await Promise.all([
-          getOrcadoLiberacao(),
-          getOrcadoFaturamento(),
-          getProjecaoFaturamento(),
-          getProjecaoLiberacoes({ cache_version: versaoAtual }),
-          getEstoqueMensal(),
-          getDisponibilidadeMensal(),
-        ])
+        const versao = await getOverviewResumoVersao()
 
         if (!alive) return
 
-        const orcadoLibPayload = novoOrcadoLib as { total_caixas: number; total_tubetes: number }
-        const orcadoFatPayload = novoOrcadoFat as { total_caixas: number }
-        const projFatPayload = novaProjFat as ProjFat
-        const projLibPayload = novaProjLib as ProjLib
+        const ultima = versao.ultima_atualizacao || null
+        setUltimaAtualizacao(ultima)
 
-        const mesesEstoque = estoqueMensal as EstoqueMes[]
-        const jan = mesesEstoque.find((m) => Number(m.mes) === 1)
-        const novoEstoqueJan = Number(jan?.qtd_caixas || 0)
+        // Se já tem snapshot local da versão atual, mantém a tela instantânea.
+        // Não chama os endpoints pesados de novo ao voltar de Produção para Overview.
+        if (cacheInicial?.version === versao.versao_base) {
+          window.setTimeout(() => {
+            if (alive) setCarregarDetalhes(true)
+          }, 500)
+          return
+        }
 
-        const disponibilidadePayload = disponibilidade as DisponibilidadePayload
-        const mesAtual = disponibilidadePayload.meses?.find((m) => Number(m.mes) === Number(disponibilidadePayload.mes_atual))
-        const novoRealMtd = Number(mesAtual?.entradas_real_mes_atual || 0)
-        const previstoGrupos = disponibilidadePayload.entradas_previstas_mtd_por_grupo || mesAtual?.entradas_previstas_mtd_por_grupo || []
-        const realGrupos = mesAtual?.entradas_real_mes_atual_por_grupo || []
-        const realMap = new Map<string, number>()
-        realGrupos.forEach((g) => realMap.set(g.grupo, Number(g.qtd_caixas || 0)))
+        const resumo = await getOverviewResumo(versao.versao_base)
 
-        const novoDetalhePrevistoHoje = previstoGrupos.map((g) => ({
-          grupo: g.grupo,
-          previsto_ate_hoje: Number(g.qtd_caixas || 0),
-          realizado_mtd: Number(realMap.get(g.grupo) || 0),
-        }))
+        if (!alive) return
 
-        setOrcadoLib(orcadoLibPayload)
-        setOrcadoFat(orcadoFatPayload)
-        setProjFat(projFatPayload)
-        setProjLib(projLibPayload)
-        setEstoqueJan(novoEstoqueJan)
-        setRealMtd(novoRealMtd)
-        setDetalhePrevistoHoje(novoDetalhePrevistoHoje)
-
-        writeOverviewPageCache({
-          version: versaoAtual,
-          orcadoLib: orcadoLibPayload,
-          orcadoFat: orcadoFatPayload,
-          projFat: projFatPayload,
-          projLib: projLibPayload,
-          estoqueJan: novoEstoqueJan,
-          previstoHoje,
-          realMtd: novoRealMtd,
-          detalhePrevistoHoje: novoDetalhePrevistoHoje,
-          ultimaAtualizacao: ultima,
-          mtdCxPrevisto,
-          mtdCxLiberado,
-        })
+        aplicarResumo(resumo)
       } catch {
-        // Mantém o cache antigo visível se alguma chamada falhar.
+        // Se falhar a checagem do backend, mantém o cache local visível.
+        if (alive) {
+          window.setTimeout(() => setCarregarDetalhes(true), 700)
+        }
       }
     }
 
@@ -396,24 +374,32 @@ export function OverviewPage() {
         <p className="card-label mb-3">Demanda vs. Disponibilidade mensal</p>
         <div className="overflow-x-auto rounded-2xl">
           <div className="min-w-[860px] md:min-w-0">
-            <DemandaDisponibilidadeChart />
+            {carregarDetalhes ? (
+              <DemandaDisponibilidadeChart />
+            ) : (
+              <div className="flex h-[260px] items-center justify-center text-sm font-medium text-slate-400">
+                Preparando gráfico...
+              </div>
+            )}
           </div>
         </div>
 
         <div className="mt-6">
-          <RastreamentoLotes onMtdLoad={(p, l) => {
-            setMtdCxPrevisto(p)
-            setMtdCxLiberado(l)
+          {carregarDetalhes ? (
+            <RastreamentoLotes onMtdLoad={(p, l) => {
+              setMtdCxPrevisto(p)
+              setMtdCxLiberado(l)
 
-            const snapshot = readOverviewPageCache()
-            if (snapshot) {
-              writeOverviewPageCache({
-                ...snapshot,
-                mtdCxPrevisto: p,
-                mtdCxLiberado: l,
-              })
-            }
-          }} />
+              const snapshot = readOverviewPageCache()
+              if (snapshot) {
+                writeOverviewPageCache({
+                  ...snapshot,
+                  mtdCxPrevisto: p,
+                  mtdCxLiberado: l,
+                })
+              }
+            }} />
+          ) : null}
         </div>
 
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
