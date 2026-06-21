@@ -3109,7 +3109,15 @@ export function OrdensPage() {
 
   function mostrarToast(type: "success" | "error" | "info", message: string) {
     setToast({ type, message })
-    window.setTimeout(() => setToast(null), 2600)
+
+    const duracao =
+      type === "error"
+        ? 12000
+        : type === "info"
+          ? 6000
+          : 3500
+
+    window.setTimeout(() => setToast(null), duracao)
   }
 
   async function carregarAtualizacoesBases() {
@@ -3287,7 +3295,12 @@ export function OrdensPage() {
 
       mostrarToast("success", `${base?.titulo || "Base"} atualizada com sucesso (${resp.total_inserido ?? 0} registros).${complementoCache}`)
     } catch (e: unknown) {
-      mostrarToast("error", e instanceof Error ? e.message : "Erro ao subir arquivo.")
+      const mensagem =
+        e instanceof Error
+          ? e.message
+          : "Erro ao subir arquivo."
+
+      mostrarToast("error", mensagem)
     } finally {
       setUploadingBase(null)
     }
@@ -3667,7 +3680,7 @@ export function OrdensPage() {
     <div className="min-h-screen space-y-5 p-3 md:space-y-6 md:p-6">
       {toast && (
         <div
-          className="fixed right-5 top-5 z-[9999] flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-2xl backdrop-blur-md"
+          className="fixed left-1/2 top-24 z-[99999] flex max-w-[min(880px,calc(100vw-48px))] -translate-x-1/2 items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-2xl backdrop-blur-md"
           style={{
             background:
               toast.type === "success"
@@ -3684,10 +3697,10 @@ export function OrdensPage() {
             color: "#fff",
           }}
         >
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/20">
             {toast.type === "success" ? "✓" : toast.type === "info" ? "i" : "!"}
           </span>
-          <span>{toast.message}</span>
+          <span className="whitespace-pre-line break-words leading-relaxed">{toast.message}</span>
         </div>
       )}
       <div className="fade-in flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
