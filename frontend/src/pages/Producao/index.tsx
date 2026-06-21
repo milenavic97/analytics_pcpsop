@@ -486,7 +486,6 @@ function normalizeProducaoApiRequest(
         ano: params.ano,
         mes: params.mes,
         linha: params.linha,
-        cache_version: params.cache_version as string | undefined,
       },
       unwrapPayload: true,
     }
@@ -501,7 +500,6 @@ function normalizeProducaoApiRequest(
         mes: params.mes,
         linha: params.linha,
         busca: params.busca,
-        cache_version: params.cache_version as string | undefined,
       },
       unwrapPayload: true,
     }
@@ -515,7 +513,6 @@ function normalizeProducaoApiRequest(
         ano: params.ano,
         mes: (params.mes_final ?? params.mes) as number | string | undefined,
         linha: params.linha,
-        cache_version: params.cache_version as string | undefined,
       },
       unwrapPayload: true,
     }
@@ -2531,23 +2528,53 @@ function PerdasTab({ data }: { data: PerdasResponse }) {
   )
 }
 
+
+function getInitialProducaoDashboard(ano: number, mes: number, linha: LinhaFiltro) {
+  return peekApiCache<DashboardResponse>("/producao/dashboard", { ano, mes, linha })
+}
+
+function getInitialProducaoAcompanhamento(ano: number, mes: number, linha: LinhaFiltro) {
+  return peekApiCache<AcompanhamentoResponse>("/producao/acompanhamento", {
+    ano,
+    mes,
+    linha,
+    busca: "",
+  })
+}
+
+function getInitialProducaoPerdas(ano: number, mes: number, linha: LinhaFiltro) {
+  return peekApiCache<PerdasResponse>("/producao/perdas", {
+    ano,
+    mes_final: mes,
+    linha,
+  })
+}
+
 export function ProducaoPage() {
   const today = new Date()
+  const anoInicial = today.getFullYear()
+  const mesInicial = today.getMonth() + 1
+  const linhaInicial: LinhaFiltro = "TODAS"
+
+  const dashboardInicial = getInitialProducaoDashboard(anoInicial, mesInicial, linhaInicial)
+  const acompanhamentoInicial = getInitialProducaoAcompanhamento(anoInicial, mesInicial, linhaInicial)
+  const perdasInicial = getInitialProducaoPerdas(anoInicial, mesInicial, linhaInicial)
+
   const [tab, setTab] = useState<TabKey>("dashboard")
-  const [ano, setAno] = useState(today.getFullYear())
-  const [mes, setMes] = useState(today.getMonth() + 1)
-  const [linha, setLinha] = useState<LinhaFiltro>("TODAS")
+  const [ano, setAno] = useState(anoInicial)
+  const [mes, setMes] = useState(mesInicial)
+  const [linha, setLinha] = useState<LinhaFiltro>(linhaInicial)
   const [busca, setBusca] = useState("")
 
-  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
-  const [acompanhamento, setAcompanhamento] = useState<AcompanhamentoResponse | null>(null)
-  const [perdas, setPerdas] = useState<PerdasResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [dashboard, setDashboard] = useState<DashboardResponse | null>(dashboardInicial)
+  const [acompanhamento, setAcompanhamento] = useState<AcompanhamentoResponse | null>(acompanhamentoInicial)
+  const [perdas, setPerdas] = useState<PerdasResponse | null>(perdasInicial)
+  const [loading, setLoading] = useState(!dashboardInicial)
   const [erro, setErro] = useState("")
   const [cacheVersion, setCacheVersion] = useState<string | null>(null)
 
   function dashboardParams() {
-    return { ano, mes, linha, cache_version: cacheVersion }
+    return { ano, mes, linha }
   }
 
   function acompanhamentoParams() {
@@ -2556,7 +2583,6 @@ export function ProducaoPage() {
       mes,
       linha,
       busca,
-      cache_version: cacheVersion,
     }
   }
 
@@ -2565,13 +2591,10 @@ export function ProducaoPage() {
       ano,
       mes_final: mes,
       linha,
-      cache_version: cacheVersion,
     }
   }
 
   function aplicarCacheDaAbaAtual() {
-    if (!cacheVersion) return false
-
     if (tab === "dashboard") {
       const cached = peekApiCache<DashboardResponse>("/producao/dashboard", dashboardParams())
       if (!cached) return false
@@ -2593,7 +2616,6 @@ export function ProducaoPage() {
   }
 
   async function loadDashboard(force = false) {
-    if (!cacheVersion) return
     const json = await apiGet<DashboardResponse>(
       "/producao/dashboard",
       dashboardParams(),
@@ -2603,7 +2625,6 @@ export function ProducaoPage() {
   }
 
   async function loadAcompanhamento(force = false) {
-    if (!cacheVersion) return
     const json = await apiGet<AcompanhamentoResponse>(
       "/producao/acompanhamento",
       acompanhamentoParams(),
@@ -2613,7 +2634,6 @@ export function ProducaoPage() {
   }
 
   async function loadPerdas(force = false) {
-    if (!cacheVersion) return
     const json = await apiGet<PerdasResponse>(
       "/producao/perdas",
       perdasParams(),
@@ -2623,8 +2643,6 @@ export function ProducaoPage() {
   }
 
   async function loadData(force = false) {
-    if (!cacheVersion) return
-
     const encontrouCache = !force && aplicarCacheDaAbaAtual()
     const temAlgoNaTela =
       (tab === "dashboard" && Boolean(dashboard)) ||
@@ -2664,8 +2682,6 @@ export function ProducaoPage() {
   }
 
   async function prefetchAbasProducao() {
-    if (!cacheVersion) return
-
     await Promise.allSettled([
       loadDashboard(false),
       loadAcompanhamento(false),
@@ -2705,15 +2721,13 @@ export function ProducaoPage() {
   }, [tab, ano, mes, linha, cacheVersion])
 
   useEffect(() => {
-    if (!cacheVersion) return
-
     const id = window.setTimeout(() => {
       void prefetchAbasProducao()
     }, 350)
 
     return () => window.clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cacheVersion, ano, mes, linha])
+  }, [ano, mes, linha])
 
   useEffect(() => {
     if (tab !== "acompanhamento") return
