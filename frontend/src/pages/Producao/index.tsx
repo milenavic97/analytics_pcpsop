@@ -359,6 +359,51 @@ const PRODUCAO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v89-data-final-global:"
 const PRODUCAO_STORAGE_BUILD_KEY = "dfl-producao-cache-build"
 const PRODUCAO_STORAGE_BUILD_VALUE = "v89-data-final-global"
+const PRODUCAO_LAST_STATE_KEY = "dfl-producao-last-state-v94"
+
+type ProducaoLastState = {
+  tab?: TabKey
+  ano?: number
+  mes?: number
+  linha?: LinhaFiltro
+}
+
+function lerUltimoEstadoProducao(): ProducaoLastState {
+  try {
+    if (typeof window === "undefined") return {}
+    const raw = window.localStorage.getItem(PRODUCAO_LAST_STATE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as ProducaoLastState
+
+    const tab: TabKey =
+      parsed.tab === "dashboard" || parsed.tab === "acompanhamento" || parsed.tab === "perdas"
+        ? parsed.tab
+        : "dashboard"
+
+    const linha: LinhaFiltro =
+      parsed.linha === "L1" || parsed.linha === "L2" || parsed.linha === "TODAS"
+        ? parsed.linha
+        : "TODAS"
+
+    return {
+      tab,
+      ano: Number.isFinite(Number(parsed.ano)) ? Number(parsed.ano) : undefined,
+      mes: Number.isFinite(Number(parsed.mes)) ? Number(parsed.mes) : undefined,
+      linha,
+    }
+  } catch {
+    return {}
+  }
+}
+
+function salvarUltimoEstadoProducao(state: ProducaoLastState) {
+  try {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(PRODUCAO_LAST_STATE_KEY, JSON.stringify(state))
+  } catch {
+    // Não bloqueia a tela se o storage estiver indisponível.
+  }
+}
 
 function limparCachesAntigosProducaoUmaVez() {
   try {
@@ -378,7 +423,7 @@ function limparCachesAntigosProducaoUmaVez() {
       if (!key) continue
 
       if (
-        key.startsWith("dfl-producao-cache-") ||
+        (key.startsWith("dfl-producao-cache-") && key !== PRODUCAO_LAST_STATE_KEY && key !== PRODUCAO_STORAGE_BUILD_KEY) ||
         key.startsWith("pcp-producao-cache-") ||
         key.includes("/producao/cache") ||
         key.includes("/producao/dashboard") ||
@@ -2601,15 +2646,25 @@ export function ProducaoPage() {
   useMemo(() => limparCachesAntigosProducaoUmaVez(), [])
 
   const today = new Date()
-  const anoInicial = today.getFullYear()
-  const mesInicial = today.getMonth() + 1
-  const linhaInicial: LinhaFiltro = "TODAS"
+  const estadoInicial = useMemo(() => lerUltimoEstadoProducao(), [])
+
+  const anoInicial = estadoInicial.ano || today.getFullYear()
+  const mesInicial = estadoInicial.mes || today.getMonth() + 1
+  const linhaInicial: LinhaFiltro = estadoInicial.linha || "TODAS"
+  const tabInicial: TabKey = estadoInicial.tab || "dashboard"
 
   const dashboardInicial = getInitialProducaoDashboard(anoInicial, mesInicial, linhaInicial)
   const acompanhamentoInicial = getInitialProducaoAcompanhamento(anoInicial, mesInicial, linhaInicial)
   const perdasInicial = getInitialProducaoPerdas(anoInicial, mesInicial, linhaInicial)
 
-  const [tab, setTab] = useState<TabKey>("dashboard")
+  const dadoInicialDaAba =
+    tabInicial === "dashboard"
+      ? dashboardInicial
+      : tabInicial === "acompanhamento"
+        ? acompanhamentoInicial
+        : perdasInicial
+
+  const [tab, setTab] = useState<TabKey>(tabInicial)
   const [ano, setAno] = useState(anoInicial)
   const [mes, setMes] = useState(mesInicial)
   const [linha, setLinha] = useState<LinhaFiltro>(linhaInicial)
@@ -2618,7 +2673,7 @@ export function ProducaoPage() {
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(dashboardInicial)
   const [acompanhamento, setAcompanhamento] = useState<AcompanhamentoResponse | null>(acompanhamentoInicial)
   const [perdas, setPerdas] = useState<PerdasResponse | null>(perdasInicial)
-  const [loading, setLoading] = useState(!dashboardInicial)
+  const [loading, setLoading] = useState(!dadoInicialDaAba)
   const [erro, setErro] = useState("")
   const [cacheVersion, setCacheVersion] = useState<string | null>(null)
 
@@ -2791,6 +2846,10 @@ export function ProducaoPage() {
   }, [])
 
   useEffect(() => {
+    salvarUltimoEstadoProducao({ tab, ano, mes, linha })
+  }, [tab, ano, mes, linha])
+
+  useEffect(() => {
     void loadData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, ano, mes, linha, cacheVersion])
@@ -2828,13 +2887,19 @@ export function ProducaoPage() {
         loading={loading}
       />
 
-      {loading && !dashboard && !acompanhamento && !perdas && (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold text-blue-700 shadow-sm">
-          Carregando dados de produção...
-        </div>
-      )}
+      {loading &&
+        ((tab === "dashboard" && !dashboard) ||
+          (tab === "acompanhamento" && !acompanhamento) ||
+          (tab === "perdas" && !perdas)) && (
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold text-blue-700 shadow-sm">
+            Carregando dados de produção...
+          </div>
+        )}
 
-      {loading && (dashboard || acompanhamento || perdas) && (
+      {loading &&
+        ((tab === "dashboard" && dashboard) ||
+          (tab === "acompanhamento" && acompanhamento) ||
+          (tab === "perdas" && perdas)) && (
         <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-500 shadow-sm">
           <RefreshCw className="h-3.5 w-3.5 animate-spin" />
           Atualizando produção em segundo plano...
