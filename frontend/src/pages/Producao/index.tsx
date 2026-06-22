@@ -356,7 +356,45 @@ function linhaLabel(linha: LinhaFiltro) {
 }
 
 const PRODUCAO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v57:"
+const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v89-data-final-global:"
+const PRODUCAO_STORAGE_BUILD_KEY = "dfl-producao-cache-build"
+const PRODUCAO_STORAGE_BUILD_VALUE = "v89-data-final-global"
+
+function limparCachesAntigosProducaoUmaVez() {
+  try {
+    if (typeof window === "undefined") return
+
+    const buildAtual = window.localStorage.getItem(PRODUCAO_STORAGE_BUILD_KEY)
+
+    if (buildAtual === PRODUCAO_STORAGE_BUILD_VALUE) {
+      return
+    }
+
+    const keysParaRemover: string[] = []
+
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i)
+
+      if (!key) continue
+
+      if (
+        key.startsWith("dfl-producao-cache-") ||
+        key.startsWith("pcp-producao-cache-") ||
+        key.includes("/producao/cache") ||
+        key.includes("/producao/dashboard") ||
+        key.includes("/producao/acompanhamento") ||
+        key.includes("/producao/perdas")
+      ) {
+        keysParaRemover.push(key)
+      }
+    }
+
+    keysParaRemover.forEach((key) => window.localStorage.removeItem(key))
+    window.localStorage.setItem(PRODUCAO_STORAGE_BUILD_KEY, PRODUCAO_STORAGE_BUILD_VALUE)
+  } catch {
+    // Não bloqueia a tela se o storage estiver indisponível.
+  }
+}
 
 type ProducaoCacheEntry<T = unknown> = {
   timestamp: number
@@ -564,7 +602,11 @@ async function apiGet<T>(
   }
 
   const url = buildRawApiUrl(request.path, requestParams)
-  const cacheKey = url.toString()
+
+  // Chave normalizada: mesmo quando busca com force=true/_t,
+  // salva o resultado no cache da consulta padrão.
+  // Assim uma atualização em segundo plano substitui o dado velho da tela.
+  const cacheKey = buildRawApiUrl(request.path, request.params).toString()
 
   if (!options?.force) {
     const cached = readProducaoCache<T>(cacheKey)
@@ -2551,6 +2593,8 @@ function getInitialProducaoPerdas(ano: number, mes: number, linha: LinhaFiltro) 
 }
 
 export function ProducaoPage() {
+  useMemo(() => limparCachesAntigosProducaoUmaVez(), [])
+
   const today = new Date()
   const anoInicial = today.getFullYear()
   const mesInicial = today.getMonth() + 1
@@ -2642,6 +2686,20 @@ export function ProducaoPage() {
     setPerdas(json)
   }
 
+  async function revalidarAbaAtualEmSegundoPlano() {
+    try {
+      if (tab === "dashboard") {
+        await loadDashboard(true)
+      } else if (tab === "acompanhamento") {
+        await loadAcompanhamento(true)
+      } else {
+        await loadPerdas(true)
+      }
+    } catch (err) {
+      console.warn("Não foi possível revalidar Produção em segundo plano", err)
+    }
+  }
+
   async function loadData(force = false) {
     const encontrouCache = !force && aplicarCacheDaAbaAtual()
     const temAlgoNaTela =
@@ -2657,12 +2715,13 @@ export function ProducaoPage() {
         clearProducaoCache()
       }
 
-      // Se já tem dado em memória/localStorage, não deixa a página em branco.
-      // A chamada pesada só aparece como atualização discreta em segundo plano.
+      // Se já tem dado em memória/localStorage, renderiza na hora.
+      // Depois revalida em segundo plano e substitui se o backend mudou.
       setLoading(!temAlgoNaTela || force)
 
       if (encontrouCache && !force) {
         setLoading(false)
+        void revalidarAbaAtualEmSegundoPlano()
         return
       }
 
@@ -2707,11 +2766,23 @@ export function ProducaoPage() {
     void loadVersao()
     const id = window.setInterval(() => {
       void loadVersao()
-    }, 60_000)
+    }, 15_000)
+
+    function checarAoVoltarParaAba() {
+      if (document.visibilityState === "visible") {
+        void loadVersao()
+        setCacheVersion((v) => v + 1)
+      }
+    }
+
+    document.addEventListener("visibilitychange", checarAoVoltarParaAba)
+    window.addEventListener("focus", checarAoVoltarParaAba)
 
     return () => {
       alive = false
       window.clearInterval(id)
+      document.removeEventListener("visibilitychange", checarAoVoltarParaAba)
+      window.removeEventListener("focus", checarAoVoltarParaAba)
     }
   }, [])
 
