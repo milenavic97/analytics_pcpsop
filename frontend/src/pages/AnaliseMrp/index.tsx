@@ -237,7 +237,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
 }
 
 // Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v78.
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v88_consumo_mes_fallback"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v89_consumo_coluna_m"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -1216,6 +1216,46 @@ function getAnoMesAtualGestaoEstoque() {
   }
 }
 
+function getValorCampoDinamicoMesAtual(
+  raw: Record<string, unknown>,
+  prefixos: string[],
+  anoAtual: number,
+  mesAtual: number
+) {
+  const mes2 = String(mesAtual).padStart(2, "0")
+
+  const candidatos = prefixos.flatMap((prefixo) => [
+    `${prefixo}_${mes2}_${anoAtual}`,
+    `${prefixo}_${mesAtual}_${anoAtual}`,
+    `${prefixo}${mes2}_${anoAtual}`,
+    `${prefixo}${mesAtual}_${anoAtual}`,
+  ])
+
+  for (const candidato of candidatos) {
+    const valor = Number(raw[candidato] ?? raw[candidato.toLowerCase()] ?? raw[candidato.toUpperCase()] ?? 0)
+
+    if (Number.isFinite(valor) && valor !== 0) {
+      return Math.max(0, valor)
+    }
+  }
+
+  const candidatosUpper = new Set(candidatos.map((campo) => campo.toUpperCase()))
+
+  for (const [key, value] of Object.entries(raw)) {
+    if (!candidatosUpper.has(key.toUpperCase())) {
+      continue
+    }
+
+    const valor = Number(value ?? 0)
+
+    if (Number.isFinite(valor) && valor !== 0) {
+      return Math.max(0, valor)
+    }
+  }
+
+  return 0
+}
+
 function pontoEhMesAtualGestaoEstoque(ponto: Record<string, unknown>, anoAtual: number, mesAtual: number, periodoAtual: string) {
   const ano = Number(ponto.ano ?? ponto.ANO ?? 0)
   const mes = Number(ponto.mes ?? ponto.MES ?? 0)
@@ -1314,6 +1354,14 @@ function getPrevisaoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | 
 function getConsumoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
   const raw = item as unknown as Record<string, unknown>
+  const { ano, mes, periodo } = getAnoMesAtualGestaoEstoque()
+
+  // Base de posição de estoque traz consumo mensal em colunas dinâmicas:
+  // M_06_2026, M_07_2026 etc.
+  // Antes o front só lia consumo_mes_atual; por isso a coluna ficava zerada.
+  const consumoColunaMes = getValorCampoDinamicoMesAtual(raw, ["M"], ano, mes)
+
+  if (consumoColunaMes > 0) return consumoColunaMes
 
   const direto = Math.max(
     0,
@@ -1332,8 +1380,6 @@ function getConsumoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | n
   )
 
   if (direto > 0) return direto
-
-  const { ano, mes, periodo } = getAnoMesAtualGestaoEstoque()
 
   return Math.max(
     valorMesAtualEmSerieGestaoEstoque(raw.faturamento_sd2, ["faturamento_qtd", "quantidade", "qtd", "consumo"], ano, mes, periodo),
