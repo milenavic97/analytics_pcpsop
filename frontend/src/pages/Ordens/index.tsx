@@ -1109,8 +1109,38 @@ function aplicarSimulacaoComprasNaOP(
   }
 }
 
-const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v14"
+const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v80_swr"
 const ORDENS_VIABILIDADE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const ORDENS_MESES_CACHE_KEY = "pcp_ordens_meses_cache_v80"
+
+function mesAtualRefOrdens() {
+  const hoje = new Date()
+  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`
+}
+
+function lerCacheMesesOrdens(): string[] {
+  try {
+    if (typeof window === "undefined") return []
+    const raw = window.localStorage.getItem(ORDENS_MESES_CACHE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as { meses?: string[]; savedAt?: number }
+    return Array.isArray(parsed.meses) ? parsed.meses.filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+function salvarCacheMesesOrdens(meses: string[]) {
+  try {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(
+      ORDENS_MESES_CACHE_KEY,
+      JSON.stringify({ meses, savedAt: Date.now() })
+    )
+  } catch {
+    // Não bloqueia a tela se o navegador impedir acesso ao storage.
+  }
+}
 
 type CacheOrdensViabilidade = {
   savedAt: number
@@ -1207,6 +1237,89 @@ function salvarCacheOrdensViabilidade(
   }
 }
 
+function _extrairPayloadOpsCache(payloadCache: unknown): ResumoViabilidade | null {
+  const direto = payloadCache as ResumoViabilidade
+
+  if (direto && Array.isArray(direto.ops)) {
+    return direto
+  }
+
+  const envelopado = payloadCache as { payload?: ResumoViabilidade }
+
+  if (envelopado?.payload && Array.isArray(envelopado.payload.ops)) {
+    return envelopado.payload
+  }
+
+  return null
+}
+
+async function getOpsCacheBackend(
+  mesRef: string,
+  leadtimeCompraDias: number,
+  force = false
+): Promise<ResumoViabilidade> {
+  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+  const query = new URLSearchParams()
+  query.set("mes_ref", mesRef)
+  query.set("leadtime_compra_dias", String(leadtime))
+  query.set("_ts", String(Date.now()))
+
+  if (force) {
+    query.set("force", "true")
+  }
+
+  const resCache = await fetch(`${API_URL_ORDENS}/ops/cache?${query.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  })
+
+  const payloadCache = await resCache.json().catch(() => ({ detail: resCache.statusText }))
+
+  if (!resCache.ok) {
+    throw new Error(
+      (payloadCache as { detail?: string }).detail ||
+        `Erro ${resCache.status} ao carregar cache das OPs.`
+    )
+  }
+
+  const resumo = _extrairPayloadOpsCache(payloadCache)
+
+  if (!resumo) {
+    throw new Error("Cache de Ordens voltou sem lista de OPs.")
+  }
+
+  salvarCacheOrdensViabilidade(mesRef, leadtime, resumo)
+
+  return resumo
+}
+
+async function recalcularCacheOrdensBackend(
+  mesRef: string,
+  leadtimeCompraDias: number
+): Promise<void> {
+  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+  const query = new URLSearchParams()
+  query.set("mes_ref", mesRef)
+  query.set("leadtime_compra_dias", String(leadtime))
+
+  await fetch(`${API_URL_ORDENS}/ops/cache/recalcular?${query.toString()}`, {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  }).catch((e) => {
+    console.warn("Não foi possível recalcular cache de Ordens em segundo plano.", e)
+  })
+}
+
 async function getOpsViabilidadeComLeadtime(
   mesRef: string,
   leadtimeCompraDias: number,
@@ -1228,6 +1341,17 @@ async function getOpsViabilidadeComLeadtime(
   query.set("mes_ref", mesRef)
   query.set("leadtime_compra_dias", String(leadtime))
   query.set("_ts", String(Date.now()))
+
+  // Carregamento otimizado e seguro:
+  // - na abertura normal, tenta primeiro o snapshot pronto do backend (/ops/cache);
+  // - se não existir ou falhar, cai no cálculo original (/ops/viabilidade).
+  if (!forceRefresh) {
+    try {
+      return await getOpsCacheBackend(mesRef, leadtime, false)
+    } catch (e) {
+      console.warn("Falha ao buscar cache de Ordens, usando cálculo original:", e)
+    }
+  }
 
   const res = await fetch(`${API_URL_ORDENS}/ops/viabilidade?${query.toString()}`, {
     method: "GET",
@@ -2888,8 +3012,12 @@ function exportarExcel(ops: OPEditavel[], mesRef: string) {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export function OrdensPage() {
-  const [meses, setMeses]                   = useState<string[]>([])
-  const [mesSel, setMesSel]                 = useState<string>("")
+  const mesesCacheInicial = useMemo(() => lerCacheMesesOrdens(), [])
+  const mesFallbackInicial = useMemo(() => mesAtualRefOrdens(), [])
+  const mesesIniciais = mesesCacheInicial.length > 0 ? mesesCacheInicial : [mesFallbackInicial]
+
+  const [meses, setMeses]                   = useState<string[]>(mesesIniciais)
+  const [mesSel, setMesSel]                 = useState<string>(mesesIniciais[0] || mesFallbackInicial)
   const [linhasSel, setLinhasSel]           = useState<string[]>([])
   const [statusesSel, setStatusesSel]       = useState<string[]>([])
   const [tiposSel, setTiposSel]             = useState<string[]>([])
@@ -2919,7 +3047,7 @@ export function OrdensPage() {
 
   function mostrarToast(type: "success" | "error", message: string) {
     setToast({ type, message })
-    window.setTimeout(() => setToast(null), 2600)
+    window.setTimeout(() => setToast(null), type === "error" ? 7000 : 4500)
   }
 
   async function carregarAtualizacoesBases() {
@@ -2951,7 +3079,6 @@ export function OrdensPage() {
 
     try {
       const resp = await uploadBase(baseId, arquivoBase)
-      limparCacheOrdensLocal()
       const erros = Array.isArray(resp.erros) ? resp.erros.filter(Boolean) : []
 
       if (erros.length > 0) {
@@ -2959,28 +3086,45 @@ export function OrdensPage() {
         return
       }
 
-      setArquivosBases(prev => ({ ...prev, [baseId]: null }))
-
-      const resMeses = await getOpsMeses().catch(() => null)
-      let mesParaBuscar = mesSel
-
-      if (resMeses?.meses?.length) {
-        setMeses(resMeses.meses)
-
-        if (baseId === "programacao_ops") {
-          mesParaBuscar = resMeses.meses[0]
-          setMesSel(mesParaBuscar)
-        }
-      }
-
-      await carregarAtualizacoesBases()
-
-      if (mesParaBuscar) {
-        await buscar(mesParaBuscar, true)
-      }
-
       const base = BASES_OPERACIONAIS_ORDENS.find(b => b.id === baseId)
-      mostrarToast("success", `${base?.titulo || "Base"} atualizada com sucesso (${resp.total_inserido ?? 0} registros).`)
+
+      setArquivosBases(prev => ({ ...prev, [baseId]: null }))
+      setUploadingBase(null)
+
+      mostrarToast(
+        "success",
+        `${base?.titulo || "Base"} enviada com sucesso (${resp.total_inserido ?? 0} registros). Atualizando a tela em segundo plano.`
+      )
+
+      // Não deixa o botão preso enquanto a tela recalcula OPs.
+      // O upload já terminou; atualização de status e recálculo visual rodam depois.
+      void (async () => {
+        try {
+          limparCacheOrdensLocal()
+
+          const resMeses = await getOpsMeses().catch(() => null)
+          let mesParaBuscar = mesSel
+
+          if (resMeses?.meses?.length) {
+            setMeses(resMeses.meses)
+            salvarCacheMesesOrdens(resMeses.meses)
+
+            if (baseId === "programacao_ops") {
+              mesParaBuscar = resMeses.meses[0]
+              setMesSel(mesParaBuscar)
+            }
+          }
+
+          await carregarAtualizacoesBases()
+
+          if (mesParaBuscar) {
+            await recalcularCacheOrdensBackend(mesParaBuscar, leadtimeCompraDias)
+            await buscar(mesParaBuscar, false)
+          }
+        } catch (e) {
+          console.warn("Upload concluído, mas não foi possível atualizar a tela automaticamente.", e)
+        }
+      })()
     } catch (e: unknown) {
       mostrarToast("error", e instanceof Error ? e.message : "Erro ao subir arquivo.")
     } finally {
@@ -2992,64 +3136,88 @@ export function OrdensPage() {
   async function handleExcluirProgramacaoMes() {
     if (!confirmarExclusaoMes) return
 
+    const mesExcluido = confirmarExclusaoMes
     setExcluindoMes(true)
     setErro("")
 
     try {
-      const resp = await excluirProgramacaoOpsMes(confirmarExclusaoMes)
+      const resp = await excluirProgramacaoOpsMes(mesExcluido)
+
       setConfirmarExclusaoMes(null)
+      setExcluindoMes(false)
       limparCacheOrdensLocal()
       setSelecionados(new Set())
       setOps([])
       setDados(null)
 
-      const resMeses = await getOpsMeses().catch(() => null)
-      const mesesDisponiveis = resMeses?.meses || []
-      setMeses(mesesDisponiveis)
-
-      if (mesesDisponiveis.length > 0) {
-        setMesSel(mesesDisponiveis[0])
-      } else {
-        setMesSel("")
-      }
-
-      await carregarAtualizacoesBases()
       mostrarToast(
         "success",
         resp.total_excluido > 0
-          ? `Programação de ${mesLabel(confirmarExclusaoMes)} excluída (${resp.total_excluido} OPs). Agora você pode subir a nova versão.`
-          : `Não havia programação cadastrada para ${mesLabel(confirmarExclusaoMes)}.`
+          ? `Programação de ${mesLabel(mesExcluido)} excluída (${resp.total_excluido} OPs). Agora você pode subir a nova versão.`
+          : `Não havia programação cadastrada para ${mesLabel(mesExcluido)}.`
       )
+
+      // Não mantém o modal travado enquanto busca meses/status novamente.
+      void (async () => {
+        try {
+          const resMeses = await getOpsMeses().catch(() => null)
+          const mesesDisponiveis = resMeses?.meses || []
+          setMeses(mesesDisponiveis)
+          salvarCacheMesesOrdens(mesesDisponiveis)
+
+          if (mesesDisponiveis.length > 0) {
+            setMesSel(mesesDisponiveis[0])
+          } else {
+            setMesSel("")
+          }
+
+          await carregarAtualizacoesBases()
+        } catch (e) {
+          console.warn("Exclusão concluída, mas não foi possível atualizar status automaticamente.", e)
+        }
+      })()
     } catch (e: unknown) {
       mostrarToast("error", e instanceof Error ? e.message : "Erro ao excluir programação do mês.")
-    } finally {
       setExcluindoMes(false)
     }
   }
 
   useEffect(() => {
     async function inicializar() {
-      try {
-        const [resMeses, ajustesSalvos] = await Promise.all([
-          getOpsMeses(),
-          getAjustesComprasOps().catch(() => [] as AjusteCompraOP[]),
-        ])
+      getOpsMeses()
+        .then((resMeses) => {
+          const mesesDisponiveis = Array.isArray(resMeses.meses) ? resMeses.meses : []
 
-        const configLeadtime = ajustesSalvos.find(a =>
-          String(a.op_id) === "__CONFIG__" &&
-          String(a.codigo_comp) === "leadtime_compra_dias"
-        )
+          if (mesesDisponiveis.length > 0) {
+            setMeses(mesesDisponiveis)
+            salvarCacheMesesOrdens(mesesDisponiveis)
+            setMesSel((atual) =>
+              atual && mesesDisponiveis.includes(atual)
+                ? atual
+                : mesesDisponiveis[0]
+            )
+          }
+        })
+        .catch((e) => {
+          console.warn("Não foi possível buscar meses de OPs", e)
+        })
 
-        if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
-          setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
-        }
+      getAjustesComprasOps()
+        .then((ajustesSalvos) => {
+          const configLeadtime = ajustesSalvos.find(a =>
+            String(a.op_id) === "__CONFIG__" &&
+            String(a.codigo_comp) === "leadtime_compra_dias"
+          )
 
-        setMeses(resMeses.meses)
-        if (resMeses.meses.length > 0) setMesSel(resMeses.meses[0])
-        await carregarAtualizacoesBases()
-      } catch (e) {
-        console.warn("Não foi possível inicializar OPs", e)
-      }
+          if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
+            setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
+          }
+        })
+        .catch((e) => {
+          console.warn("Não foi possível carregar ajustes iniciais de OPs", e)
+        })
+
+      void carregarAtualizacoesBases()
     }
 
     inicializar()
@@ -3057,21 +3225,76 @@ export function OrdensPage() {
 
   useEffect(() => { if (mesSel) buscar() }, [mesSel])
 
+  useEffect(() => {
+    if (!mesSel) return
+
+    function atualizarAoVoltar() {
+      if (document.visibilityState === "visible") {
+        void revalidarOpsEmSegundoPlano(mesSel)
+      }
+    }
+
+    document.addEventListener("visibilitychange", atualizarAoVoltar)
+    window.addEventListener("focus", atualizarAoVoltar)
+
+    return () => {
+      document.removeEventListener("visibilitychange", atualizarAoVoltar)
+      window.removeEventListener("focus", atualizarAoVoltar)
+    }
+  }, [mesSel, leadtimeCompraDias])
+
+  const aplicarResumoOpsNaTela = (res: ResumoViabilidade) => {
+    setDados(res)
+
+    const opsTratadas = ordenarESequenciarOps(
+      res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
+    )
+
+    setOps(opsTratadas)
+
+    // A tela aparece primeiro; ajustes manuais entram logo depois.
+    void carregarAjustesSalvos(opsTratadas)
+  }
+
+  const revalidarOpsEmSegundoPlano = async (mesBusca: string) => {
+    try {
+      const res = await getOpsCacheBackend(mesBusca, leadtimeCompraDias, false)
+      aplicarResumoOpsNaTela(res)
+    } catch (e) {
+      console.warn("Não foi possível atualizar cache de Ordens em segundo plano.", e)
+    }
+  }
+
   const buscar = async (mesRefOverride?: string, forceRefresh = false) => {
     const mesBusca = mesRefOverride || mesSel
     if (!mesBusca) return
-    setLoading(true); setErro(""); setSelecionados(new Set())
+
+    setErro("")
+    setSelecionados(new Set())
+
+    const cached = !forceRefresh
+      ? lerCacheOrdensViabilidade(mesBusca, leadtimeCompraDias)
+      : null
+
+    if (cached) {
+      aplicarResumoOpsNaTela(cached)
+      setLoading(false)
+
+      // Navegar e voltar fica instantâneo; depois revalida em silêncio pelo cache do backend.
+      void revalidarOpsEmSegundoPlano(mesBusca)
+      return
+    }
+
+    setLoading(true)
+
     try {
       const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias, forceRefresh)
-      setDados(res)
-      const opsTratadas = ordenarESequenciarOps(
-        res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
-      )
-      setOps(opsTratadas)
-      await carregarAjustesSalvos(opsTratadas)
+      aplicarResumoOpsNaTela(res)
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao carregar OPs")
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function carregarAjustesSalvos(opsBase: OPEditavel[]) {
@@ -3617,7 +3840,7 @@ export function OrdensPage() {
                           style={{ background: "#163B63" }}
                         >
                           {enviando ? <RefreshCw size={16} className="animate-spin" /> : <UploadCloud size={16} />}
-                          {enviando ? "Carregando..." : "Subir arquivo"}
+                          {enviando ? "Enviando..." : "Subir arquivo"}
                         </label>
                       </div>
                     </div>
