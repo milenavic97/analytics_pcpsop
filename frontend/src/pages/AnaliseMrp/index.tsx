@@ -237,7 +237,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
 }
 
 // Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v78.
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v22_operacional_quarentena_v75"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v88_consumo_mes_fallback"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -1191,6 +1191,11 @@ function normalizarCoberturaPaMrResponse(res: AgingItensResponse, escopo: Escopo
 
 
 function getValorNumericoTabela(item: AgingEstoqueItem, key: SortKey, isTabelaProdutos = false) {
+  if (key === "consumo_mes_atual") return getConsumoMesAtual(item)
+  if (key === "demanda_mes_atual") return getPrevisaoMesAtual(item)
+  if (key === "previsto_vs_consumido_pct") return getPercentualConsumoPrevisto(item)
+  if (key === "desvio_ritmo_pct") return getDesvioRitmoPct(item)
+
   if (isTabelaProdutos) {
     if (key === "saldo") return getEstoqueAtualReal(item)
     if (key === "estoque_mais_pedidos") return getEstoqueMaisEntradasProduto(item)
@@ -1202,16 +1207,143 @@ function getValorNumericoTabela(item: AgingEstoqueItem, key: SortKey, isTabelaPr
   return getNum(item, key)
 }
 
+function getAnoMesAtualGestaoEstoque() {
+  const hoje = new Date()
+  return {
+    ano: hoje.getFullYear(),
+    mes: hoje.getMonth() + 1,
+    periodo: `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`,
+  }
+}
+
+function pontoEhMesAtualGestaoEstoque(ponto: Record<string, unknown>, anoAtual: number, mesAtual: number, periodoAtual: string) {
+  const ano = Number(ponto.ano ?? ponto.ANO ?? 0)
+  const mes = Number(ponto.mes ?? ponto.MES ?? 0)
+
+  if (ano === anoAtual && mes === mesAtual) {
+    return true
+  }
+
+  const periodoRaw = String(
+    ponto.periodo ??
+    ponto.mes_ref ??
+    ponto.mes_referencia ??
+    ponto.mes_ano ??
+    ponto.competencia ??
+    ponto.data ??
+    ponto.data_ref ??
+    ""
+  ).trim()
+
+  if (!periodoRaw) {
+    return false
+  }
+
+  const periodo = periodoRaw.slice(0, 10)
+
+  if (periodo.startsWith(periodoAtual)) {
+    return true
+  }
+
+  const mes2 = String(mesAtual).padStart(2, "0")
+  return (
+    periodoRaw.includes(`${mes2}/${anoAtual}`) ||
+    periodoRaw.includes(`${anoAtual}/${mes2}`)
+  )
+}
+
+function valorMesAtualEmSerieGestaoEstoque(
+  pontos: unknown,
+  campos: string[],
+  anoAtual: number,
+  mesAtual: number,
+  periodoAtual: string
+) {
+  if (!Array.isArray(pontos)) return 0
+
+  let total = 0
+
+  for (const pontoRaw of pontos) {
+    const ponto = pontoRaw as Record<string, unknown>
+
+    if (!pontoEhMesAtualGestaoEstoque(ponto, anoAtual, mesAtual, periodoAtual)) {
+      continue
+    }
+
+    for (const campo of campos) {
+      const valor = Number(ponto[campo] ?? 0)
+
+      if (Number.isFinite(valor) && valor !== 0) {
+        total += valor
+        break
+      }
+    }
+  }
+
+  return Math.max(0, total)
+}
+
 function getPrevisaoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
   const raw = item as unknown as Record<string, unknown>
-  return Math.max(0, Number(raw.previsao_mes_atual ?? raw.demanda_mes_atual ?? 0))
+
+  const direto = Math.max(
+    0,
+    Number(
+      raw.previsao_mes_atual ??
+      raw.demanda_mes_atual ??
+      raw.previsao_mes ??
+      raw.demanda_mes ??
+      raw.forecast_mes_atual ??
+      raw.forecast_mes ??
+      0
+    )
+  )
+
+  if (direto > 0) return direto
+
+  const { ano, mes, periodo } = getAnoMesAtualGestaoEstoque()
+
+  return Math.max(
+    valorMesAtualEmSerieGestaoEstoque(raw.forecast_sop, ["forecast", "previsao", "demanda", "quantidade"], ano, mes, periodo),
+    valorMesAtualEmSerieGestaoEstoque(raw.demanda_futura, ["forecast", "previsao", "demanda", "quantidade"], ano, mes, periodo),
+    valorMesAtualEmSerieGestaoEstoque(raw.linha_tempo_estoque, ["forecast", "previsao", "demanda"], ano, mes, periodo)
+  )
 }
 
 function getConsumoMesAtual(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
   const raw = item as unknown as Record<string, unknown>
-  return Math.max(0, Number(raw.consumo_mes_atual ?? 0))
+
+  const direto = Math.max(
+    0,
+    Number(
+      raw.consumo_mes_atual ??
+      raw.consumo_mes ??
+      raw.consumo_atual ??
+      raw.venda_mes_atual ??
+      raw.vendas_mes_atual ??
+      raw.faturamento_mes_atual ??
+      raw.faturamento_mes_qtd ??
+      raw.qtd_faturada_mes_atual ??
+      raw.quantidade_faturada_mes_atual ??
+      0
+    )
+  )
+
+  if (direto > 0) return direto
+
+  const { ano, mes, periodo } = getAnoMesAtualGestaoEstoque()
+
+  return Math.max(
+    valorMesAtualEmSerieGestaoEstoque(raw.faturamento_sd2, ["faturamento_qtd", "quantidade", "qtd", "consumo"], ano, mes, periodo),
+    valorMesAtualEmSerieGestaoEstoque(raw.faturamento_sop, ["faturamento_qtd", "faturado", "qtd_faturado", "realizado", "qtd_realizado", "consumo"], ano, mes, periodo),
+    valorMesAtualEmSerieGestaoEstoque(raw.historico_faturado_sop, ["faturamento_qtd", "faturado", "qtd_faturado", "realizado", "qtd_realizado", "consumo"], ano, mes, periodo),
+    valorMesAtualEmSerieGestaoEstoque(raw.serie_operacional, ["faturamento_qtd", "quantidade", "qtd", "consumo"], ano, mes, periodo),
+    valorMesAtualEmSerieGestaoEstoque(raw.historico_consumo, ["consumo", "quantidade", "qtd"], ano, mes, periodo),
+    valorMesAtualEmSerieGestaoEstoque(raw.linha_tempo_estoque, ["consumo", "faturamento_qtd", "quantidade", "qtd"], ano, mes, periodo),
+    valorMesAtualEmSerieGestaoEstoque(raw.historico_6m, ["consumo", "faturamento_qtd", "quantidade", "qtd"], ano, mes, periodo)
+  )
 }
 
 function getPercentualMesDecorrido() {
