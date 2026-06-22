@@ -208,6 +208,7 @@ interface ExcelenciaCards {
   horas_programadas: number
   horas_setup_real?: number
   horas_troca_turno_real?: number
+  programadas_detalhe?: ProgramadaDetalhe[]
   horas_nao_programadas: number
   horas_sem_programacao: number
   horas_total: number
@@ -303,6 +304,13 @@ interface ExcelenciaDiarioEquipamento {
   ocorrencias_nao_programadas: number
   pct_produtivo_sobre_apontado: number
   pct_nao_programada_sobre_apontado: number
+}
+
+interface ProgramadaDetalhe {
+  macro_causa: string
+  evento: string
+  horas: number
+  ocorrencias: number
 }
 
 interface ExcelenciaPlanejamentoDiario {
@@ -2318,7 +2326,16 @@ type DiarioOperacionalPoint = {
   horas_setup_real_plot: number
   horas_producao_meta: number
   horas_setup_meta: number
+  horas_troca_turno_meta: number
   horas_total_meta: number
+  referencia_setup: number
+  referencia_troca_turno: number
+  referencia_janela_produtiva: number
+  real_producao: number
+  real_programada: number
+  real_nao_programada: number
+  real_capacidade_nao_usada: number
+  programadas_detalhe?: ProgramadaDetalhe[]
 }
 
 type CalendarioOperacionalGroup = {
@@ -2495,6 +2512,33 @@ function ExcelenciaTooltip({ active, payload, label }: any) {
 }
 
 
+
+function mergeProgramadasDetalhe(base: ProgramadaDetalhe[] = [], incoming: ProgramadaDetalhe[] = []) {
+  const map = new Map<string, ProgramadaDetalhe>()
+
+  base.forEach((item) => {
+    const key = `${item.macro_causa || "Programada"}||${item.evento || item.macro_causa || "Programada"}`
+    map.set(key, { ...item })
+  })
+
+  incoming.forEach((item) => {
+    const key = `${item.macro_causa || "Programada"}||${item.evento || item.macro_causa || "Programada"}`
+    const atual = map.get(key) || {
+      macro_causa: item.macro_causa || "Programada",
+      evento: item.evento || item.macro_causa || "Programada",
+      horas: 0,
+      ocorrencias: 0,
+    }
+    atual.horas += horasNumber(item.horas)
+    atual.ocorrencias += Number(item.ocorrencias || 0)
+    map.set(key, atual)
+  })
+
+  return Array.from(map.values())
+    .sort((a, b) => horasNumber(b.horas) - horasNumber(a.horas))
+    .slice(0, 8)
+}
+
 function montarDiarioOperacional(
   rows: ExcelenciaDiarioEquipamento[],
   parametro: ParametroOperacional,
@@ -2510,6 +2554,7 @@ function montarDiarioOperacional(
     horas_nao_programadas: number
     horas_sem_programacao: number
     horas_total: number
+    programadas_detalhe: ProgramadaDetalhe[]
   }>()
 
   rows.forEach((row) => {
@@ -2525,6 +2570,7 @@ function montarDiarioOperacional(
         horas_nao_programadas: 0,
         horas_sem_programacao: 0,
         horas_total: 0,
+        programadas_detalhe: [],
       })
     }
 
@@ -2536,15 +2582,17 @@ function montarDiarioOperacional(
     const naoProgramada = horasNumber(row.horas_nao_programadas)
     const semProgramacao = horasNumber(row.horas_sem_programacao)
     const total = horasNumber(row.horas_total)
+    const detalhes = row.programadas_detalhe || []
 
     if (agrupadoPorLinha) {
-      atual.horas_producao = Math.max(atual.horas_producao, producao)
-      atual.horas_programadas = Math.max(atual.horas_programadas, programada)
-      atual.horas_setup_real = Math.max(atual.horas_setup_real, setupReal)
-      atual.horas_troca_turno_real = Math.max(atual.horas_troca_turno_real, trocaReal)
-      atual.horas_nao_programadas = Math.max(atual.horas_nao_programadas, naoProgramada)
-      atual.horas_sem_programacao = Math.max(atual.horas_sem_programacao, semProgramacao)
-      atual.horas_total = Math.max(atual.horas_total, total)
+      if (producao > atual.horas_producao) atual.horas_producao = producao
+      if (programada > atual.horas_programadas) atual.horas_programadas = programada
+      if (setupReal > atual.horas_setup_real) atual.horas_setup_real = setupReal
+      if (trocaReal > atual.horas_troca_turno_real) atual.horas_troca_turno_real = trocaReal
+      if (naoProgramada > atual.horas_nao_programadas) atual.horas_nao_programadas = naoProgramada
+      if (semProgramacao > atual.horas_sem_programacao) atual.horas_sem_programacao = semProgramacao
+      if (total > atual.horas_total) atual.horas_total = total
+      atual.programadas_detalhe = mergeProgramadasDetalhe(atual.programadas_detalhe, detalhes)
     } else {
       atual.horas_producao += producao
       atual.horas_programadas += programada
@@ -2553,6 +2601,7 @@ function montarDiarioOperacional(
       atual.horas_nao_programadas += naoProgramada
       atual.horas_sem_programacao += semProgramacao
       atual.horas_total += total
+      atual.programadas_detalhe = mergeProgramadasDetalhe(atual.programadas_detalhe, detalhes)
     }
   })
 
@@ -2562,20 +2611,37 @@ function montarDiarioOperacional(
       const limiteDia = parametro.horasTotais
       const janelaProdutiva = parametro.horasProducao
 
-      const producaoPlot = Math.min(row.horas_producao, janelaProdutiva)
-      const naoProgramadaPlot = Math.min(row.horas_nao_programadas, Math.max(0, janelaProdutiva - producaoPlot))
-      const capacidadeNaoUsadaPlot = Math.max(0, janelaProdutiva - producaoPlot - naoProgramadaPlot)
+      const realProducao = Math.min(row.horas_producao, limiteDia)
+      const realProgramada = Math.min(row.horas_programadas, Math.max(0, limiteDia - realProducao))
+      const realNaoProgramada = Math.min(row.horas_nao_programadas, Math.max(0, limiteDia - realProducao - realProgramada))
+      const realCapacidadeNaoUsada = Math.max(0, limiteDia - realProducao - realProgramada - realNaoProgramada)
+
       const setupRealPlot = Math.min(row.horas_setup_real || row.horas_programadas, limiteDia)
 
       return {
         ...row,
-        horas_producao_plot: producaoPlot,
-        horas_nao_programadas_plot: naoProgramadaPlot,
-        horas_sem_programacao_plot: capacidadeNaoUsadaPlot,
+
+        // Mantidos por compatibilidade com tooltips antigos.
+        horas_producao_plot: realProducao,
+        horas_nao_programadas_plot: realNaoProgramada,
+        horas_sem_programacao_plot: realCapacidadeNaoUsada,
         horas_setup_real_plot: setupRealPlot,
         horas_producao_meta: janelaProdutiva,
         horas_setup_meta: parametro.setup,
+        horas_troca_turno_meta: parametro.trocaTurno,
         horas_total_meta: limiteDia,
+
+        // Nova visualização: duas barras por dia.
+        referencia_setup: parametro.setup,
+        referencia_troca_turno: parametro.trocaTurno,
+        referencia_janela_produtiva: Math.max(0, limiteDia - parametro.setup - parametro.trocaTurno),
+
+        real_producao: realProducao,
+        real_programada: realProgramada,
+        real_nao_programada: realNaoProgramada,
+        real_capacidade_nao_usada: realCapacidadeNaoUsada,
+
+        programadas_detalhe: row.programadas_detalhe,
       }
     })
 }
@@ -2624,6 +2690,62 @@ function montarGruposCalendarioOperacional(
       diario: montarDiarioOperacional(rows, parametroAtual, equipamentoFiltro === "TODOS"),
     },
   ]
+}
+
+
+function CalendarioOperacionalTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+
+  const row = payload[0]?.payload || {}
+  const detalhes: ProgramadaDetalhe[] = row.programadas_detalhe || []
+  const hasDetalhes = detalhes.length > 0
+
+  const items = payload
+    .filter((item: any) => horasNumber(item.value) > 0)
+    .filter((item: any) => item.name !== "Janela produtiva planejada")
+    .map((item: any) => ({
+      name: item.name,
+      value: horasNumber(item.value),
+      color: item.color || item.stroke,
+      stackId: item.dataKey?.startsWith("referencia") ? "Referência" : "Real",
+    }))
+
+  return (
+    <div className="min-w-[260px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+      <p className="text-sm font-black text-slate-900">{label}</p>
+
+      <div className="mt-3 space-y-2">
+        {items.map((item: any) => (
+          <div key={`${item.stackId}-${item.name}`} className="flex items-center justify-between gap-6 text-xs">
+            <span className="flex items-center gap-2 font-semibold text-slate-600">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+              {item.name}
+            </span>
+            <span className="font-black text-slate-900">{formatHoras(item.value)}</span>
+          </div>
+        ))}
+      </div>
+
+      {hasDetalhes && (
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Paradas programadas</p>
+          <div className="mt-2 space-y-2">
+            {detalhes.slice(0, 5).map((item) => (
+              <div key={`${item.macro_causa}-${item.evento}`} className="text-xs">
+                <div className="flex justify-between gap-4">
+                  <span className="font-bold text-slate-700">{macroLabelCurto(item.macro_causa)}</span>
+                  <span className="font-black text-slate-900">{formatHoras(item.horas)}</span>
+                </div>
+                <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                  {item.evento} · {formatNumber(item.ocorrencias)} ocorr.
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }) {
@@ -2807,7 +2929,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calendário operacional</p>
                 <h3 className="text-lg font-bold text-slate-900">{group.titulo}</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Verde = produção, vermelho = perda não programada, cinza = capacidade produtiva não usada.
+                  Duas barras por dia: referência das 24h e real apontado. Programadas aparecem em roxo no real.
                 </p>
               </div>
               <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
@@ -2815,16 +2937,23 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
               </div>
             </div>
 
-            <div className="h-[300px]">
+            <div className="h-[330px]">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={group.diario} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
                   <YAxis domain={[0, group.parametro.horasTotais]} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
-                  <Tooltip content={<ExcelenciaTooltip />} />
-                  <Bar dataKey="horas_producao_plot" name="Produção" stackId="a" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="horas_nao_programadas_plot" name="Não programada" stackId="a" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="horas_sem_programacao_plot" name="Capacidade não usada" stackId="a" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
+                  <Tooltip content={<CalendarioOperacionalTooltip />} />
+
+                  <Bar dataKey="referencia_setup" name="Setup padrão" stackId="ref" fill="#60A5FA" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="referencia_troca_turno" name="Troca de turno padrão" stackId="ref" fill="#BFDBFE" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="referencia_janela_produtiva" name="Janela produtiva planejada" stackId="ref" fill="#DCFCE7" radius={[8, 8, 0, 0]} />
+
+                  <Bar dataKey="real_producao" name="Produção real" stackId="real" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_programada" name="Programada real" stackId="real" fill={naturezaColor("programada")} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_nao_programada" name="Não programada" stackId="real" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_capacidade_nao_usada" name="Capacidade não usada" stackId="real" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
+
                   <Line type="monotone" dataKey="horas_producao_meta" name="Janela produtiva planejada" stroke={naturezaColor("producao")} strokeWidth={2.5} strokeDasharray="6 6" dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
