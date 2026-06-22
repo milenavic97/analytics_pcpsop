@@ -858,7 +858,7 @@ function PageHeader({
 
           {tab === "perdas" && (
             <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
-              Excelência: mês selecionado
+              Análise Operacional: mês selecionado
             </div>
           )}
 
@@ -923,7 +923,7 @@ function PageHeader({
               : "text-slate-500 hover:bg-slate-50"
           }`}
         >
-          Excelência operacional
+          Análise Operacional
         </button>
       </div>
     </div>
@@ -2334,7 +2334,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-              Excelência operacional
+              Análise Operacional
             </p>
             <h2 className="text-xl font-bold text-slate-900">
               Paradas por equipamento — {data.periodo_label}
@@ -3011,7 +3011,7 @@ export function ProducaoPage() {
 
       {!loading && !erro && tab === "perdas" && !perdas && (
         <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 shadow-sm">
-          Nenhuma informação de excelência operacional encontrada.
+          Nenhuma informação de análise operacional encontrada.
         </div>
       )}
     </div>
