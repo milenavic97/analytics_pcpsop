@@ -2321,21 +2321,18 @@ type DiarioOperacionalPoint = {
   horas_nao_programadas: number
   horas_sem_programacao: number
   horas_total: number
-  horas_producao_plot: number
-  horas_nao_programadas_plot: number
-  horas_sem_programacao_plot: number
-  horas_setup_real_plot: number
-  horas_producao_meta: number
-  horas_setup_meta: number
-  horas_troca_turno_meta: number
-  horas_total_meta: number
-  referencia_setup: number
-  referencia_troca_turno: number
-  referencia_janela_produtiva: number
+
+  real_setup: number
+  real_troca_turno: number
   real_producao: number
   real_programada: number
   real_nao_programada: number
   real_capacidade_nao_usada: number
+
+  horas_producao_meta: number
+  horas_setup_meta: number
+  horas_troca_turno_meta: number
+  horas_total_meta: number
   programadas_detalhe?: ProgramadaDetalhe[]
 }
 
@@ -2586,6 +2583,8 @@ function montarDiarioOperacional(
     const detalhes = row.programadas_detalhe || []
 
     if (agrupadoPorLinha) {
+      // Para linha/área agregada, não somamos equipamentos como se o dia tivesse 48h/72h.
+      // Mantemos o pior/maior bloco do dia para preservar uma única janela de 24h.
       if (producao > atual.horas_producao) atual.horas_producao = producao
       if (programada > atual.horas_programadas) atual.horas_programadas = programada
       if (setupReal > atual.horas_setup_real) atual.horas_setup_real = setupReal
@@ -2610,38 +2609,32 @@ function montarDiarioOperacional(
     .sort((a, b) => a.data.localeCompare(b.data))
     .map((row) => {
       const limiteDia = parametro.horasTotais
-      const janelaProdutiva = parametro.horasProducao
 
-      const realProducao = Math.min(row.horas_producao, limiteDia)
-      const realProgramada = Math.min(row.horas_programadas, Math.max(0, limiteDia - realProducao))
-      const realNaoProgramada = Math.min(row.horas_nao_programadas, Math.max(0, limiteDia - realProducao - realProgramada))
-      const realCapacidadeNaoUsada = Math.max(0, limiteDia - realProducao - realProgramada - realNaoProgramada)
+      // Uma única barra empilhada do real do dia, sempre fechando 24h:
+      // setup real + troca real + produção + programada restante + não programada + capacidade não usada.
+      const setupReal = Math.min(row.horas_setup_real, limiteDia)
+      const trocaTurnoReal = Math.min(row.horas_troca_turno_real, Math.max(0, limiteDia - setupReal))
 
-      const setupRealPlot = Math.min(row.horas_setup_real || row.horas_programadas, limiteDia)
+      const programadaRestante = Math.max(0, row.horas_programadas - setupReal - trocaTurnoReal)
+
+      const producaoReal = Math.min(row.horas_producao, Math.max(0, limiteDia - setupReal - trocaTurnoReal))
+      const programadaReal = Math.min(programadaRestante, Math.max(0, limiteDia - setupReal - trocaTurnoReal - producaoReal))
+      const naoProgramadaReal = Math.min(row.horas_nao_programadas, Math.max(0, limiteDia - setupReal - trocaTurnoReal - producaoReal - programadaReal))
+      const capacidadeNaoUsada = Math.max(0, limiteDia - setupReal - trocaTurnoReal - producaoReal - programadaReal - naoProgramadaReal)
 
       return {
         ...row,
+        real_setup: setupReal,
+        real_troca_turno: trocaTurnoReal,
+        real_producao: producaoReal,
+        real_programada: programadaReal,
+        real_nao_programada: naoProgramadaReal,
+        real_capacidade_nao_usada: capacidadeNaoUsada,
 
-        // Mantidos por compatibilidade com tooltips antigos.
-        horas_producao_plot: realProducao,
-        horas_nao_programadas_plot: realNaoProgramada,
-        horas_sem_programacao_plot: realCapacidadeNaoUsada,
-        horas_setup_real_plot: setupRealPlot,
-        horas_producao_meta: janelaProdutiva,
+        horas_producao_meta: parametro.horasProducao,
         horas_setup_meta: parametro.setup,
         horas_troca_turno_meta: parametro.trocaTurno,
         horas_total_meta: limiteDia,
-
-        // Nova visualização: duas barras por dia.
-        referencia_setup: parametro.setup,
-        referencia_troca_turno: parametro.trocaTurno,
-        referencia_janela_produtiva: Math.max(0, limiteDia - parametro.setup - parametro.trocaTurno),
-
-        real_producao: realProducao,
-        real_programada: realProgramada,
-        real_nao_programada: realNaoProgramada,
-        real_capacidade_nao_usada: realCapacidadeNaoUsada,
-
         programadas_detalhe: row.programadas_detalhe,
       }
     })
@@ -2703,21 +2696,20 @@ function CalendarioOperacionalTooltip({ active, payload, label }: any) {
 
   const items = payload
     .filter((item: any) => horasNumber(item.value) > 0)
-    .filter((item: any) => item.name !== "Janela produtiva planejada")
+    .filter((item: any) => !["Horas produção padrão", "Setup padrão"].includes(item.name))
     .map((item: any) => ({
       name: item.name,
       value: horasNumber(item.value),
       color: item.color || item.stroke,
-      stackId: item.dataKey?.startsWith("referencia") ? "Referência" : "Real",
     }))
 
   return (
-    <div className="min-w-[260px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+    <div className="min-w-[280px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
       <p className="text-sm font-black text-slate-900">{label}</p>
 
       <div className="mt-3 space-y-2">
         {items.map((item: any) => (
-          <div key={`${item.stackId}-${item.name}`} className="flex items-center justify-between gap-6 text-xs">
+          <div key={item.name} className="flex items-center justify-between gap-6 text-xs">
             <span className="flex items-center gap-2 font-semibold text-slate-600">
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
               {item.name}
@@ -2727,11 +2719,15 @@ function CalendarioOperacionalTooltip({ active, payload, label }: any) {
         ))}
       </div>
 
+      <div className="mt-3 border-t border-slate-100 pt-3 text-[11px] font-bold text-slate-500">
+        Padrão: {formatHoras(row.horas_producao_meta)} produção · {formatHoras(row.horas_setup_meta)} setup · {formatHoras(row.horas_troca_turno_meta)} troca turno
+      </div>
+
       {hasDetalhes && (
         <div className="mt-4 border-t border-slate-100 pt-3">
           <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Paradas programadas</p>
           <div className="mt-2 space-y-2">
-            {detalhes.slice(0, 5).map((item) => (
+            {detalhes.slice(0, 6).map((item) => (
               <div key={`${item.macro_causa}-${item.evento}`} className="text-xs">
                 <div className="flex justify-between gap-4">
                   <span className="font-bold text-slate-700">{macroLabelCurto(item.macro_causa)}</span>
@@ -2930,7 +2926,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calendário operacional</p>
                 <h3 className="text-lg font-bold text-slate-900">{group.titulo}</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Duas barras por dia: referência das 24h e real apontado. Programadas aparecem em roxo no real.
+                  Uma barra empilhada por dia: setup, troca de turno, produção, programadas, não programadas e capacidade não usada.
                 </p>
               </div>
               <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
@@ -2946,43 +2942,19 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
                   <YAxis domain={[0, group.parametro.horasTotais]} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
                   <Tooltip content={<CalendarioOperacionalTooltip />} />
 
-                  <Bar dataKey="referencia_setup" name="Setup padrão" stackId="ref" fill="#60A5FA" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="referencia_troca_turno" name="Troca de turno padrão" stackId="ref" fill="#BFDBFE" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="referencia_janela_produtiva" name="Janela produtiva planejada" stackId="ref" fill="#DCFCE7" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="real_setup" name="Setup real" stackId="dia" fill="#60A5FA" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_troca_turno" name="Troca de turno real" stackId="dia" fill="#BFDBFE" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_producao" name="Produção real" stackId="dia" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_programada" name="Programada real" stackId="dia" fill={naturezaColor("programada")} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_nao_programada" name="Não programada" stackId="dia" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_capacidade_nao_usada" name="Capacidade não usada" stackId="dia" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
 
-                  <Bar dataKey="real_producao" name="Produção real" stackId="real" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="real_programada" name="Programada real" stackId="real" fill={naturezaColor("programada")} radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="real_nao_programada" name="Não programada" stackId="real" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="real_capacidade_nao_usada" name="Capacidade não usada" stackId="real" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
-
-                  <Line type="monotone" dataKey="horas_producao_meta" name="Janela produtiva planejada" stroke={naturezaColor("producao")} strokeWidth={2.5} strokeDasharray="6 6" dot={false} />
+                  <Line type="monotone" dataKey="horas_producao_meta" name="Horas produção padrão" stroke={naturezaColor("producao")} strokeWidth={2.5} strokeDasharray="6 6" dot={false} />
+                  <Line type="monotone" dataKey="horas_setup_meta" name="Setup padrão" stroke="#2563EB" strokeWidth={2.5} strokeDasharray="4 4" dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Setup</p>
-                  <h4 className="text-sm font-bold text-slate-800">Tempo apontado vs padrão</h4>
-                </div>
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500">
-                  Ref.: {formatHoras(group.parametro.setup)} / dia
-                </span>
-              </div>
-              <div className="h-[140px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={group.diario} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                    <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: "#64748B" }} />
-                    <YAxis domain={[0, Math.max(4, group.parametro.setup * 2)]} tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: "#64748B" }} />
-                    <Tooltip content={<ExcelenciaTooltip />} />
-                    <Bar dataKey="horas_setup_real_plot" name="Setup apontado" fill={naturezaColor("programada")} radius={[8, 8, 0, 0]} />
-                    <Line type="monotone" dataKey="horas_setup_meta" name="Setup padrão" stroke={naturezaColor("programada")} strokeWidth={2.5} strokeDasharray="4 4" dot={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
           </div>
         ))}
       </div>
