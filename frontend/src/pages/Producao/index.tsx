@@ -2613,7 +2613,11 @@ function montarDiarioOperacional(
       // Uma única barra empilhada do real do dia, sempre fechando 24h:
       // setup real + troca real + produção + programada restante + não programada + capacidade não usada.
       const setupReal = Math.min(row.horas_setup_real, limiteDia)
-      const trocaTurnoReal = Math.min(row.horas_troca_turno_real, Math.max(0, limiteDia - setupReal))
+
+      // Troca de turno deve aparecer na composição do dia.
+      // Usa apontamento real quando existir; se não vier separado na base, usa o padrão operacional.
+      const trocaTurnoBase = row.horas_troca_turno_real > 0 ? row.horas_troca_turno_real : parametro.trocaTurno
+      const trocaTurnoReal = Math.min(trocaTurnoBase, Math.max(0, limiteDia - setupReal))
 
       const programadaRestante = Math.max(0, row.horas_programadas - setupReal - trocaTurnoReal)
 
@@ -2687,21 +2691,40 @@ function montarGruposCalendarioOperacional(
 }
 
 
+function round1(value: number) {
+  return Math.round(Number(value || 0) * 10) / 10
+}
+
 function CalendarioOperacionalTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
 
   const row = payload[0]?.payload || {}
   const detalhes: ProgramadaDetalhe[] = row.programadas_detalhe || []
   const hasDetalhes = detalhes.length > 0
+  const limiteDia = horasNumber(row.horas_total_meta) || 24
 
-  const items = payload
-    .filter((item: any) => horasNumber(item.value) > 0)
-    .filter((item: any) => !["Horas produção padrão", "Setup padrão"].includes(item.name))
-    .map((item: any) => ({
-      name: item.name,
-      value: horasNumber(item.value),
-      color: item.color || item.stroke,
-    }))
+  const principais = [
+    { name: "Setup real", value: horasNumber(row.real_setup), color: "#60A5FA" },
+    { name: "Troca de turno", value: horasNumber(row.real_troca_turno), color: "#BFDBFE" },
+    { name: "Produção real", value: horasNumber(row.real_producao), color: naturezaColor("producao") },
+    { name: "Programada real", value: horasNumber(row.real_programada), color: naturezaColor("programada") },
+    { name: "Não programada", value: horasNumber(row.real_nao_programada), color: naturezaColor("naoProgramada") },
+  ].filter((item) => item.value > 0.0001)
+
+  const somaArredondada = principais.reduce((acc, item) => acc + round1(item.value), 0)
+  const capacidadeNaoUsadaDisplay = Math.max(0, round1(limiteDia - somaArredondada))
+
+  const items = [
+    ...principais.map((item) => ({ ...item, displayValue: round1(item.value) })),
+    ...(capacidadeNaoUsadaDisplay > 0
+      ? [{
+          name: "Capacidade não usada",
+          value: horasNumber(row.real_capacidade_nao_usada),
+          displayValue: capacidadeNaoUsadaDisplay,
+          color: naturezaColor("semProgramacao"),
+        }]
+      : []),
+  ]
 
   return (
     <div className="min-w-[280px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
@@ -2714,7 +2737,7 @@ function CalendarioOperacionalTooltip({ active, payload, label }: any) {
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
               {item.name}
             </span>
-            <span className="font-black text-slate-900">{formatHoras(item.value)}</span>
+            <span className="font-black text-slate-900">{formatHoras(item.displayValue)}</span>
           </div>
         ))}
       </div>
@@ -2943,7 +2966,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
                   <Tooltip content={<CalendarioOperacionalTooltip />} />
 
                   <Bar dataKey="real_setup" name="Setup real" stackId="dia" fill="#60A5FA" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="real_troca_turno" name="Troca de turno real" stackId="dia" fill="#BFDBFE" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_troca_turno" name="Troca de turno" stackId="dia" fill="#BFDBFE" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="real_producao" name="Produção real" stackId="dia" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
                   <Bar dataKey="real_programada" name="Programada real" stackId="dia" fill={naturezaColor("programada")} radius={[0, 0, 0, 0]} />
                   <Bar dataKey="real_nao_programada" name="Não programada" stackId="dia" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
