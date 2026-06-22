@@ -2123,55 +2123,210 @@ interface ParametroOperacional {
   oee: number
 }
 
-const PARAMETROS_OPERACIONAIS: Record<ParametroOperacionalKey, ParametroOperacional> = {
+const PARAMETROS_OPERACIONAIS: Record<ParametroOperacionalKey, Record<number, ParametroOperacional>> = {
   L1: {
-    key: "L1",
-    titulo: "Linha 1",
-    unidade: "tubetes",
-    horasTotais: 24,
-    setup: 2.56,
-    trocaTurno: 0.5,
-    horasProducao: 20.94,
-    mediaHoraria: 13500,
-    capacidadeMaxDia: 355200,
-    oee: 79.59,
+    1: {
+      key: "L1",
+      titulo: "Linha 1",
+      unidade: "tubetes",
+      horasTotais: 24,
+      setup: 2.56,
+      trocaTurno: 0.5,
+      horasProducao: 20.94,
+      mediaHoraria: 13500,
+      capacidadeMaxDia: 355200,
+      oee: 79.59,
+    },
+    2: {
+      key: "L1",
+      titulo: "Linha 1",
+      unidade: "tubetes",
+      horasTotais: 24,
+      setup: 2.56,
+      trocaTurno: 0.5,
+      horasProducao: 20.94,
+      mediaHoraria: 13500,
+      capacidadeMaxDia: 355200,
+      oee: 79.59,
+    },
+    3: {
+      key: "L1",
+      titulo: "Linha 1",
+      unidade: "tubetes",
+      horasTotais: 24,
+      setup: 2.56,
+      trocaTurno: 0.5,
+      horasProducao: 20.94,
+      mediaHoraria: 13500,
+      capacidadeMaxDia: 355200,
+      oee: 79.59,
+    },
+    4: {
+      key: "L1",
+      titulo: "Linha 1",
+      unidade: "tubetes",
+      horasTotais: 24,
+      setup: 2.56,
+      trocaTurno: 0.5,
+      horasProducao: 20.94,
+      mediaHoraria: 13500,
+      capacidadeMaxDia: 355200,
+      oee: 79.59,
+    },
   },
   L2: {
-    key: "L2",
-    titulo: "Linha 2",
-    unidade: "tubetes",
-    horasTotais: 24,
-    setup: 5,
-    trocaTurno: 0.83,
-    horasProducao: 18.17,
-    mediaHoraria: 7500,
-    capacidadeMaxDia: 303600,
-    oee: 45,
+    1: {
+      key: "L2",
+      titulo: "Linha 2",
+      unidade: "tubetes",
+      horasTotais: 24,
+      setup: 5.5,
+      trocaTurno: 1,
+      horasProducao: 17.5,
+      mediaHoraria: 7000,
+      capacidadeMaxDia: 303600,
+      oee: 40,
+    },
+    2: {
+      key: "L2",
+      titulo: "Linha 2",
+      unidade: "tubetes",
+      horasTotais: 24,
+      setup: 5,
+      trocaTurno: 0.83,
+      horasProducao: 18.17,
+      mediaHoraria: 7500,
+      capacidadeMaxDia: 303600,
+      oee: 45,
+    },
+    3: {
+      key: "L2",
+      titulo: "Linha 2",
+      unidade: "tubetes",
+      horasTotais: 24,
+      setup: 4.5,
+      trocaTurno: 0.83,
+      horasProducao: 18.67,
+      mediaHoraria: 8000,
+      capacidadeMaxDia: 303600,
+      oee: 49,
+    },
+    4: {
+      key: "L2",
+      titulo: "Linha 2",
+      unidade: "tubetes",
+      horasTotais: 24,
+      setup: 4,
+      trocaTurno: 0.66,
+      horasProducao: 19.34,
+      mediaHoraria: 8500,
+      capacidadeMaxDia: 303600,
+      oee: 54,
+    },
   },
   EMBALAGEM: {
-    key: "EMBALAGEM",
-    titulo: "Embalagem",
-    unidade: "caixas",
-    horasTotais: 24,
-    setup: 1.33,
-    trocaTurno: 0.66,
-    horasProducao: 22.01,
-    mediaHoraria: 40,
-    capacidadeMaxDia: 1440,
-    oee: 61,
+    1: {
+      key: "EMBALAGEM",
+      titulo: "Embalagem",
+      unidade: "caixas",
+      horasTotais: 24,
+      setup: 1.33,
+      trocaTurno: 0.66,
+      horasProducao: 22.01,
+      mediaHoraria: 38,
+      capacidadeMaxDia: 1440,
+      oee: 58,
+    },
+    2: {
+      key: "EMBALAGEM",
+      titulo: "Embalagem",
+      unidade: "caixas",
+      horasTotais: 24,
+      setup: 1.33,
+      trocaTurno: 0.66,
+      horasProducao: 22.01,
+      mediaHoraria: 40,
+      capacidadeMaxDia: 1440,
+      oee: 61,
+    },
+    3: {
+      key: "EMBALAGEM",
+      titulo: "Embalagem",
+      unidade: "caixas",
+      horasTotais: 24,
+      setup: 1.33,
+      trocaTurno: 0.66,
+      horasProducao: 22.01,
+      mediaHoraria: 42,
+      capacidadeMaxDia: 1440,
+      oee: 64,
+    },
+    4: {
+      key: "EMBALAGEM",
+      titulo: "Embalagem",
+      unidade: "caixas",
+      horasTotais: 24,
+      setup: 1.33,
+      trocaTurno: 0.66,
+      horasProducao: 22.01,
+      mediaHoraria: 44,
+      capacidadeMaxDia: 1440,
+      oee: 67.25,
+    },
   },
 }
 
-function getParametroOperacional(linha: LinhaFiltro, area: AreaExcelenciaFiltro, equipamento: string) {
+function trimestreFromMes(mes?: number) {
+  const m = Number(mes || 1)
+  if (m <= 3) return 1
+  if (m <= 6) return 2
+  if (m <= 9) return 3
+  return 4
+}
+
+function getParametroKey(linha: LinhaFiltro, area: AreaExcelenciaFiltro, equipamento: string): ParametroOperacionalKey {
   if (area === "Embalagem" || equipamento.includes("BAUSCH") || equipamento.includes("FABRIMA")) {
-    return PARAMETROS_OPERACIONAIS.EMBALAGEM
+    return "EMBALAGEM"
   }
 
   if (linha === "L2" || equipamento.includes("L2")) {
-    return PARAMETROS_OPERACIONAIS.L2
+    return "L2"
   }
 
-  return PARAMETROS_OPERACIONAIS.L1
+  return "L1"
+}
+
+function getParametroOperacional(linha: LinhaFiltro, area: AreaExcelenciaFiltro, equipamento: string, mes?: number) {
+  const key = getParametroKey(linha, area, equipamento)
+  const tri = trimestreFromMes(mes)
+  return PARAMETROS_OPERACIONAIS[key][tri]
+}
+
+type DiarioOperacionalPoint = {
+  data: string
+  label: string
+  horas_producao: number
+  horas_programadas: number
+  horas_setup_real: number
+  horas_troca_turno_real: number
+  horas_nao_programadas: number
+  horas_sem_programacao: number
+  horas_total: number
+  horas_producao_plot: number
+  horas_nao_programadas_plot: number
+  horas_sem_programacao_plot: number
+  horas_setup_real_plot: number
+  horas_producao_meta: number
+  horas_setup_meta: number
+  horas_total_meta: number
+}
+
+type CalendarioOperacionalGroup = {
+  id: string
+  titulo: string
+  subtitulo: string
+  parametro: ParametroOperacional
+  diario: DiarioOperacionalPoint[]
 }
 
 function horasNumber(value?: number) {
@@ -2339,6 +2494,138 @@ function ExcelenciaTooltip({ active, payload, label }: any) {
   )
 }
 
+
+function montarDiarioOperacional(
+  rows: ExcelenciaDiarioEquipamento[],
+  parametro: ParametroOperacional,
+  agrupadoPorLinha = false,
+): DiarioOperacionalPoint[] {
+  const map = new Map<string, {
+    data: string
+    label: string
+    horas_producao: number
+    horas_programadas: number
+    horas_setup_real: number
+    horas_troca_turno_real: number
+    horas_nao_programadas: number
+    horas_sem_programacao: number
+    horas_total: number
+  }>()
+
+  rows.forEach((row) => {
+    const key = row.data
+    if (!map.has(key)) {
+      map.set(key, {
+        data: key,
+        label: formatDateBR(key),
+        horas_producao: 0,
+        horas_programadas: 0,
+        horas_setup_real: 0,
+        horas_troca_turno_real: 0,
+        horas_nao_programadas: 0,
+        horas_sem_programacao: 0,
+        horas_total: 0,
+      })
+    }
+
+    const atual = map.get(key)!
+    const producao = horasNumber(row.horas_producao)
+    const programada = horasNumber(row.horas_programadas)
+    const setupReal = horasNumber(row.horas_setup_real)
+    const trocaReal = horasNumber(row.horas_troca_turno_real)
+    const naoProgramada = horasNumber(row.horas_nao_programadas)
+    const semProgramacao = horasNumber(row.horas_sem_programacao)
+    const total = horasNumber(row.horas_total)
+
+    if (agrupadoPorLinha) {
+      atual.horas_producao = Math.max(atual.horas_producao, producao)
+      atual.horas_programadas = Math.max(atual.horas_programadas, programada)
+      atual.horas_setup_real = Math.max(atual.horas_setup_real, setupReal)
+      atual.horas_troca_turno_real = Math.max(atual.horas_troca_turno_real, trocaReal)
+      atual.horas_nao_programadas = Math.max(atual.horas_nao_programadas, naoProgramada)
+      atual.horas_sem_programacao = Math.max(atual.horas_sem_programacao, semProgramacao)
+      atual.horas_total = Math.max(atual.horas_total, total)
+    } else {
+      atual.horas_producao += producao
+      atual.horas_programadas += programada
+      atual.horas_setup_real += setupReal
+      atual.horas_troca_turno_real += trocaReal
+      atual.horas_nao_programadas += naoProgramada
+      atual.horas_sem_programacao += semProgramacao
+      atual.horas_total += total
+    }
+  })
+
+  return Array.from(map.values())
+    .sort((a, b) => a.data.localeCompare(b.data))
+    .map((row) => {
+      const limiteDia = parametro.horasTotais
+      const janelaProdutiva = parametro.horasProducao
+
+      const producaoPlot = Math.min(row.horas_producao, janelaProdutiva)
+      const naoProgramadaPlot = Math.min(row.horas_nao_programadas, Math.max(0, janelaProdutiva - producaoPlot))
+      const capacidadeNaoUsadaPlot = Math.max(0, janelaProdutiva - producaoPlot - naoProgramadaPlot)
+      const setupRealPlot = Math.min(row.horas_setup_real || row.horas_programadas, limiteDia)
+
+      return {
+        ...row,
+        horas_producao_plot: producaoPlot,
+        horas_nao_programadas_plot: naoProgramadaPlot,
+        horas_sem_programacao_plot: capacidadeNaoUsadaPlot,
+        horas_setup_real_plot: setupRealPlot,
+        horas_producao_meta: janelaProdutiva,
+        horas_setup_meta: parametro.setup,
+        horas_total_meta: limiteDia,
+      }
+    })
+}
+
+function montarGruposCalendarioOperacional(
+  rows: ExcelenciaDiarioEquipamento[],
+  linha: LinhaFiltro,
+  areaFiltro: AreaExcelenciaFiltro,
+  equipamentoFiltro: string,
+  mes: number,
+  parametroAtual: ParametroOperacional,
+): CalendarioOperacionalGroup[] {
+  const mostrarMaqsLinha1 =
+    linha === "L1" &&
+    equipamentoFiltro === "TODOS" &&
+    (areaFiltro === "TODAS" || areaFiltro === "Envase")
+
+  if (mostrarMaqsLinha1) {
+    return ["MÁQ 1 ENVASADORA", "MÁQ 2 ENVASADORA"].map((equipamento) => {
+      const parametro = getParametroOperacional("L1", "Envase", equipamento, mes)
+      const rowsEquipamento = rows.filter((row) => row.equipamento === equipamento)
+
+      return {
+        id: equipamento,
+        titulo: equipamentoLabelCurto(equipamento),
+        subtitulo: `${parametro.titulo} · ${formatHoras(parametro.horasProducao)} produção · ${formatHoras(parametro.setup)} setup`,
+        parametro,
+        diario: montarDiarioOperacional(rowsEquipamento, parametro, false),
+      }
+    })
+  }
+
+  const titulo =
+    equipamentoFiltro !== "TODOS"
+      ? equipamentoLabelCurto(equipamentoFiltro)
+      : areaFiltro !== "TODAS"
+        ? areaFiltro
+        : linhaLabel(linha)
+
+  return [
+    {
+      id: "seleção",
+      titulo,
+      subtitulo: `${parametroAtual.titulo} · ${formatHoras(parametroAtual.horasProducao)} produção · ${formatHoras(parametroAtual.setup)} setup`,
+      parametro: parametroAtual,
+      diario: montarDiarioOperacional(rows, parametroAtual, equipamentoFiltro === "TODOS"),
+    },
+  ]
+}
+
 function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }) {
   const [areaFiltro, setAreaFiltro] = useState<AreaExcelenciaFiltro>("TODAS")
   const [equipamentoFiltro, setEquipamentoFiltro] = useState("TODOS")
@@ -2347,8 +2634,8 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
   const [parametrosOpen, setParametrosOpen] = useState(false)
 
   const parametroAtual = useMemo(
-    () => getParametroOperacional(linha, areaFiltro, equipamentoFiltro),
-    [linha, areaFiltro, equipamentoFiltro],
+    () => getParametroOperacional(linha, areaFiltro, equipamentoFiltro, data.mes),
+    [linha, areaFiltro, equipamentoFiltro, data.mes],
   )
 
   const rankingBase = useMemo(() => {
@@ -2392,96 +2679,17 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
     [diarioFiltrado, rankingFiltrado, causasFiltradas],
   )
 
-  const planejamentoFiltrado = useMemo(
-    () => filtrarPlanejamentoExcelencia(data.planejamento_diario || [], linha, areaFiltro, equipamentoFiltro),
-    [data.planejamento_diario, linha, areaFiltro, equipamentoFiltro],
+  const chartGroups = useMemo(
+    () => montarGruposCalendarioOperacional(
+      diarioFiltrado,
+      linha,
+      areaFiltro,
+      equipamentoFiltro,
+      data.mes,
+      parametroAtual,
+    ),
+    [diarioFiltrado, linha, areaFiltro, equipamentoFiltro, data.mes, parametroAtual],
   )
-
-  const diario = useMemo(() => {
-    const agrupadoPorLinha = equipamentoFiltro === "TODOS"
-
-    const map = new Map<string, {
-      data: string
-      label: string
-      horas_producao: number
-      horas_programadas: number
-      horas_setup_real: number
-      horas_troca_turno_real: number
-      horas_nao_programadas: number
-      horas_sem_programacao: number
-      horas_total: number
-    }>()
-
-    diarioFiltrado.forEach((row) => {
-      const key = row.data
-      if (!map.has(key)) {
-        map.set(key, {
-          data: key,
-          label: formatDateBR(key),
-          horas_producao: 0,
-          horas_programadas: 0,
-          horas_setup_real: 0,
-          horas_troca_turno_real: 0,
-          horas_nao_programadas: 0,
-          horas_sem_programacao: 0,
-          horas_total: 0,
-        })
-      }
-
-      const atual = map.get(key)!
-      const producao = horasNumber(row.horas_producao)
-      const programada = horasNumber(row.horas_programadas)
-      const setupReal = horasNumber(row.horas_setup_real)
-      const trocaReal = horasNumber(row.horas_troca_turno_real)
-      const naoProgramada = horasNumber(row.horas_nao_programadas)
-      const semProgramacao = horasNumber(row.horas_sem_programacao)
-      const total = horasNumber(row.horas_total)
-
-      // Quando a seleção é linha/área agregada, não podemos somar Maq 1 + Maq 2 + lavadora
-      // como se o dia tivesse 72h. Para calendário operacional, usamos a maior ocupação
-      // observada entre equipamentos da seleção e limitamos pela janela diária.
-      if (agrupadoPorLinha) {
-        atual.horas_producao = Math.max(atual.horas_producao, producao)
-        atual.horas_programadas = Math.max(atual.horas_programadas, programada)
-        atual.horas_setup_real = Math.max(atual.horas_setup_real, setupReal)
-        atual.horas_troca_turno_real = Math.max(atual.horas_troca_turno_real, trocaReal)
-        atual.horas_nao_programadas = Math.max(atual.horas_nao_programadas, naoProgramada)
-        atual.horas_sem_programacao = Math.max(atual.horas_sem_programacao, semProgramacao)
-        atual.horas_total = Math.max(atual.horas_total, total)
-      } else {
-        atual.horas_producao += producao
-        atual.horas_programadas += programada
-        atual.horas_setup_real += setupReal
-        atual.horas_troca_turno_real += trocaReal
-        atual.horas_nao_programadas += naoProgramada
-        atual.horas_sem_programacao += semProgramacao
-        atual.horas_total += total
-      }
-    })
-
-    return Array.from(map.values())
-      .sort((a, b) => a.data.localeCompare(b.data))
-      .map((row) => {
-        const limiteDia = parametroAtual.horasTotais
-        const janelaProdutiva = parametroAtual.horasProducao
-
-        const producaoPlot = Math.min(row.horas_producao, janelaProdutiva)
-        const naoProgramadaPlot = Math.min(row.horas_nao_programadas, Math.max(0, limiteDia - producaoPlot))
-        const semProgramacaoPlot = Math.min(row.horas_sem_programacao, Math.max(0, limiteDia - producaoPlot - naoProgramadaPlot))
-        const setupRealPlot = Math.min(row.horas_setup_real || row.horas_programadas, limiteDia)
-
-        return {
-          ...row,
-          horas_producao_plot: producaoPlot,
-          horas_nao_programadas_plot: naoProgramadaPlot,
-          horas_sem_programacao_plot: semProgramacaoPlot,
-          horas_setup_real_plot: setupRealPlot,
-          horas_producao_meta: janelaProdutiva,
-          horas_setup_meta: parametroAtual.setup,
-          horas_total_meta: limiteDia,
-        }
-      })
-  }, [diarioFiltrado, equipamentoFiltro, parametroAtual])
 
   const matriz = useMemo(() => montarMatrizFiltrada(causasFiltradas), [causasFiltradas])
   const topMacros = matriz.slice(0, 6)
@@ -2494,8 +2702,6 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
   const maxHorasMacro = Math.max(1, ...topMacros.map((row) => horasNumber(row.horas)))
   const maxOcorrDia = Math.max(1, ...topMacros.map((item) => horasNumber(item.ocorrencias_por_dia)))
   const maxMediaMin = Math.max(1, ...topMacros.map((item) => horasNumber(item.media_min)))
-  const maxChartHoras = parametroAtual.horasTotais
-
   useEffect(() => {
     setCapacidadeHora(parametroAtual.mediaHoraria)
   }, [parametroAtual.mediaHoraria])
@@ -2603,59 +2809,62 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
       </div>
 
       <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1.45fr_0.75fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calendário operacional</p>
-              <h3 className="text-lg font-bold text-slate-900">Composição diária da seleção</h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Verde = produção, vermelho = não programada, cinza = sem programação. Linha verde = janela produtiva planejada; linha roxa = setup padrão.
-              </p>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-              {parametroAtual.titulo}: {formatHoras(parametroAtual.horasProducao)} produção · {formatHoras(parametroAtual.setup)} setup
-            </div>
-          </div>
-
-          <div className="h-[360px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={diario} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748B" }} />
-                <YAxis domain={[0, parametroAtual.horasTotais]} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748B" }} />
-                <Tooltip content={<ExcelenciaTooltip />} />
-                <Bar dataKey="horas_producao_plot" name="Produção" stackId="a" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="horas_nao_programadas_plot" name="Não programada" stackId="a" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="horas_sem_programacao_plot" name="Sem programação" stackId="a" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
-                <Line type="monotone" dataKey="horas_producao_meta" name="Janela produtiva planejada" stroke={naturezaColor("producao")} strokeWidth={2.5} strokeDasharray="6 6" dot={false} />
-                <Line type="monotone" dataKey="horas_setup_meta" name="Setup padrão" stroke={naturezaColor("programada")} strokeWidth={2.5} strokeDasharray="4 4" dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Setup</p>
-                <h4 className="text-sm font-bold text-slate-800">Tempo apontado vs padrão</h4>
+        <div className="space-y-6">
+          {chartGroups.map((group) => (
+            <div key={group.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calendário operacional</p>
+                  <h3 className="text-lg font-bold text-slate-900">{group.titulo}</h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Verde = produção, vermelho = perda não programada, cinza = capacidade produtiva não usada. Cada gráfico respeita a janela produtiva do equipamento.
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+                  {group.subtitulo}
+                </div>
               </div>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500">
-                Ref.: {formatHoras(parametroAtual.setup)} / dia
-              </span>
+
+              <div className="h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={group.diario} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748B" }} />
+                    <YAxis domain={[0, group.parametro.horasTotais]} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748B" }} />
+                    <Tooltip content={<ExcelenciaTooltip />} />
+                    <Bar dataKey="horas_producao_plot" name="Produção" stackId="a" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="horas_nao_programadas_plot" name="Não programada" stackId="a" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="horas_sem_programacao_plot" name="Capacidade não usada" stackId="a" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
+                    <Line type="monotone" dataKey="horas_producao_meta" name="Janela produtiva planejada" stroke={naturezaColor("producao")} strokeWidth={2.5} strokeDasharray="6 6" dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Setup</p>
+                    <h4 className="text-sm font-bold text-slate-800">Tempo apontado vs padrão</h4>
+                  </div>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500">
+                    Ref.: {formatHoras(group.parametro.setup)} / dia
+                  </span>
+                </div>
+                <div className="h-[150px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={group.diario} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                      <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
+                      <YAxis domain={[0, Math.max(4, group.parametro.setup * 2)]} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
+                      <Tooltip content={<ExcelenciaTooltip />} />
+                      <Bar dataKey="horas_setup_real_plot" name="Setup apontado" fill={naturezaColor("programada")} radius={[8, 8, 0, 0]} />
+                      <Line type="monotone" dataKey="horas_setup_meta" name="Setup padrão" stroke={naturezaColor("programada")} strokeWidth={2.5} strokeDasharray="4 4" dot={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
             </div>
-            <div className="h-[160px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={diario} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
-                  <YAxis domain={[0, Math.max(4, parametroAtual.setup * 2)]} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
-                  <Tooltip content={<ExcelenciaTooltip />} />
-                  <Bar dataKey="horas_setup_real_plot" name="Setup apontado" fill={naturezaColor("programada")} radius={[8, 8, 0, 0]} />
-                  <Line type="monotone" dataKey="horas_setup_meta" name="Setup padrão" stroke={naturezaColor("programada")} strokeWidth={2.5} strokeDasharray="4 4" dot={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          ))}
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -2917,43 +3126,56 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
               </button>
             </div>
 
-            <div className="grid gap-4 p-6 md:grid-cols-3">
-              {Object.values(PARAMETROS_OPERACIONAIS).map((param) => (
-                <div key={param.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                  <h4 className="text-base font-black text-slate-900">{param.titulo}</h4>
-                  <div className="mt-4 space-y-3 text-sm">
-                    <div className="flex justify-between gap-4">
-                      <span className="font-semibold text-slate-500">Horas totais</span>
-                      <span className="font-black text-slate-900">{formatHoras(param.horasTotais)}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="font-semibold text-slate-500">Setup padrão</span>
-                      <span className="font-black text-slate-900">{formatHoras(param.setup)}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="font-semibold text-slate-500">Troca turno</span>
-                      <span className="font-black text-slate-900">{formatHoras(param.trocaTurno)}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="font-semibold text-slate-500">Horas produção</span>
-                      <span className="font-black text-slate-900">{formatHoras(param.horasProducao)}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="font-semibold text-slate-500">Média horária</span>
-                      <span className="font-black text-slate-900">
-                        {formatNumber(param.mediaHoraria)} {param.unidade === "caixas" ? "cx/h" : "tub/h"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="font-semibold text-slate-500">Capacidade max.</span>
-                      <span className="font-black text-slate-900">
-                        {formatNumber(param.capacidadeMaxDia)} {param.unidade === "caixas" ? "cx/dia" : "tub/dia"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="font-semibold text-slate-500">OEE ref.</span>
-                      <span className="font-black text-slate-900">{formatPercent(param.oee)}</span>
-                    </div>
+            <div className="space-y-5 p-6">
+              {(["L1", "L2", "EMBALAGEM"] as ParametroOperacionalKey[]).map((key) => (
+                <div key={key} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                  <div className="bg-slate-50 px-4 py-3">
+                    <h4 className="text-sm font-black text-slate-900">
+                      {PARAMETROS_OPERACIONAIS[key][1].titulo}
+                    </h4>
+                  </div>
+                  <div className="overflow-auto">
+                    <table className="w-full min-w-[760px] text-xs">
+                      <thead className="bg-white text-slate-500">
+                        <tr>
+                          <th className="px-4 py-3 text-left">Parâmetro</th>
+                          <th className="px-4 py-3 text-right">1º Tri</th>
+                          <th className="px-4 py-3 text-right">2º Tri</th>
+                          <th className="px-4 py-3 text-right">3º Tri</th>
+                          <th className="px-4 py-3 text-right">4º Tri</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          ["Horas totais", "horasTotais", "h/dia"],
+                          ["Setup padrão", "setup", "h/dia"],
+                          ["Troca de turno", "trocaTurno", "h/dia"],
+                          ["Horas em produção", "horasProducao", "h/dia"],
+                          ["Média horária", "mediaHoraria", PARAMETROS_OPERACIONAIS[key][1].unidade === "caixas" ? "cx/h" : "tub/h"],
+                          ["Capacidade máx.", "capacidadeMaxDia", PARAMETROS_OPERACIONAIS[key][1].unidade === "caixas" ? "cx/dia" : "tub/dia"],
+                          ["OEE", "oee", "%"],
+                        ].map(([label, field, unit]) => (
+                          <tr key={`${key}-${field}`} className="border-t border-slate-100">
+                            <td className="px-4 py-2.5 font-bold text-slate-600">{label}</td>
+                            {[1, 2, 3, 4].map((tri) => {
+                              const param = PARAMETROS_OPERACIONAIS[key][tri]
+                              const value = Number(param[field as keyof ParametroOperacional] || 0)
+                              const formatted =
+                                unit === "%"
+                                  ? formatPercent(value)
+                                  : unit === "h/dia"
+                                    ? formatHoras(value)
+                                    : `${formatNumber(value)} ${unit}`
+                              return (
+                                <td key={`${key}-${field}-${tri}`} className="px-4 py-2.5 text-right font-black text-slate-900">
+                                  {formatted}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               ))}
