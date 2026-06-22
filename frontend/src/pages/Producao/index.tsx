@@ -297,6 +297,7 @@ interface ExcelenciaDiarioEquipamento {
   horas_programadas: number
   horas_setup_real?: number
   horas_troca_turno_real?: number
+  programadas_detalhe?: ProgramadaDetalhe[]
   horas_nao_programadas: number
   horas_sem_programacao: number
   horas_total: number
