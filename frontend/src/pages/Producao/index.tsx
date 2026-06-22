@@ -2721,7 +2721,7 @@ function montarDiarioOperacional(
       horas_total: 0,
       programadas_detalhe: [],
     })
-
+  })
 
   return Array.from(map.values())
     .sort((a, b) => a.data.localeCompare(b.data))
