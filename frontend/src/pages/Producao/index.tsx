@@ -294,6 +294,8 @@ interface ExcelenciaDiarioEquipamento {
   ordem_equipamento: number
   horas_producao: number
   horas_programadas: number
+  horas_setup_real?: number
+  horas_troca_turno_real?: number
   horas_nao_programadas: number
   horas_sem_programacao: number
   horas_total: number
@@ -2481,7 +2483,22 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
       })
   }, [diarioFiltrado, equipamentoFiltro, parametroAtual])
 
+  const matriz = useMemo(() => montarMatrizFiltrada(causasFiltradas), [causasFiltradas])
+  const topMacros = matriz.slice(0, 6)
+  const causasTop = causasFiltradas.slice(0, 18)
+  const rankingTop = [...rankingFiltrado]
+    .sort((a, b) => horasNumber(b.horas_nao_programadas) - horasNumber(a.horas_nao_programadas))
+    .slice(0, 8)
+
+  const maxHorasEquipamento = Math.max(1, ...rankingTop.map((row) => horasNumber(row.horas_nao_programadas)))
+  const maxHorasMacro = Math.max(1, ...topMacros.map((row) => horasNumber(row.horas)))
+  const maxOcorrDia = Math.max(1, ...topMacros.map((item) => horasNumber(item.ocorrencias_por_dia)))
+  const maxMediaMin = Math.max(1, ...topMacros.map((item) => horasNumber(item.media_min)))
   const maxChartHoras = parametroAtual.horasTotais
+
+  useEffect(() => {
+    setCapacidadeHora(parametroAtual.mediaHoraria)
+  }, [parametroAtual.mediaHoraria])
 
   const horasRecuperadas = horasNumber(cards.horas_nao_programadas) * (Math.max(0, Math.min(100, reducaoPct)) / 100)
   const ganhoTubetes = horasRecuperadas * Math.max(0, Number(capacidadeHora || 0))
