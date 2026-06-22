@@ -2771,7 +2771,7 @@ export function ProducaoPage() {
     function checarAoVoltarParaAba() {
       if (document.visibilityState === "visible") {
         void loadVersao()
-        setCacheVersion((v) => Number(v ?? 0) + 1)
+        setCacheVersion((v) => String(Number(v ?? 0) + 1))
       }
     }
 
