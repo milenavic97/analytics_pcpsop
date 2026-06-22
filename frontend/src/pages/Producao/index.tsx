@@ -586,8 +586,13 @@ function peekApiCache<T>(
   path: string,
   params: Record<string, string | number | undefined | null | boolean> = {},
 ) {
-  const url = buildApiUrl(path, params)
-  return readProducaoCache<T>(url.toString())
+  // Precisa usar a mesma chave normalizada do apiGet.
+  // Ex.: /producao/perdas vira /producao/cache?tipo=perdas...
+  // Antes o cache era salvo em /producao/cache, mas procurado em /producao/perdas,
+  // então ao voltar para a página/aba ele não encontrava o dado já carregado.
+  const request = normalizeProducaoApiRequest(path, params)
+  const cacheKey = buildRawApiUrl(request.path, request.params).toString()
+  return readProducaoCache<T>(cacheKey)
 }
 
 async function apiGet<T>(
@@ -2771,7 +2776,6 @@ export function ProducaoPage() {
     function checarAoVoltarParaAba() {
       if (document.visibilityState === "visible") {
         void loadVersao()
-        setCacheVersion((v) => String(Number(v ?? 0) + 1))
       }
     }
 
