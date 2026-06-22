@@ -236,7 +236,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   throw new Error(mensagemErroFetch(path, ultimoErro))
 }
 
-// Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas.
+// Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v78.
 const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v22_operacional_quarentena_v75"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
@@ -246,6 +246,8 @@ type CacheGestaoEstoquePayload<T> = {
   params: Record<string, string | number | boolean | null | undefined>
   payload: T
 }
+
+const GESTAO_ESTOQUE_MEMORY_CACHE = new Map<string, CacheGestaoEstoquePayload<unknown>>()
 
 function normalizarCacheParams(params: Record<string, string | number | boolean | null | undefined>) {
   return Object.fromEntries(
@@ -262,10 +264,16 @@ function cacheKeyGestaoEstoque(path: string, params: Record<string, string | num
 }
 
 function lerCacheGestaoEstoque<T>(path: string, params: Record<string, string | number | boolean | null | undefined>): T | null {
+  const key = cacheKeyGestaoEstoque(path, params)
+
+  const memory = GESTAO_ESTOQUE_MEMORY_CACHE.get(key) as CacheGestaoEstoquePayload<T> | undefined
+  if (memory?.payload && Date.now() - Number(memory.savedAt || 0) <= GESTAO_ESTOQUE_CACHE_TTL_MS) {
+    return memory.payload
+  }
+
   try {
     if (typeof window === "undefined") return null
 
-    const key = cacheKeyGestaoEstoque(path, params)
     const raw = window.localStorage.getItem(key)
 
     if (!raw) return null
@@ -276,9 +284,11 @@ function lerCacheGestaoEstoque<T>(path: string, params: Record<string, string | 
 
     if (expirado || !parsed.payload) {
       window.localStorage.removeItem(key)
+      GESTAO_ESTOQUE_MEMORY_CACHE.delete(key)
       return null
     }
 
+    GESTAO_ESTOQUE_MEMORY_CACHE.set(key, parsed as CacheGestaoEstoquePayload<unknown>)
     return parsed.payload
   } catch {
     return null
@@ -290,24 +300,28 @@ function salvarCacheGestaoEstoque<T>(
   params: Record<string, string | number | boolean | null | undefined>,
   payload: T
 ) {
+  const key = cacheKeyGestaoEstoque(path, params)
+  const value: CacheGestaoEstoquePayload<T> = {
+    savedAt: Date.now(),
+    path,
+    params: normalizarCacheParams(params),
+    payload,
+  }
+
+  GESTAO_ESTOQUE_MEMORY_CACHE.set(key, value as CacheGestaoEstoquePayload<unknown>)
+
   try {
     if (typeof window === "undefined") return
-
-    const key = cacheKeyGestaoEstoque(path, params)
-    const value: CacheGestaoEstoquePayload<T> = {
-      savedAt: Date.now(),
-      path,
-      params: normalizarCacheParams(params),
-      payload,
-    }
-
     window.localStorage.setItem(key, JSON.stringify(value))
   } catch {
-    // Se o storage estiver cheio/bloqueado, a tela continua funcionando sem cache.
+    // Payload grande pode estourar localStorage.
+    // O cache em memória continua mantendo a navegação entre páginas instantânea.
   }
 }
 
 function limparCacheGestaoEstoqueLocal() {
+  GESTAO_ESTOQUE_MEMORY_CACHE.clear()
+
   try {
     if (typeof window === "undefined") return
 
@@ -319,7 +333,7 @@ function limparCacheGestaoEstoqueLocal() {
 
       if (
         key.startsWith(GESTAO_ESTOQUE_CACHE_PREFIX) ||
-        (key.includes("/aging-estoque/resumo") && key !== GESTAO_ESTOQUE_LAST_STATE_KEY) ||
+        key.includes("/aging-estoque/resumo") ||
         key.includes("/aging-estoque/itens") ||
         key.includes("/aging-estoque/produtos/serie") ||
         key.includes("dfl-api-cache")
@@ -360,9 +374,6 @@ async function fetchJsonComCache<T>(
   }
 
   const payload = await fetchJson<T>(path, params)
-
-  // Mesmo quando a busca foi forçada com _t/force_refresh, salva o resultado
-  // na chave normal. Assim outro retorno de página usa o dado atualizado.
   salvarCacheGestaoEstoque(path, cacheParams, payload)
   return payload
 }
@@ -703,7 +714,6 @@ type GestaoEstoqueLastState = {
 function lerUltimoEstadoGestaoEstoque(): GestaoEstoqueLastState {
   try {
     if (typeof window === "undefined") return {}
-
     const raw = window.localStorage.getItem(GESTAO_ESTOQUE_LAST_STATE_KEY)
     if (!raw) return {}
 
@@ -4503,7 +4513,7 @@ function DashboardEstoquePanel({
 
   return (
     <div className="space-y-5">
-      {loading && (
+      {loading && !dashboardRespAtual && (
         <div className="rounded-2xl border px-4 py-3 text-sm font-bold" style={{ borderColor: "#BFDBFE", background: "#EFF6FF", color: "#1D4ED8" }}>
           Carregando indicadores do dashboard...
         </div>
@@ -6479,8 +6489,6 @@ export default function AgingEstoquePage() {
 
     async function carregarDashboardProgressivo() {
       try {
-        // Primeiro carrega só o resumo de PA/MR.
-        // Isso libera os cards principais sem esperar a matriz/tabela de 5.000 itens.
         const resumoPrincipal = await getAgingResumoDireto(paramsResumoDashboard(escopoPrincipal))
 
         if (!mounted) return
@@ -6492,7 +6500,6 @@ export default function AgingEstoquePage() {
         setDashboardResp(resumoPrincipal)
         setLoadingDashboard(false)
 
-        // Depois carrega os itens de PA/MR para gráficos/matriz.
         const itensPrincipal = await getAgingItensDireto(paramsItensDashboard(escopoPrincipal))
 
         if (!mounted) return
@@ -6505,7 +6512,6 @@ export default function AgingEstoquePage() {
         setDashboardItensResp(itensNormalizados)
         setLoadingDashboardItens(false)
 
-        // Por último carrega Todos/Insumos em segundo plano.
         const secundarios = await Promise.allSettled(
           escoposSecundarios.map(async (escopo) => {
             const [resumo, itens] = await Promise.all([
@@ -6555,29 +6561,13 @@ export default function AgingEstoquePage() {
 
   useEffect(() => {
     let mounted = true
+    setLoadingResumo(true)
     setError("")
-
-    const paramsResumo = {
+    getAgingResumoDireto({
       escopo: escopoEstoque,
       classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
       _t: refreshTick ? refreshTick : undefined,
-    }
-
-    const resumoCached = !refreshTick
-      ? lerCacheGestaoEstoque<AgingResumoResponse>(
-          "/aging-estoque/resumo",
-          paramsCacheSemForceGestaoEstoque(paramsResumo)
-        )
-      : null
-
-    if (resumoCached) {
-      setResumo(resumoCached)
-      setLoadingResumo(false)
-    } else {
-      setLoadingResumo(true)
-    }
-
-    getAgingResumoDireto(paramsResumo)
+    })
       .then((res) => {
         if (!mounted) return
         if (res?.escopo && res.escopo !== escopoEstoque) return
@@ -6597,9 +6587,9 @@ export default function AgingEstoquePage() {
 
   useEffect(() => {
     let mounted = true
+    setLoadingItens(true)
     setError("")
-
-    const paramsItens = {
+    getAgingItensDireto({
         escopo: escopoEstoque,
         page,
         page_size: PAGE_SIZE,
@@ -6616,23 +6606,7 @@ export default function AgingEstoquePage() {
         status_plano: activeFilter?.status_plano,
         alerta_previsao: activeFilter?.alerta_previsao,
         _t: refreshTick ? refreshTick : undefined,
-      }
-
-    const itensCached = !refreshTick
-      ? lerCacheGestaoEstoque<AgingItensResponse>(
-          "/aging-estoque/itens",
-          paramsCacheSemForceGestaoEstoque(paramsItens)
-        )
-      : null
-
-    if (itensCached) {
-      setItensResp(normalizarCoberturaPaMrResponse(itensCached, escopoEstoque))
-      setLoadingItens(false)
-    } else {
-      setLoadingItens(true)
-    }
-
-    getAgingItensDireto(paramsItens)
+      })
       .then((res) => {
         if (!mounted) return
         if (res?.escopo && res.escopo !== escopoEstoque) return
@@ -6883,8 +6857,6 @@ export default function AgingEstoquePage() {
   const escopoTitulo = ESCOPO_TITULO[escopoEstoque]
   const escopoDescricao = ESCOPO_DESCRICAO[escopoEstoque]
   const mostrarCardsPortfolio = escopoEstoque !== "insumos"
-  const isTabelaProdutos = escopoEstoque !== "insumos"
-
   useEffect(() => {
     salvarUltimoEstadoGestaoEstoque({
       visaoEstoque,
@@ -6933,6 +6905,8 @@ export default function AgingEstoquePage() {
       window.removeEventListener("focus", checarAoVoltarParaAba)
     }
   }, [])
+
+  const isTabelaProdutos = escopoEstoque !== "insumos"
 
   const colunasBaseTabela = useMemo(() => {
     const base = [
