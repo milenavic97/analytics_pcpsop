@@ -236,7 +236,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   throw new Error(mensagemErroFetch(path, ultimoErro))
 }
 
-// Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v78.
+// Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas.
 const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v22_operacional_quarentena_v75"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
@@ -319,7 +319,7 @@ function limparCacheGestaoEstoqueLocal() {
 
       if (
         key.startsWith(GESTAO_ESTOQUE_CACHE_PREFIX) ||
-        key.includes("/aging-estoque/resumo") ||
+        (key.includes("/aging-estoque/resumo") && key !== GESTAO_ESTOQUE_LAST_STATE_KEY) ||
         key.includes("/aging-estoque/itens") ||
         key.includes("/aging-estoque/produtos/serie") ||
         key.includes("dfl-api-cache")
@@ -334,18 +334,36 @@ function limparCacheGestaoEstoqueLocal() {
   }
 }
 
+function paramsCacheSemForceGestaoEstoque(
+  params: Record<string, string | number | boolean | null | undefined> = {}
+) {
+  const { force_refresh, _t, ...rest } = params
+  return rest
+}
+
 async function fetchJsonComCache<T>(
   path: string,
   params: Record<string, string | number | boolean | null | undefined> = {}
 ): Promise<T> {
-  const cached = lerCacheGestaoEstoque<T>(path, params)
+  const forceRefresh =
+    params.force_refresh === true ||
+    String(params.force_refresh || "").toLowerCase() === "true"
 
-  if (cached) {
-    return cached
+  const cacheParams = paramsCacheSemForceGestaoEstoque(params)
+
+  if (!forceRefresh) {
+    const cached = lerCacheGestaoEstoque<T>(path, cacheParams)
+
+    if (cached) {
+      return cached
+    }
   }
 
   const payload = await fetchJson<T>(path, params)
-  salvarCacheGestaoEstoque(path, params, payload)
+
+  // Mesmo quando a busca foi forçada com _t/force_refresh, salva o resultado
+  // na chave normal. Assim outro retorno de página usa o dado atualizado.
+  salvarCacheGestaoEstoque(path, cacheParams, payload)
   return payload
 }
 
@@ -672,6 +690,63 @@ const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
     filtro.status_plano || "",
     filtro.alerta_previsao || "",
   ].join("|")
+}
+
+const GESTAO_ESTOQUE_LAST_STATE_KEY = "pcp_gestao_estoque_last_state_v86"
+
+type GestaoEstoqueLastState = {
+  visaoEstoque?: VisaoEstoque
+  escopoEstoque?: EscopoEstoque
+  activeFilter?: FiltroTabelaEstoque | null
+}
+
+function lerUltimoEstadoGestaoEstoque(): GestaoEstoqueLastState {
+  try {
+    if (typeof window === "undefined") return {}
+
+    const raw = window.localStorage.getItem(GESTAO_ESTOQUE_LAST_STATE_KEY)
+    if (!raw) return {}
+
+    const parsed = JSON.parse(raw) as GestaoEstoqueLastState
+
+    return {
+      visaoEstoque: parsed.visaoEstoque === "dashboard" || parsed.visaoEstoque === "gestao"
+        ? parsed.visaoEstoque
+        : "dashboard",
+      escopoEstoque: parsed.escopoEstoque === "produtos" || parsed.escopoEstoque === "insumos" || parsed.escopoEstoque === "todos"
+        ? parsed.escopoEstoque
+        : "produtos",
+      activeFilter: parsed.activeFilter || null,
+    }
+  } catch {
+    return {}
+  }
+}
+
+function salvarUltimoEstadoGestaoEstoque(state: GestaoEstoqueLastState) {
+  try {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem(GESTAO_ESTOQUE_LAST_STATE_KEY, JSON.stringify(state))
+  } catch {
+    // Não bloqueia a tela se o storage estiver indisponível.
+  }
+}
+
+async function buscarVersaoGestaoEstoque(): Promise<string> {
+  const bases = BASES_GESTAO_ESTOQUE.map((base) => base.id)
+
+  const versoes = await Promise.all(
+    bases.map(async (baseId) => {
+      try {
+        const res = await buscarUltimaAtualizacao(baseId)
+        return `${baseId}:${res.ultima_atualizacao || "sem-atualizacao"}`
+      } catch {
+        return `${baseId}:sem-status`
+      }
+    })
+  )
+
+  return versoes.join("|")
 }
 
 const isFiltroAtivo = (filtro: FiltroTabelaEstoque | null, parcial: Partial<FiltroTabelaEstoque>) => {
@@ -6132,10 +6207,87 @@ function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
 }
 
 export default function AgingEstoquePage() {
-  const [resumo, setResumo] = useState<AgingResumoResponse | null>(null)
-  const [itensResp, setItensResp] = useState<AgingItensResponse | null>(null)
-  const [, setLoadingResumo] = useState(true)
-  const [loadingItens, setLoadingItens] = useState(true)
+  const estadoInicial = useMemo(() => lerUltimoEstadoGestaoEstoque(), [])
+
+  const escopoInicial = estadoInicial.escopoEstoque || "produtos"
+  const visaoInicial = estadoInicial.visaoEstoque || "dashboard"
+  const filtroInicial = estadoInicial.activeFilter || null
+
+  const dashboardCacheInicial = useMemo(() => {
+    const escoposDashboard: EscopoEstoque[] = ["produtos", "todos", "insumos"]
+    const resumos: Partial<Record<EscopoEstoque, AgingResumoResponse>> = {}
+    const itensPorEscopo: Partial<Record<EscopoEstoque, AgingItensResponse>> = {}
+
+    for (const escopo of escoposDashboard) {
+      const classificacao = classificacaoPadraoPorEscopo(escopo)
+
+      const resumoCached = lerCacheGestaoEstoque<AgingResumoResponse>(
+        "/aging-estoque/resumo",
+        { escopo, classificacao_cadastro: classificacao }
+      )
+
+      const itensCached = lerCacheGestaoEstoque<AgingItensResponse>(
+        "/aging-estoque/itens",
+        {
+          escopo,
+          page: 1,
+          page_size: 5000,
+          sort_direction: "desc",
+          classificacao_cadastro: classificacao,
+        }
+      )
+
+      if (resumoCached) resumos[escopo] = resumoCached
+      if (itensCached) itensPorEscopo[escopo] = normalizarCoberturaPaMrResponse(itensCached, escopo)
+    }
+
+    return {
+      resumos,
+      itensPorEscopo,
+      resumoPrincipal: resumos.produtos || resumos.todos || resumos.insumos || null,
+      itensPrincipal: itensPorEscopo.produtos || itensPorEscopo.todos || itensPorEscopo.insumos || null,
+    }
+  }, [])
+
+  const resumoInicial = useMemo(() => {
+    const classificacao = filtroInicial?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoInicial)
+
+    return lerCacheGestaoEstoque<AgingResumoResponse>(
+      "/aging-estoque/resumo",
+      { escopo: escopoInicial, classificacao_cadastro: classificacao }
+    )
+  }, [escopoInicial, filtroInicial?.classificacao_cadastro])
+
+  const itensInicial = useMemo(() => {
+    const classificacao = filtroInicial?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoInicial)
+
+    return lerCacheGestaoEstoque<AgingItensResponse>(
+      "/aging-estoque/itens",
+      {
+        escopo: escopoInicial,
+        page: 1,
+        page_size: PAGE_SIZE,
+        sort_direction: "desc",
+        busca: filtroInicial?.busca,
+        status: filtroInicial?.status,
+        tipo_negocio: filtroInicial?.tipo_negocio,
+        status_portfolio: filtroInicial?.status_portfolio,
+        transferencia_bravi: filtroInicial?.transferencia_bravi,
+        descontinuado: filtroInicial?.descontinuado,
+        classificacao_cadastro: classificacao,
+        semaforo: filtroInicial?.semaforo,
+        status_plano: filtroInicial?.status_plano,
+        alerta_previsao: filtroInicial?.alerta_previsao,
+      }
+    )
+  }, [escopoInicial, filtroInicial])
+
+  const [resumo, setResumo] = useState<AgingResumoResponse | null>(resumoInicial)
+  const [itensResp, setItensResp] = useState<AgingItensResponse | null>(
+    itensInicial ? normalizarCoberturaPaMrResponse(itensInicial, escopoInicial) : null
+  )
+  const [, setLoadingResumo] = useState(!resumoInicial)
+  const [loadingItens, setLoadingItens] = useState(!itensInicial)
   const [loadingDetalhe, setLoadingDetalhe] = useState(false)
   const [error, setError] = useState("")
   const [page, setPage] = useState(1)
@@ -6149,15 +6301,16 @@ export default function AgingEstoquePage() {
   const [uploadingBaseId, setUploadingBaseId] = useState<string | null>(null)
   const [uploadMessage, setUploadMessage] = useState("")
   const [refreshTick, setRefreshTick] = useState(0)
-  const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(null)
-  const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>("produtos")
-  const [visaoEstoque, setVisaoEstoque] = useState<VisaoEstoque>("dashboard")
-  const [dashboardResp, setDashboardResp] = useState<AgingResumoResponse | null>(null)
-  const [dashboardItensResp, setDashboardItensResp] = useState<AgingItensResponse | null>(null)
-  const [dashboardResumoPorEscopo, setDashboardResumoPorEscopo] = useState<Partial<Record<EscopoEstoque, AgingResumoResponse>>>({})
-  const [dashboardItensPorEscopo, setDashboardItensPorEscopo] = useState<Partial<Record<EscopoEstoque, AgingItensResponse>>>({})
-  const [loadingDashboard, setLoadingDashboard] = useState(false)
-  const [loadingDashboardItens, setLoadingDashboardItens] = useState(false)
+  const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(filtroInicial)
+  const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>(escopoInicial)
+  const [visaoEstoque, setVisaoEstoque] = useState<VisaoEstoque>(visaoInicial)
+  const [cacheVersion, setCacheVersion] = useState<string | null>(null)
+  const [dashboardResp, setDashboardResp] = useState<AgingResumoResponse | null>(dashboardCacheInicial.resumoPrincipal)
+  const [dashboardItensResp, setDashboardItensResp] = useState<AgingItensResponse | null>(dashboardCacheInicial.itensPrincipal)
+  const [dashboardResumoPorEscopo, setDashboardResumoPorEscopo] = useState<Partial<Record<EscopoEstoque, AgingResumoResponse>>>(dashboardCacheInicial.resumos)
+  const [dashboardItensPorEscopo, setDashboardItensPorEscopo] = useState<Partial<Record<EscopoEstoque, AgingItensResponse>>>(dashboardCacheInicial.itensPorEscopo)
+  const [loadingDashboard, setLoadingDashboard] = useState(!dashboardCacheInicial.resumoPrincipal)
+  const [loadingDashboardItens, setLoadingDashboardItens] = useState(!dashboardCacheInicial.itensPrincipal)
   const [tableFilterOpen, setTableFilterOpen] = useState<keyof FiltroTabelaEstoque | null>(null)
   const [tableSearchDraft, setTableSearchDraft] = useState("")
   const [columnSelectorOpen, setColumnSelectorOpen] = useState(false)
@@ -6205,6 +6358,7 @@ export default function AgingEstoquePage() {
       )
 
       await carregarAtualizacoesBases()
+      setCacheVersion(null)
       setRefreshTick((current) => current + 1)
     } catch (err) {
       setUploadMessage(err instanceof Error ? err.message : `Erro ao carregar ${nomeBase}.`)
@@ -6252,95 +6406,178 @@ export default function AgingEstoquePage() {
 
   useEffect(() => {
     let mounted = true
-    const escoposDashboard: EscopoEstoque[] = ["todos", "insumos", "produtos"]
 
-    setLoadingDashboard(true)
-    setLoadingDashboardItens(true)
+    const escopoPrincipal: EscopoEstoque = "produtos"
+    const escoposSecundarios: EscopoEstoque[] = ["todos", "insumos"]
+    const escoposDashboard: EscopoEstoque[] = [escopoPrincipal, ...escoposSecundarios]
 
     const forceRefreshDashboard = refreshTick > 0
     const cacheBustDashboard = forceRefreshDashboard ? `${refreshTick}-${Date.now()}` : undefined
 
-    Promise.allSettled(
-      escoposDashboard.map(async (escopo) => {
-        const classificacao = classificacaoPadraoPorEscopo(escopo)
+    const paramsResumoDashboard = (escopo: EscopoEstoque) => ({
+      escopo,
+      classificacao_cadastro: classificacaoPadraoPorEscopo(escopo),
+      force_refresh: forceRefreshDashboard || undefined,
+      _t: cacheBustDashboard,
+    })
 
-        const [resumo, itens] = await Promise.all([
-          getAgingResumoDireto({
-            escopo,
-            classificacao_cadastro: classificacao,
-            force_refresh: forceRefreshDashboard || undefined,
-            _t: cacheBustDashboard,
-          }),
-          getAgingItensDireto({
-            escopo,
-            page: 1,
-            page_size: 5000,
-            sort_direction: "desc",
-            classificacao_cadastro: classificacao,
-            force_refresh: forceRefreshDashboard || undefined,
-            _t: cacheBustDashboard,
-          }),
-        ])
+    const paramsResumoCache = (escopo: EscopoEstoque) => ({
+      escopo,
+      classificacao_cadastro: classificacaoPadraoPorEscopo(escopo),
+    })
 
-        return {
-          escopo,
-          resumo,
-          itens: normalizarCoberturaPaMrResponse(itens, escopo),
-        }
-      })
-    )
-      .then((resultados) => {
+    const paramsItensDashboard = (escopo: EscopoEstoque) => ({
+      escopo,
+      page: 1,
+      page_size: 5000,
+      sort_direction: "desc",
+      classificacao_cadastro: classificacaoPadraoPorEscopo(escopo),
+      force_refresh: forceRefreshDashboard || undefined,
+      _t: cacheBustDashboard,
+    })
+
+    const paramsItensCache = (escopo: EscopoEstoque) => ({
+      escopo,
+      page: 1,
+      page_size: 5000,
+      sort_direction: "desc",
+      classificacao_cadastro: classificacaoPadraoPorEscopo(escopo),
+    })
+
+    if (!forceRefreshDashboard) {
+      const resumosCache: Partial<Record<EscopoEstoque, AgingResumoResponse>> = {}
+      const itensCache: Partial<Record<EscopoEstoque, AgingItensResponse>> = {}
+
+      for (const escopo of escoposDashboard) {
+        const resumoCached = lerCacheGestaoEstoque<AgingResumoResponse>(
+          "/aging-estoque/resumo",
+          paramsResumoCache(escopo)
+        )
+
+        const itensCached = lerCacheGestaoEstoque<AgingItensResponse>(
+          "/aging-estoque/itens",
+          paramsItensCache(escopo)
+        )
+
+        if (resumoCached) resumosCache[escopo] = resumoCached
+        if (itensCached) itensCache[escopo] = normalizarCoberturaPaMrResponse(itensCached, escopo)
+      }
+
+      if (Object.keys(resumosCache).length || Object.keys(itensCache).length) {
+        setDashboardResumoPorEscopo((current) => ({ ...current, ...resumosCache }))
+        setDashboardItensPorEscopo((current) => ({ ...current, ...itensCache }))
+        setDashboardResp(resumosCache.produtos || resumosCache.todos || resumosCache.insumos || null)
+        setDashboardItensResp(itensCache.produtos || itensCache.todos || itensCache.insumos || null)
+      }
+
+      setLoadingDashboard(!resumosCache.produtos && !dashboardResp)
+      setLoadingDashboardItens(!itensCache.produtos && !dashboardItensResp)
+    } else {
+      setLoadingDashboard(true)
+      setLoadingDashboardItens(true)
+    }
+
+    async function carregarDashboardProgressivo() {
+      try {
+        // Primeiro carrega só o resumo de PA/MR.
+        // Isso libera os cards principais sem esperar a matriz/tabela de 5.000 itens.
+        const resumoPrincipal = await getAgingResumoDireto(paramsResumoDashboard(escopoPrincipal))
+
         if (!mounted) return
 
-        const resolvidos = resultados
+        setDashboardResumoPorEscopo((current) => ({
+          ...current,
+          [escopoPrincipal]: resumoPrincipal,
+        }))
+        setDashboardResp(resumoPrincipal)
+        setLoadingDashboard(false)
+
+        // Depois carrega os itens de PA/MR para gráficos/matriz.
+        const itensPrincipal = await getAgingItensDireto(paramsItensDashboard(escopoPrincipal))
+
+        if (!mounted) return
+
+        const itensNormalizados = normalizarCoberturaPaMrResponse(itensPrincipal, escopoPrincipal)
+        setDashboardItensPorEscopo((current) => ({
+          ...current,
+          [escopoPrincipal]: itensNormalizados,
+        }))
+        setDashboardItensResp(itensNormalizados)
+        setLoadingDashboardItens(false)
+
+        // Por último carrega Todos/Insumos em segundo plano.
+        const secundarios = await Promise.allSettled(
+          escoposSecundarios.map(async (escopo) => {
+            const [resumo, itens] = await Promise.all([
+              getAgingResumoDireto(paramsResumoDashboard(escopo)),
+              getAgingItensDireto(paramsItensDashboard(escopo)),
+            ])
+
+            return {
+              escopo,
+              resumo,
+              itens: normalizarCoberturaPaMrResponse(itens, escopo),
+            }
+          })
+        )
+
+        if (!mounted) return
+
+        const resolvidos = secundarios
           .filter((resultado): resultado is PromiseFulfilledResult<{ escopo: EscopoEstoque; resumo: AgingResumoResponse; itens: AgingItensResponse }> => resultado.status === "fulfilled")
           .map((resultado) => resultado.value)
 
-        const rejeitados = resultados.filter((resultado) => resultado.status === "rejected")
+        if (resolvidos.length) {
+          const resumos: Partial<Record<EscopoEstoque, AgingResumoResponse>> = {}
+          const itensPorEscopo: Partial<Record<EscopoEstoque, AgingItensResponse>> = {}
 
-        if (!resolvidos.length) {
-          const primeiroErro = rejeitados[0] as PromiseRejectedResult | undefined
-          throw new Error(primeiroErro?.reason instanceof Error ? primeiroErro.reason.message : "Erro ao carregar dashboard")
+          for (const resultado of resolvidos) {
+            resumos[resultado.escopo] = resultado.resumo
+            itensPorEscopo[resultado.escopo] = resultado.itens
+          }
+
+          setDashboardResumoPorEscopo((current) => ({ ...current, ...resumos }))
+          setDashboardItensPorEscopo((current) => ({ ...current, ...itensPorEscopo }))
         }
-
-        const resumos: Partial<Record<EscopoEstoque, AgingResumoResponse>> = {}
-        const itensPorEscopo: Partial<Record<EscopoEstoque, AgingItensResponse>> = {}
-
-        for (const resultado of resolvidos) {
-          resumos[resultado.escopo] = resultado.resumo
-          itensPorEscopo[resultado.escopo] = resultado.itens
-        }
-
-        setDashboardResumoPorEscopo(resumos)
-        setDashboardItensPorEscopo(itensPorEscopo)
-        setDashboardResp(resumos.todos || resolvidos[0]?.resumo || null)
-        setDashboardItensResp(itensPorEscopo.todos || resolvidos[0]?.itens || null)
-
-        // v78: não exibe alerta técnico quando apenas uma chamada secundária falha/demora.
-        // Os dados disponíveis continuam sendo renderizados normalmente.
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (!mounted) return
         console.warn("Falha transitória ao carregar o dashboard de estoque", err)
         setError("")
-      })
-      .finally(() => {
-        if (!mounted) return
         setLoadingDashboard(false)
         setLoadingDashboardItens(false)
-      })
+      }
+    }
+
+    void carregarDashboardProgressivo()
+
     return () => { mounted = false }
-  }, [refreshTick])
+  }, [refreshTick, cacheVersion])
 
   useEffect(() => {
     let mounted = true
-    setLoadingResumo(true)
     setError("")
-    getAgingResumoDireto({
+
+    const paramsResumo = {
       escopo: escopoEstoque,
       classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
       _t: refreshTick ? refreshTick : undefined,
-    })
+    }
+
+    const resumoCached = !refreshTick
+      ? lerCacheGestaoEstoque<AgingResumoResponse>(
+          "/aging-estoque/resumo",
+          paramsCacheSemForceGestaoEstoque(paramsResumo)
+        )
+      : null
+
+    if (resumoCached) {
+      setResumo(resumoCached)
+      setLoadingResumo(false)
+    } else {
+      setLoadingResumo(true)
+    }
+
+    getAgingResumoDireto(paramsResumo)
       .then((res) => {
         if (!mounted) return
         if (res?.escopo && res.escopo !== escopoEstoque) return
@@ -6360,9 +6597,9 @@ export default function AgingEstoquePage() {
 
   useEffect(() => {
     let mounted = true
-    setLoadingItens(true)
     setError("")
-    getAgingItensDireto({
+
+    const paramsItens = {
         escopo: escopoEstoque,
         page,
         page_size: PAGE_SIZE,
@@ -6379,7 +6616,23 @@ export default function AgingEstoquePage() {
         status_plano: activeFilter?.status_plano,
         alerta_previsao: activeFilter?.alerta_previsao,
         _t: refreshTick ? refreshTick : undefined,
-      })
+      }
+
+    const itensCached = !refreshTick
+      ? lerCacheGestaoEstoque<AgingItensResponse>(
+          "/aging-estoque/itens",
+          paramsCacheSemForceGestaoEstoque(paramsItens)
+        )
+      : null
+
+    if (itensCached) {
+      setItensResp(normalizarCoberturaPaMrResponse(itensCached, escopoEstoque))
+      setLoadingItens(false)
+    } else {
+      setLoadingItens(true)
+    }
+
+    getAgingItensDireto(paramsItens)
       .then((res) => {
         if (!mounted) return
         if (res?.escopo && res.escopo !== escopoEstoque) return
@@ -6631,6 +6884,55 @@ export default function AgingEstoquePage() {
   const escopoDescricao = ESCOPO_DESCRICAO[escopoEstoque]
   const mostrarCardsPortfolio = escopoEstoque !== "insumos"
   const isTabelaProdutos = escopoEstoque !== "insumos"
+
+  useEffect(() => {
+    salvarUltimoEstadoGestaoEstoque({
+      visaoEstoque,
+      escopoEstoque,
+      activeFilter,
+    })
+  }, [visaoEstoque, escopoEstoque, activeFilter])
+
+  useEffect(() => {
+    let mounted = true
+
+    async function checarVersao() {
+      const versao = await buscarVersaoGestaoEstoque()
+
+      if (!mounted) return
+
+      setCacheVersion((atual) => {
+        if (atual && atual !== versao) {
+          limparCacheGestaoEstoqueLocal()
+          setRefreshTick((current) => current + 1)
+        }
+
+        return versao
+      })
+    }
+
+    void checarVersao()
+
+    const intervalId = window.setInterval(() => {
+      void checarVersao()
+    }, 30000)
+
+    function checarAoVoltarParaAba() {
+      if (document.visibilityState === "visible") {
+        void checarVersao()
+      }
+    }
+
+    document.addEventListener("visibilitychange", checarAoVoltarParaAba)
+    window.addEventListener("focus", checarAoVoltarParaAba)
+
+    return () => {
+      mounted = false
+      window.clearInterval(intervalId)
+      document.removeEventListener("visibilitychange", checarAoVoltarParaAba)
+      window.removeEventListener("focus", checarAoVoltarParaAba)
+    }
+  }, [])
 
   const colunasBaseTabela = useMemo(() => {
     const base = [
