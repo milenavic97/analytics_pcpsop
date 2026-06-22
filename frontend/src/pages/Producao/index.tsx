@@ -2327,7 +2327,9 @@ type DiarioOperacionalPoint = {
   real_producao: number
   real_programada: number
   real_nao_programada: number
+  real_calendario_planejado: number
   real_capacidade_nao_usada: number
+  calendario_motivo?: string | null
 
   horas_producao_meta: number
   horas_setup_meta: number
@@ -2537,10 +2539,96 @@ function mergeProgramadasDetalhe(base: ProgramadaDetalhe[] = [], incoming: Progr
     .slice(0, 8)
 }
 
+
+type CalendarioPlanejadoInfo = {
+  motivo: string
+  horasDisponiveis: number
+  horasCalendario: number
+  fonte?: string
+}
+
+function normalizarMotivoCalendario(comentario?: string | null) {
+  const texto = String(comentario || "").trim()
+  if (!texto) return ""
+
+  const upper = texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+
+  if (upper.includes("FERIAS")) return "Férias coletivas"
+  if (upper.includes("COLETIVA")) return "Férias coletivas"
+  if (upper.includes("PARADA")) return texto
+  if (upper.includes("MANUTENCAO")) return texto
+  if (upper.includes("SEM PROGRAMACAO")) return "Sem programação planejada"
+
+  return texto
+}
+
+function calendarioKey(data: string, linha: string) {
+  return `${data}|${linha}`
+}
+
+function montarCalendarioPlanejadoMap(
+  planejamento: ExcelenciaPlanejamentoDiario[] = [],
+) {
+  const map = new Map<string, CalendarioPlanejadoInfo>()
+
+  planejamento.forEach((row) => {
+    const linha = row.linha
+    if (!["L1", "L2", "FABRIMA"].includes(linha)) return
+
+    const horasDisponiveis = Math.max(0, Math.min(24, horasNumber(row.horas_planejadas_gantt)))
+    const horasParadaInformada = horasNumber(row.horas_parada_gantt)
+    const horasCalendario = Math.max(
+      0,
+      Math.min(24, horasParadaInformada > 0 ? horasParadaInformada : 24 - horasDisponiveis),
+    )
+
+    if (horasCalendario <= 0.001 && horasDisponiveis >= 23.999) return
+
+    const motivo =
+      normalizarMotivoCalendario(row.comentario) ||
+      (horasCalendario > 0.001 ? "Calendário planejado do Gantt" : "")
+
+    map.set(calendarioKey(row.data, linha), {
+      motivo,
+      horasDisponiveis,
+      horasCalendario,
+      fonte: row.fonte,
+    })
+  })
+
+  return map
+}
+
+function buscarCalendarioPlanejado(
+  map: Map<string, CalendarioPlanejadoInfo>,
+  data: string,
+  linhaPreferencial: string,
+) {
+  if (linhaPreferencial && linhaPreferencial !== "TODAS") {
+    return map.get(calendarioKey(data, linhaPreferencial))
+  }
+
+  const candidatos = ["L1", "L2", "FABRIMA"]
+    .map((linha) => map.get(calendarioKey(data, linha)))
+    .filter(Boolean) as CalendarioPlanejadoInfo[]
+
+  if (!candidatos.length) return undefined
+
+  // Em visão agregada, não somamos linhas para não passar de uma janela diária de 24h.
+  // Usamos a maior indisponibilidade planejada daquele dia como referência visual.
+  return candidatos.sort((a, b) => b.horasCalendario - a.horasCalendario)[0]
+}
+
+
 function montarDiarioOperacional(
   rows: ExcelenciaDiarioEquipamento[],
   parametro: ParametroOperacional,
   agrupadoPorLinha = false,
+  calendarioPlanejadoMap: Map<string, CalendarioPlanejadoInfo> = new Map(),
+  linhaCalendario: string = "TODAS",
 ): DiarioOperacionalPoint[] {
   const map = new Map<string, {
     data: string
@@ -2612,11 +2700,19 @@ function montarDiarioOperacional(
 
       // Uma única barra empilhada do real do dia, sempre fechando 24h:
       // setup real + troca real + produção + programada restante + não programada + capacidade não usada.
+      const calendarioPlanejado = buscarCalendarioPlanejado(calendarioPlanejadoMap, row.data, linhaCalendario)
+      const horasCalendarioPlanejado = Math.max(0, Math.min(limiteDia, horasNumber(calendarioPlanejado?.horasCalendario)))
+      const horasDisponiveisGantt = Math.max(0, limiteDia - horasCalendarioPlanejado)
+
       const setupReal = Math.min(row.horas_setup_real, limiteDia)
 
-      // Troca de turno deve aparecer na composição do dia.
-      // Usa apontamento real quando existir; se não vier separado na base, usa o padrão operacional.
-      const trocaTurnoBase = row.horas_troca_turno_real > 0 ? row.horas_troca_turno_real : parametro.trocaTurno
+      // Troca de turno aparece quando veio apontada; se não veio, usa o padrão somente quando o Gantt mostra janela disponível.
+      const trocaTurnoBase =
+        row.horas_troca_turno_real > 0
+          ? row.horas_troca_turno_real
+          : horasDisponiveisGantt > 0.001
+            ? parametro.trocaTurno
+            : 0
       const trocaTurnoReal = Math.min(trocaTurnoBase, Math.max(0, limiteDia - setupReal))
 
       const programadaRestante = Math.max(0, row.horas_programadas - setupReal - trocaTurnoReal)
@@ -2624,7 +2720,9 @@ function montarDiarioOperacional(
       const producaoReal = Math.min(row.horas_producao, Math.max(0, limiteDia - setupReal - trocaTurnoReal))
       const programadaReal = Math.min(programadaRestante, Math.max(0, limiteDia - setupReal - trocaTurnoReal - producaoReal))
       const naoProgramadaReal = Math.min(row.horas_nao_programadas, Math.max(0, limiteDia - setupReal - trocaTurnoReal - producaoReal - programadaReal))
-      const capacidadeNaoUsada = Math.max(0, limiteDia - setupReal - trocaTurnoReal - producaoReal - programadaReal - naoProgramadaReal)
+      const capacidadeNaoUsadaBruta = Math.max(0, limiteDia - setupReal - trocaTurnoReal - producaoReal - programadaReal - naoProgramadaReal)
+      const calendarioReal = Math.min(horasCalendarioPlanejado, capacidadeNaoUsadaBruta)
+      const capacidadeNaoUsada = Math.max(0, capacidadeNaoUsadaBruta - calendarioReal)
 
       return {
         ...row,
@@ -2633,7 +2731,9 @@ function montarDiarioOperacional(
         real_producao: producaoReal,
         real_programada: programadaReal,
         real_nao_programada: naoProgramadaReal,
+        real_calendario_planejado: calendarioReal,
         real_capacidade_nao_usada: capacidadeNaoUsada,
+        calendario_motivo: calendarioReal > 0.001 ? calendarioPlanejado?.motivo || "Calendário planejado do Gantt" : null,
 
         horas_producao_meta: parametro.horasProducao,
         horas_setup_meta: parametro.setup,
@@ -2651,6 +2751,7 @@ function montarGruposCalendarioOperacional(
   equipamentoFiltro: string,
   mes: number,
   parametroAtual: ParametroOperacional,
+  calendarioPlanejadoMap: Map<string, CalendarioPlanejadoInfo>,
 ): CalendarioOperacionalGroup[] {
   const mostrarMaqsLinha1 =
     linha === "L1" &&
@@ -2667,7 +2768,7 @@ function montarGruposCalendarioOperacional(
         titulo: equipamentoLabelCurto(equipamento),
         subtitulo: `${parametro.titulo} · ${formatHoras(parametro.horasProducao)} produção · ${formatHoras(parametro.setup)} setup`,
         parametro,
-        diario: montarDiarioOperacional(rowsEquipamento, parametro, false),
+        diario: montarDiarioOperacional(rowsEquipamento, parametro, false, calendarioPlanejadoMap, "L1"),
       }
     })
   }
@@ -2679,13 +2780,20 @@ function montarGruposCalendarioOperacional(
         ? areaFiltro
         : linhaLabel(linha)
 
+  const linhaCalendario =
+    linha !== "TODAS"
+      ? linha
+      : areaFiltro === "Embalagem"
+        ? "FABRIMA"
+        : "TODAS"
+
   return [
     {
       id: "seleção",
       titulo,
       subtitulo: `${parametroAtual.titulo} · ${formatHoras(parametroAtual.horasProducao)} produção · ${formatHoras(parametroAtual.setup)} setup`,
       parametro: parametroAtual,
-      diario: montarDiarioOperacional(rows, parametroAtual, equipamentoFiltro === "TODOS"),
+      diario: montarDiarioOperacional(rows, parametroAtual, equipamentoFiltro === "TODOS", calendarioPlanejadoMap, linhaCalendario),
     },
   ]
 }
@@ -2709,6 +2817,7 @@ function CalendarioOperacionalTooltip({ active, payload, label }: any) {
     { name: "Produção real", value: horasNumber(row.real_producao), color: naturezaColor("producao") },
     { name: "Programada real", value: horasNumber(row.real_programada), color: naturezaColor("programada") },
     { name: "Não programada", value: horasNumber(row.real_nao_programada), color: naturezaColor("naoProgramada") },
+    { name: row.calendario_motivo || "Calendário planejado", value: horasNumber(row.real_calendario_planejado), color: "#CBD5E1" },
   ].filter((item) => item.value > 0.0001)
 
   const somaArredondada = principais.reduce((acc, item) => acc + round1(item.value), 0)
@@ -2718,7 +2827,7 @@ function CalendarioOperacionalTooltip({ active, payload, label }: any) {
     ...principais.map((item) => ({ ...item, displayValue: round1(item.value) })),
     ...(capacidadeNaoUsadaDisplay > 0
       ? [{
-          name: "Capacidade não usada",
+          name: "Sem apontamento / ocioso",
           value: horasNumber(row.real_capacidade_nao_usada),
           displayValue: capacidadeNaoUsadaDisplay,
           color: naturezaColor("semProgramacao"),
@@ -2804,6 +2913,11 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
     [data.diario_equipamento, linha, areaFiltro, equipamentoFiltro],
   )
 
+  const calendarioPlanejadoMap = useMemo(
+    () => montarCalendarioPlanejadoMap(data.planejamento_diario || []),
+    [data.planejamento_diario],
+  )
+
   const rankingFiltrado = useMemo(
     () => filtrarLinhaExcelencia(data.ranking_equipamentos || [], linha, areaFiltro, equipamentoFiltro),
     [data.ranking_equipamentos, linha, areaFiltro, equipamentoFiltro],
@@ -2827,8 +2941,9 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
       equipamentoFiltro,
       data.mes,
       parametroAtual,
+      calendarioPlanejadoMap,
     ),
-    [diarioFiltrado, linha, areaFiltro, equipamentoFiltro, data.mes, parametroAtual],
+    [diarioFiltrado, linha, areaFiltro, equipamentoFiltro, data.mes, parametroAtual, calendarioPlanejadoMap],
   )
 
   const matriz = useMemo(() => montarMatrizFiltrada(causasFiltradas), [causasFiltradas])
@@ -2970,7 +3085,8 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
                   <Bar dataKey="real_producao" name="Produção real" stackId="dia" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
                   <Bar dataKey="real_programada" name="Programada real" stackId="dia" fill={naturezaColor("programada")} radius={[0, 0, 0, 0]} />
                   <Bar dataKey="real_nao_programada" name="Não programada" stackId="dia" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="real_capacidade_nao_usada" name="Capacidade não usada" stackId="dia" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="real_calendario_planejado" name="Calendário planejado" stackId="dia" fill="#CBD5E1" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="real_capacidade_nao_usada" name="Sem apontamento / ocioso" stackId="dia" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
 
                   <Line type="monotone" dataKey="horas_producao_meta" name="Horas produção padrão" stroke={naturezaColor("producao")} strokeWidth={2.5} strokeDasharray="6 6" dot={false} />
                   <Line type="monotone" dataKey="horas_setup_meta" name="Setup padrão" stroke="#2563EB" strokeWidth={2.5} strokeDasharray="4 4" dot={false} />
