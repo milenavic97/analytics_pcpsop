@@ -1109,38 +1109,10 @@ function aplicarSimulacaoComprasNaOP(
   }
 }
 
-const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v80_swr"
+const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v82_auto"
 const ORDENS_VIABILIDADE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const ORDENS_MESES_CACHE_KEY = "pcp_ordens_meses_cache_v80"
-
-function mesAtualRefOrdens() {
-  const hoje = new Date()
-  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`
-}
-
-function lerCacheMesesOrdens(): string[] {
-  try {
-    if (typeof window === "undefined") return []
-    const raw = window.localStorage.getItem(ORDENS_MESES_CACHE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as { meses?: string[]; savedAt?: number }
-    return Array.isArray(parsed.meses) ? parsed.meses.filter(Boolean) : []
-  } catch {
-    return []
-  }
-}
-
-function salvarCacheMesesOrdens(meses: string[]) {
-  try {
-    if (typeof window === "undefined") return
-    window.localStorage.setItem(
-      ORDENS_MESES_CACHE_KEY,
-      JSON.stringify({ meses, savedAt: Date.now() })
-    )
-  } catch {
-    // Não bloqueia a tela se o navegador impedir acesso ao storage.
-  }
-}
+const ORDENS_CACHE_VERSAO_PREFIX = "pcp_ordens_cache_versao_v82"
+const ORDENS_AUTO_REFRESH_MS = 15000
 
 type CacheOrdensViabilidade = {
   savedAt: number
@@ -1161,6 +1133,29 @@ function _cacheKeyOrdensViabilidade(mesRef: string, leadtimeCompraDias: number) 
   return `${ORDENS_VIABILIDADE_CACHE_PREFIX}:${mesRef}:leadtime-${leadtime}`
 }
 
+function _cacheVersaoKeyOrdens(mesRef: string, leadtimeCompraDias: number) {
+  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+  return `${ORDENS_CACHE_VERSAO_PREFIX}:${mesRef}:leadtime-${leadtime}`
+}
+
+function lerVersaoCacheOrdens(mesRef: string, leadtimeCompraDias: number): string | null {
+  try {
+    if (typeof window === "undefined") return null
+    return window.localStorage.getItem(_cacheVersaoKeyOrdens(mesRef, leadtimeCompraDias))
+  } catch {
+    return null
+  }
+}
+
+function salvarVersaoCacheOrdens(mesRef: string, leadtimeCompraDias: number, versao: string | null | undefined) {
+  try {
+    if (typeof window === "undefined" || !versao) return
+    window.localStorage.setItem(_cacheVersaoKeyOrdens(mesRef, leadtimeCompraDias), versao)
+  } catch {
+    // Não bloqueia a tela se o storage estiver indisponível.
+  }
+}
+
 function limparCacheOrdensLocal() {
   try {
     if (typeof window === "undefined") return
@@ -1173,6 +1168,7 @@ function limparCacheOrdensLocal() {
 
       if (
         key.startsWith(ORDENS_VIABILIDADE_CACHE_PREFIX) ||
+        key.startsWith(ORDENS_CACHE_VERSAO_PREFIX) ||
         key.includes("/ops/viabilidade") ||
         key.includes("/ops/resumo") ||
         key.includes("dfl-api-cache")
@@ -1237,38 +1233,25 @@ function salvarCacheOrdensViabilidade(
   }
 }
 
-function _extrairPayloadOpsCache(payloadCache: unknown): ResumoViabilidade | null {
-  const direto = payloadCache as ResumoViabilidade
-
-  if (direto && Array.isArray(direto.ops)) {
-    return direto
-  }
-
-  const envelopado = payloadCache as { payload?: ResumoViabilidade }
-
-  if (envelopado?.payload && Array.isArray(envelopado.payload.ops)) {
-    return envelopado.payload
-  }
-
-  return null
+type OpsCacheVersaoBackend = {
+  cache_disponivel?: boolean
+  versao_base?: string | null
+  atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  chave?: string | null
 }
 
-async function getOpsCacheBackend(
+async function getOpsCacheVersaoBackend(
   mesRef: string,
-  leadtimeCompraDias: number,
-  force = false
-): Promise<ResumoViabilidade> {
+  leadtimeCompraDias: number
+): Promise<string | null> {
   const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
   const query = new URLSearchParams()
   query.set("mes_ref", mesRef)
   query.set("leadtime_compra_dias", String(leadtime))
   query.set("_ts", String(Date.now()))
 
-  if (force) {
-    query.set("force", "true")
-  }
-
-  const resCache = await fetch(`${API_URL_ORDENS}/ops/cache?${query.toString()}`, {
+  const res = await fetch(`${API_URL_ORDENS}/ops/cache/versao?${query.toString()}`, {
     method: "GET",
     cache: "no-store",
     headers: {
@@ -1278,46 +1261,25 @@ async function getOpsCacheBackend(
     },
   })
 
-  const payloadCache = await resCache.json().catch(() => ({ detail: resCache.statusText }))
+  const payload = await res.json().catch(() => ({} as OpsCacheVersaoBackend))
 
-  if (!resCache.ok) {
-    throw new Error(
-      (payloadCache as { detail?: string }).detail ||
-        `Erro ${resCache.status} ao carregar cache das OPs.`
-    )
+  if (!res.ok) {
+    return null
   }
 
-  const resumo = _extrairPayloadOpsCache(payloadCache)
+  const versao = payload as OpsCacheVersaoBackend
 
-  if (!resumo) {
-    throw new Error("Cache de Ordens voltou sem lista de OPs.")
+  if (versao.cache_disponivel === false) {
+    return null
   }
 
-  salvarCacheOrdensViabilidade(mesRef, leadtime, resumo)
-
-  return resumo
-}
-
-async function recalcularCacheOrdensBackend(
-  mesRef: string,
-  leadtimeCompraDias: number
-): Promise<void> {
-  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
-  const query = new URLSearchParams()
-  query.set("mes_ref", mesRef)
-  query.set("leadtime_compra_dias", String(leadtime))
-
-  await fetch(`${API_URL_ORDENS}/ops/cache/recalcular?${query.toString()}`, {
-    method: "POST",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-    },
-  }).catch((e) => {
-    console.warn("Não foi possível recalcular cache de Ordens em segundo plano.", e)
-  })
+  return (
+    versao.versao_base ||
+    versao.atualizado_em ||
+    versao.ultima_atualizacao ||
+    versao.chave ||
+    null
+  )
 }
 
 async function getOpsViabilidadeComLeadtime(
@@ -1344,10 +1306,38 @@ async function getOpsViabilidadeComLeadtime(
 
   // Carregamento otimizado e seguro:
   // - na abertura normal, tenta primeiro o snapshot pronto do backend (/ops/cache);
-  // - se não existir ou falhar, cai no cálculo original (/ops/viabilidade).
+  // - se não existir ou falhar, cai no cálculo original (/ops/viabilidade);
+  // - em forceRefresh, mantém o comportamento original para não quebrar upload/atualizar.
   if (!forceRefresh) {
     try {
-      return await getOpsCacheBackend(mesRef, leadtime, false)
+      const resCache = await fetch(`${API_URL_ORDENS}/ops/cache?${query.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      })
+
+      const payloadCache = await resCache.json().catch(() => ({ detail: resCache.statusText }))
+
+      if (resCache.ok) {
+        const maybePayload = (payloadCache as { payload?: ResumoViabilidade }).payload
+
+        if (maybePayload && Array.isArray(maybePayload.ops)) {
+          salvarCacheOrdensViabilidade(mesRef, leadtime, maybePayload)
+          return maybePayload
+        }
+
+        if (Array.isArray((payloadCache as ResumoViabilidade).ops)) {
+          const resumoDireto = payloadCache as ResumoViabilidade
+          salvarCacheOrdensViabilidade(mesRef, leadtime, resumoDireto)
+          return resumoDireto
+        }
+      } else {
+        console.warn("Cache de Ordens indisponível, usando cálculo original:", payloadCache)
+      }
     } catch (e) {
       console.warn("Falha ao buscar cache de Ordens, usando cálculo original:", e)
     }
@@ -3012,12 +3002,8 @@ function exportarExcel(ops: OPEditavel[], mesRef: string) {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export function OrdensPage() {
-  const mesesCacheInicial = useMemo(() => lerCacheMesesOrdens(), [])
-  const mesFallbackInicial = useMemo(() => mesAtualRefOrdens(), [])
-  const mesesIniciais = mesesCacheInicial.length > 0 ? mesesCacheInicial : [mesFallbackInicial]
-
-  const [meses, setMeses]                   = useState<string[]>(mesesIniciais)
-  const [mesSel, setMesSel]                 = useState<string>(mesesIniciais[0] || mesFallbackInicial)
+  const [meses, setMeses]                   = useState<string[]>([])
+  const [mesSel, setMesSel]                 = useState<string>("")
   const [linhasSel, setLinhasSel]           = useState<string[]>([])
   const [statusesSel, setStatusesSel]       = useState<string[]>([])
   const [tiposSel, setTiposSel]             = useState<string[]>([])
@@ -3044,6 +3030,8 @@ export function OrdensPage() {
   const [modalBasesAberto, setModalBasesAberto] = useState(false)
   const [confirmarExclusaoMes, setConfirmarExclusaoMes] = useState<string | null>(null)
   const [excluindoMes, setExcluindoMes] = useState(false)
+  const ultimaVersaoCacheRef = useRef<string | null>(null)
+  const autoRefreshOrdensRef = useRef(false)
 
   function mostrarToast(type: "success" | "error", message: string) {
     setToast({ type, message })
@@ -3089,6 +3077,7 @@ export function OrdensPage() {
       const base = BASES_OPERACIONAIS_ORDENS.find(b => b.id === baseId)
 
       setArquivosBases(prev => ({ ...prev, [baseId]: null }))
+      ultimaVersaoCacheRef.current = null
       setUploadingBase(null)
 
       mostrarToast(
@@ -3107,7 +3096,6 @@ export function OrdensPage() {
 
           if (resMeses?.meses?.length) {
             setMeses(resMeses.meses)
-            salvarCacheMesesOrdens(resMeses.meses)
 
             if (baseId === "programacao_ops") {
               mesParaBuscar = resMeses.meses[0]
@@ -3118,8 +3106,7 @@ export function OrdensPage() {
           await carregarAtualizacoesBases()
 
           if (mesParaBuscar) {
-            await recalcularCacheOrdensBackend(mesParaBuscar, leadtimeCompraDias)
-            await buscar(mesParaBuscar, false)
+            await buscar(mesParaBuscar, true)
           }
         } catch (e) {
           console.warn("Upload concluído, mas não foi possível atualizar a tela automaticamente.", e)
@@ -3163,7 +3150,6 @@ export function OrdensPage() {
           const resMeses = await getOpsMeses().catch(() => null)
           const mesesDisponiveis = resMeses?.meses || []
           setMeses(mesesDisponiveis)
-          salvarCacheMesesOrdens(mesesDisponiveis)
 
           if (mesesDisponiveis.length > 0) {
             setMesSel(mesesDisponiveis[0])
@@ -3184,40 +3170,27 @@ export function OrdensPage() {
 
   useEffect(() => {
     async function inicializar() {
-      getOpsMeses()
-        .then((resMeses) => {
-          const mesesDisponiveis = Array.isArray(resMeses.meses) ? resMeses.meses : []
+      try {
+        const [resMeses, ajustesSalvos] = await Promise.all([
+          getOpsMeses(),
+          getAjustesComprasOps().catch(() => [] as AjusteCompraOP[]),
+        ])
 
-          if (mesesDisponiveis.length > 0) {
-            setMeses(mesesDisponiveis)
-            salvarCacheMesesOrdens(mesesDisponiveis)
-            setMesSel((atual) =>
-              atual && mesesDisponiveis.includes(atual)
-                ? atual
-                : mesesDisponiveis[0]
-            )
-          }
-        })
-        .catch((e) => {
-          console.warn("Não foi possível buscar meses de OPs", e)
-        })
+        const configLeadtime = ajustesSalvos.find(a =>
+          String(a.op_id) === "__CONFIG__" &&
+          String(a.codigo_comp) === "leadtime_compra_dias"
+        )
 
-      getAjustesComprasOps()
-        .then((ajustesSalvos) => {
-          const configLeadtime = ajustesSalvos.find(a =>
-            String(a.op_id) === "__CONFIG__" &&
-            String(a.codigo_comp) === "leadtime_compra_dias"
-          )
+        if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
+          setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
+        }
 
-          if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
-            setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
-          }
-        })
-        .catch((e) => {
-          console.warn("Não foi possível carregar ajustes iniciais de OPs", e)
-        })
-
-      void carregarAtualizacoesBases()
+        setMeses(resMeses.meses)
+        if (resMeses.meses.length > 0) setMesSel(resMeses.meses[0])
+        await carregarAtualizacoesBases()
+      } catch (e) {
+        console.warn("Não foi possível inicializar OPs", e)
+      }
     }
 
     inicializar()
@@ -3225,77 +3198,93 @@ export function OrdensPage() {
 
   useEffect(() => { if (mesSel) buscar() }, [mesSel])
 
-  useEffect(() => {
-    if (!mesSel) return
-
-    function atualizarAoVoltar() {
-      if (document.visibilityState === "visible") {
-        void revalidarOpsEmSegundoPlano(mesSel)
-      }
-    }
-
-    document.addEventListener("visibilitychange", atualizarAoVoltar)
-    window.addEventListener("focus", atualizarAoVoltar)
-
-    return () => {
-      document.removeEventListener("visibilitychange", atualizarAoVoltar)
-      window.removeEventListener("focus", atualizarAoVoltar)
-    }
-  }, [mesSel, leadtimeCompraDias])
-
-  const aplicarResumoOpsNaTela = (res: ResumoViabilidade) => {
-    setDados(res)
-
-    const opsTratadas = ordenarESequenciarOps(
-      res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
-    )
-
-    setOps(opsTratadas)
-
-    // A tela aparece primeiro; ajustes manuais entram logo depois.
-    void carregarAjustesSalvos(opsTratadas)
-  }
-
-  const revalidarOpsEmSegundoPlano = async (mesBusca: string) => {
-    try {
-      const res = await getOpsCacheBackend(mesBusca, leadtimeCompraDias, false)
-      aplicarResumoOpsNaTela(res)
-    } catch (e) {
-      console.warn("Não foi possível atualizar cache de Ordens em segundo plano.", e)
-    }
-  }
-
   const buscar = async (mesRefOverride?: string, forceRefresh = false) => {
     const mesBusca = mesRefOverride || mesSel
     if (!mesBusca) return
-
-    setErro("")
-    setSelecionados(new Set())
-
-    const cached = !forceRefresh
-      ? lerCacheOrdensViabilidade(mesBusca, leadtimeCompraDias)
-      : null
-
-    if (cached) {
-      aplicarResumoOpsNaTela(cached)
-      setLoading(false)
-
-      // Navegar e voltar fica instantâneo; depois revalida em silêncio pelo cache do backend.
-      void revalidarOpsEmSegundoPlano(mesBusca)
-      return
-    }
-
-    setLoading(true)
-
+    setLoading(true); setErro(""); setSelecionados(new Set())
     try {
       const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias, forceRefresh)
-      aplicarResumoOpsNaTela(res)
+      setDados(res)
+      const opsTratadas = ordenarESequenciarOps(
+        res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
+      )
+      setOps(opsTratadas)
+      await carregarAjustesSalvos(opsTratadas)
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao carregar OPs")
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }
+
+  useEffect(() => {
+    if (!mesSel) return
+
+    let cancelado = false
+
+    async function verificarAtualizacaoAutomatica(mostrarAviso = false) {
+      if (!mesSel || autoRefreshOrdensRef.current) return
+
+      const versaoBackend = await getOpsCacheVersaoBackend(mesSel, leadtimeCompraDias)
+      if (!versaoBackend || cancelado) return
+
+      const versaoLocal = lerVersaoCacheOrdens(mesSel, leadtimeCompraDias)
+      const versaoRef = ultimaVersaoCacheRef.current
+      const primeiraChecagem = !versaoRef
+      const mudou = Boolean(
+        (versaoRef && versaoRef !== versaoBackend) ||
+        (versaoLocal && versaoLocal !== versaoBackend)
+      )
+
+      ultimaVersaoCacheRef.current = versaoBackend
+      salvarVersaoCacheOrdens(mesSel, leadtimeCompraDias, versaoBackend)
+
+      // Primeira checagem também sincroniza a tela com o backend se ela já
+      // apareceu a partir de um cache local antigo.
+      const precisaSincronizarPrimeiraVez = primeiraChecagem && ops.length > 0
+
+      if (!mudou && !precisaSincronizarPrimeiraVez) {
+        return
+      }
+
+      autoRefreshOrdensRef.current = true
+
+      try {
+        const key = _cacheKeyOrdensViabilidade(mesSel, leadtimeCompraDias)
+        window.localStorage.removeItem(key)
+
+        await buscar(mesSel, false)
+
+        if (!primeiraChecagem || mostrarAviso) {
+          mostrarToast("success", "Ordens atualizadas automaticamente.")
+        }
+      } catch (e) {
+        console.warn("Não foi possível atualizar Ordens automaticamente.", e)
+      } finally {
+        autoRefreshOrdensRef.current = false
+      }
+    }
+
+    void verificarAtualizacaoAutomatica(false)
+
+    const intervalId = window.setInterval(() => {
+      void verificarAtualizacaoAutomatica(true)
+    }, ORDENS_AUTO_REFRESH_MS)
+
+    function atualizarAoVoltarParaAba() {
+      if (document.visibilityState === "visible") {
+        void verificarAtualizacaoAutomatica(true)
+      }
+    }
+
+    document.addEventListener("visibilitychange", atualizarAoVoltarParaAba)
+    window.addEventListener("focus", atualizarAoVoltarParaAba)
+
+    return () => {
+      cancelado = true
+      window.clearInterval(intervalId)
+      document.removeEventListener("visibilitychange", atualizarAoVoltarParaAba)
+      window.removeEventListener("focus", atualizarAoVoltarParaAba)
+    }
+  }, [mesSel, leadtimeCompraDias, ops.length])
 
   async function carregarAjustesSalvos(opsBase: OPEditavel[]) {
     try {
