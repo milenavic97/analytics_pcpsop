@@ -2629,8 +2629,6 @@ function montarGruposCalendarioOperacional(
 function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }) {
   const [areaFiltro, setAreaFiltro] = useState<AreaExcelenciaFiltro>("TODAS")
   const [equipamentoFiltro, setEquipamentoFiltro] = useState("TODOS")
-  const [capacidadeHora, setCapacidadeHora] = useState(13500)
-  const [reducaoPct, setReducaoPct] = useState(20)
   const [parametrosOpen, setParametrosOpen] = useState(false)
 
   const parametroAtual = useMemo(
@@ -2702,13 +2700,6 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
   const maxHorasMacro = Math.max(1, ...topMacros.map((row) => horasNumber(row.horas)))
   const maxOcorrDia = Math.max(1, ...topMacros.map((item) => horasNumber(item.ocorrencias_por_dia)))
   const maxMediaMin = Math.max(1, ...topMacros.map((item) => horasNumber(item.media_min)))
-  useEffect(() => {
-    setCapacidadeHora(parametroAtual.mediaHoraria)
-  }, [parametroAtual.mediaHoraria])
-
-  const horasRecuperadas = horasNumber(cards.horas_nao_programadas) * (Math.max(0, Math.min(100, reducaoPct)) / 100)
-  const ganhoTubetes = horasRecuperadas * Math.max(0, Number(capacidadeHora || 0))
-  const ganhoCaixas = ganhoTubetes / 500
   const filtroLabel = [linhaLabel(linha), areaFiltro !== "TODAS" ? areaFiltro : "Todas as áreas", equipamentoFiltro !== "TODOS" ? equipamentoLabelCurto(equipamentoFiltro) : "Todos os equipamentos"].join(" · ")
 
   return (
@@ -2808,111 +2799,62 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1.45fr_0.75fr]">
-        <div className="space-y-6">
-          {chartGroups.map((group) => (
-            <div key={group.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calendário operacional</p>
-                  <h3 className="text-lg font-bold text-slate-900">{group.titulo}</h3>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Verde = produção, vermelho = perda não programada, cinza = capacidade produtiva não usada. Cada gráfico respeita a janela produtiva do equipamento.
-                  </p>
-                </div>
-                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-                  {group.subtitulo}
-                </div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {chartGroups.map((group) => (
+          <div key={group.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calendário operacional</p>
+                <h3 className="text-lg font-bold text-slate-900">{group.titulo}</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Verde = produção, vermelho = perda não programada, cinza = capacidade produtiva não usada.
+                </p>
               </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+                {group.subtitulo}
+              </div>
+            </div>
 
-              <div className="h-[320px]">
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={group.diario} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
+                  <YAxis domain={[0, group.parametro.horasTotais]} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
+                  <Tooltip content={<ExcelenciaTooltip />} />
+                  <Bar dataKey="horas_producao_plot" name="Produção" stackId="a" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="horas_nao_programadas_plot" name="Não programada" stackId="a" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="horas_sem_programacao_plot" name="Capacidade não usada" stackId="a" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
+                  <Line type="monotone" dataKey="horas_producao_meta" name="Janela produtiva planejada" stroke={naturezaColor("producao")} strokeWidth={2.5} strokeDasharray="6 6" dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">Setup</p>
+                  <h4 className="text-sm font-bold text-slate-800">Tempo apontado vs padrão</h4>
+                </div>
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500">
+                  Ref.: {formatHoras(group.parametro.setup)} / dia
+                </span>
+              </div>
+              <div className="h-[140px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={group.diario} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
+                  <ComposedChart data={group.diario} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                    <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748B" }} />
-                    <YAxis domain={[0, group.parametro.horasTotais]} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748B" }} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: "#64748B" }} />
+                    <YAxis domain={[0, Math.max(4, group.parametro.setup * 2)]} tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: "#64748B" }} />
                     <Tooltip content={<ExcelenciaTooltip />} />
-                    <Bar dataKey="horas_producao_plot" name="Produção" stackId="a" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="horas_nao_programadas_plot" name="Não programada" stackId="a" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="horas_sem_programacao_plot" name="Capacidade não usada" stackId="a" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
-                    <Line type="monotone" dataKey="horas_producao_meta" name="Janela produtiva planejada" stroke={naturezaColor("producao")} strokeWidth={2.5} strokeDasharray="6 6" dot={false} />
+                    <Bar dataKey="horas_setup_real_plot" name="Setup apontado" fill={naturezaColor("programada")} radius={[8, 8, 0, 0]} />
+                    <Line type="monotone" dataKey="horas_setup_meta" name="Setup padrão" stroke={naturezaColor("programada")} strokeWidth={2.5} strokeDasharray="4 4" dot={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-
-              <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">Setup</p>
-                    <h4 className="text-sm font-bold text-slate-800">Tempo apontado vs padrão</h4>
-                  </div>
-                  <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500">
-                    Ref.: {formatHoras(group.parametro.setup)} / dia
-                  </span>
-                </div>
-                <div className="h-[150px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={group.diario} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                      <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
-                      <YAxis domain={[0, Math.max(4, group.parametro.setup * 2)]} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
-                      <Tooltip content={<ExcelenciaTooltip />} />
-                      <Bar dataKey="horas_setup_real_plot" name="Setup apontado" fill={naturezaColor("programada")} radius={[8, 8, 0, 0]} />
-                      <Line type="monotone" dataKey="horas_setup_meta" name="Setup padrão" stroke={naturezaColor("programada")} strokeWidth={2.5} strokeDasharray="4 4" dot={false} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Painel de parâmetros</p>
-          <h3 className="text-lg font-bold text-slate-900">Simulador rápido de ganho</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            Usa somente paradas não programadas da seleção. Depois conectamos com OEE/capacidade por linha.
-          </p>
-
-          <div className="mt-5 space-y-4">
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Capacidade real por hora</span>
-              <input
-                type="number"
-                value={capacidadeHora}
-                onChange={(event) => setCapacidadeHora(Number(event.target.value || 0))}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm"
-              />
-              <span className="mt-1 block text-xs font-semibold text-slate-400">tubetes/hora</span>
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400">Redução simulada da perda</span>
-              <input
-                type="number"
-                value={reducaoPct}
-                onChange={(event) => setReducaoPct(Number(event.target.value || 0))}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm"
-              />
-              <span className="mt-1 block text-xs font-semibold text-slate-400">% das horas não programadas</span>
-            </label>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-black uppercase tracking-widest text-slate-400">Resultado potencial</p>
-              <div className="mt-3 grid grid-cols-1 gap-3">
-                <div>
-                  <p className="text-xs font-bold text-slate-500">Horas recuperadas</p>
-                  <p className="text-2xl font-black text-slate-900">{formatHoras(horasRecuperadas)}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500">Ganho estimado</p>
-                  <p className="text-2xl font-black text-green-700">{formatTubetes(ganhoTubetes)}</p>
-                  <p className="text-xs font-bold text-slate-500">{formatCx(ganhoCaixas)}</p>
-                </div>
-              </div>
             </div>
           </div>
-        </div>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1.05fr_0.95fr]">
