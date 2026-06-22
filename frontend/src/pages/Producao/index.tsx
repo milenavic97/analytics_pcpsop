@@ -1517,7 +1517,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
                 <Bar dataKey="horas" name="Horas" fill={COLORS.orange} radius={[0, 8, 8, 0]} barSize={22}>
                   <LabelList dataKey="horas" position="right" formatter={(value: number) => formatHoras(value)} fill="#64748B" fontSize={11} fontWeight={700} />
                 </Bar>
-              </ComposedChart>
+              </BarChart>
             </ResponsiveContainer>
           </div>
         )}
