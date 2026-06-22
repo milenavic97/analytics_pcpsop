@@ -2693,6 +2693,36 @@ function montarDiarioOperacional(
     }
   })
 
+  // Garante que dias que existem apenas no Gantt/MRP também entrem no gráfico.
+  // Ex.: férias coletivas, pintura/certificação ou outro calendário planejado sem apontamento real.
+  const datasCalendario = new Set<string>()
+  calendarioPlanejadoMap.forEach((_info, key) => {
+    const [data] = key.split("|")
+    if (data) datasCalendario.add(data)
+  })
+
+  datasCalendario.forEach((data) => {
+    const calendario = buscarCalendarioPlanejado(calendarioPlanejadoMap, data, linhaCalendario)
+
+    if (!calendario || horasNumber(calendario.horasCalendario) <= 0.001) return
+    if (map.has(data)) return
+
+    const dt = new Date(`${data}T12:00:00`)
+
+    map.set(data, {
+      data,
+      label: formatDateBR(data),
+      horas_producao: 0,
+      horas_programadas: 0,
+      horas_setup_real: 0,
+      horas_troca_turno_real: 0,
+      horas_nao_programadas: 0,
+      horas_sem_programacao: 0,
+      horas_total: 0,
+      programadas_detalhe: [],
+    })
+
+
   return Array.from(map.values())
     .sort((a, b) => a.data.localeCompare(b.data))
     .map((row) => {
@@ -2726,13 +2756,13 @@ function montarDiarioOperacional(
 
       return {
         ...row,
-        real_setup: setupReal,
-        real_troca_turno: trocaTurnoReal,
-        real_producao: producaoReal,
-        real_programada: programadaReal,
-        real_nao_programada: naoProgramadaReal,
-        real_calendario_planejado: calendarioReal,
-        real_capacidade_nao_usada: capacidadeNaoUsada,
+        real_setup: Number(setupReal.toFixed(4)),
+        real_troca_turno: Number(trocaTurnoReal.toFixed(4)),
+        real_producao: Number(producaoReal.toFixed(4)),
+        real_programada: Number(programadaReal.toFixed(4)),
+        real_nao_programada: Number(naoProgramadaReal.toFixed(4)),
+        real_calendario_planejado: Number(calendarioReal.toFixed(4)),
+        real_capacidade_nao_usada: Number(capacidadeNaoUsada.toFixed(4)),
         calendario_motivo: calendarioReal > 0.001 ? calendarioPlanejado?.motivo || "Calendário planejado do Gantt" : null,
 
         horas_producao_meta: parametro.horasProducao,
@@ -2827,7 +2857,7 @@ function CalendarioOperacionalTooltip({ active, payload, label }: any) {
     ...principais.map((item) => ({ ...item, displayValue: round1(item.value) })),
     ...(capacidadeNaoUsadaDisplay > 0
       ? [{
-          name: "Sem apontamento / ocioso",
+          name: "Sem apontamento / residual",
           value: horasNumber(row.real_capacidade_nao_usada),
           displayValue: capacidadeNaoUsadaDisplay,
           color: naturezaColor("semProgramacao"),
@@ -3064,7 +3094,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calendário operacional</p>
                 <h3 className="text-lg font-bold text-slate-900">{group.titulo}</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Uma barra empilhada por dia: setup, troca de turno, produção, programadas, não programadas e capacidade não usada.
+                  Uma barra empilhada por dia: setup, troca de turno, produção, programadas, não programadas, calendário planejado e tempo sem apontamento.
                 </p>
               </div>
               <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
@@ -3077,7 +3107,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
                 <ComposedChart data={group.diario} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
-                  <YAxis domain={[0, group.parametro.horasTotais]} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
+                  <YAxis domain={[0, 24]} ticks={[0, 6, 12, 18, 24]} tickFormatter={(value) => `${value}`} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748B" }} />
                   <Tooltip content={<CalendarioOperacionalTooltip />} />
 
                   <Bar dataKey="real_setup" name="Setup real" stackId="dia" fill="#60A5FA" radius={[0, 0, 0, 0]} />
@@ -3086,7 +3116,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
                   <Bar dataKey="real_programada" name="Programada real" stackId="dia" fill={naturezaColor("programada")} radius={[0, 0, 0, 0]} />
                   <Bar dataKey="real_nao_programada" name="Não programada" stackId="dia" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
                   <Bar dataKey="real_calendario_planejado" name="Calendário planejado" stackId="dia" fill="#CBD5E1" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="real_capacidade_nao_usada" name="Sem apontamento / ocioso" stackId="dia" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="real_capacidade_nao_usada" name="Sem apontamento / residual" stackId="dia" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
 
                   <Line type="monotone" dataKey="horas_producao_meta" name="Horas produção padrão" stroke={naturezaColor("producao")} strokeWidth={2.5} strokeDasharray="6 6" dot={false} />
                   <Line type="monotone" dataKey="horas_setup_meta" name="Setup padrão" stroke="#2563EB" strokeWidth={2.5} strokeDasharray="4 4" dot={false} />
