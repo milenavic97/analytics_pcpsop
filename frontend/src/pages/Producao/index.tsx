@@ -299,6 +299,18 @@ interface ExcelenciaDiarioEquipamento {
   pct_nao_programada_sobre_apontado: number
 }
 
+interface ExcelenciaPlanejamentoDiario {
+  data: string
+  dia: number
+  linha: string
+  linha_nome: string
+  horas_planejadas_gantt: number
+  horas_parada_gantt?: number
+  versao?: string
+  comentario?: string | null
+  fonte?: string
+}
+
 interface ExcelenciaResponse {
   versao: string
   ano: number
@@ -313,6 +325,7 @@ interface ExcelenciaResponse {
   matriz_nao_programadas: ExcelenciaMatrizItem[]
   pareto_causas_nao_programadas: ExcelenciaParetoCausa[]
   diario_equipamento: ExcelenciaDiarioEquipamento[]
+  planejamento_diario?: ExcelenciaPlanejamentoDiario[]
   debug?: Record<string, any>
   from_cache?: boolean
 }
@@ -1504,7 +1517,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
                 <Bar dataKey="horas" name="Horas" fill={COLORS.orange} radius={[0, 8, 8, 0]} barSize={22}>
                   <LabelList dataKey="horas" position="right" formatter={(value: number) => formatHoras(value)} fill="#64748B" fontSize={11} fontWeight={700} />
                 </Bar>
-              </BarChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
@@ -2125,6 +2138,33 @@ function filtrarLinhaExcelencia<T extends { linha?: string; area?: string; equip
   })
 }
 
+
+function filtrarPlanejamentoExcelencia(
+  rows: ExcelenciaPlanejamentoDiario[],
+  linha: LinhaFiltro,
+  areaFiltro: AreaExcelenciaFiltro,
+  equipamentoFiltro: string,
+) {
+  // Planejamento do Gantt é por linha, não por equipamento.
+  // Se o usuário seleciona Bausch/Fabrima/lavadora, não inventamos capacidade.
+  if (areaFiltro === "Embalagem") return []
+  if (equipamentoFiltro.includes("BAUSCH") || equipamentoFiltro.includes("FABRIMA")) return []
+  if (equipamentoFiltro.includes("LAVADORA")) return []
+
+  let linhasPermitidas: LinhaFiltro[] = linha === "TODAS" ? ["L1", "L2"] : [linha]
+
+  if (equipamentoFiltro.includes("MÁQ 1") || equipamentoFiltro.includes("MAQ 1") || equipamentoFiltro.includes("MÁQ 2") || equipamentoFiltro.includes("MAQ 2")) {
+    linhasPermitidas = ["L1"]
+  }
+
+  if (equipamentoFiltro.includes("L2") && equipamentoFiltro.includes("ENVAS")) {
+    linhasPermitidas = ["L2"]
+  }
+
+  return rows.filter((row) => linhasPermitidas.includes(row.linha as LinhaFiltro))
+}
+
+
 function calcularQuadranteExcelencia(item: ExcelenciaMatrizItem, maxOcorrDia: number, maxMediaMin: number) {
   const ocorrDia = Number(item.ocorrencias_por_dia || 0)
   const mediaMin = Number(item.media_min || 0)
@@ -2274,7 +2314,27 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
     [diarioFiltrado, rankingFiltrado, causasFiltradas],
   )
 
+  const planejamentoFiltrado = useMemo(
+    () => filtrarPlanejamentoExcelencia(data.planejamento_diario || [], linha, areaFiltro, equipamentoFiltro),
+    [data.planejamento_diario, linha, areaFiltro, equipamentoFiltro],
+  )
+
   const diario = useMemo(() => {
+    const planejamentoMap = new Map<string, number>()
+
+    planejamentoFiltrado.forEach((row) => {
+      const atual = planejamentoMap.get(row.data) || 0
+      const fatorEquipamento =
+        equipamentoFiltro.includes("MÁQ 1") ||
+        equipamentoFiltro.includes("MAQ 1") ||
+        equipamentoFiltro.includes("MÁQ 2") ||
+        equipamentoFiltro.includes("MAQ 2")
+          ? 0.5
+          : 1
+
+      planejamentoMap.set(row.data, atual + horasNumber(row.horas_planejadas_gantt) * fatorEquipamento)
+    })
+
     const map = new Map<string, {
       data: string
       label: string
@@ -2282,6 +2342,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
       horas_programadas: number
       horas_nao_programadas: number
       horas_sem_programacao: number
+      horas_planejadas_gantt: number
       horas_total: number
     }>()
 
@@ -2295,6 +2356,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
           horas_programadas: 0,
           horas_nao_programadas: 0,
           horas_sem_programacao: 0,
+          horas_planejadas_gantt: 0,
           horas_total: 0,
         })
       }
@@ -2307,8 +2369,25 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
       atual.horas_total += horasNumber(row.horas_total)
     })
 
+    planejamentoMap.forEach((horas, data) => {
+      if (!map.has(data)) {
+        map.set(data, {
+          data,
+          label: formatDateBR(data),
+          horas_producao: 0,
+          horas_programadas: 0,
+          horas_nao_programadas: 0,
+          horas_sem_programacao: 0,
+          horas_planejadas_gantt: 0,
+          horas_total: 0,
+        })
+      }
+
+      map.get(data)!.horas_planejadas_gantt = horas
+    })
+
     return Array.from(map.values()).sort((a, b) => a.data.localeCompare(b.data))
-  }, [diarioFiltrado])
+  }, [diarioFiltrado, planejamentoFiltrado, equipamentoFiltro])
 
   const matriz = useMemo(() => montarMatrizFiltrada(causasFiltradas), [causasFiltradas])
   const topMacros = matriz.slice(0, 6)
@@ -2321,7 +2400,7 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
   const maxHorasMacro = Math.max(1, ...topMacros.map((row) => horasNumber(row.horas)))
   const maxOcorrDia = Math.max(1, ...topMacros.map((item) => horasNumber(item.ocorrencias_por_dia)))
   const maxMediaMin = Math.max(1, ...topMacros.map((item) => horasNumber(item.media_min)))
-  const maxChartHoras = Math.max(1, ...diario.map((row) => horasNumber(row.horas_total)))
+  const maxChartHoras = Math.max(1, ...diario.map((row) => Math.max(horasNumber(row.horas_total), horasNumber(row.horas_planejadas_gantt))))
 
   const horasRecuperadas = horasNumber(cards.horas_nao_programadas) * (Math.max(0, Math.min(100, reducaoPct)) / 100)
   const ganhoTubetes = horasRecuperadas * Math.max(0, Number(capacidadeHora || 0))
@@ -2425,9 +2504,9 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calendário operacional</p>
-              <h3 className="text-lg font-bold text-slate-900">Composição diária por equipamento</h3>
+              <h3 className="text-lg font-bold text-slate-900">Composição diária da seleção</h3>
               <p className="mt-1 text-sm text-slate-500">
-                Verde = produção, roxo = programada, vermelho = não programada, cinza = sem programação.
+                Verde = produção, vermelho = não programada, cinza = sem programação. Linha roxa = horas planejadas no Gantt.
               </p>
             </div>
             <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
@@ -2437,16 +2516,16 @@ function PerdasTab({ data, linha }: { data: PerdasResponse; linha: LinhaFiltro }
 
           <div className="h-[360px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={diario} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
+              <ComposedChart data={diario} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748B" }} />
                 <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748B" }} />
                 <Tooltip content={<ExcelenciaTooltip />} />
                 <Bar dataKey="horas_producao" name="Produção" stackId="a" fill={naturezaColor("producao")} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="horas_programadas" name="Programada" stackId="a" fill={naturezaColor("programada")} radius={[0, 0, 0, 0]} />
                 <Bar dataKey="horas_nao_programadas" name="Não programada" stackId="a" fill={naturezaColor("naoProgramada")} radius={[0, 0, 0, 0]} />
                 <Bar dataKey="horas_sem_programacao" name="Sem programação" stackId="a" fill={naturezaColor("semProgramacao")} radius={[8, 8, 0, 0]} />
-              </BarChart>
+                <Line type="monotone" dataKey="horas_planejadas_gantt" name="Horas Gantt" stroke={naturezaColor("programada")} strokeWidth={3} dot={false} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
