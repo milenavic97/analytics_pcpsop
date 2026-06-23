@@ -399,6 +399,22 @@ function getYtdMonth(ano: number) {
   return Math.min(12, Math.max(1, hoje.getMonth() + 1))
 }
 
+function parseBackendDateTime(value?: string | null) {
+  if (!value) return null
+
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  const hasTime = /[T\s]\d{2}:\d{2}/.test(raw)
+  const hasTimezone = /(Z|[+-]\d{2}:?\d{2})$/i.test(raw)
+  const normalized = hasTime && !hasTimezone ? `${raw.replace(" ", "T")}Z` : raw.replace(" ", "T")
+
+  const dt = new Date(normalized)
+  if (Number.isNaN(dt.getTime())) return null
+
+  return dt
+}
+
 function formatDateTimeBR(value?: string | null) {
   if (!value) return "—"
   const dt = new Date(value)
@@ -413,16 +429,18 @@ function formatDateTimeBR(value?: string | null) {
 
 function formatAtualizacaoBR(value?: string | null) {
   if (!value) return "—"
-  const dt = new Date(value)
-  if (Number.isNaN(dt.getTime())) return String(value)
+  const dt = parseBackendDateTime(value)
+  if (!dt) return String(value)
 
   const data = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   }).format(dt)
 
   const hora = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
     hour: "2-digit",
     minute: "2-digit",
   }).format(dt)
