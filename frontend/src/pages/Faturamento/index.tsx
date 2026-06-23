@@ -640,41 +640,87 @@ function AbcDualBarsCard({
     rawFormatter: (item: (typeof itens)[number]) => string
     footer: string
   }) {
-    const itensPequenos = itens.filter((item) => Number(item[pctKey] || 0) < 14)
+    const itensComPosicao = itens.map((item, idx) => {
+      const pct = Number(item[pctKey] || 0)
+      const acumuladoAntes = itens.slice(0, idx).reduce((acc, atual) => acc + Number(atual[pctKey] || 0), 0)
+      const centro = acumuladoAntes + pct / 2
+      return {
+        ...item,
+        pct,
+        acumuladoAntes,
+        centro,
+      }
+    })
+
+    const rotulosExternos = itensComPosicao.filter((item) => item.pct < 14)
 
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <p className="text-center text-sm font-bold text-slate-800">{tituloBarra}</p>
         <p className="mt-1 text-center text-xs text-slate-500">{subtituloBarra}</p>
 
-        <div className="mt-4 flex items-center justify-center gap-3">
-          <div className="flex h-[240px] w-[120px] flex-col-reverse overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-inner">
-            {itens.map((item) => {
-              const pct = Number(item[pctKey] || 0)
-              const raw = rawFormatter(item)
-              const mostrarPct = pct >= 9
-              const mostrarRaw = pct >= 18
+        <div className="mt-4 flex items-center justify-center gap-4">
+          <div className="relative w-[170px]">
+            <div className="mx-auto flex h-[240px] w-[120px] flex-col-reverse overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-inner">
+              {itensComPosicao.map((item) => {
+                const mostrarPct = item.pct >= 9
+                const mostrarRaw = item.pct >= 18
+                return (
+                  <div
+                    key={`${pctKey}-${item.classe}`}
+                    className="flex min-h-[18px] flex-col items-center justify-center px-1 text-center"
+                    style={{ height: `${Math.max(item.pct, 4)}%`, backgroundColor: item.color, color: item.pct >= 9 ? "white" : "transparent" }}
+                    title={`Classe ${item.classe} · ${fmtPct(item.pct)} · ${rawFormatter(item)}`}
+                  >
+                    {mostrarPct && <span className="text-[11px] font-bold leading-tight">{fmtPct(item.pct)}</span>}
+                    {mostrarRaw && <span className="mt-0.5 text-[10px] leading-tight opacity-90">{rawFormatter(item)}</span>}
+                  </div>
+                )
+              })}
+            </div>
+
+            {rotulosExternos.map((item, idx) => {
+              const isBottom = item.classe === "A"
+              const isTop = item.classe === "C"
+              const common = 'absolute rounded-md bg-slate-50 px-2 py-1 text-[11px] leading-tight text-slate-600'
+
+              if (isBottom) {
+                return (
+                  <div
+                    key={`rot-${pctKey}-${item.classe}`}
+                    className={`${common} left-1/2 -translate-x-1/2`}
+                    style={{ bottom: '-6px', transform: 'translate(-50%, 100%)' }}
+                  >
+                    <p className="font-semibold text-slate-700">{rawFormatter(item)}</p>
+                  </div>
+                )
+              }
+
+              if (isTop) {
+                return (
+                  <div
+                    key={`rot-${pctKey}-${item.classe}`}
+                    className={`${common} left-1/2 -translate-x-1/2`}
+                    style={{ top: '-6px', transform: 'translate(-50%, -100%)' }}
+                  >
+                    <p className="font-semibold text-slate-700">{fmtPct(item.pct)}</p>
+                    <p>{rawFormatter(item)}</p>
+                  </div>
+                )
+              }
+
+              const topPx = 240 - (item.centro / 100) * 240
               return (
                 <div
-                  key={`${pctKey}-${item.classe}`}
-                  className="flex min-h-[18px] flex-col items-center justify-center px-1 text-center"
-                  style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: item.color, color: pct >= 9 ? "white" : "transparent" }}
-                  title={`Classe ${item.classe} · ${fmtPct(pct)} · ${raw}`}
+                  key={`rot-${pctKey}-${item.classe}`}
+                  className={`${common} left-[138px] -translate-y-1/2`}
+                  style={{ top: `${topPx}px` }}
                 >
-                  {mostrarPct && <span className="text-[11px] font-bold leading-tight">{fmtPct(pct)}</span>}
-                  {mostrarRaw && <span className="mt-0.5 text-[10px] leading-tight opacity-90">{raw}</span>}
+                  <p className="font-semibold text-slate-700">{fmtPct(item.pct)}</p>
+                  <p>{rawFormatter(item)}</p>
                 </div>
               )
             })}
-          </div>
-
-          <div className="w-[108px] space-y-1.5">
-            {itensPequenos.map((item) => (
-              <div key={`hint-${pctKey}-${item.classe}`} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[11px] leading-tight text-slate-600">
-                <p className="font-semibold text-slate-800">Classe {item.classe} · {fmtPct(Number(item[pctKey] || 0))}</p>
-                <p>{rawFormatter(item)}</p>
-              </div>
-            ))}
           </div>
         </div>
 
