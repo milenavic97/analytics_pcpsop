@@ -180,6 +180,50 @@ const ESCOPOS = [
 const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
 const BASE_CLIENTES = "d_clientes"
 
+type BaseFaturamentoUpload = {
+  id: string
+  titulo: string
+  subtitulo: string
+  usoNaTela: string
+  aceita?: string
+  obrigatoria?: boolean
+  compartilhada?: boolean
+}
+
+const BASES_FATURAMENTO_UPLOAD: BaseFaturamentoUpload[] = [
+  {
+    id: BASE_CLIENTES,
+    titulo: "dClientes",
+    subtitulo: "Cadastro de clientes",
+    usoNaTela: "Atualiza nomes, UF, município, região, tipo de cliente e dados usados para ranking geográfico.",
+    aceita: ".xlsx,.xls,.csv",
+    obrigatoria: true,
+    compartilhada: true,
+  },
+  {
+    id: "faturados",
+    titulo: "Faturados",
+    subtitulo: "Base comercial de faturamento",
+    usoNaTela: "Conecta documento, pedido, pré-pedido, cliente, produto, quantidade, valor e datas do ciclo até o faturamento.",
+    aceita: ".xlsx,.xls",
+    obrigatoria: true,
+  },
+  {
+    id: "prepedidos_pendentes",
+    titulo: "Pré-pedidos pendentes",
+    subtitulo: "Carteira em aberto",
+    usoNaTela: "Mostra volume ainda não atendido, status, saldo, data de entrega e aging da carteira pendente.",
+    aceita: ".xlsx,.xls",
+  },
+  {
+    id: "prepedidos_emitidos",
+    titulo: "Pré-pedidos emitidos",
+    subtitulo: "Visão operacional de pré-pedidos",
+    usoNaTela: "Base auxiliar para conferência da entrada de pré-pedidos. Usar como apoio enquanto a regra da visão histórica é validada.",
+    aceita: ".xlsx,.xls",
+  },
+]
+
 function fmtNumero(value?: number, digits = 0) {
   return new Intl.NumberFormat("pt-BR", {
     minimumFractionDigits: digits,
@@ -493,11 +537,11 @@ export default function FaturamentoPage() {
   const [abcModo, setAbcModo] = useState<"valor" | "quantidade">("valor")
   const [sortCliente, setSortCliente] = useState<"faturamento" | "quantidade" | "participacao_valor_pct">("faturamento")
   const [sortAsc, setSortAsc] = useState(false)
-  const [modalClientesAberto, setModalClientesAberto] = useState(false)
-  const [arquivoClientes, setArquivoClientes] = useState<File | null>(null)
-  const [uploadingClientes, setUploadingClientes] = useState(false)
-  const [statusUploadClientes, setStatusUploadClientes] = useState<string | null>(null)
-  const [ultimaAtualizacaoClientes, setUltimaAtualizacaoClientes] = useState<string | null>(null)
+  const [modalBasesAberto, setModalBasesAberto] = useState(false)
+  const [arquivosBases, setArquivosBases] = useState<Record<string, File | null>>({})
+  const [uploadingBaseId, setUploadingBaseId] = useState<string | null>(null)
+  const [statusUploadBases, setStatusUploadBases] = useState<Record<string, string | null>>({})
+  const [ultimaAtualizacaoBases, setUltimaAtualizacaoBases] = useState<Record<string, string | null>>({})
 
   async function carregarResumo(force = false, manterDadosAtuais = true) {
     try {
@@ -548,31 +592,60 @@ export default function FaturamentoPage() {
     }
   }
 
-  async function carregarUltimaAtualizacaoClientes() {
+  async function carregarUltimasAtualizacoesBases() {
     try {
-      const response = await fetch(`${API_BASE}/upload/ultima-atualizacao/${BASE_CLIENTES}?_t=${Date.now()}`)
-      if (!response.ok) return
-      const json = await response.json()
-      setUltimaAtualizacaoClientes(json?.ultima_atualizacao ?? null)
+      const resultados = await Promise.all(
+        BASES_FATURAMENTO_UPLOAD.map(async (base) => {
+          try {
+            const response = await fetch(`${API_BASE}/upload/ultima-atualizacao/${base.id}?_t=${Date.now()}`)
+            if (!response.ok) return [base.id, null] as const
+            const json = await response.json()
+            return [base.id, json?.ultima_atualizacao ?? null] as const
+          } catch {
+            return [base.id, null] as const
+          }
+        }),
+      )
+
+      setUltimaAtualizacaoBases(Object.fromEntries(resultados))
     } catch (error) {
-      console.warn("Não foi possível consultar a última atualização de dClientes.", error)
+      console.warn("Não foi possível consultar a última atualização das bases de faturamento.", error)
     }
   }
 
-  async function enviarBaseClientes() {
-    if (!arquivoClientes) {
-      setStatusUploadClientes("Selecione o arquivo dClientes antes de enviar.")
+  function selecionarArquivoBase(baseId: string, arquivo: File | null) {
+    setArquivosBases((atual) => ({
+      ...atual,
+      [baseId]: arquivo,
+    }))
+    setStatusUploadBases((atual) => ({
+      ...atual,
+      [baseId]: null,
+    }))
+  }
+
+  async function enviarBaseFaturamento(base: BaseFaturamentoUpload) {
+    const arquivo = arquivosBases[base.id]
+
+    if (!arquivo) {
+      setStatusUploadBases((atual) => ({
+        ...atual,
+        [base.id]: `Selecione o arquivo de ${base.titulo} antes de enviar.`,
+      }))
       return
     }
 
     try {
-      setUploadingClientes(true)
-      setStatusUploadClientes(null)
+      setUploadingBaseId(base.id)
+      setStatusUploadBases((atual) => ({
+        ...atual,
+        [base.id]: null,
+      }))
 
       const formData = new FormData()
-      formData.append("file", arquivoClientes)
+      formData.append("file", arquivo)
 
-      const response = await fetch(`${API_BASE}/upload/${BASE_CLIENTES}`, {
+      const response = await fetch(`${API_BASE}/upload/${base.id}`, {
         method: "POST",
         body: formData,
       })
@@ -580,25 +653,33 @@ export default function FaturamentoPage() {
       const json = await response.json().catch(() => ({}))
 
       if (!response.ok) {
-        throw new Error(json?.detail || "Erro ao processar a base dClientes.")
+        throw new Error(json?.detail || `Erro ao processar a base ${base.titulo}.`)
       }
 
       const total = json?.total_inserido ?? 0
       const erros = Array.isArray(json?.erros) ? json.erros.filter(Boolean) : []
 
-      if (erros.length) {
-        setStatusUploadClientes(`Base processada com avisos. Registros: ${fmtNumero(total)}. ${erros[0]}`)
-      } else {
-        setStatusUploadClientes(`Base dClientes carregada com sucesso. Registros: ${fmtNumero(total)}.`)
-      }
+      setStatusUploadBases((atual) => ({
+        ...atual,
+        [base.id]: erros.length
+          ? `Base processada com avisos. Registros: ${fmtNumero(total)}. ${erros[0]}`
+          : `${base.titulo} carregada com sucesso. Registros: ${fmtNumero(total)}.`,
+      }))
 
-      setArquivoClientes(null)
-      await carregarUltimaAtualizacaoClientes()
-      await carregarResumo()
+      setArquivosBases((atual) => ({
+        ...atual,
+        [base.id]: null,
+      }))
+
+      await carregarUltimasAtualizacoesBases()
+      await carregarResumo(true, true)
     } catch (error: any) {
-      setStatusUploadClientes(error?.message || "Erro ao subir a base dClientes.")
+      setStatusUploadBases((atual) => ({
+        ...atual,
+        [base.id]: error?.message || `Erro ao subir a base ${base.titulo}.`,
+      }))
     } finally {
-      setUploadingClientes(false)
+      setUploadingBaseId(null)
     }
   }
 
@@ -608,7 +689,7 @@ export default function FaturamentoPage() {
   }, [ano, bloco, produtoFiltro])
 
   useEffect(() => {
-    carregarUltimaAtualizacaoClientes()
+    carregarUltimasAtualizacoesBases()
   }, [])
 
   useEffect(() => {
@@ -859,13 +940,13 @@ export default function FaturamentoPage() {
           <button
             type="button"
             onClick={() => {
-              setModalClientesAberto(true)
-              carregarUltimaAtualizacaoClientes()
+              setModalBasesAberto(true)
+              carregarUltimasAtualizacoesBases()
             }}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
             <UploadCloud size={16} />
-            Base de clientes
+            Bases
           </button>
 
           <button
@@ -1355,18 +1436,20 @@ export default function FaturamentoPage() {
           </div>
         </SectionCard>
       </div>
-      {modalClientesAberto && (
+      {modalBasesAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
+          <div className="max-h-[86vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Base de clientes</p>
-                <h2 className="mt-1 text-lg font-semibold text-slate-900">Upload dClientes</h2>
-                <p className="mt-1 text-sm text-slate-500">Atualiza UF, município, região, tipo de cliente e nomes para cruzar com a SD2.</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Bases da análise</p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-900">Faturamento</h2>
+                <p className="mt-1 max-w-3xl text-sm text-slate-500">
+                  Use este painel para atualizar somente as bases necessárias para a análise comercial. Bases compartilhadas atualizam automaticamente as outras páginas que usam a mesma tabela.
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => setModalClientesAberto(false)}
+                onClick={() => setModalBasesAberto(false)}
                 className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
               >
                 Fechar
@@ -1374,52 +1457,99 @@ export default function FaturamentoPage() {
             </div>
 
             <div className="space-y-4 px-5 py-5">
-              <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
-                <p className="font-semibold text-slate-800">Última atualização</p>
-                <p className="mt-1">{fmtDataHora(ultimaAtualizacaoClientes)}</p>
+              <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Racional das bases</p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    Faturados é a base principal da análise. Pré-pedidos pendentes mostra a carteira ainda não atendida. Pré-pedidos emitidos fica como base auxiliar de conferência. dClientes complementa nomes, UF, região e localização.
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-blue-700">
+                    dClientes é compartilhada com outras páginas da ferramenta.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={carregarUltimasAtualizacoesBases}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  <RefreshCw size={14} />
+                  Atualizar status
+                </button>
               </div>
 
-              <label className="block rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center hover:bg-slate-100">
-                <UploadCloud className="mx-auto text-slate-400" size={28} />
-                <p className="mt-2 text-sm font-bold text-slate-800">Selecionar arquivo dClientes</p>
-                <p className="mt-1 text-sm text-slate-500">Aceita XLSX/XLS exportado do cadastro de clientes.</p>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  className="hidden"
-                  onChange={(event) => setArquivoClientes(event.target.files?.[0] ?? null)}
-                />
-              </label>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {BASES_FATURAMENTO_UPLOAD.map((base) => {
+                  const arquivo = arquivosBases[base.id]
+                  const uploading = uploadingBaseId === base.id
+                  const status = statusUploadBases[base.id]
+                  const ultimaAtualizacao = ultimaAtualizacaoBases[base.id]
 
-              {arquivoClientes && (
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                  Arquivo selecionado: <span className="font-semibold">{arquivoClientes.name}</span>
-                </div>
-              )}
+                  return (
+                    <div key={base.id} className="flex min-h-[285px] flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{base.titulo}</p>
+                          <p className="mt-1 text-xs text-slate-500">{base.subtitulo}</p>
+                        </div>
+                        <div className="rounded-xl bg-blue-50 p-2 text-blue-700">
+                          <UploadCloud size={16} />
+                        </div>
+                      </div>
 
-              {statusUploadClientes && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  {statusUploadClientes}
-                </div>
-              )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {base.obrigatoria && (
+                          <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700">Obrigatória</span>
+                        )}
+                        {base.compartilhada && (
+                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">Compartilhada</span>
+                        )}
+                      </div>
 
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setModalClientesAberto(false)}
-                  className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={enviarBaseClientes}
-                  disabled={uploadingClientes || !arquivoClientes}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#17375E] px-4 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
-                >
-                  {uploadingClientes ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
-                  Enviar dClientes
-                </button>
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                        <p className="font-bold uppercase tracking-wide text-slate-500">Uso na tela</p>
+                        <p className="mt-1 leading-relaxed">{base.usoNaTela}</p>
+                      </div>
+
+                      <div className="mt-3 text-xs text-slate-500">
+                        <p className="font-semibold text-slate-700">Última atualização</p>
+                        <p className="mt-1">{fmtDataHora(ultimaAtualizacao)}</p>
+                      </div>
+
+                      <label className="mt-3 block rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-center hover:bg-slate-100">
+                        <UploadCloud className="mx-auto text-slate-400" size={22} />
+                        <p className="mt-1 text-xs font-bold text-slate-800">Selecionar arquivo</p>
+                        <p className="mt-0.5 truncate text-[11px] text-slate-500">{arquivo?.name || "XLSX/XLS exportado do sistema"}</p>
+                        <input
+                          key={`${base.id}-${arquivo?.name || "sem-arquivo"}`}
+                          type="file"
+                          accept={base.aceita || ".xlsx,.xls,.csv"}
+                          className="hidden"
+                          onChange={(event) => selecionarArquivoBase(base.id, event.target.files?.[0] ?? null)}
+                        />
+                      </label>
+
+                      {status && (
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-700">
+                          {status}
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => enviarBaseFaturamento(base)}
+                        disabled={Boolean(uploadingBaseId) || !arquivo}
+                        className="mt-auto inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#17375E] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#102B4A] disabled:opacity-50"
+                      >
+                        {uploading ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
+                        {uploading ? "Enviando..." : "Subir arquivo"}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800">
+                Essas atualizações substituem a base correspondente usada na análise de Faturamento. Após o upload, a tela recalcula automaticamente. Se uma base também alimentar outra página, a data de atualização será refletida lá pelo mesmo upload_log.
               </div>
             </div>
           </div>
