@@ -575,7 +575,36 @@ function corAbc(classe?: string) {
   return "#CBD5E1"
 }
 
-function AbcStackCard({
+function interpolateHexColor(colorA: string, colorB: string, t: number) {
+  const clamp = Math.max(0, Math.min(1, t))
+  const a = colorA.replace("#", "")
+  const b = colorB.replace("#", "")
+  const ar = parseInt(a.slice(0, 2), 16)
+  const ag = parseInt(a.slice(2, 4), 16)
+  const ab = parseInt(a.slice(4, 6), 16)
+  const br = parseInt(b.slice(0, 2), 16)
+  const bg = parseInt(b.slice(2, 4), 16)
+  const bb = parseInt(b.slice(4, 6), 16)
+
+  const rr = Math.round(ar + (br - ar) * clamp)
+  const rg = Math.round(ag + (bg - ag) * clamp)
+  const rb = Math.round(ab + (bb - ab) * clamp)
+
+  return `#${rr.toString(16).padStart(2, "0")}${rg.toString(16).padStart(2, "0")}${rb.toString(16).padStart(2, "0")}`
+}
+
+function heatmapColor(pct?: number) {
+  const valor = Math.max(0, Math.min(pct ?? 0, 100))
+  if (valor <= 50) return interpolateHexColor("#F87171", "#FACC15", valor / 50)
+  return interpolateHexColor("#FACC15", VERDE, (valor - 50) / 50)
+}
+
+function heatmapTextColor(pct?: number) {
+  const valor = Math.max(0, Math.min(pct ?? 0, 100))
+  return valor >= 58 ? "#FFFFFF" : "#0F172A"
+}
+
+function AbcDualBarsCard({
   titulo,
   entidadeLabel,
   data,
@@ -584,48 +613,74 @@ function AbcStackCard({
   entidadeLabel: string
   data?: AbcResumo[]
 }) {
-  const itens = (data || []).filter((item) => (item.faturamento ?? 0) > 0 || (item.qtd ?? 0) > 0)
-  const classeA = itens.find((item) => String(item.classe || "").toUpperCase() === "A")
+  const itens = ["A", "B", "C"].map((classe) => {
+    const base = (data || []).find((item) => String(item.classe || "").toUpperCase() === classe)
+    return {
+      classe,
+      qtd: base?.qtd ?? 0,
+      faturamento: base?.faturamento ?? 0,
+      pctBase: base?.participacao_qtd_pct ?? 0,
+      pctFaturamento: base?.participacao_faturamento_pct ?? 0,
+      color: corAbc(classe),
+    }
+  })
+
+  const classeA = itens.find((item) => item.classe === "A")
+
+  const Segment = ({ pct, color }: { pct: number; color: string }) => (
+    <div
+      className="flex min-h-[18px] items-center justify-center text-[11px] font-bold"
+      style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: color, color: pct >= 10 ? "white" : "transparent" }}
+      title={`${fmtPct(pct)}`}
+    >
+      {pct >= 10 ? fmtPct(pct) : ""}
+    </div>
+  )
 
   return (
     <div>
       <div className="mb-4 rounded-xl bg-slate-50 px-4 py-3">
         <p className="text-sm font-bold text-slate-900">{titulo}</p>
         <p className="mt-1 text-sm text-slate-500">
-          Classe A: <span className="font-semibold text-slate-800">{fmtNumero(classeA?.qtd)} {entidadeLabel}</span> representam <span className="font-semibold text-slate-800">{fmtPct(classeA?.participacao_faturamento_pct)}</span> do faturamento.
+          <span className="font-semibold text-slate-800">{fmtPct(classeA?.pctBase)}</span> dos {entidadeLabel} representam <span className="font-semibold text-slate-800">{fmtPct(classeA?.pctFaturamento)}</span> do faturamento.
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-        <div className="flex h-10 w-full">
-          {itens.map((item) => {
-            const pct = Math.max(item.participacao_faturamento_pct ?? 0, 0)
-            if (pct <= 0) return null
-            return (
-              <div
-                key={item.classe}
-                className="flex items-center justify-center text-[11px] font-bold text-white"
-                style={{ width: `${pct}%`, backgroundColor: corAbc(item.classe) }}
-                title={`Classe ${item.classe}: ${fmtPct(pct)} do faturamento`}
-              >
-                {pct >= 9 ? `${fmtPct(pct)}` : ""}
-              </div>
-            )
-          })}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-center text-sm font-bold text-slate-800">Distribuição da base</p>
+          <p className="mt-1 text-center text-xs text-slate-500">% dos {entidadeLabel}</p>
+          <div className="mx-auto mt-4 flex h-[240px] w-[120px] flex-col-reverse overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-inner">
+            {itens.map((item) => (
+              <Segment key={`base-${item.classe}`} pct={item.pctBase} color={item.color} />
+            ))}
+          </div>
+          <p className="mt-3 text-center text-xs font-semibold text-slate-500">100% da base</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-center text-sm font-bold text-slate-800">Distribuição do faturamento</p>
+          <p className="mt-1 text-center text-xs text-slate-500">% do faturamento em R$</p>
+          <div className="mx-auto mt-4 flex h-[240px] w-[120px] flex-col-reverse overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-inner">
+            {itens.map((item) => (
+              <Segment key={`fat-${item.classe}`} pct={item.pctFaturamento} color={item.color} />
+            ))}
+          </div>
+          <p className="mt-3 text-center text-xs font-semibold text-slate-500">100% do faturamento</p>
         </div>
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="mt-5 space-y-2.5">
         {itens.map((item) => (
           <div key={item.classe} className="flex items-center justify-between gap-3 text-sm">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: corAbc(item.classe) }} />
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
               <span className="font-semibold text-slate-800">Classe {item.classe}</span>
-              <span className="truncate text-xs text-slate-500">{fmtNumero(item.qtd)} {entidadeLabel} · {fmtPct(item.participacao_qtd_pct)} da base</span>
+              <span className="truncate text-xs text-slate-500">{fmtNumero(item.qtd)} {entidadeLabel} · {fmtPct(item.pctBase)} da base</span>
             </div>
             <div className="shrink-0 text-right">
               <p className="font-bold text-slate-900">{fmtMoney(item.faturamento)}</p>
-              <p className="text-xs text-slate-500">{fmtPct(item.participacao_faturamento_pct)}</p>
+              <p className="text-xs text-slate-500">{fmtPct(item.pctFaturamento)}</p>
             </div>
           </div>
         ))}
@@ -664,12 +719,11 @@ function HeatmapMixLinhaAno({ dados }: { dados?: MixLinhaAno[] }) {
               {linhas.map((linhaNome) => {
                 const item = (ano.linhas || []).find((linha) => (linha.linha || "Não classificado") === linhaNome)
                 const pct = item?.participacao_valor_pct ?? 0
-                const opacity = Math.min(0.10 + pct / 100 * 0.65, 0.78)
                 return (
                   <td key={`${ano.ano}-${linhaNome}`} className="border-t border-slate-100 px-3 py-2">
                     <div
-                      className="rounded-xl px-3 py-2 text-slate-900"
-                      style={{ backgroundColor: `rgba(23, 55, 94, ${opacity})`, color: pct >= 35 ? "white" : "#0f172a" }}
+                      className="rounded-xl px-3 py-2"
+                      style={{ backgroundColor: heatmapColor(pct), color: heatmapTextColor(pct) }}
                       title={`${linhaNome} · ${fmtPct(pct)} · ${fmtMoney(item?.faturamento)}`}
                     >
                       <p className="text-sm font-bold tabular-nums">{fmtPct(pct)}</p>
@@ -717,19 +771,16 @@ function HeatmapMixPaisAno({ dados }: { dados?: MixPaisAno[] }) {
               {paises.map((paisNome) => {
                 const item = (ano.paises || []).find((pais) => (pais.pais || "Não informado") === paisNome)
                 const pct = item?.participacao_valor_pct ?? 0
-                const opacity = Math.min(0.08 + pct / 100 * 0.62, 0.74)
-                const isBrasil = String(paisNome).toUpperCase() === "BRASIL"
-                const bg = isBrasil ? `rgba(23, 55, 94, ${opacity})` : `rgba(15, 118, 110, ${opacity})`
                 return (
                   <td key={`${ano.ano}-${paisNome}`} className="border-t border-slate-100 px-3 py-2">
                     <div
-                      className="rounded-xl px-3 py-2 text-slate-900"
-                      style={{ backgroundColor: bg, color: pct >= 35 ? "white" : "#0f172a" }}
+                      className="rounded-xl px-3 py-2"
+                      style={{ backgroundColor: heatmapColor(pct), color: heatmapTextColor(pct) }}
                       title={`${paisNome} · ${fmtPct(pct)} · ${fmtMoney(item?.faturamento)} · ${fmtNumero(item?.clientes)} clientes`}
                     >
                       <p className="text-sm font-bold tabular-nums">{fmtPct(pct)}</p>
                       <p className="mt-0.5 text-xs opacity-90">{fmtMoney(item?.faturamento)}</p>
-                      <p className="mt-0.5 text-[10px] opacity-75">{fmtNumero(item?.clientes)} clientes</p>
+                      <p className="mt-0.5 text-[10px] opacity-80">{fmtNumero(item?.clientes)} clientes</p>
                     </div>
                   </td>
                 )
@@ -1068,12 +1119,14 @@ export default function FaturamentoPage() {
   }, [dados])
 
   const linhasGrafico = useMemo(() => {
-    return (dados?.linhas ?? []).slice(0, 6).map((item) => ({
-      linha: abreviar(item.linha, 18),
-      Faturamento: item.faturamento ?? 0,
-      Participacao: item.participacao_valor_pct ?? 0,
-      label: `${fmtMoney(item.faturamento)} · ${fmtPct(item.participacao_valor_pct)}`,
-    }))
+    return [...(dados?.linhas ?? [])]
+      .sort((a, b) => (b.faturamento ?? 0) - (a.faturamento ?? 0))
+      .slice(0, 6)
+      .map((item) => ({
+        linha: item.linha || "Não classificado",
+        Faturamento: item.faturamento ?? 0,
+        Participacao: item.participacao_valor_pct ?? 0,
+      }))
   }, [dados])
 
   const abcClientesValor = useMemo(() => dados?.abc_clientes_valor ?? [], [dados])
@@ -1218,11 +1271,6 @@ export default function FaturamentoPage() {
   const pendentesAgingLista = useMemo(() => dados?.pendentes_aging ?? [], [dados])
   const pendentesClientesTop = useMemo(() => (dados?.pendentes_clientes ?? []).slice(0, 6), [dados])
   const pendentesProdutosTop = useMemo(() => (dados?.pendentes_produtos ?? []).slice(0, 6), [dados])
-
-  const statusPrincipal = pendentesStatusLista[0]
-  const agingPrincipal = [...pendentesAgingLista].sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0))[0]
-  const topClientePendente = pendentesClientesTop[0]
-  const topProdutoPendente = pendentesProdutosTop[0]
 
   function toggleSort(col: "faturamento" | "quantidade" | "participacao_valor_pct") {
     if (sortCliente === col) setSortAsc(!sortAsc)
@@ -1398,41 +1446,30 @@ export default function FaturamentoPage() {
 
         {aba === "resumo" && (
           <div className="space-y-5">
-            <div className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
-              <SectionCard
-                title="Evolução anual: faturamento e volume"
-                subtitle="Linha do tempo por ano. Anos anteriores fechados; ano corrente em YTD conforme a base carregada."
-              >
-                <div className="h-[330px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={anosGrafico} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CINZA_CLARO} />
-                      <XAxis dataKey="ano" tick={CHART_TICK_12} />
-                      <YAxis yAxisId="valor" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
-                      <YAxis yAxisId="qtd" orientation="right" tick={CHART_TICK_11} tickFormatter={(v) => fmtNumero(Number(v))} />
-                      <Tooltip
-                        formatter={(value: any, name: any) => [name === "Faturamento" ? fmtMoneyFull(Number(value)) : fmtNumero(Number(value)), name]}
-                        labelStyle={{ color: AZUL, fontWeight: 700 }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar yAxisId="valor" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={54}>
-                        <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
-                      </Bar>
-                      <Line yAxisId="qtd" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              </SectionCard>
-
-              <SectionCard title="Carteira pendente" subtitle="Resumo executivo da carteira ainda não atendida.">
-                <div className="space-y-3">
-                  <InsightLine label="Valor em aberto" value={fmtMoney(cards.carteira_pendente_valor)} helper={`${fmtNumero(cards.prepedidos_pendentes)} pré-pedidos em aberto`} tone="amber" />
-                  <InsightLine label="Entrega vencida" value={fmtMoney(cards.carteira_vencida_valor)} helper={`${fmtPct(cards.pct_carteira_vencida_valor)} da carteira pendente`} tone="red" />
-                  <InsightLine label="Status principal" value={statusPrincipal?.status || "-"} helper={`${fmtMoney(statusPrincipal?.valor)} em ${fmtNumero(statusPrincipal?.prepedidos)} pré-pedidos`} tone="slate" />
-                  <InsightLine label="Maior faixa de aging" value={agingPrincipal?.faixa || "-"} helper={`${fmtMoney(agingPrincipal?.valor)} · ${fmtPct(agingPrincipal?.participacao_valor_pct)}`} tone="blue" />
-                </div>
-              </SectionCard>
-            </div>
+            <SectionCard
+              title="Evolução anual: faturamento e volume"
+              subtitle="Linha do tempo por ano. Anos anteriores fechados; ano corrente em YTD conforme a base carregada."
+            >
+              <div className="h-[330px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={anosGrafico} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CINZA_CLARO} />
+                    <XAxis dataKey="ano" tick={CHART_TICK_12} />
+                    <YAxis yAxisId="valor" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
+                    <YAxis yAxisId="qtd" orientation="right" tick={CHART_TICK_11} tickFormatter={(v) => fmtNumero(Number(v))} />
+                    <Tooltip
+                      formatter={(value: any, name: any) => [name === "Faturamento" ? fmtMoneyFull(Number(value)) : fmtNumero(Number(value)), name]}
+                      labelStyle={{ color: AZUL, fontWeight: 700 }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar yAxisId="valor" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={54}>
+                      <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
+                    </Bar>
+                    <Line yAxisId="qtd" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </SectionCard>
 
             <SectionCard
               title="Evolução mensal: atual x ano anterior e plano"
@@ -1468,27 +1505,31 @@ export default function FaturamentoPage() {
 
             <div className="grid gap-5 xl:grid-cols-3">
               <SectionCard title="Ranking por linha" subtitle="Faturamento por linha de negócio, com participação no valor total." compact>
-                <div className="h-[275px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={linhasGrafico} layout="vertical" margin={{ top: 8, right: 82, left: 28, bottom: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CINZA_CLARO} />
-                      <XAxis type="number" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
-                      <YAxis type="category" dataKey="linha" tick={CHART_TICK_11} width={95} />
-                      <Tooltip formatter={(value: any, name: any, props: any) => [fmtMoneyFull(Number(value)), `Faturamento · ${fmtPct(props?.payload?.Participacao)}`]} />
-                      <Bar dataKey="Faturamento" fill={AZUL} radius={[0, 7, 7, 0]}>
-                        <LabelList dataKey="label" position="right" style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                <div className="space-y-4">
+                  {linhasGrafico.map((item) => {
+                    const maxValor = Math.max(...linhasGrafico.map((linha) => linha.Faturamento || 0), 1)
+                    const width = Math.max(6, ((item.Faturamento || 0) / maxValor) * 100)
+                    return (
+                      <div key={item.linha} className="space-y-1.5">
+                        <div className="flex items-end justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-800">{item.linha}</p>
+                          <p className="shrink-0 text-sm font-bold text-slate-900">{fmtMoney(item.Faturamento)} <span className="font-medium text-slate-500">· {fmtPct(item.Participacao)}</span></p>
+                        </div>
+                        <div className="h-4 overflow-hidden rounded-full bg-slate-100">
+                          <div className="h-4 rounded-full" style={{ width: `${width}%`, backgroundColor: AZUL }} />
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </SectionCard>
 
               <SectionCard title="ABC de clientes" subtitle="Concentração do faturamento vendido até agora." compact>
-                <AbcStackCard titulo="Clientes por faturamento" entidadeLabel="clientes" data={abcClientesValor} />
+                <AbcDualBarsCard titulo="Clientes por faturamento" entidadeLabel="clientes" data={abcClientesValor} />
               </SectionCard>
 
               <SectionCard title="ABC de itens" subtitle="Concentração do faturamento por produto vendido." compact>
-                <AbcStackCard titulo="Itens por faturamento" entidadeLabel="itens" data={abcProdutosValor} />
+                <AbcDualBarsCard titulo="Itens por faturamento" entidadeLabel="itens" data={abcProdutosValor} />
               </SectionCard>
             </div>
 
