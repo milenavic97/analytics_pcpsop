@@ -80,6 +80,9 @@ type Mes = {
   quantidade?: number
   forecast?: number
   orcado?: number
+  faturamento_ano_anterior?: number
+  quantidade_ano_anterior?: number
+  delta_faturamento_ano_anterior?: number
   delta_forecast?: number
   delta_orcado?: number
   atingimento_forecast_pct?: number
@@ -87,6 +90,19 @@ type Mes = {
   clientes?: number
   produtos?: number
   preco_medio?: number
+}
+
+type AnoHistorico = {
+  ano?: number
+  ano_label?: string
+  faturamento?: number
+  quantidade?: number
+  clientes?: number
+  produtos?: number
+  registros?: number
+  ultimo_mes?: number
+  periodo?: string
+  is_ytd?: boolean
 }
 
 type Cliente = {
@@ -167,6 +183,51 @@ type Pais = {
   confianca_baixa?: number
 }
 
+type AbcResumo = {
+  classe?: string
+  qtd?: number
+  faturamento?: number
+  quantidade?: number
+  participacao_qtd_pct?: number
+  participacao_faturamento_pct?: number
+  exemplos?: string[]
+}
+
+type MixLinhaAnoLinha = {
+  linha?: string
+  faturamento?: number
+  quantidade?: number
+  participacao_valor_pct?: number
+  clientes?: number
+  produtos?: number
+}
+
+type MixLinhaAno = {
+  ano?: number
+  ano_label?: string
+  periodo?: string
+  total_faturamento?: number
+  linhas?: MixLinhaAnoLinha[]
+}
+
+type MixPaisAnoPais = {
+  pais?: string
+  faturamento?: number
+  quantidade?: number
+  participacao_valor_pct?: number
+  clientes?: number
+  produtos?: number
+  confianca_baixa?: number
+}
+
+type MixPaisAno = {
+  ano?: number
+  ano_label?: string
+  periodo?: string
+  total_faturamento?: number
+  paises?: MixPaisAnoPais[]
+}
+
 type CicloAging = {
   faixa?: string
   registros?: number
@@ -223,12 +284,17 @@ type ResumoFaturamento = {
   escopo_label?: string
   cards: Cards
   meses: Mes[]
+  anos?: AnoHistorico[]
   clientes: Cliente[]
   produtos: Produto[]
   linhas: Linha[]
   estados: Estado[]
   paises?: Pais[]
   tipos_clientes: TipoCliente[]
+  abc_clientes_valor?: AbcResumo[]
+  abc_produtos_valor?: AbcResumo[]
+  mix_linha_ano?: MixLinhaAno[]
+  mix_pais_ano?: MixPaisAno[]
   ciclo_aging?: CicloAging[]
   ciclo_origem?: CicloOrigem[]
   pendentes_status?: PendenteResumo[]
@@ -502,6 +568,180 @@ function HorizontalProgress({
   )
 }
 
+function corAbc(classe?: string) {
+  const c = String(classe || "C").toUpperCase()
+  if (c === "A") return AZUL
+  if (c === "B") return VERDE
+  return "#CBD5E1"
+}
+
+function AbcStackCard({
+  titulo,
+  entidadeLabel,
+  data,
+}: {
+  titulo: string
+  entidadeLabel: string
+  data?: AbcResumo[]
+}) {
+  const itens = (data || []).filter((item) => (item.faturamento ?? 0) > 0 || (item.qtd ?? 0) > 0)
+  const classeA = itens.find((item) => String(item.classe || "").toUpperCase() === "A")
+
+  return (
+    <div>
+      <div className="mb-4 rounded-xl bg-slate-50 px-4 py-3">
+        <p className="text-sm font-bold text-slate-900">{titulo}</p>
+        <p className="mt-1 text-sm text-slate-500">
+          Classe A: <span className="font-semibold text-slate-800">{fmtNumero(classeA?.qtd)} {entidadeLabel}</span> representam <span className="font-semibold text-slate-800">{fmtPct(classeA?.participacao_faturamento_pct)}</span> do faturamento.
+        </p>
+      </div>
+
+      <div className="overflow-hidden rounded-full border border-slate-200 bg-slate-100">
+        <div className="flex h-10 w-full">
+          {itens.map((item) => {
+            const pct = Math.max(item.participacao_faturamento_pct ?? 0, 0)
+            if (pct <= 0) return null
+            return (
+              <div
+                key={item.classe}
+                className="flex items-center justify-center text-[11px] font-bold text-white"
+                style={{ width: `${pct}%`, backgroundColor: corAbc(item.classe) }}
+                title={`Classe ${item.classe}: ${fmtPct(pct)} do faturamento`}
+              >
+                {pct >= 9 ? `${fmtPct(pct)}` : ""}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {itens.map((item) => (
+          <div key={item.classe} className="flex items-center justify-between gap-3 text-sm">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: corAbc(item.classe) }} />
+              <span className="font-semibold text-slate-800">Classe {item.classe}</span>
+              <span className="truncate text-xs text-slate-500">{fmtNumero(item.qtd)} {entidadeLabel} · {fmtPct(item.participacao_qtd_pct)} da base</span>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="font-bold text-slate-900">{fmtMoney(item.faturamento)}</p>
+              <p className="text-xs text-slate-500">{fmtPct(item.participacao_faturamento_pct)}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HeatmapMixLinhaAno({ dados }: { dados?: MixLinhaAno[] }) {
+  const linhas = Array.from(
+    new Set((dados || []).flatMap((ano) => (ano.linhas || []).map((linha) => linha.linha || "Não classificado"))),
+  )
+
+  if (!dados?.length || !linhas.length) {
+    return <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Ainda não há histórico suficiente para montar o mix por ano.</div>
+  }
+
+  return (
+    <div className="overflow-auto">
+      <table className="min-w-full border-separate border-spacing-0 text-sm">
+        <thead>
+          <tr>
+            <th className="sticky left-0 z-10 bg-white px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">Ano</th>
+            {linhas.map((linha) => (
+              <th key={linha} className="min-w-[170px] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">{linha}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {dados.map((ano) => (
+            <tr key={ano.ano_label || ano.ano}>
+              <td className="sticky left-0 z-10 border-t border-slate-100 bg-white px-3 py-3 align-middle">
+                <p className="font-bold text-slate-900">{ano.ano_label || ano.ano}</p>
+                <p className="text-xs text-slate-400">{fmtMoney(ano.total_faturamento)}</p>
+              </td>
+              {linhas.map((linhaNome) => {
+                const item = (ano.linhas || []).find((linha) => (linha.linha || "Não classificado") === linhaNome)
+                const pct = item?.participacao_valor_pct ?? 0
+                const opacity = Math.min(0.10 + pct / 100 * 0.65, 0.78)
+                return (
+                  <td key={`${ano.ano}-${linhaNome}`} className="border-t border-slate-100 px-3 py-2">
+                    <div
+                      className="rounded-xl px-3 py-2 text-slate-900"
+                      style={{ backgroundColor: `rgba(23, 55, 94, ${opacity})`, color: pct >= 35 ? "white" : "#0f172a" }}
+                      title={`${linhaNome} · ${fmtPct(pct)} · ${fmtMoney(item?.faturamento)}`}
+                    >
+                      <p className="text-sm font-bold tabular-nums">{fmtPct(pct)}</p>
+                      <p className="mt-0.5 text-xs opacity-90">{fmtMoney(item?.faturamento)}</p>
+                    </div>
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+
+function HeatmapMixPaisAno({ dados }: { dados?: MixPaisAno[] }) {
+  const paises = Array.from(
+    new Set((dados || []).flatMap((ano) => (ano.paises || []).map((pais) => pais.pais || "Não informado"))),
+  )
+
+  if (!dados?.length || !paises.length) {
+    return <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Ainda não há histórico suficiente para montar a evolução por país.</div>
+  }
+
+  return (
+    <div className="overflow-auto">
+      <table className="min-w-full border-separate border-spacing-0 text-sm">
+        <thead>
+          <tr>
+            <th className="sticky left-0 z-10 bg-white px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">Ano</th>
+            {paises.map((pais) => (
+              <th key={pais} className="min-w-[145px] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">{pais}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {dados.map((ano) => (
+            <tr key={ano.ano_label || ano.ano}>
+              <td className="sticky left-0 z-10 border-t border-slate-100 bg-white px-3 py-3 align-middle">
+                <p className="font-bold text-slate-900">{ano.ano_label || ano.ano}</p>
+                <p className="text-xs text-slate-400">{fmtMoney(ano.total_faturamento)}</p>
+              </td>
+              {paises.map((paisNome) => {
+                const item = (ano.paises || []).find((pais) => (pais.pais || "Não informado") === paisNome)
+                const pct = item?.participacao_valor_pct ?? 0
+                const opacity = Math.min(0.08 + pct / 100 * 0.62, 0.74)
+                const isBrasil = String(paisNome).toUpperCase() === "BRASIL"
+                const bg = isBrasil ? `rgba(23, 55, 94, ${opacity})` : `rgba(15, 118, 110, ${opacity})`
+                return (
+                  <td key={`${ano.ano}-${paisNome}`} className="border-t border-slate-100 px-3 py-2">
+                    <div
+                      className="rounded-xl px-3 py-2 text-slate-900"
+                      style={{ backgroundColor: bg, color: pct >= 35 ? "white" : "#0f172a" }}
+                      title={`${paisNome} · ${fmtPct(pct)} · ${fmtMoney(item?.faturamento)} · ${fmtNumero(item?.clientes)} clientes`}
+                    >
+                      <p className="text-sm font-bold tabular-nums">{fmtPct(pct)}</p>
+                      <p className="mt-0.5 text-xs opacity-90">{fmtMoney(item?.faturamento)}</p>
+                      <p className="mt-0.5 text-[10px] opacity-75">{fmtNumero(item?.clientes)} clientes</p>
+                    </div>
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 type FaturamentoCacheEntry = {
   savedAt: number
   version: string | null
@@ -535,7 +775,7 @@ type FaturamentoVersaoResponse = {
 }
 
 const FATURAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v80:"
+const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v100:"
 const faturamentoRuntimeCache = new Map<string, FaturamentoCacheEntry>()
 
 function faturamentoCacheKey(ano: number, bloco: string, produtoFiltro: string) {
@@ -802,12 +1042,24 @@ export default function FaturamentoPage() {
   const escopoLabel = dados?.escopo_label ?? ESCOPOS.find((e) => e.value === bloco)?.label ?? "Todos"
   const dimensaoClientesCarregada = (dados?.meta?.qtd_clientes_dimensao ?? 0) > 0
 
+  const anosGrafico = useMemo(() => {
+    const lista = dados?.anos?.length ? dados.anos : []
+    return lista.map((item) => ({
+      ano: item.ano_label ?? String(item.ano ?? ""),
+      Faturamento: item.faturamento ?? 0,
+      Quantidade: (item.quantidade ?? 0) > 0 ? item.quantidade ?? 0 : null,
+      periodo: item.periodo ?? "",
+    }))
+  }, [dados])
+
   const mesesGrafico = useMemo(() => {
     return (dados?.meses ?? []).map((item) => {
       const quantidadeReal = item.quantidade ?? 0
+      const valorAnoAnterior = item.faturamento_ano_anterior ?? 0
       return {
         mes: item.mes_nome ?? String(item.mes ?? ""),
         Faturamento: item.faturamento ?? 0,
+        "Ano anterior": valorAnoAnterior > 0 ? valorAnoAnterior : null,
         Quantidade: quantidadeReal > 0 ? quantidadeReal : null,
         Forecast: item.forecast ?? 0,
         Orçado: item.orcado ?? 0,
@@ -820,8 +1072,14 @@ export default function FaturamentoPage() {
       linha: abreviar(item.linha, 18),
       Faturamento: item.faturamento ?? 0,
       Participacao: item.participacao_valor_pct ?? 0,
+      label: `${fmtMoney(item.faturamento)} · ${fmtPct(item.participacao_valor_pct)}`,
     }))
   }, [dados])
+
+  const abcClientesValor = useMemo(() => dados?.abc_clientes_valor ?? [], [dados])
+  const abcProdutosValor = useMemo(() => dados?.abc_produtos_valor ?? [], [dados])
+  const mixLinhaAno = useMemo(() => dados?.mix_linha_ano ?? [], [dados])
+  const mixPaisAno = useMemo(() => dados?.mix_pais_ano ?? [], [dados])
 
   const clientesFiltrados = useMemo(() => {
     const termo = buscaCliente.trim().toLowerCase()
@@ -1140,16 +1398,16 @@ export default function FaturamentoPage() {
 
         {aba === "resumo" && (
           <div className="space-y-5">
-            <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
+            <div className="grid gap-5 xl:grid-cols-[1.45fr_1fr]">
               <SectionCard
-                title="Evolução mensal: faturamento, volume e plano"
-                subtitle="Barras mostram faturamento. Linhas mostram quantidade real, Forecast S&OP e Orçado."
+                title="Evolução anual: faturamento e volume"
+                subtitle="Linha do tempo por ano. Anos anteriores fechados; ano corrente em YTD conforme a base carregada."
               >
-                <div className="h-[360px]">
+                <div className="h-[330px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={mesesGrafico} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
+                    <ComposedChart data={anosGrafico} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CINZA_CLARO} />
-                      <XAxis dataKey="mes" tick={CHART_TICK_12} />
+                      <XAxis dataKey="ano" tick={CHART_TICK_12} />
                       <YAxis yAxisId="valor" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
                       <YAxis yAxisId="qtd" orientation="right" tick={CHART_TICK_11} tickFormatter={(v) => fmtNumero(Number(v))} />
                       <Tooltip
@@ -1157,12 +1415,10 @@ export default function FaturamentoPage() {
                         labelStyle={{ color: AZUL, fontWeight: 700 }}
                       />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar yAxisId="valor" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={46}>
+                      <Bar yAxisId="valor" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={54}>
                         <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
                       </Bar>
                       <Line yAxisId="qtd" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} />
-                      <Line yAxisId="qtd" type="monotone" dataKey="Forecast" stroke={LARANJA} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 2 }} />
-                      <Line yAxisId="qtd" type="monotone" dataKey="Orçado" stroke={VERDE} strokeWidth={2} strokeDasharray="2 3" dot={{ r: 2 }} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
@@ -1178,46 +1434,77 @@ export default function FaturamentoPage() {
               </SectionCard>
             </div>
 
+            <SectionCard
+              title="Evolução mensal: atual x ano anterior e plano"
+              subtitle="Barras comparam faturamento mensal contra o mesmo mês do ano anterior. Linhas mantêm quantidade real, Forecast S&OP e Orçado."
+            >
+              <div className="h-[340px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={mesesGrafico} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CINZA_CLARO} />
+                    <XAxis dataKey="mes" tick={CHART_TICK_12} />
+                    <YAxis yAxisId="valor" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
+                    <YAxis yAxisId="qtd" orientation="right" tick={CHART_TICK_11} tickFormatter={(v) => fmtNumero(Number(v))} />
+                    <Tooltip
+                      formatter={(value: any, name: any) => {
+                        const nome = String(name)
+                        return [nome === "Quantidade" || nome === "Forecast" || nome === "Orçado" ? fmtNumero(Number(value)) : fmtMoneyFull(Number(value)), nome]
+                      }}
+                      labelStyle={{ color: AZUL, fontWeight: 700 }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar yAxisId="valor" dataKey="Ano anterior" fill={AZUL_CLARO} radius={[7, 7, 0, 0]} maxBarSize={34} />
+                    <Bar yAxisId="valor" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={38}>
+                      <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
+                    </Bar>
+                    <Line yAxisId="qtd" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} />
+                    <Line yAxisId="qtd" type="monotone" dataKey="Forecast" stroke={LARANJA} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 2 }} />
+                    <Line yAxisId="qtd" type="monotone" dataKey="Orçado" stroke={VERDE} strokeWidth={2} strokeDasharray="2 3" dot={{ r: 2 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </SectionCard>
+
+
             <div className="grid gap-5 xl:grid-cols-3">
-              <SectionCard title="Mix por linha" subtitle="Participação do faturamento por linha de negócio." compact>
+              <SectionCard title="Ranking por linha" subtitle="Faturamento por linha de negócio, com participação no valor total." compact>
                 <div className="h-[275px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={linhasGrafico} layout="vertical" margin={{ top: 8, right: 28, left: 28, bottom: 8 }}>
+                    <BarChart data={linhasGrafico} layout="vertical" margin={{ top: 8, right: 82, left: 28, bottom: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CINZA_CLARO} />
                       <XAxis type="number" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
                       <YAxis type="category" dataKey="linha" tick={CHART_TICK_11} width={95} />
-                      <Tooltip formatter={(value: any) => [fmtMoneyFull(Number(value)), "Faturamento"]} />
+                      <Tooltip formatter={(value: any, name: any, props: any) => [fmtMoneyFull(Number(value)), `Faturamento · ${fmtPct(props?.payload?.Participacao)}`]} />
                       <Bar dataKey="Faturamento" fill={AZUL} radius={[0, 7, 7, 0]}>
-                        <LabelList dataKey="Faturamento" position="right" formatter={labelMoney} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
+                        <LabelList dataKey="label" position="right" style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </SectionCard>
 
-              <SectionCard title="Entrada do pedido" subtitle="Leitura rápida sobre quando o volume entrou na carteira." compact>
-                <div className="space-y-3">
-                  <InsightLine label="Mesmo mês" value={fmtMoney(cards.faturamento_prepedido_mesmo_mes)} helper="Pré-pedido emitido no mês do faturamento" tone="blue" />
-                  <InsightLine label="Meses anteriores" value={fmtMoney(cards.faturamento_prepedido_mes_anterior)} helper="Volume que já estava em carteira" tone="green" />
-                  <InsightLine label="Fim do mês" value={fmtPct(cards.pct_faturamento_prepedido_fim_mes)} helper="Pré-pedido emitido após o dia 21" tone="amber" />
-                </div>
+              <SectionCard title="ABC de clientes" subtitle="Concentração do faturamento vendido até agora." compact>
+                <AbcStackCard titulo="Clientes por faturamento" entidadeLabel="clientes" data={abcClientesValor} />
               </SectionCard>
 
-              <SectionCard title="Principais pontos de atenção" subtitle="Itens para orientar a conversa da reunião." compact>
-                <div className="space-y-3 text-sm">
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="font-semibold text-slate-900">Carteira vencida</p>
-                    <p className="mt-1 text-slate-500">{fmtPct(cards.pct_carteira_vencida_valor)} da carteira pendente está com entrega vencida.</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="font-semibold text-slate-900">Cliente com maior pendência</p>
-                    <p className="mt-1 text-slate-500">{topClientePendente?.nome || "-"} · {fmtMoney(topClientePendente?.valor)}.</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="font-semibold text-slate-900">Produto com maior pendência</p>
-                    <p className="mt-1 text-slate-500">{topProdutoPendente?.descricao || topProdutoPendente?.produto || "-"} · {fmtMoney(topProdutoPendente?.valor)}.</p>
-                  </div>
-                </div>
+              <SectionCard title="ABC de itens" subtitle="Concentração do faturamento por produto vendido." compact>
+                <AbcStackCard titulo="Itens por faturamento" entidadeLabel="itens" data={abcProdutosValor} />
+              </SectionCard>
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-2">
+              <SectionCard
+                title="Mix de linha de negócio por ano"
+                subtitle="Participação de cada linha no faturamento anual. O ano corrente aparece em YTD conforme a base carregada."
+              >
+                <HeatmapMixLinhaAno dados={mixLinhaAno} />
+              </SectionCard>
+
+              <SectionCard
+                title="Mix geográfico por país"
+                subtitle="Evolução do faturamento por país estimado a partir do cadastro de clientes. Útil para visualizar expansão internacional."
+              >
+                <HeatmapMixPaisAno dados={mixPaisAno} />
               </SectionCard>
             </div>
           </div>
