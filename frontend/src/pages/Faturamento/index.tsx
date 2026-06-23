@@ -28,7 +28,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   CartesianGrid,
 } from "recharts"
 
@@ -955,6 +954,48 @@ function getInitialFaturamentoCache(ano: number, bloco: string, produtoFiltro: s
   return readFaturamentoCache(ano, bloco, produtoFiltro)
 }
 
+
+function LegendToggle({
+  items,
+  visibleMap,
+  onToggle,
+}: {
+  items: { key: string; label: string; color: string; dashed?: boolean }[]
+  visibleMap: Record<string, boolean>
+  onToggle: (key: string) => void
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap gap-2">
+      {items.map((item) => {
+        const ativo = visibleMap[item.key] !== false
+        return (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => onToggle(item.key)}
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+              ativo ? "border-slate-300 bg-white text-slate-700" : "border-slate-200 bg-slate-50 text-slate-400"
+            }`}
+            title={ativo ? `Ocultar ${item.label}` : `Mostrar ${item.label}`}
+          >
+            <span className="relative inline-block h-0 w-5 shrink-0">
+              <span
+                className="absolute left-0 right-0 top-1/2 block h-0.5 -translate-y-1/2"
+                style={{
+                  backgroundColor: item.dashed ? 'transparent' : item.color,
+                  borderTop: item.dashed ? `2px dashed ${item.color}` : 'none',
+                  opacity: ativo ? 1 : 0.45,
+                }}
+              />
+            </span>
+            <span>{item.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function FaturamentoPage() {
   const anoInicial = 2026
   const blocoInicial = "TODOS"
@@ -980,6 +1021,14 @@ export default function FaturamentoPage() {
   const [abcModo, setAbcModo] = useState<"valor" | "quantidade">("valor")
   const [sortCliente, setSortCliente] = useState<"faturamento" | "quantidade" | "participacao_valor_pct">("faturamento")
   const [sortAsc, setSortAsc] = useState(false)
+  const [annualVisible, setAnnualVisible] = useState<Record<string, boolean>>({ Faturamento: true, Quantidade: true })
+  const [monthlyVisible, setMonthlyVisible] = useState<Record<string, boolean>>({
+    Faturamento: true,
+    "Ano anterior": true,
+    Quantidade: true,
+    Forecast: true,
+    "Orçado": true,
+  })
 
   const [modalBasesAberto, setModalBasesAberto] = useState(false)
   const [arquivosBases, setArquivosBases] = useState<Record<string, File | null>>({})
@@ -1477,6 +1526,14 @@ export default function FaturamentoPage() {
               title="Evolução anual: faturamento e volume"
               subtitle="Linha do tempo por ano. Anos anteriores fechados; ano corrente em YTD conforme a base carregada."
             >
+              <LegendToggle
+                items={[
+                  { key: "Faturamento", label: "Faturamento", color: AZUL },
+                  { key: "Quantidade", label: "Quantidade", color: AZUL_CLARO },
+                ]}
+                visibleMap={annualVisible}
+                onToggle={(key) => setAnnualVisible((prev) => ({ ...prev, [key]: !prev[key] }))}
+              />
               <div className="h-[330px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={anosGrafico} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
@@ -1488,11 +1545,14 @@ export default function FaturamentoPage() {
                       formatter={(value: any, name: any) => [name === "Faturamento" ? fmtMoneyFull(Number(value)) : fmtNumero(Number(value)), name]}
                       labelStyle={{ color: AZUL, fontWeight: 700 }}
                     />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar yAxisId="valor" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={54}>
-                      <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
-                    </Bar>
-                    <Line yAxisId="qtd" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} />
+                    {annualVisible.Faturamento !== false && (
+                      <Bar yAxisId="valor" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={54}>
+                        <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
+                      </Bar>
+                    )}
+                    {annualVisible.Quantidade !== false && (
+                      <Line yAxisId="qtd" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} />
+                    )}
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
