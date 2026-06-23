@@ -627,15 +627,61 @@ function AbcDualBarsCard({
 
   const classeA = itens.find((item) => item.classe === "A")
 
-  const Segment = ({ pct, color }: { pct: number; color: string }) => (
-    <div
-      className="flex min-h-[18px] items-center justify-center text-[11px] font-bold"
-      style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: color, color: pct >= 10 ? "white" : "transparent" }}
-      title={`${fmtPct(pct)}`}
-    >
-      {pct >= 10 ? fmtPct(pct) : ""}
-    </div>
-  )
+  function BarDistribuicao({
+    tituloBarra,
+    subtituloBarra,
+    pctKey,
+    rawFormatter,
+    footer,
+  }: {
+    tituloBarra: string
+    subtituloBarra: string
+    pctKey: "pctBase" | "pctFaturamento"
+    rawFormatter: (item: (typeof itens)[number]) => string
+    footer: string
+  }) {
+    const itensPequenos = itens.filter((item) => Number(item[pctKey] || 0) < 14)
+
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <p className="text-center text-sm font-bold text-slate-800">{tituloBarra}</p>
+        <p className="mt-1 text-center text-xs text-slate-500">{subtituloBarra}</p>
+
+        <div className="mt-4 flex items-center justify-center gap-3">
+          <div className="flex h-[240px] w-[120px] flex-col-reverse overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-inner">
+            {itens.map((item) => {
+              const pct = Number(item[pctKey] || 0)
+              const raw = rawFormatter(item)
+              const mostrarPct = pct >= 9
+              const mostrarRaw = pct >= 18
+              return (
+                <div
+                  key={`${pctKey}-${item.classe}`}
+                  className="flex min-h-[18px] flex-col items-center justify-center px-1 text-center"
+                  style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: item.color, color: pct >= 9 ? "white" : "transparent" }}
+                  title={`Classe ${item.classe} · ${fmtPct(pct)} · ${raw}`}
+                >
+                  {mostrarPct && <span className="text-[11px] font-bold leading-tight">{fmtPct(pct)}</span>}
+                  {mostrarRaw && <span className="mt-0.5 text-[10px] leading-tight opacity-90">{raw}</span>}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="w-[108px] space-y-1.5">
+            {itensPequenos.map((item) => (
+              <div key={`hint-${pctKey}-${item.classe}`} className="rounded-lg bg-slate-50 px-2 py-1.5 text-[11px] leading-tight text-slate-600">
+                <p className="font-semibold text-slate-800">Classe {item.classe} · {fmtPct(Number(item[pctKey] || 0))}</p>
+                <p>{rawFormatter(item)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="mt-3 text-center text-xs font-semibold text-slate-500">{footer}</p>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -647,27 +693,20 @@ function AbcDualBarsCard({
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <p className="text-center text-sm font-bold text-slate-800">Distribuição da base</p>
-          <p className="mt-1 text-center text-xs text-slate-500">% dos {entidadeLabel}</p>
-          <div className="mx-auto mt-4 flex h-[240px] w-[120px] flex-col-reverse overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-inner">
-            {itens.map((item) => (
-              <Segment key={`base-${item.classe}`} pct={item.pctBase} color={item.color} />
-            ))}
-          </div>
-          <p className="mt-3 text-center text-xs font-semibold text-slate-500">100% da base</p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <p className="text-center text-sm font-bold text-slate-800">Distribuição do faturamento</p>
-          <p className="mt-1 text-center text-xs text-slate-500">% do faturamento em R$</p>
-          <div className="mx-auto mt-4 flex h-[240px] w-[120px] flex-col-reverse overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-inner">
-            {itens.map((item) => (
-              <Segment key={`fat-${item.classe}`} pct={item.pctFaturamento} color={item.color} />
-            ))}
-          </div>
-          <p className="mt-3 text-center text-xs font-semibold text-slate-500">100% do faturamento</p>
-        </div>
+        <BarDistribuicao
+          tituloBarra="Distribuição da base"
+          subtituloBarra={`% dos ${entidadeLabel}`}
+          pctKey="pctBase"
+          rawFormatter={(item) => `${fmtNumero(item.qtd)} ${entidadeLabel}`}
+          footer="100% da base"
+        />
+        <BarDistribuicao
+          tituloBarra="Distribuição do faturamento"
+          subtituloBarra="% do faturamento em R$"
+          pctKey="pctFaturamento"
+          rawFormatter={(item) => fmtMoney(item.faturamento)}
+          footer="100% do faturamento"
+        />
       </div>
 
       <div className="mt-5 space-y-2.5">
@@ -705,7 +744,7 @@ function HeatmapMixLinhaAno({ dados }: { dados?: MixLinhaAno[] }) {
           <tr>
             <th className="sticky left-0 z-10 bg-white px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">Ano</th>
             {linhas.map((linha) => (
-              <th key={linha} className="min-w-[170px] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">{linha}</th>
+              <th key={linha} className="min-w-[155px] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">{linha}</th>
             ))}
           </tr>
         </thead>
@@ -722,7 +761,7 @@ function HeatmapMixLinhaAno({ dados }: { dados?: MixLinhaAno[] }) {
                 return (
                   <td key={`${ano.ano}-${linhaNome}`} className="border-t border-slate-100 px-3 py-2">
                     <div
-                      className="rounded-xl px-3 py-2"
+                      className="rounded-lg px-2.5 py-2"
                       style={{ backgroundColor: heatmapColor(pct), color: heatmapTextColor(pct) }}
                       title={`${linhaNome} · ${fmtPct(pct)} · ${fmtMoney(item?.faturamento)}`}
                     >
@@ -757,7 +796,7 @@ function HeatmapMixPaisAno({ dados }: { dados?: MixPaisAno[] }) {
           <tr>
             <th className="sticky left-0 z-10 bg-white px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">Ano</th>
             {paises.map((pais) => (
-              <th key={pais} className="min-w-[145px] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">{pais}</th>
+              <th key={pais} className="min-w-[155px] px-3 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-400">{pais}</th>
             ))}
           </tr>
         </thead>
@@ -774,13 +813,12 @@ function HeatmapMixPaisAno({ dados }: { dados?: MixPaisAno[] }) {
                 return (
                   <td key={`${ano.ano}-${paisNome}`} className="border-t border-slate-100 px-3 py-2">
                     <div
-                      className="rounded-xl px-3 py-2"
+                      className="rounded-lg px-2.5 py-2"
                       style={{ backgroundColor: heatmapColor(pct), color: heatmapTextColor(pct) }}
                       title={`${paisNome} · ${fmtPct(pct)} · ${fmtMoney(item?.faturamento)} · ${fmtNumero(item?.clientes)} clientes`}
                     >
                       <p className="text-sm font-bold tabular-nums">{fmtPct(pct)}</p>
-                      <p className="mt-0.5 text-xs opacity-90">{fmtMoney(item?.faturamento)}</p>
-                      <p className="mt-0.5 text-[10px] opacity-80">{fmtNumero(item?.clientes)} clientes</p>
+                      <p className="mt-0.5 whitespace-nowrap text-[11px] opacity-90">{fmtMoney(item?.faturamento)} · {fmtNumero(item?.clientes)} clientes</p>
                     </div>
                   </td>
                 )
