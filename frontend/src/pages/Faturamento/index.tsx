@@ -47,6 +47,28 @@ type Cards = {
   registros?: number
   top_cliente_nome?: string
   top_cliente_participacao_pct?: number
+  media_dias_preped_faturamento?: number
+  mediana_dias_preped_faturamento?: number
+  media_dias_pedido_faturamento?: number
+  mediana_dias_pedido_faturamento?: number
+  pct_faturado_ate_7_dias?: number
+  pct_faturado_acima_30_dias?: number
+  faturamento_com_prepedido?: number
+  faturamento_prepedido_mesmo_mes?: number
+  faturamento_prepedido_mes_anterior?: number
+  faturamento_prepedido_fim_mes?: number
+  pct_faturamento_prepedido_fim_mes?: number
+  carteira_pendente_valor?: number
+  carteira_pendente_quantidade?: number
+  prepedidos_pendentes?: number
+  clientes_pendentes?: number
+  produtos_pendentes?: number
+  carteira_vencida_valor?: number
+  carteira_vencida_quantidade?: number
+  pct_carteira_vencida_valor?: number
+  registros_faturados_base?: number
+  registros_prepedidos_pendentes_base?: number
+  registros_prepedidos_emitidos_base?: number
 }
 
 type Mes = {
@@ -76,6 +98,8 @@ type Cliente = {
   municipio?: string
   regiao?: string
   desc_regiao?: string
+  pais_estimado?: string
+  confianca_pais?: string
   faturamento?: number
   quantidade?: number
   preco_medio?: number
@@ -132,6 +156,66 @@ type TipoCliente = {
   participacao_valor_pct?: number
 }
 
+
+type Pais = {
+  pais?: string
+  faturamento?: number
+  quantidade?: number
+  clientes?: number
+  participacao_valor_pct?: number
+  confianca_baixa?: number
+}
+
+type CicloAging = {
+  faixa?: string
+  registros?: number
+  faturamento?: number
+  quantidade?: number
+  participacao_valor_pct?: number
+}
+
+type CicloOrigem = {
+  origem?: string
+  registros?: number
+  faturamento?: number
+  quantidade?: number
+  participacao_valor_pct?: number
+}
+
+type PendenteResumo = {
+  status?: string
+  faixa?: string
+  valor?: number
+  quantidade?: number
+  prepedidos?: number
+  clientes?: number
+  participacao_valor_pct?: number
+}
+
+type PendenteCliente = {
+  cliente?: string
+  nome?: string
+  estado?: string
+  pais_estimado?: string
+  valor?: number
+  quantidade?: number
+  prepedidos?: number
+  produtos?: number
+  participacao_valor_pct?: number
+}
+
+type PendenteProduto = {
+  produto?: string
+  descricao?: string
+  linha?: string
+  grupo?: string
+  valor?: number
+  quantidade?: number
+  prepedidos?: number
+  clientes?: number
+  participacao_valor_pct?: number
+}
+
 type ResumoFaturamento = {
   ano: number
   bloco: string
@@ -142,12 +226,23 @@ type ResumoFaturamento = {
   produtos: Produto[]
   linhas: Linha[]
   estados: Estado[]
+  paises?: Pais[]
   tipos_clientes: TipoCliente[]
+  ciclo_aging?: CicloAging[]
+  ciclo_origem?: CicloOrigem[]
+  pendentes_status?: PendenteResumo[]
+  pendentes_aging?: PendenteResumo[]
+  pendentes_entrega?: PendenteResumo[]
+  pendentes_clientes?: PendenteCliente[]
+  pendentes_produtos?: PendenteProduto[]
   meta?: {
     join_clientes?: string
     qtd_clientes_dimensao?: number
     observacao?: string
     produto_filtro?: string
+    fonte_faturamento?: string
+    fonte_pedidos?: string
+    fonte_carteira_pendente?: string
   }
 }
 
@@ -383,7 +478,7 @@ type FaturamentoVersaoResponse = {
 }
 
 const FATURAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v60:"
+const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v70:"
 const faturamentoRuntimeCache = new Map<string, FaturamentoCacheEntry>()
 
 function faturamentoCacheKey(ano: number, bloco: string, produtoFiltro: string) {
@@ -840,6 +935,42 @@ export default function FaturamentoPage() {
     const uf = String(item.estado || "").trim().toUpperCase()
     return uf && !["NÃO INFORMADO", "NAO INFORMADO", "SEM UF", "-"].includes(uf)
   })
+
+  const paisesComInformacao = (dados?.paises ?? []).filter((item) => {
+    const pais = String(item.pais || "").trim().toUpperCase()
+    return pais && !["NÃO INFORMADO", "NAO INFORMADO", "-"].includes(pais)
+  })
+
+  const cicloAgingGrafico = useMemo(() => {
+    return (dados?.ciclo_aging ?? []).map((item) => ({
+      faixa: item.faixa || "-",
+      Faturamento: item.faturamento ?? 0,
+      Registros: item.registros ?? 0,
+      Participacao: item.participacao_valor_pct ?? 0,
+    }))
+  }, [dados])
+
+  const cicloOrigemGrafico = useMemo(() => {
+    return (dados?.ciclo_origem ?? []).map((item) => ({
+      origem: abreviar(item.origem, 28),
+      Faturamento: item.faturamento ?? 0,
+      Participacao: item.participacao_valor_pct ?? 0,
+      Registros: item.registros ?? 0,
+    }))
+  }, [dados])
+
+  const pendentesStatusGrafico = useMemo(() => {
+    return (dados?.pendentes_status ?? []).slice(0, 8).map((item) => ({
+      status: abreviar(item.status, 20),
+      Valor: item.valor ?? 0,
+      Quantidade: item.quantidade ?? 0,
+      Participacao: item.participacao_valor_pct ?? 0,
+    }))
+  }, [dados])
+
+  const pendentesAgingLista = useMemo(() => dados?.pendentes_aging ?? [], [dados])
+  const pendentesClientesTop = useMemo(() => (dados?.pendentes_clientes ?? []).slice(0, 8), [dados])
+  const pendentesProdutosTop = useMemo(() => (dados?.pendentes_produtos ?? []).slice(0, 8), [dados])
   function toggleSort(col: "faturamento" | "quantidade" | "participacao_valor_pct") {
     if (sortCliente === col) {
       setSortAsc(!sortAsc)
@@ -881,7 +1012,7 @@ export default function FaturamentoPage() {
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Dashboard de Faturamento</h1>
           <p className="mt-2 text-slate-500">
-            Visão executiva por cliente, produto, linha, UF e curva ABC com base na SD2 processada.
+            Visão executiva por cliente, produto, linha, UF, país estimado, ciclo de pedido e carteira pendente.
           </p>
         </div>
 
@@ -978,7 +1109,8 @@ export default function FaturamentoPage() {
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Escopo selecionado</p>
             <p className="mt-2 text-xl font-bold text-slate-900">{escopoLabel}</p>
             <p className="mt-1 text-sm text-slate-500">
-              A dimensão de clientes é cruzada por código da SD2. Fonte cliente: {dimensaoClientesCarregada ? "dClientes vinculada" : "aguardando dClientes"}.
+              A dimensão de clientes é cruzada por código. Fonte cliente: {dimensaoClientesCarregada ? "dClientes vinculada" : "aguardando dClientes"}.
+              <span className="ml-2 font-semibold text-slate-600">Faturamento: {dados?.meta?.fonte_faturamento || "base principal"}</span>
               {produtoFiltro && <span className="ml-2 font-semibold text-blue-700">Produto filtrado: {produtoFiltro}</span>}
             </p>
           </div>
@@ -1004,12 +1136,156 @@ export default function FaturamentoPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard title="Faturamento" value={fmtMoney(cards.faturamento_total)} subtitle="Valor total SD2" icon={DollarSign} iconBg="#E0F2FE" iconColor={AZUL} />
+        <KpiCard title="Faturamento" value={fmtMoney(cards.faturamento_total)} subtitle={dados?.meta?.fonte_faturamento === "f_faturados" ? "Valor total faturados" : "Valor total SD2"} icon={DollarSign} iconBg="#E0F2FE" iconColor={AZUL} />
         <KpiCard title="Quantidade" value={fmtNumero(cards.quantidade_total)} subtitle="Volume faturado" icon={BarChart3} iconBg="#DBEAFE" iconColor="#2563EB" />
         <KpiCard title="Clientes ativos" value={fmtNumero(cards.clientes_ativos)} subtitle="Com venda no período" icon={Users} iconBg="#F3E8FF" iconColor={ROXO_SUAVE} />
         <KpiCard title="Produtos ativos" value={fmtNumero(cards.produtos_ativos)} subtitle="SKUs faturados" icon={Package} iconBg="#F1F5F9" iconColor="#475569" />
         <KpiCard title="Ticket/cliente" value={fmtMoney(cards.ticket_medio_cliente)} subtitle="Faturamento médio" icon={Building2} iconBg="#ECFDF5" iconColor={VERDE} />
         <KpiCard title="Preço médio" value={fmtMoney(cards.preco_medio)} subtitle="Valor / quantidade" icon={Award} iconBg="#FFF7ED" iconColor={LARANJA} />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <KpiCard title="Carteira pendente" value={fmtMoney(cards.carteira_pendente_valor)} subtitle={`${fmtNumero(cards.prepedidos_pendentes)} pré-pedidos em aberto`} icon={Package} iconBg="#FEF3C7" iconColor={LARANJA} />
+        <KpiCard title="Qtd. pendente" value={fmtNumero(cards.carteira_pendente_quantidade)} subtitle="Volume ainda não atendido" icon={BarChart3} iconBg="#FFF7ED" iconColor={LARANJA} />
+        <KpiCard title="Clientes pendentes" value={fmtNumero(cards.clientes_pendentes)} subtitle="Com carteira em aberto" icon={Users} iconBg="#F3E8FF" iconColor={ROXO_SUAVE} />
+        <KpiCard title="Entrega vencida" value={fmtMoney(cards.carteira_vencida_valor)} subtitle={`${fmtPct(cards.pct_carteira_vencida_valor)} da carteira`} icon={Award} iconBg="#FEE2E2" iconColor={VERMELHO_SUAVE} />
+        <KpiCard title="Mediana ciclo" value={`${fmtNumero(cards.mediana_dias_preped_faturamento, 1)} dias`} subtitle="Pré-pedido até faturar" icon={RefreshCw} iconBg="#E0F2FE" iconColor={AZUL} />
+        <KpiCard title="Pedido fim do mês" value={fmtPct(cards.pct_faturamento_prepedido_fim_mes)} subtitle="Faturado com pré-pedido após dia 21" icon={Award} iconBg="#ECFDF5" iconColor={VERDE} />
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-2">
+        <SectionCard
+          title="Entrada do pedido x faturamento"
+          subtitle="Analisa se o volume faturado entrou como pré-pedido no próprio mês, no fim do mês ou se já estava em carteira."
+        >
+          <div className="mb-4 grid gap-3 md:grid-cols-4">
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Até 7 dias</p>
+              <p className="mt-1 text-xl font-bold text-slate-900">{fmtPct(cards.pct_faturado_ate_7_dias)}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Acima de 30 dias</p>
+              <p className="mt-1 text-xl font-bold text-slate-900">{fmtPct(cards.pct_faturado_acima_30_dias)}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Mesmo mês</p>
+              <p className="mt-1 text-xl font-bold text-slate-900">{fmtMoney(cards.faturamento_prepedido_mesmo_mes)}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Meses anteriores</p>
+              <p className="mt-1 text-xl font-bold text-slate-900">{fmtMoney(cards.faturamento_prepedido_mes_anterior)}</p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="h-[260px] rounded-2xl border border-slate-100 p-3">
+              <p className="mb-2 text-sm font-bold text-slate-800">Aging pré-pedido → faturamento</p>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={cicloAgingGrafico} margin={{ top: 12, right: 16, left: 0, bottom: 12 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis dataKey="faixa" tick={CHART_TICK_11} />
+                  <YAxis tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
+                  <Tooltip formatter={(value: any, name: any) => [name === "Faturamento" ? fmtMoneyFull(Number(value)) : fmtNumero(Number(value)), name]} />
+                  <Bar dataKey="Faturamento" fill={AZUL_CLARO} radius={[7, 7, 0, 0]}>
+                    <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={chartLabelStyle(AZUL, 10)} />
+                  </Bar>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="h-[260px] rounded-2xl border border-slate-100 p-3">
+              <p className="mb-2 text-sm font-bold text-slate-800">Origem do faturamento</p>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={cicloOrigemGrafico} layout="vertical" margin={{ left: 12, right: 18 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                  <XAxis type="number" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
+                  <YAxis type="category" dataKey="origem" width={140} tick={CHART_TICK_11} />
+                  <Tooltip formatter={(value: any, name: any) => [name === "Faturamento" ? fmtMoneyFull(Number(value)) : fmtNumero(Number(value)), name]} />
+                  <Bar dataKey="Faturamento" fill={AZUL} radius={[0, 7, 7, 0]}>
+                    <LabelList dataKey="Faturamento" position="right" formatter={labelMoney} style={chartLabelStyle(AZUL, 10)} />
+                  </Bar>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Carteira pendente / não atendido"
+          subtitle="Snapshot dos pré-pedidos pendentes, com status, aging e itens mais relevantes em aberto."
+        >
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="h-[260px] rounded-2xl border border-slate-100 p-3">
+              <p className="mb-2 text-sm font-bold text-slate-800">Pendente por status</p>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={pendentesStatusGrafico} layout="vertical" margin={{ left: 12, right: 18 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                  <XAxis type="number" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
+                  <YAxis type="category" dataKey="status" width={115} tick={CHART_TICK_11} />
+                  <Tooltip formatter={(value: any, name: any) => [name === "Valor" ? fmtMoneyFull(Number(value)) : fmtNumero(Number(value)), name]} />
+                  <Bar dataKey="Valor" fill={LARANJA} radius={[0, 7, 7, 0]}>
+                    <LabelList dataKey="Valor" position="right" formatter={labelMoney} style={chartLabelStyle(LARANJA, 10)} />
+                  </Bar>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-slate-100 p-3">
+              <p className="text-sm font-bold text-slate-800">Aging da carteira</p>
+              {pendentesAgingLista.length > 0 ? pendentesAgingLista.map((item) => (
+                <div key={item.faixa || "sem-faixa"}>
+                  <div className="mb-1 flex items-center justify-between gap-3 text-sm">
+                    <span className="font-semibold text-slate-800">{item.faixa || "-"}</span>
+                    <span className="text-xs font-semibold text-slate-500">{fmtPct(item.participacao_valor_pct)}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-100">
+                    <div className="h-2 rounded-full bg-[#D97706]" style={{ width: `${Math.min(item.participacao_valor_pct ?? 0, 100)}%` }} />
+                  </div>
+                  <div className="mt-1 flex justify-between text-xs text-slate-500">
+                    <span>{fmtMoney(item.valor)}</span>
+                    <span>{fmtNumero(item.prepedidos)} pré-pedidos</span>
+                  </div>
+                </div>
+              )) : (
+                <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Suba a base de pré-pedidos pendentes para preencher esta visão.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-100 p-3">
+              <p className="mb-2 text-sm font-bold text-slate-800">Top clientes pendentes</p>
+              <div className="space-y-2">
+                {pendentesClientesTop.map((item) => (
+                  <div key={item.cliente} className="rounded-xl bg-slate-50 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-sm font-semibold text-slate-800" title={item.nome}>{item.nome || item.cliente}</p>
+                      <p className="shrink-0 text-sm font-bold text-slate-900">{fmtMoney(item.valor)}</p>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{item.estado || "-"} · {item.pais_estimado || "-"} · {fmtNumero(item.prepedidos)} pré-pedidos</p>
+                  </div>
+                ))}
+                {pendentesClientesTop.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">Sem carteira pendente carregada.</p>}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 p-3">
+              <p className="mb-2 text-sm font-bold text-slate-800">Top produtos pendentes</p>
+              <div className="space-y-2">
+                {pendentesProdutosTop.map((item) => (
+                  <div key={item.produto} className="rounded-xl bg-slate-50 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-sm font-semibold text-slate-800" title={item.descricao}>{item.descricao || item.produto}</p>
+                      <p className="shrink-0 text-sm font-bold text-slate-900">{fmtMoney(item.valor)}</p>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{item.produto || "-"} · {item.linha || "-"} · {fmtNumero(item.quantidade)} un.</p>
+                  </div>
+                ))}
+                {pendentesProdutosTop.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">Sem produtos pendentes carregados.</p>}
+              </div>
+            </div>
+          </div>
+        </SectionCard>
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
@@ -1218,6 +1494,7 @@ export default function FaturamentoPage() {
                     <th className="px-3 py-3 text-left text-xs font-semibold">Cliente</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold">Tipo</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold">UF</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold">País</th>
                     <th className="cursor-pointer px-3 py-3 text-right text-xs font-semibold" onClick={() => toggleSort("faturamento")}>
                       <span className="inline-flex items-center gap-1">Valor <SortIcon col="faturamento" /></span>
                     </th>
@@ -1246,6 +1523,7 @@ export default function FaturamentoPage() {
                         </td>
                         <td className="px-3 py-3 text-xs text-slate-600">{item.tipo_cliente || "-"}</td>
                         <td className="px-3 py-3 text-xs font-semibold text-slate-700">{item.estado || "-"}</td>
+                        <td className="px-3 py-3 text-xs text-slate-600">{item.pais_estimado || "-"}</td>
                         <td className="px-3 py-3 text-right font-semibold text-slate-900">{fmtMoney(item.faturamento)}</td>
                         <td className="px-3 py-3 text-right text-slate-600">{fmtNumero(item.quantidade)}</td>
                         <td className="px-3 py-3 text-right text-slate-600">{fmtPct(participacao)}</td>
@@ -1255,7 +1533,7 @@ export default function FaturamentoPage() {
                   })}
                   {!loading && clientesFiltrados.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-500">Nenhum cliente encontrado.</td>
+                      <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-500">Nenhum cliente encontrado.</td>
                     </tr>
                   )}
                 </tbody>
@@ -1265,6 +1543,36 @@ export default function FaturamentoPage() {
         </div>
 
         <div className="space-y-6">
+          <SectionCard title="Top países estimados" subtitle="Brasil x exportação por país inferido a partir da dClientes.">
+            {paisesComInformacao.length > 0 ? (
+              <div className="space-y-3">
+                {paisesComInformacao.slice(0, 10).map((item) => (
+                  <div key={item.pais}>
+                    <div className="mb-1 flex items-center justify-between gap-3 text-sm">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <MapPin size={14} className="text-slate-400" />
+                        <span className="truncate font-semibold text-slate-800">{item.pais || "-"}</span>
+                      </div>
+                      <span className="text-xs font-semibold text-slate-500">{fmtPct(item.participacao_valor_pct)}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-100">
+                      <div className="h-2 rounded-full bg-[#0F766E]" style={{ width: `${Math.min(item.participacao_valor_pct ?? 0, 100)}%` }} />
+                    </div>
+                    <div className="mt-1 flex justify-between text-xs text-slate-500">
+                      <span>{fmtMoney(item.faturamento)}</span>
+                      <span>{fmtNumero(item.clientes)} clientes</span>
+                    </div>
+                  </div>
+                ))}
+                <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  País estimado a partir do cadastro para clientes com UF EX/exportação. Itens sem match aparecem como Exterior - revisar.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Ainda não há dados suficientes para ranking por país.</div>
+            )}
+          </SectionCard>
+
           <SectionCard title="Top UFs" subtitle="Distribuição geográfica do faturamento.">
             {dimensaoClientesCarregada && estadosComInformacao.length > 0 ? (
               <div className="space-y-3">
