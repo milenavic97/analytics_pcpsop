@@ -129,6 +129,7 @@ interface OfensorPorLinha extends PrincipalOfensor {
 interface DashboardResponse {
   ano: number
   mes_final: number
+  atualizado_em?: string | null
   periodo_label: string
   linha: string
   resumo: DashboardResumo
@@ -194,6 +195,7 @@ interface AcompanhamentoSecao {
 interface AcompanhamentoResponse {
   ano: number
   mes: number
+  atualizado_em?: string | null
   mes_label: string
   linha: string
   busca?: string | null
@@ -329,6 +331,7 @@ interface ExcelenciaPlanejamentoDiario {
 interface ExcelenciaResponse {
   versao: string
   ano: number
+  atualizado_em?: string | null
   mes: number
   periodo: string
   periodo_label: string
@@ -406,6 +409,25 @@ function formatDateTimeBR(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(dt)
+}
+
+function formatAtualizacaoBR(value?: string | null) {
+  if (!value) return "—"
+  const dt = new Date(value)
+  if (Number.isNaN(dt.getTime())) return String(value)
+
+  const data = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(dt)
+
+  const hora = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(dt)
+
+  return `${data} às ${hora}`
 }
 
 function aderenciaClass(value?: number) {
@@ -838,6 +860,7 @@ function PageHeader({
   onLinhaChange,
   onRefresh,
   loading,
+  atualizadoEm,
 }: {
   tab: TabKey
   onTabChange: (tab: TabKey) => void
@@ -849,6 +872,7 @@ function PageHeader({
   onLinhaChange: (value: LinhaFiltro) => void
   onRefresh: () => void
   loading: boolean
+  atualizadoEm?: string | null
 }) {
   return (
     <div className="space-y-5">
@@ -861,6 +885,15 @@ function PageHeader({
           <p className="mt-2 text-slate-500">
             Visão anual de envase: planejado pela Programação Mensal + MPS x realizado Cogtive, por linha e por mês.
           </p>
+
+          {atualizadoEm && (
+            <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm">
+              <CalendarDays className="h-4 w-4 text-blue-500" />
+              <span>
+                Dados atualizados em: <span className="font-bold text-slate-700">{formatAtualizacaoBR(atualizadoEm)}</span>
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -2043,7 +2076,7 @@ function AcompanhamentoTab({
                 Acompanhamento do mês
               </p>
               <h2 className="text-xl font-bold text-slate-900">
-                Operação rápida — {data.mes_label}/{data.ano}
+                Overview produção — {data.mes_label}/{data.ano}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 Visão paralela para bater rapidamente Linha 1, Linha 2 e Fabrima.
@@ -3457,6 +3490,13 @@ export function ProducaoPage() {
   const [erro, setErro] = useState("")
   const [cacheVersion, setCacheVersion] = useState<string | null>(null)
 
+  const atualizadoEm =
+    tab === "dashboard"
+      ? dashboard?.atualizado_em
+      : tab === "acompanhamento"
+        ? acompanhamento?.atualizado_em
+        : perdas?.atualizado_em
+
   function dashboardParams() {
     return { ano, mes, linha }
   }
@@ -3665,6 +3705,7 @@ export function ProducaoPage() {
         onLinhaChange={setLinha}
         onRefresh={() => void loadData(true)}
         loading={loading}
+        atualizadoEm={atualizadoEm}
       />
 
       {loading &&
