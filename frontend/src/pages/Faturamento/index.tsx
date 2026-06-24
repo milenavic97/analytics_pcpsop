@@ -62,13 +62,20 @@ type Cards = {
   faturamento_prepedido_fim_mes?: number
   pct_faturamento_prepedido_fim_mes?: number
   carteira_pendente_valor?: number
+  carteira_pendente_valor_informado?: number
   carteira_pendente_quantidade?: number
   prepedidos_pendentes?: number
+  prepedidos_pendentes_com_valor?: number
+  prepedidos_pendentes_sem_valor?: number
+  carteira_pendente_quantidade_sem_valor?: number
   clientes_pendentes?: number
   produtos_pendentes?: number
   carteira_vencida_valor?: number
   carteira_vencida_quantidade?: number
+  prepedidos_vencidos?: number
   pct_carteira_vencida_valor?: number
+  pct_carteira_vencida_prepedidos?: number
+  pct_carteira_vencida_quantidade?: number
   registros_faturados_base?: number
   registros_prepedidos_pendentes_base?: number
   registros_prepedidos_emitidos_base?: number
@@ -126,6 +133,7 @@ type Cliente = {
   registros?: number
   participacao_valor_pct?: number
   participacao_qtd_pct?: number
+  participacao_qtd_pct?: number
   acumulado_valor_pct?: number
   acumulado_qtd_pct?: number
   abc_valor?: string
@@ -148,6 +156,7 @@ type Produto = {
   preco_medio?: number
   clientes?: number
   participacao_valor_pct?: number
+  participacao_qtd_pct?: number
 }
 
 type Linha = {
@@ -157,6 +166,7 @@ type Linha = {
   clientes?: number
   produtos?: number
   participacao_valor_pct?: number
+  participacao_qtd_pct?: number
 }
 
 type Estado = {
@@ -326,6 +336,27 @@ type CarteiraMesEmissao = {
   ordem?: number
 }
 
+
+type EntradaPrepedidoDia = {
+  dia?: number
+  existe_no_mes?: boolean
+  prepedidos?: number | null
+  quantidade?: number | null
+  valor_informado?: number | null
+  intensidade_pct?: number | null
+}
+
+type EntradaPrepedidoMes = {
+  mes?: number
+  mes_nome?: string
+  dias?: EntradaPrepedidoDia[]
+  total_prepedidos?: number
+  total_quantidade?: number
+  valor_informado?: number
+  media_diaria_prepedidos?: number
+}
+
+
 type ResumoFaturamento = {
   ano: number
   bloco: string
@@ -350,6 +381,7 @@ type ResumoFaturamento = {
   pendentes_status?: PendenteResumo[]
   pendentes_aging?: PendenteResumo[]
   pendentes_mes_emissao?: CarteiraMesEmissao[]
+  entrada_prepedidos_dia_mes?: EntradaPrepedidoMes[]
   pendentes_entrega?: PendenteResumo[]
   pendentes_clientes?: PendenteCliente[]
   pendentes_produtos?: PendenteProduto[]
@@ -1147,6 +1179,91 @@ function LegendToggle({
   )
 }
 
+
+function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
+  const maxDia = useMemo(() => {
+    let max = 0
+    dados.forEach((mes) => {
+      ;(mes.dias ?? []).forEach((dia) => {
+        if (dia.existe_no_mes === false) return
+        max = Math.max(max, Number(dia.prepedidos ?? 0))
+      })
+    })
+    return max
+  }, [dados])
+
+  const dias = Array.from({ length: 31 }, (_, index) => index + 1)
+
+  if (!dados.length) {
+    return <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Sem pré-pedidos emitidos carregados para montar a matriz.</div>
+  }
+
+  function bg(intensidade: number, existe: boolean) {
+    if (!existe) return "bg-slate-50 text-slate-200 border-slate-100"
+    if (intensidade <= 0) return "bg-white text-slate-300 border-slate-100"
+    if (intensidade < 20) return "bg-blue-50 text-blue-900 border-blue-100"
+    if (intensidade < 45) return "bg-blue-100 text-blue-950 border-blue-200"
+    if (intensidade < 70) return "bg-blue-200 text-blue-950 border-blue-300"
+    return "bg-[#17375E] text-white border-[#17375E]"
+  }
+
+  return (
+    <div className="overflow-x-auto pb-1">
+      <div className="min-w-[1040px]">
+        <div className="grid grid-cols-[94px_repeat(31,minmax(24px,1fr))_92px] items-center gap-1">
+          <div />
+          {dias.map((dia) => (
+            <div key={dia} className="text-center text-[10px] font-black text-slate-400">
+              {String(dia).padStart(2, "0")}
+            </div>
+          ))}
+          <div className="text-right text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Total</div>
+
+          {dados.map((mes) => {
+            const diasMes = mes.dias ?? []
+            return (
+              <div key={mes.mes ?? mes.mes_nome} className="contents">
+                <div className="pr-2 text-sm font-bold text-slate-700">{mes.mes_nome || mes.mes}</div>
+                {dias.map((dia) => {
+                  const item = diasMes.find((d) => Number(d.dia) === dia)
+                  const existe = item?.existe_no_mes !== false
+                  const qtd = Number(item?.prepedidos ?? 0)
+                  const intensidade = maxDia > 0 ? (qtd / maxDia) * 100 : 0
+                  const title = existe
+                    ? `${String(dia).padStart(2, "0")}/${String(mes.mes ?? "").padStart(2, "0")}: ${fmtNumero(qtd)} pré-pedidos · ${fmtNumero(item?.quantidade ?? 0)} un.`
+                    : "Dia inexistente no mês"
+                  return (
+                    <div
+                      key={`${mes.mes}-${dia}`}
+                      title={title}
+                      className={`flex h-8 items-center justify-center rounded-md border text-[11px] font-black transition hover:ring-2 hover:ring-[#17375E]/25 ${bg(intensidade, existe)}`}
+                    >
+                      {existe && qtd > 0 ? fmtNumero(qtd, 0) : ""}
+                    </div>
+                  )
+                })}
+                <div className="rounded-lg bg-slate-50 px-2 py-1 text-right text-xs font-black text-slate-700">
+                  {fmtNumero(mes.total_prepedidos ?? 0, 0)}
+                  <p className="text-[10px] font-semibold text-slate-400">{fmtNumero(mes.media_diaria_prepedidos ?? 0, 1)}/dia</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          <span className="font-semibold text-slate-600">Intensidade:</span>
+          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-white ring-1 ring-slate-200" />0</span>
+          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-blue-50 ring-1 ring-blue-100" />baixo</span>
+          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-blue-100 ring-1 ring-blue-200" />médio</span>
+          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-[#17375E]" />alto</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export default function FaturamentoPage() {
   const anoInicial = 2026
   const blocoInicial = "TODOS"
@@ -1510,6 +1627,7 @@ export default function FaturamentoPage() {
   }, [dados])
 
   const carteiraMesEmissaoLista = useMemo(() => dados?.pendentes_mes_emissao ?? [], [dados])
+  const entradaPrepedidosDiaMes = useMemo(() => dados?.entrada_prepedidos_dia_mes ?? [], [dados])
 
   const pendentesStatusLista = useMemo(() => dados?.pendentes_status ?? [], [dados])
   const pendentesStatusGrafico = useMemo(() => {
@@ -1517,7 +1635,8 @@ export default function FaturamentoPage() {
       status: abreviar(item.status, 18),
       Valor: item.valor ?? 0,
       Quantidade: item.quantidade ?? 0,
-      Participacao: item.participacao_valor_pct ?? 0,
+      Prepedidos: item.prepedidos ?? 0,
+      Participacao: item.participacao_qtd_pct ?? item.participacao_valor_pct ?? 0,
     }))
   }, [pendentesStatusLista])
 
@@ -1849,10 +1968,28 @@ export default function FaturamentoPage() {
         {aba === "atendimento" && (
           <div className="space-y-5">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-              <MetricCard title="Carteira pendente hoje" value={fmtMoney(cards.carteira_pendente_valor)} subtitle={`${fmtNumero(cards.prepedidos_pendentes)} pré-pedidos em aberto`} icon={Package} tone="amber" />
-              <MetricCard title="Carteira vencida" value={fmtMoney(cards.carteira_vencida_valor)} subtitle={`${fmtPct(cards.pct_carteira_vencida_valor)} da carteira pendente`} icon={AlertTriangle} tone="red" />
+              <MetricCard
+                title="Carteira pendente hoje"
+                value={fmtNumero(cards.prepedidos_pendentes)}
+                subtitle={`${fmtNumero(cards.carteira_pendente_quantidade)} un. em aberto · R$ informado ${fmtMoney(cards.carteira_pendente_valor_informado ?? cards.carteira_pendente_valor)}`}
+                icon={Package}
+                tone="amber"
+              />
+              <MetricCard
+                title="Carteira vencida"
+                value={fmtNumero(cards.prepedidos_vencidos)}
+                subtitle={`${fmtPct(cards.pct_carteira_vencida_prepedidos)} dos pré-pedidos · ${fmtNumero(cards.carteira_vencida_quantidade)} un.`}
+                icon={AlertTriangle}
+                tone="red"
+              />
+              <MetricCard
+                title="Sem valor confiável"
+                value={fmtNumero(cards.prepedidos_pendentes_sem_valor)}
+                subtitle={`${fmtNumero(cards.carteira_pendente_quantidade_sem_valor)} un. sem R$ na carteira`}
+                icon={AlertTriangle}
+                tone="slate"
+              />
               <MetricCard title="Pré-pedido → pedido" value={`${fmtNumero(cards.mediana_dias_preped_pedido, 1)} dias`} subtitle="Mediana do ciclo comercial" icon={CalendarDays} tone="blue" />
-              <MetricCard title="Pedido → faturamento" value={`${fmtNumero(cards.mediana_dias_pedido_faturamento, 1)} dias`} subtitle="Mediana até faturar" icon={TrendingUp} tone="green" />
               <MetricCard title="Pré-pedido → faturamento" value={`${fmtNumero(cards.mediana_dias_preped_faturamento, 1)} dias`} subtitle="Lead time completo mediano" icon={CalendarDays} tone="blue" />
             </div>
 
@@ -1915,6 +2052,13 @@ export default function FaturamentoPage() {
               </div>
             </SectionCard>
 
+            <SectionCard
+              title="Entrada de pré-pedidos por dia do mês"
+              subtitle="Quantidade de pré-pedidos emitidos por dia. Ajuda a identificar concentração no começo, meio ou fim do mês."
+            >
+              <EntradaPrepedidosHeatmap dados={entradaPrepedidosDiaMes} />
+            </SectionCard>
+
             <div className="grid gap-5 xl:grid-cols-2">
               <SectionCard title="Lead time pré-pedido → faturamento" subtitle="Mostra em quantos dias os pré-pedidos faturados foram atendidos.">
                 <div className="h-[320px]">
@@ -1937,7 +2081,7 @@ export default function FaturamentoPage() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={cicloOrigemGrafico} layout="vertical" margin={{ top: 12, right: 34, left: 34, bottom: 12 }}>
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CINZA_CLARO} />
-                      <XAxis type="number" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
+                      <XAxis type="number" tick={CHART_TICK_11} tickFormatter={(v) => fmtNumero(Number(v), 0)} />
                       <YAxis type="category" dataKey="origem" tick={CHART_TICK_11} width={135} />
                       <Tooltip formatter={(value: any) => [fmtMoneyFull(Number(value)), "Faturamento"]} />
                       <Bar dataKey="Faturamento" fill={AZUL} radius={[0, 7, 7, 0]}>
@@ -1951,16 +2095,16 @@ export default function FaturamentoPage() {
 
             <SectionCard
               title="Carteira pendente hoje por mês de emissão"
-              subtitle="Distribuição da carteira aberta atual pela emissão do pré-pedido. A soma desta visão deve fechar com o card de carteira pendente."
+              subtitle="Distribuição da carteira aberta atual por quantidade de pré-pedidos e unidades. Valor aparece apenas quando informado/confiável."
             >
               <div className="space-y-4">
                 {carteiraMesEmissaoLista.map((item) => (
                   <HorizontalProgress
                     key={item.mes}
                     label={item.mes || "-"}
-                    value={fmtMoney(item.valor)}
-                    detail={`${fmtNumero(item.prepedidos)} pré-pedidos · ${fmtNumero(item.clientes)} clientes`}
-                    pct={item.participacao_valor_pct}
+                    value={`${fmtNumero(item.prepedidos)} pré-pedidos`}
+                    detail={`${fmtNumero(item.quantidade)} un. · R$ informado ${fmtMoney(item.valor)}`}
+                    pct={item.participacao_qtd_pct ?? item.participacao_valor_pct}
                     color={AZUL}
                   />
                 ))}
@@ -1978,9 +2122,9 @@ export default function FaturamentoPage() {
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={CINZA_CLARO} />
                       <XAxis type="number" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
                       <YAxis type="category" dataKey="status" tick={CHART_TICK_11} width={110} />
-                      <Tooltip formatter={(value: any) => [fmtMoneyFull(Number(value)), "Valor"]} />
-                      <Bar dataKey="Valor" fill={LARANJA} radius={[0, 7, 7, 0]}>
-                        <LabelList dataKey="Valor" position="right" formatter={labelMoneyUmaLinha} style={{ fill: LARANJA, fontSize: 10, fontWeight: 700 }} />
+                      <Tooltip formatter={(value: any, name: any) => [fmtNumero(Number(value), 0), String(name)]} />
+                      <Bar dataKey="Prepedidos" fill={LARANJA} radius={[0, 7, 7, 0]}>
+                        <LabelList dataKey="Prepedidos" position="right" formatter={labelNumeroGrafico} style={{ fill: LARANJA, fontSize: 10, fontWeight: 700 }} />
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
@@ -1993,9 +2137,9 @@ export default function FaturamentoPage() {
                     <HorizontalProgress
                       key={item.faixa}
                       label={item.faixa || "-"}
-                      value={fmtMoney(item.valor)}
-                      detail={`${fmtNumero(item.prepedidos)} pré-pedidos`}
-                      pct={item.participacao_valor_pct}
+                      value={`${fmtNumero(item.prepedidos)} pré-pedidos`}
+                      detail={`${fmtNumero(item.quantidade)} un. · R$ informado ${fmtMoney(item.valor)}`}
+                      pct={item.participacao_qtd_pct ?? item.participacao_valor_pct}
                       color={LARANJA}
                     />
                   ))}
@@ -2007,7 +2151,7 @@ export default function FaturamentoPage() {
             </div>
 
             <div className="grid gap-5 xl:grid-cols-2">
-              <SectionCard title="Top clientes pendentes" subtitle="Clientes com maior valor em carteira aberta hoje.">
+              <SectionCard title="Top clientes pendentes" subtitle="Clientes com mais unidades em carteira aberta hoje. Valor aparece quando informado/confiável.">
                 <div className="space-y-2">
                   {pendentesClientesTop.map((item, index) => (
                     <div key={`${item.cliente}-${index}`} className="rounded-xl bg-slate-50 px-4 py-3">
@@ -2016,14 +2160,14 @@ export default function FaturamentoPage() {
                           <p className="truncate font-bold text-slate-900">{item.nome || item.cliente || "-"}</p>
                           <p className="mt-0.5 text-xs text-slate-500">{item.estado || "-"} · {item.pais_estimado || "-"} · {fmtNumero(item.prepedidos)} pré-pedidos</p>
                         </div>
-                        <p className="shrink-0 font-bold text-[#17375E]">{fmtMoney(item.valor)}</p>
+                        <p className="shrink-0 text-right font-bold text-[#17375E]">{fmtNumero(item.quantidade)} un.<span className="block text-[11px] font-semibold text-slate-400">{fmtMoney(item.valor)}</span></p>
                       </div>
                     </div>
                   ))}
                 </div>
               </SectionCard>
 
-              <SectionCard title="Top produtos pendentes" subtitle="Produtos com maior valor ainda não atendido hoje.">
+              <SectionCard title="Top produtos pendentes" subtitle="Produtos com mais unidades ainda não atendidas hoje. Valor aparece quando informado/confiável.">
                 <div className="space-y-2">
                   {pendentesProdutosTop.map((item, index) => (
                     <div key={`${item.produto}-${index}`} className="rounded-xl bg-slate-50 px-4 py-3">
@@ -2032,7 +2176,7 @@ export default function FaturamentoPage() {
                           <p className="truncate font-bold text-slate-900" title={item.descricao}>{item.descricao || item.produto || "-"}</p>
                           <p className="mt-0.5 text-xs text-slate-500">{item.produto || "-"} · {item.linha || item.grupo || "Sem linha"} · {fmtNumero(item.quantidade)} un.</p>
                         </div>
-                        <p className="shrink-0 font-bold text-[#17375E]">{fmtMoney(item.valor)}</p>
+                        <p className="shrink-0 text-right font-bold text-[#17375E]">{fmtNumero(item.quantidade)} un.<span className="block text-[11px] font-semibold text-slate-400">{fmtMoney(item.valor)}</span></p>
                       </div>
                     </div>
                   ))}
