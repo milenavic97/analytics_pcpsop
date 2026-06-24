@@ -998,15 +998,53 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
   const hoje = new Date().toISOString().split("T")[0];
 
+  function normalizarStatusLocal(valor?: string | null) {
+    return String(valor || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toUpperCase();
+  }
+
+  function loteEhReprovacaoOuDescarte(l: LoteRastreamento) {
+    const textos = [
+      l.desvio_destino,
+      l.desvio_destino_consolidado,
+      l.destino,
+      l.destino_produto_insumo,
+      l.desvio_destino_produto_insumo,
+      l.desvio_estado,
+      l.desvio_titulo,
+      l.status_gap,
+      ...(l.desvios || []).flatMap((d) => [
+        d.destino,
+        d.desvio_destino,
+        d.destino_produto_insumo,
+        d.estado,
+        d.titulo,
+        d.title,
+        d.motivo,
+      ]),
+    ]
+      .map(normalizarStatusLocal)
+      .join(" ");
+
+    return (
+      Boolean(l.desvio_reprovacao) ||
+      textos.includes("REPROV") ||
+      textos.includes("DESCART") ||
+      textos.includes("DESCARTE") ||
+      textos.includes("REJEIT") ||
+      textos.includes("SUCATA") ||
+      textos.includes("DESTRUI")
+    );
+  }
+
   function statusPrincipalLote(l: LoteRastreamento) {
     // Status/causa principal do lote.
     // A ordem evita que um lote reprovado ou reprogramado apareça também como "em envase"
     // só porque já teve apontamento de envase.
-    // Segurança extra do front: se o destino consolidado vier como Descartado/Reprovado,
-    // classifica como perda de reprovação/desvio mesmo que o backend antigo ainda não
-    // tenha marcado desvio_reprovacao=true.
-    const destinoLote = getDesvioDestino(l);
-    if (l.desvio_reprovacao || isDestinoReprovado(destinoLote)) return "REPROVACAO_DESVIO";
+    if (loteEhReprovacaoOuDescarte(l)) return "REPROVACAO_DESVIO";
     if (l.em_desvio) return "DESVIO";
     if (l.atraso_producao) return "ATRASO_PRODUCAO";
     if (l.perda_rendimento) return "RENDIMENTO";
@@ -1098,13 +1136,22 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   ): GapPorEtapaNormalizado => {
     // As perdas principais continuam vindo preferencialmente dos campos reconciliados do backend.
     // Já os status operacionais abertos precisam bater com os lotes visíveis na tabela.
+    const temFallbackPrincipal =
+      fallbackLotes.reprovacao_desvio > 0 ||
+      fallbackLotes.atraso_producao > 0 ||
+      fallbackLotes.rendimento > 0;
+
     const combinado = {
       ...base,
-      // Segurança: se a tabela de lotes já enxerga Descartado/Reprovado, o card não pode
-      // ficar menor só porque o payload reconciliado antigo ainda não somou aquele lote.
-      reprovacao_desvio: Math.max(base.reprovacao_desvio, fallbackLotes.reprovacao_desvio),
-      atraso_producao: Math.max(base.atraso_producao, fallbackLotes.atraso_producao),
-      rendimento: Math.max(base.rendimento, fallbackLotes.rendimento),
+      // Para as perdas principais, quando os lotes visíveis permitem reclassificar
+      // o destino como Descartado/Reprovado, a tabela deve mandar no card.
+      // Ex.: lote com Desvio = "-" e Destino = "Descartado".
+      reprovacao_desvio: temFallbackPrincipal ? fallbackLotes.reprovacao_desvio : base.reprovacao_desvio,
+      atraso_producao: temFallbackPrincipal ? fallbackLotes.atraso_producao : base.atraso_producao,
+      rendimento: temFallbackPrincipal ? fallbackLotes.rendimento : base.rendimento,
+
+      // Status abertos continuam usando o backend quando ele já trouxe valor;
+      // fallback só evita card zerado quando o backend não manda a quebra.
       desvio_aberto: base.desvio_aberto > 0 ? base.desvio_aberto : fallbackLotes.desvio_aberto,
       embalagem: base.embalagem > 0 ? base.embalagem : fallbackLotes.embalagem,
       envase: base.envase > 0 ? base.envase : fallbackLotes.envase,
