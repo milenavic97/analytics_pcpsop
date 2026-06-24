@@ -705,7 +705,7 @@ const RASTREAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const rastreamentoRuntimeCache = new Map<string, RastreamentoCacheEntry>();
 
 function getRastreamentoCacheKey(mes: number, ano: number) {
-  return `rastreamento-lotes-v6-direto-sem-cache:${ano}-${String(mes).padStart(2, "0")}`;
+  return `rastreamento-lotes-v7-direto-cache-rapido:${ano}-${String(mes).padStart(2, "0")}`;
 }
 
 function lerRastreamentoCache(mes: number, ano: number): RastreamentoCacheEntry | null {
@@ -790,12 +790,15 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const hojeBase = new Date();
   const mesInicial = hojeBase.getMonth() + 1;
   const anoInicial = hojeBase.getFullYear();
-  // Não inicia mais com cache local para evitar payload antigo do rastreamento.
-  const cacheInicial: RastreamentoCacheEntry | null = null;
+  // Usa cache local/runtime somente desta versão nova.
+  // Isso evita recarregar tudo do zero ao navegar para outra página e voltar.
+  const cacheInicial = lerRastreamentoCache(mesInicial, anoInicial);
 
-  const [data, setData] = useState<RastreamentoData | null>(null);
-  const [ultimaAtualizacaoProducao, setUltimaAtualizacaoProducao] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<RastreamentoData | null>(cacheInicial?.data ?? null);
+  const [ultimaAtualizacaoProducao, setUltimaAtualizacaoProducao] = useState<string | null>(
+    cacheInicial?.apontamentoAtualizadoEm ?? null
+  );
+  const [loading, setLoading] = useState(!cacheInicial?.data);
   const [refreshing, setRefreshing] = useState(false);
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
@@ -842,6 +845,20 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     versaoServidorRef?: string | null,
     atualizacaoServidorRef?: string | null
   ) => {
+    // Fluxo rápido:
+    // ao voltar para a página, mostra o último payload calculado imediatamente.
+    // Para buscar dado novo, o botão Atualizar força novo cálculo direto no backend.
+    if (!forceRefresh) {
+      const cached = lerRastreamentoCache(mesSelecionado, anoSelecionado);
+
+      if (cached?.data) {
+        aplicarDadosRastreamento(cached.data, cached.apontamentoAtualizadoEm || null);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+    }
+
     // Stale while refresh:
     // se já tem dado na tela, não apaga a seção; só mostra "Atualizando..."
     if (manterTabelaDuranteRefresh || data) {
@@ -882,7 +899,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         versaoServidor?.ultima_atualizacao || atualizacaoServidorRef || null;
 
       aplicarDadosRastreamento(json, atualizacaoServidor);
-      limparRastreamentoCache(mesSelecionado, anoSelecionado);
+      salvarRastreamentoCache(
+        mesSelecionado,
+        anoSelecionado,
+        json,
+        atualizacaoServidor,
+        versaoBase
+      );
     } catch (_) {
       // Se for atualização automática/manual, preserva a tabela antiga para não sumir tudo.
       if (!manterTabelaDuranteRefresh && !data) {
