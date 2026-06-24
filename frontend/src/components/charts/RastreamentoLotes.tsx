@@ -669,6 +669,34 @@ const MES_LABELS = [
 ];
 
 
+
+async function buscarRastreamentoLotesDireto(params: Record<string, any>): Promise<RastreamentoData> {
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    query.set(key, String(value));
+  });
+
+  query.set("_t", String(Date.now()));
+
+  const res = await fetch(`${API_URL}/overview/rastreamento-lotes?${query.toString()}`, {
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Erro ao carregar rastreamento direto (${res.status})`);
+  }
+
+  return (await res.json()) as RastreamentoData;
+}
+
+
 const RASTREAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 // Cache em memória do módulo.
@@ -677,7 +705,7 @@ const RASTREAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const rastreamentoRuntimeCache = new Map<string, RastreamentoCacheEntry>();
 
 function getRastreamentoCacheKey(mes: number, ano: number) {
-  return `rastreamento-lotes-v5-desvios-atuais:${ano}-${String(mes).padStart(2, "0")}`;
+  return `rastreamento-lotes-v6-direto-sem-cache:${ano}-${String(mes).padStart(2, "0")}`;
 }
 
 function lerRastreamentoCache(mes: number, ano: number): RastreamentoCacheEntry | null {
@@ -762,13 +790,12 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const hojeBase = new Date();
   const mesInicial = hojeBase.getMonth() + 1;
   const anoInicial = hojeBase.getFullYear();
-  const cacheInicial = lerRastreamentoCache(mesInicial, anoInicial);
+  // Não inicia mais com cache local para evitar payload antigo do rastreamento.
+  const cacheInicial: RastreamentoCacheEntry | null = null;
 
-  const [data, setData] = useState<RastreamentoData | null>(cacheInicial?.data ?? null);
-  const [ultimaAtualizacaoProducao, setUltimaAtualizacaoProducao] = useState<string | null>(
-    cacheInicial?.apontamentoAtualizadoEm ?? null
-  );
-  const [loading, setLoading] = useState(!cacheInicial?.data);
+  const [data, setData] = useState<RastreamentoData | null>(null);
+  const [ultimaAtualizacaoProducao, setUltimaAtualizacaoProducao] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
@@ -817,7 +844,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   ) => {
     // Fluxo normal: se já existe cache local, mostra imediatamente.
     // A checagem da versão roda em segundo plano e só troca os dados se o backend mudou.
-    if (!forceRefresh) {
+    if (false && !forceRefresh) {
       const cached = lerRastreamentoCache(mesSelecionado, anoSelecionado);
 
       if (cached) {
@@ -883,7 +910,10 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       }
 
       const [json, versaoServidor] = await Promise.all([
-        getRastreamentoLotes(params) as Promise<RastreamentoData>,
+        // Chamada direta sem cache do endpoint. O cache do rastreamento estava
+        // segurando payload antigo e impedindo desvios recém-carregados de
+        // aparecerem na Overview.
+        buscarRastreamentoLotesDireto(params),
         versaoServidorRef !== undefined
           ? Promise.resolve({
               versao_base: versaoServidorRef,
