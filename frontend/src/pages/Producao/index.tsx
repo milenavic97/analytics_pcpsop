@@ -22,6 +22,7 @@ import {
   Target,
   TimerReset,
   Settings,
+  TrendingUp,
   X,
 } from "lucide-react"
 
@@ -70,6 +71,8 @@ interface PrincipalOfensor {
 
 interface DashboardResumo {
   planejado_cx: number
+  plano_atualizado_cx?: number
+  tendencia_ano_cx?: number
   realizado_cx: number
   gap_cx: number
   aderencia_pct: number
@@ -113,6 +116,15 @@ interface LinhaProducao {
   gap_ytd_cx?: number
   aderencia_ytd_pct?: number
   orcado_cx?: number
+  planejado_original_ano_cx?: number
+  planejado_restante_ano_cx?: number
+  realizado_ate_corte_cx?: number
+  saldo_mes_atual_cx?: number
+  plano_futuro_cx?: number
+  tendencia_ano_cx?: number
+  plano_atualizado_cx?: number
+  gap_tendencia_orcado_cx?: number
+  mes_corte_tendencia?: number
 }
 
 interface GrupoProducao {
@@ -457,9 +469,9 @@ function linhaLabel(linha: LinhaFiltro) {
 }
 
 const PRODUCAO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v100-excelencia-operacional:"
+const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v121-plano-atualizado:"
 const PRODUCAO_STORAGE_BUILD_KEY = "dfl-producao-cache-build"
-const PRODUCAO_STORAGE_BUILD_VALUE = "v100-excelencia-operacional"
+const PRODUCAO_STORAGE_BUILD_VALUE = "v121-plano-atualizado-cards"
 const PRODUCAO_LAST_STATE_KEY = "dfl-producao-last-state-v94"
 
 type ProducaoLastState = {
@@ -1015,27 +1027,50 @@ function MetricCard({
   accent?: "blue" | "green" | "orange" | "red" | "purple" | "slate"
 }) {
   const styles = {
-    blue: "bg-blue-50 text-blue-600",
-    green: "bg-green-50 text-green-600",
-    orange: "bg-orange-50 text-orange-600",
-    red: "bg-red-50 text-red-600",
-    purple: "bg-violet-50 text-violet-600",
-    slate: "bg-slate-100 text-slate-600",
+    blue: {
+      icon: "bg-blue-50 text-blue-600 ring-blue-100",
+      line: "bg-blue-500/70",
+    },
+    green: {
+      icon: "bg-green-50 text-green-600 ring-green-100",
+      line: "bg-green-500/70",
+    },
+    orange: {
+      icon: "bg-orange-50 text-orange-600 ring-orange-100",
+      line: "bg-orange-500/70",
+    },
+    red: {
+      icon: "bg-red-50 text-red-600 ring-red-100",
+      line: "bg-red-500/70",
+    },
+    purple: {
+      icon: "bg-violet-50 text-violet-600 ring-violet-100",
+      line: "bg-violet-500/70",
+    },
+    slate: {
+      icon: "bg-slate-100 text-slate-600 ring-slate-200",
+      line: "bg-slate-400/70",
+    },
   }
 
+  const style = styles[accent]
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{title}</p>
-          <h3 className="mt-4 text-3xl font-bold text-slate-900">{value}</h3>
+    <div className="group relative min-h-[126px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+      <div className={`absolute inset-x-0 top-0 h-1 ${style.line}`} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">{title}</p>
+          <h3 className="mt-3 whitespace-nowrap text-[26px] font-black leading-none tracking-tight text-slate-950">
+            {value}
+          </h3>
           {detail && (
-            <p className="mt-1 text-sm font-bold text-slate-700">{detail}</p>
+            <p className="mt-2 truncate text-xs font-bold text-slate-600">{detail}</p>
           )}
-          {subtitle && <p className="mt-2 line-clamp-2 text-sm text-slate-500">{subtitle}</p>}
+          {subtitle && <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{subtitle}</p>}
         </div>
-        <div className={`rounded-xl p-3 ${styles[accent]}`}>
-          <Icon className="h-5 w-5" />
+        <div className={`shrink-0 rounded-2xl p-2.5 ring-1 ${style.icon}`}>
+          <Icon className="h-4 w-4" />
         </div>
       </div>
     </div>
@@ -1120,6 +1155,70 @@ function getOrcadoCx(item: MesProducao) {
       item.orcado ??
       0,
   )
+}
+
+function getMesCorteTendencia(ano: number) {
+  const hoje = new Date()
+  const anoAtual = hoje.getFullYear()
+
+  if (Number(ano) < anoAtual) return 12
+  if (Number(ano) > anoAtual) return 0
+
+  return Math.min(12, Math.max(1, hoje.getMonth() + 1))
+}
+
+function calcularPlanoAtualizadoAno(meses: MesProducao[] = [], ano: number) {
+  const mesCorte = getMesCorteTendencia(ano)
+
+  let planejadoAno = 0
+  let realizadoAteCorte = 0
+  let planejadoRestante = 0
+  let saldoMesAtual = 0
+  let planoFuturo = 0
+
+  for (const item of meses || []) {
+    const mes = Number(item.mes || 0)
+    const planejado = Number(item.planejado_cx || 0)
+    const realizado = Number(item.realizado_cx || 0)
+
+    planejadoAno += planejado
+
+    if (mesCorte <= 0) {
+      planejadoRestante += planejado
+      planoFuturo += planejado
+      continue
+    }
+
+    if (mes < mesCorte) {
+      realizadoAteCorte += realizado
+      continue
+    }
+
+    if (mes === mesCorte) {
+      realizadoAteCorte += realizado
+      const saldo = Math.max(planejado - realizado, 0)
+      saldoMesAtual += saldo
+      planejadoRestante += saldo
+      continue
+    }
+
+    if (mes > mesCorte) {
+      planejadoRestante += planejado
+      planoFuturo += planejado
+    }
+  }
+
+  const tendenciaAno = realizadoAteCorte + planejadoRestante
+
+  return {
+    mesCorte,
+    planejadoAno,
+    realizadoAteCorte,
+    planejadoRestante,
+    saldoMesAtual,
+    planoFuturo,
+    tendenciaAno,
+  }
 }
 
 function ToggleLegend({
@@ -1405,6 +1504,7 @@ function resumoLinhaPorMeses(
 ): LinhaProducao {
   const backend = linhasBackend.find((item) => item.linha === linhaMensal.linha)
   const ytdMonth = getYtdMonth(ano)
+  const tendenciaCalculada = calcularPlanoAtualizadoAno(linhaMensal.meses || [], ano)
 
   const planejado = (linhaMensal.meses || []).reduce(
     (acc, mes) => acc + Number(mes.planejado_cx || 0),
@@ -1428,6 +1528,9 @@ function resumoLinhaPorMeses(
 
   const gapYtd = realizadoYtd - planejadoYtd
   const aderenciaYtd = planejadoYtd > 0 ? (realizadoYtd / planejadoYtd) * 100 : 0
+  const tendenciaBackend = Number(backend?.tendencia_ano_cx ?? backend?.plano_atualizado_cx ?? 0)
+  const tendenciaAno = tendenciaBackend > 0 ? tendenciaBackend : tendenciaCalculada.tendenciaAno
+  const orcadoFinal = Number(backend?.orcado_cx || 0) > 0 ? Number(backend?.orcado_cx || 0) : orcado
 
   return {
     linha: linhaMensal.linha,
@@ -1440,7 +1543,16 @@ function resumoLinhaPorMeses(
     realizado_ytd_cx: realizadoYtd,
     gap_ytd_cx: gapYtd,
     aderencia_ytd_pct: aderenciaYtd,
-    orcado_cx: orcado,
+    orcado_cx: orcadoFinal,
+    planejado_original_ano_cx: Number(backend?.planejado_original_ano_cx || planejado),
+    planejado_restante_ano_cx: Number(backend?.planejado_restante_ano_cx || tendenciaCalculada.planejadoRestante),
+    realizado_ate_corte_cx: Number(backend?.realizado_ate_corte_cx || tendenciaCalculada.realizadoAteCorte),
+    saldo_mes_atual_cx: Number(backend?.saldo_mes_atual_cx || tendenciaCalculada.saldoMesAtual),
+    plano_futuro_cx: Number(backend?.plano_futuro_cx || tendenciaCalculada.planoFuturo),
+    tendencia_ano_cx: tendenciaAno,
+    plano_atualizado_cx: tendenciaAno,
+    gap_tendencia_orcado_cx: tendenciaAno - orcadoFinal,
+    mes_corte_tendencia: Number(backend?.mes_corte_tendencia || tendenciaCalculada.mesCorte),
     horas_paradas: Number(backend?.horas_paradas || 0),
     lotes: Number(backend?.lotes || 0),
     principal_ofensor: backend?.principal_ofensor || null,
@@ -1454,36 +1566,41 @@ function LinhaResumoCards({
   resumo: LinhaProducao
   periodoLabel: string
 }) {
+  const tendenciaAno = Number(resumo.tendencia_ano_cx ?? resumo.plano_atualizado_cx ?? resumo.planejado_cx ?? 0)
+  const planejadoOriginal = Number(resumo.planejado_original_ano_cx ?? resumo.planejado_cx ?? 0)
+  const gapTendenciaOrcado = tendenciaAno - Number(resumo.orcado_cx || 0)
+
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
       <MetricCard
         title="Orçado ano"
         value={formatCx(resumo.orcado_cx)}
         detail={formatTubetesFromCx(resumo.orcado_cx)}
-        subtitle="Orçado de produção"
+        subtitle="Budget original de produção"
         icon={Target}
         accent="orange"
       />
       <MetricCard
-        title="Planejado ano"
-        value={formatCx(resumo.planejado_cx)}
-        detail={formatTubetesFromCx(resumo.planejado_cx)}
-        subtitle={`Programação + MPS · ${periodoLabel}`}
-        icon={Layers}
-        accent="purple"
+        title="Tendência ano"
+        value={formatCx(tendenciaAno)}
+        detail={`${gapTendenciaOrcado >= 0 ? "+" : ""}${formatCx(gapTendenciaOrcado)} vs orçado`}
+        subtitle={`Realizado + plano restante · ${periodoLabel}`}
+        icon={TrendingUp}
+        accent={gapTendenciaOrcado >= 0 ? "green" : "purple"}
       />
       <MetricCard
         title="Realizado YTD"
         value={formatCx(resumo.realizado_cx)}
         detail={formatTubetesFromCx(resumo.realizado_cx)}
-        subtitle={`${formatNumber(resumo.lotes)} lotes envasados`}
+        subtitle={`Até hoje · ${formatNumber(resumo.lotes)} lotes`}
         icon={Factory}
         accent="green"
       />
       <MetricCard
         title="% atingido YTD"
         value={formatPercent(resumo.aderencia_pct)}
-        subtitle="Realizado / planejado YTD"
+        detail={`Plano original: ${formatCx(planejadoOriginal)}`}
+        subtitle="Realizado / planejado acumulado"
         icon={Target}
         accent={resumo.aderencia_pct >= 95 ? "green" : resumo.aderencia_pct >= 80 ? "orange" : "red"}
       />
@@ -1491,7 +1608,7 @@ function LinhaResumoCards({
         title="Gap YTD"
         value={formatCx(resumo.gap_cx)}
         detail={formatTubetesFromCx(resumo.gap_cx)}
-        subtitle={resumo.gap_cx >= 0 ? "Acima do planejado" : "Abaixo do planejado"}
+        subtitle={resumo.gap_cx >= 0 ? "Acima do planejado acumulado" : "Abaixo do planejado acumulado"}
         icon={BarChart3}
         accent={resumo.gap_cx >= 0 ? "green" : "red"}
       />
@@ -1533,7 +1650,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
 
             <MonthlyLineChartCard
               title={`${linha.nome} — planejado x realizado`}
-              subtitle={`Ano fechado ${data.periodo_label}. Planejado pela Programação Mensal + MPS; realizado pelos apontamentos de envase; % acumulado YTD.`}
+              subtitle={`Ano fechado ${data.periodo_label}. Barras mostram planejado mensal x realizado; tendência do card usa realizado + plano restante; % acumulado YTD.`}
               meses={linha.meses}
               ano={data.ano}
             />
@@ -1716,7 +1833,7 @@ function MiniMtdCard({
           <p className={`mt-2 text-[28px] font-black leading-none ${styles.value}`}>{value}</p>
         </div>
         <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${styles.iconWrap}`}>
-          <Icon className="h-4.5 w-4.5" />
+          <Icon className="h-4 w-4" />
         </div>
       </div>
 
