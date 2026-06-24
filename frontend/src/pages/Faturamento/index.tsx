@@ -636,7 +636,7 @@ function AbcDualBarsCard({
 }) {
   const itens = ["A", "B", "C"].map((classe) => {
     const base = (data || []).find((item) => String(item.classe || "").toUpperCase() === classe)
-    const detalhes =
+    const detalhes: AbcDetalhe[] =
       base?.detalhes?.length
         ? base.detalhes
         : (base?.exemplos || []).map((nome) => ({ nome }))
