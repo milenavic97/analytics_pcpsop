@@ -1525,58 +1525,6 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
         )
       })}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-              Principais ofensores
-            </p>
-            <h2 className="text-xl font-bold text-slate-900">Horas paradas no ano</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Maiores motivos de parada/setup/manutenção em envase no período.
-            </p>
-          </div>
-          <div className="rounded-xl bg-orange-50 px-4 py-2 text-sm font-bold text-orange-600">
-            {formatHoras(resumo.horas_paradas)} no período
-          </div>
-        </div>
-
-        {data.top_ofensores.length === 0 ? (
-          <div className="flex h-[340px] items-center justify-center rounded-2xl border border-dashed border-slate-200 text-sm text-slate-400">
-            Nenhuma parada encontrada no período.
-          </div>
-        ) : (
-          <div className="h-[340px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={data.top_ofensores}
-                layout="vertical"
-                margin={{ top: 8, right: 28, left: 10, bottom: 8 }}
-              >
-                <CartesianGrid horizontal={false} stroke="#EEF2F7" />
-                <XAxis
-                  type="number"
-                  tick={{ fill: "#64748B", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="motivo"
-                  width={180}
-                  tick={{ fill: "#64748B", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(15, 23, 42, 0.03)" }} />
-                <Bar dataKey="horas" name="Horas" fill={COLORS.orange} radius={[0, 8, 8, 0]} barSize={22}>
-                  <LabelList dataKey="horas" position="right" formatter={(value: number) => formatHoras(value)} fill="#64748B" fontSize={11} fontWeight={700} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
 
     </div>
   )
