@@ -1049,17 +1049,18 @@ function PercentPointLabel(props: any) {
   if (!x || !y || !raw) return null
 
   const fill = raw >= 95 ? COLORS.green : raw >= 80 ? "#4F6FAE" : COLORS.red
+  const labelY = Math.max(12, Number(y) - 14)
 
   return (
     <text
       x={x}
-      y={y - 24}
+      y={labelY}
       textAnchor="middle"
       fontSize={10}
       fontWeight={800}
       fill={fill}
     >
-      {`${formatDecimal(raw, 0)}%`}
+      {formatPercent(raw)}
     </text>
   )
 }
@@ -1106,6 +1107,9 @@ function OrcadoMarkerDot(props: any) {
 type MonthlySeriesKey = "planejado" | "realizado" | "orcado" | "aderencia"
 
 type MonthlySeriesState = Record<MonthlySeriesKey, boolean>
+
+const ADERENCIA_AXIS_MAX = 130
+const ADERENCIA_AXIS_TICKS = [0, 50, 80, 100, 130]
 
 function getOrcadoCx(item: MesProducao) {
   return Number(
@@ -1214,10 +1218,31 @@ function MonthlyLineChartCard({
 
   const chartData = useMemo(() => {
     const ytdMonth = getYtdMonth(ano)
+    const baseMeses = meses || []
+
+    const maxBarCx = Math.max(
+      1,
+      ...baseMeses.map((item) =>
+        Math.max(
+          Number(item.planejado_cx || 0),
+          Number(item.realizado_cx || 0),
+          getOrcadoCx(item),
+        ),
+      ),
+    )
+
+    // A linha de % fica em uma faixa superior reservada:
+    // ela não entra nas barras, mas também não fica chapada/reta no topo.
+    const leftAxisMaxCx = maxBarCx + 3000
+    const barTopOnRightAxis = (maxBarCx / leftAxisMaxCx) * ADERENCIA_AXIS_MAX
+    const aderenciaBandMin = Math.min(124, Math.max(108, barTopOnRightAxis + 4))
+    const aderenciaBandMax = 128.5
+    const aderenciaBandSize = Math.max(6, aderenciaBandMax - aderenciaBandMin)
+
     let planejadoAcum = 0
     let realizadoAcum = 0
 
-    return (meses || []).map((item) => {
+    return baseMeses.map((item) => {
       const orcadoCx = getOrcadoCx(item)
       const planejadoCx = Number(item.planejado_cx || 0)
       const realizadoCx = Number(item.realizado_cx || 0)
@@ -1230,24 +1255,22 @@ function MonthlyLineChartCard({
         aderenciaYtdPct = planejadoAcum > 0 ? (realizadoAcum / planejadoAcum) * 100 : null
       }
 
+      const pctPlot = Math.min(110, Math.max(0, Number(aderenciaYtdPct || 0)))
+
       return {
         ...item,
         planejado_plot_cx: planejadoCx > 0 ? planejadoCx : null,
         realizado_plot_cx: realizadoCx > 0 ? realizadoCx : null,
         orcado_plot_cx: orcadoCx > 0 ? orcadoCx : null,
         aderencia_ytd_pct: aderenciaYtdPct,
-        // Mantém o rótulo real em aderencia_ytd_pct, mas plota a linha comprimida no topo.
         aderencia_visual:
           aderenciaYtdPct !== null
-            ? 126 + (Math.min(110, Math.max(0, aderenciaYtdPct)) / 110) * 3
+            ? aderenciaBandMin + (pctPlot / 110) * aderenciaBandSize
             : null,
         aderencia_plot_pct: aderenciaYtdPct,
       }
     })
   }, [ano, meses])
-
-  const aderenciaAxisMax = 130
-  const aderenciaTicks = [0, 50, 80, 100, 130]
 
   const showOrcado = useMemo(() => {
     return chartData.some((item) => Number(item.orcado_plot_cx || 0) > 0)
@@ -1297,8 +1320,8 @@ function MonthlyLineChartCard({
             <YAxis
               yAxisId="right"
               orientation="right"
-              domain={[0, aderenciaAxisMax]}
-              ticks={aderenciaTicks}
+              domain={[0, ADERENCIA_AXIS_MAX]}
+              ticks={ADERENCIA_AXIS_TICKS}
               hide
               axisLine={false}
               tickLine={false}
@@ -1364,7 +1387,7 @@ function MonthlyLineChartCard({
                 connectNulls={false}
                 isAnimationActive={false}
               >
-                <LabelList dataKey="aderencia_pct" content={<PercentPointLabel />} />
+                <LabelList dataKey="aderencia_ytd_pct" content={<PercentPointLabel />} />
               </Line>
             )}
           </ComposedChart>
