@@ -1036,7 +1036,7 @@ type FaturamentoVersaoResponse = {
 }
 
 const FATURAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v100:"
+const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v104-heatmap-endpoint-alias:"
 const faturamentoRuntimeCache = new Map<string, FaturamentoCacheEntry>()
 
 function faturamentoCacheKey(ano: number, bloco: string, produtoFiltro: string) {
@@ -1135,18 +1135,54 @@ async function getFaturamentoCache(ano: number, bloco: string, produtoFiltro: st
 }
 
 async function getEntradaPrepedidosHeatmap(ano: number) {
-  const params = new URLSearchParams({ ano: String(ano), _t: String(Date.now()) })
+  const query = new URLSearchParams({ ano: String(ano), _t: String(Date.now()) }).toString()
 
-  const response = await fetch(`${API_BASE}/faturamento/entrada-prepedidos-heatmap?${params.toString()}`, {
-    cache: "no-store",
-    headers: {
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      Pragma: "no-cache",
-    },
-  })
+  const urls = [
+    `${API_BASE}/faturamento/entrada-prepedidos-heatmap?${query}`,
+    `${API_BASE}/faturamento/entrada-prepedidos-dia-mes?${query}`,
+    `${API_BASE}/faturamento/debug-entrada-prepedidos-heatmap?${query}`,
+    `${API_BASE}/entrada-prepedidos-heatmap?${query}`,
+  ]
 
-  if (!response.ok) throw new Error("Erro ao carregar matriz de pré-pedidos.")
-  return (await response.json()) as { entrada_prepedidos_dia_mes?: EntradaPrepedidoMes[]; debug?: Record<string, unknown> }
+  const erros: string[] = []
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
+      })
+
+      if (!response.ok) {
+        erros.push(`${response.status} ${url}`)
+        continue
+      }
+
+      const json = await response.json()
+      const matriz =
+        json?.entrada_prepedidos_dia_mes ??
+        json?.payload?.entrada_prepedidos_dia_mes ??
+        json?.data?.entrada_prepedidos_dia_mes ??
+        []
+
+      return {
+        entrada_prepedidos_dia_mes: Array.isArray(matriz) ? matriz : [],
+        debug: json?.debug ?? json?.payload?.debug ?? json?.data?.debug ?? {},
+        origem_url: url,
+      } as {
+        entrada_prepedidos_dia_mes?: EntradaPrepedidoMes[]
+        debug?: Record<string, unknown>
+        origem_url?: string
+      }
+    } catch (error: any) {
+      erros.push(`${error?.message || "erro"} ${url}`)
+    }
+  }
+
+  throw new Error(`Erro ao carregar matriz de pré-pedidos: ${erros.join(" | ")}`)
 }
 
 function getInitialFaturamentoCache(ano: number, bloco: string, produtoFiltro: string) {
@@ -1196,7 +1232,7 @@ function LegendToggle({
 }
 
 
-function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
+function EntradaPrepedidosHeatmap({ dados, erro }: { dados: EntradaPrepedidoMes[]; erro?: string | null }) {
   const maxDia = useMemo(() => {
     let max = 0
     dados.forEach((mes) => {
@@ -1211,7 +1247,16 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
   const dias = Array.from({ length: 31 }, (_, index) => index + 1)
 
   if (!dados.length) {
-    return <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Sem pré-pedidos emitidos carregados para montar a matriz.</div>
+    return (
+      <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+        Sem pré-pedidos emitidos carregados para montar a matriz.
+        {erro ? (
+          <p className="mt-2 break-words text-xs font-semibold text-red-600">
+            Detalhe técnico: {erro}
+          </p>
+        ) : null}
+      </div>
+    )
   }
 
   function bg(intensidade: number, existe: boolean) {
@@ -1299,6 +1344,7 @@ export default function FaturamentoPage() {
   const [produtoFiltro, setProdutoFiltro] = useState(produtoFiltroInicial)
   const [aba, setAba] = useState<"resumo" | "atendimento" | "clientes">("resumo")
   const [entradaPrepedidosHeatmapFallback, setEntradaPrepedidosHeatmapFallback] = useState<EntradaPrepedidoMes[]>([])
+  const [erroEntradaPrepedidosHeatmap, setErroEntradaPrepedidosHeatmap] = useState<string | null>(null)
 
   const [buscaCliente, setBuscaCliente] = useState("")
   const [buscaProduto, setBuscaProduto] = useState("")
@@ -1450,10 +1496,12 @@ export default function FaturamentoPage() {
       .then((res) => {
         if (!ativo) return
         setEntradaPrepedidosHeatmapFallback(res.entrada_prepedidos_dia_mes ?? [])
+        setErroEntradaPrepedidosHeatmap(null)
       })
-      .catch(() => {
+      .catch((error: any) => {
         if (!ativo) return
         setEntradaPrepedidosHeatmapFallback([])
+        setErroEntradaPrepedidosHeatmap(error?.message || "Erro ao carregar matriz de pré-pedidos.")
       })
 
     return () => {
@@ -2094,7 +2142,7 @@ export default function FaturamentoPage() {
               title="Entrada de pré-pedidos por dia do mês"
               subtitle="Quantidade de pré-pedidos emitidos por dia. Ajuda a identificar concentração no começo, meio ou fim do mês."
             >
-              <EntradaPrepedidosHeatmap dados={entradaPrepedidosDiaMes} />
+              <EntradaPrepedidosHeatmap dados={entradaPrepedidosDiaMes} erro={erroEntradaPrepedidosHeatmap} />
             </SectionCard>
 
             <div className="grid gap-5 xl:grid-cols-2">
