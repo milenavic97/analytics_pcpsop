@@ -677,7 +677,7 @@ const RASTREAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const rastreamentoRuntimeCache = new Map<string, RastreamentoCacheEntry>();
 
 function getRastreamentoCacheKey(mes: number, ano: number) {
-  return `rastreamento-lotes:${ano}-${String(mes).padStart(2, "0")}`;
+  return `rastreamento-lotes-v5-desvios-atuais:${ano}-${String(mes).padStart(2, "0")}`;
 }
 
 function lerRastreamentoCache(mes: number, ano: number): RastreamentoCacheEntry | null {
@@ -876,7 +876,10 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       };
 
       if (forceRefresh) {
+        params.force = true;
+        params.allow_stale = false;
         params._t = Date.now();
+        limparRastreamentoCache(mesSelecionado, anoSelecionado);
       }
 
       const [json, versaoServidor] = await Promise.all([
