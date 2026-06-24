@@ -1002,7 +1002,11 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     // Status/causa principal do lote.
     // A ordem evita que um lote reprovado ou reprogramado apareça também como "em envase"
     // só porque já teve apontamento de envase.
-    if (l.desvio_reprovacao) return "REPROVACAO_DESVIO";
+    // Segurança extra do front: se o destino consolidado vier como Descartado/Reprovado,
+    // classifica como perda de reprovação/desvio mesmo que o backend antigo ainda não
+    // tenha marcado desvio_reprovacao=true.
+    const destinoLote = getDesvioDestino(l);
+    if (l.desvio_reprovacao || isDestinoReprovado(destinoLote)) return "REPROVACAO_DESVIO";
     if (l.em_desvio) return "DESVIO";
     if (l.atraso_producao) return "ATRASO_PRODUCAO";
     if (l.perda_rendimento) return "RENDIMENTO";
@@ -1096,6 +1100,11 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     // Já os status operacionais abertos precisam bater com os lotes visíveis na tabela.
     const combinado = {
       ...base,
+      // Segurança: se a tabela de lotes já enxerga Descartado/Reprovado, o card não pode
+      // ficar menor só porque o payload reconciliado antigo ainda não somou aquele lote.
+      reprovacao_desvio: Math.max(base.reprovacao_desvio, fallbackLotes.reprovacao_desvio),
+      atraso_producao: Math.max(base.atraso_producao, fallbackLotes.atraso_producao),
+      rendimento: Math.max(base.rendimento, fallbackLotes.rendimento),
       desvio_aberto: base.desvio_aberto > 0 ? base.desvio_aberto : fallbackLotes.desvio_aberto,
       embalagem: base.embalagem > 0 ? base.embalagem : fallbackLotes.embalagem,
       envase: base.envase > 0 ? base.envase : fallbackLotes.envase,
