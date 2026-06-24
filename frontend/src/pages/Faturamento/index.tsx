@@ -1158,9 +1158,9 @@ export default function FaturamentoPage() {
     "Orçado": true,
   })
   const [atendimentoVisible, setAtendimentoVisible] = useState<Record<string, boolean>>({
-    "Entrada de pré-pedido": true,
+    "Demanda do mês": true,
     "Faturado do mês": true,
-    "Não atendido no mês": true,
+    "Em aberto hoje": true,
     "% atendimento": true,
   })
 
@@ -1471,9 +1471,9 @@ export default function FaturamentoPage() {
   const atendimentoMensalGrafico = useMemo(() => {
     return (dados?.atendimento_mensal ?? []).map((item) => ({
       mes: item.mes_nome ?? String(item.mes ?? ""),
-      "Entrada de pré-pedido": item.prepedidos_emitidos_valor ?? 0,
+      "Demanda do mês": item.prepedidos_emitidos_valor ?? 0,
       "Faturado do mês": item.faturamento_prepedido_mesmo_mes ?? 0,
-      "Não atendido no mês": item.saldo_nao_atendido_estimado ?? 0,
+      "Em aberto hoje": item.saldo_nao_atendido_estimado ?? 0,
       "% atendimento": item.atendimento_mes_pct ?? null,
       "Faturado total": item.faturamento_total ?? 0,
       "Carteira anterior faturada": item.faturamento_carteira_anterior ?? 0,
@@ -1827,13 +1827,13 @@ export default function FaturamentoPage() {
 
             <SectionCard
               title="Atendimento mês a mês"
-              subtitle="Entrada de pré-pedidos emitidos no mês versus o que foi faturado no próprio mês. O não atendido é uma estimativa do que entrou e não virou faturamento no mesmo mês."
+              subtitle="Demanda identificada no mês versus o que foi faturado no próprio mês. A parcela em aberto mostra a carteira pendente hoje criada naquele mês."
             >
               <LegendToggle
                 items={[
-                  { key: "Entrada de pré-pedido", label: "Entrada de pré-pedido", color: AZUL_CLARO },
+                  { key: "Demanda do mês", label: "Demanda do mês", color: AZUL_CLARO },
                   { key: "Faturado do mês", label: "Faturado do mês", color: AZUL },
-                  { key: "Não atendido no mês", label: "Não atendido no mês", color: LARANJA },
+                  { key: "Em aberto hoje", label: "Em aberto hoje", color: LARANJA },
                   { key: "% atendimento", label: "% atendimento", color: VERDE },
                 ]}
                 visibleMap={atendimentoVisible}
@@ -1855,9 +1855,9 @@ export default function FaturamentoPage() {
                       }}
                       labelStyle={{ color: AZUL, fontWeight: 700 }}
                     />
-                    {atendimentoVisible["Entrada de pré-pedido"] !== false && (
-                      <Bar yAxisId="valor" dataKey="Entrada de pré-pedido" fill={AZUL_CLARO} radius={[7, 7, 0, 0]} maxBarSize={34}>
-                        <LabelList dataKey="Entrada de pré-pedido" position="top" formatter={labelMoneyUmaLinha} style={{ fill: AZUL_CLARO, fontSize: 10, fontWeight: 700 }} />
+                    {atendimentoVisible["Demanda do mês"] !== false && (
+                      <Bar yAxisId="valor" dataKey="Demanda do mês" fill={AZUL_CLARO} radius={[7, 7, 0, 0]} maxBarSize={34}>
+                        <LabelList dataKey="Demanda do mês" position="top" formatter={labelMoneyUmaLinha} style={{ fill: AZUL_CLARO, fontSize: 10, fontWeight: 700 }} />
                       </Bar>
                     )}
                     {atendimentoVisible["Faturado do mês"] !== false && (
@@ -1865,9 +1865,9 @@ export default function FaturamentoPage() {
                         <LabelList dataKey="Faturado do mês" position="top" formatter={labelMoneyUmaLinha} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
                       </Bar>
                     )}
-                    {atendimentoVisible["Não atendido no mês"] !== false && (
-                      <Bar yAxisId="valor" dataKey="Não atendido no mês" fill={LARANJA} radius={[7, 7, 0, 0]} maxBarSize={30}>
-                        <LabelList dataKey="Não atendido no mês" position="top" formatter={labelMoneyUmaLinha} style={{ fill: LARANJA, fontSize: 10, fontWeight: 700 }} />
+                    {atendimentoVisible["Em aberto hoje"] !== false && (
+                      <Bar yAxisId="valor" dataKey="Em aberto hoje" fill={LARANJA} radius={[7, 7, 0, 0]} maxBarSize={30}>
+                        <LabelList dataKey="Em aberto hoje" position="top" formatter={labelMoneyUmaLinha} style={{ fill: LARANJA, fontSize: 10, fontWeight: 700 }} />
                       </Bar>
                     )}
                     {atendimentoVisible["% atendimento"] !== false && (
@@ -1880,7 +1880,7 @@ export default function FaturamentoPage() {
               </div>
 
               <div className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                Leitura: entrada de pré-pedido é a demanda comercial emitida no mês; faturado do mês considera o valor faturado de pré-pedidos emitidos no próprio mês; não atendido no mês é uma estimativa de entrada que não virou faturamento dentro do mês.
+                Leitura: demanda do mês = pré-pedidos que faturaram no próprio mês + carteira pendente hoje emitida naquele mês. Em aberto hoje mostra o que ainda está pendente na carteira atual.
               </div>
             </SectionCard>
 
