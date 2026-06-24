@@ -182,6 +182,15 @@ type Pais = {
   confianca_baixa?: number
 }
 
+type AbcDetalhe = {
+  codigo?: string
+  nome?: string
+  descricao?: string
+  faturamento?: number
+  quantidade?: number
+  participacao_faturamento_pct?: number
+}
+
 type AbcResumo = {
   classe?: string
   qtd?: number
@@ -190,6 +199,7 @@ type AbcResumo = {
   participacao_qtd_pct?: number
   participacao_faturamento_pct?: number
   exemplos?: string[]
+  detalhes?: AbcDetalhe[]
 }
 
 type MixLinhaAnoLinha = {
@@ -626,17 +636,89 @@ function AbcDualBarsCard({
 }) {
   const itens = ["A", "B", "C"].map((classe) => {
     const base = (data || []).find((item) => String(item.classe || "").toUpperCase() === classe)
+    const detalhes =
+      base?.detalhes?.length
+        ? base.detalhes
+        : (base?.exemplos || []).map((nome) => ({ nome }))
+
     return {
       classe,
       qtd: base?.qtd ?? 0,
       faturamento: base?.faturamento ?? 0,
       pctBase: base?.participacao_qtd_pct ?? 0,
       pctFaturamento: base?.participacao_faturamento_pct ?? 0,
+      detalhes,
       color: corAbc(classe),
     }
   })
 
   const classeA = itens.find((item) => item.classe === "A")
+  const entidadeVerLabel = entidadeLabel.toLowerCase().includes("cliente") ? "clientes" : "itens"
+
+  function AbcTooltip({ item }: { item: (typeof itens)[number] }) {
+    const detalhes = item.detalhes || []
+    const topDetalhes = detalhes.slice(0, 8)
+    const restante = Math.max((item.qtd || 0) - topDetalhes.length, 0)
+
+    return (
+      <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 hidden w-[340px] rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-xl ring-1 ring-slate-900/5 group-hover:block">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Classe {item.classe}</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">
+              {fmtNumero(item.qtd)} {entidadeLabel}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-bold text-slate-900">{fmtMoney(item.faturamento)}</p>
+            <p className="text-xs text-slate-500">{fmtPct(item.pctFaturamento)} do faturamento</p>
+          </div>
+        </div>
+
+        <p className="mt-2 text-xs text-slate-500">
+          {fmtNumero(item.qtd)} {entidadeLabel} representam {fmtPct(item.pctFaturamento)} do faturamento.
+        </p>
+
+        {topDetalhes.length > 0 ? (
+          <div className="mt-3 space-y-1.5">
+            {topDetalhes.map((detalhe, idx) => {
+              const nome = detalhe.nome || detalhe.descricao || detalhe.codigo || "-"
+              const codigo = detalhe.codigo && detalhe.codigo !== nome ? detalhe.codigo : ""
+              return (
+                <div key={`${item.classe}-${idx}-${nome}`} className="flex items-start justify-between gap-3 text-xs">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-slate-700">
+                      {idx + 1}. {nome}
+                    </p>
+                    {codigo && <p className="truncate text-[11px] text-slate-400">{codigo}</p>}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    {typeof detalhe.faturamento === "number" ? (
+                      <>
+                        <p className="font-bold text-slate-900">{fmtMoney(detalhe.faturamento)}</p>
+                        <p className="text-[11px] text-slate-400">{fmtPct(detalhe.participacao_faturamento_pct)}</p>
+                      </>
+                    ) : (
+                      <p className="font-semibold text-slate-500">ver composição</p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+            {restante > 0 && (
+              <p className="pt-1 text-xs font-semibold text-slate-400">
+                + {fmtNumero(restante)} {entidadeLabel} nesta classe
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-slate-400">
+            Sem composição detalhada para esta classe.
+          </p>
+        )}
+      </div>
+    )
+  }
 
   function BarDistribuicao({
     tituloBarra,
@@ -661,6 +743,11 @@ function AbcDualBarsCard({
             {itens.map((item) => {
               const pct = Number(item[pctKey] || 0)
               const raw = rawFormatter(item)
+              const exemplos = (item.detalhes || [])
+                .slice(0, 5)
+                .map((detalhe) => detalhe.nome || detalhe.descricao || detalhe.codigo)
+                .filter(Boolean)
+                .join(" | ")
               const mostrarPct = pct >= 7
               const mostrarRaw = pct >= 14
               return (
@@ -668,7 +755,7 @@ function AbcDualBarsCard({
                   key={`${pctKey}-${item.classe}`}
                   className="flex min-h-[18px] flex-col items-center justify-center px-1 text-center"
                   style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: item.color, color: pct >= 7 ? "white" : "transparent" }}
-                  title={`Classe ${item.classe} · ${fmtPct(pct)} · ${raw}`}
+                  title={`Classe ${item.classe} · ${fmtPct(pct)} · ${raw}${exemplos ? ` · ${exemplos}` : ""}`}
                 >
                   {mostrarPct && <span className="text-[10px] font-bold leading-tight">{fmtPct(pct)}</span>}
                   {mostrarRaw && <span className="mt-0.5 text-[9px] leading-tight opacity-90">{raw}</span>}
@@ -711,11 +798,15 @@ function AbcDualBarsCard({
 
       <div className="mt-5 space-y-2.5">
         {itens.map((item) => (
-          <div key={item.classe} className="flex items-center justify-between gap-3 text-sm">
+          <div key={item.classe} className="group relative flex cursor-help items-center justify-between gap-3 rounded-xl px-1 py-1 text-sm transition hover:bg-slate-50">
+            <AbcTooltip item={item} />
             <div className="flex min-w-0 items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
               <span className="font-semibold text-slate-800">Classe {item.classe}</span>
               <span className="truncate text-xs text-slate-500">{fmtNumero(item.qtd)} {entidadeLabel} · {fmtPct(item.pctBase)} da base</span>
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+                ver {entidadeVerLabel}
+              </span>
             </div>
             <div className="shrink-0 text-right">
               <p className="font-bold text-slate-900">{fmtMoney(item.faturamento)}</p>
