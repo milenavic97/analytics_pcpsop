@@ -476,7 +476,7 @@ function linhaLabel(linha: LinhaFiltro) {
 const PRODUCAO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v121-plano-atualizado:"
 const PRODUCAO_STORAGE_BUILD_KEY = "dfl-producao-cache-build"
-const PRODUCAO_STORAGE_BUILD_VALUE = "v125-fabrima-qtd-liberada"
+const PRODUCAO_STORAGE_BUILD_VALUE = "v126-fabrima-sd3-caixas"
 const PRODUCAO_LAST_STATE_KEY = "dfl-producao-last-state-v94"
 
 type ProducaoLastState = {
@@ -1891,9 +1891,13 @@ function AcompanhamentoPainelCompacto({
   const atingimentoMtd = Number(card?.atingimento_mtd_pct ?? secao.atingimento_mtd_pct ?? 0)
   const isFabrima = secao.linha === "FABRIMA"
   const realizadoTitulo = isFabrima ? "Liberado MTD" : "Realizado MTD"
-  const realizadoSubtitulo = isFabrima ? `${formatCx(realizadoMtdCx)} · SD3 liberado` : `${formatCx(realizadoMtdCx)} · apontado`
+  const realizadoValor = isFabrima ? formatCx(realizadoMtdCx) : formatNumber(realizadoMtdTb)
+  const realizadoSubtitulo = isFabrima
+    ? `${formatNumber(realizadoMtdTb)} tubetes · SD3 liberado`
+    : `${formatCx(realizadoMtdCx)} · apontado`
   const totalMesTitulo = isFabrima ? "Total liberado" : "Total mês"
   const qtdRealizadaHeader = isFabrima ? "Qtd. liberada" : "Qtd. produzida"
+  const headerPill = isFabrima ? formatCx(totalCaixas) : `${formatNumber(totalTubetes)} tubetes`
   const Icon = isFabrima ? Layers : Factory
 
   return (
@@ -1916,7 +1920,7 @@ function AcompanhamentoPainelCompacto({
           </div>
 
           <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black ring-1 ring-white/10">
-            {formatNumber(totalTubetes)} tubetes
+            {headerPill}
           </span>
         </div>
       </div>
@@ -1931,7 +1935,7 @@ function AcompanhamentoPainelCompacto({
         />
         <MiniMtdCard
           title={realizadoTitulo}
-          value={formatNumber(realizadoMtdTb)}
+          value={realizadoValor}
           subtitle={realizadoSubtitulo}
           accent="green"
           icon={BarChart3}
@@ -2026,12 +2030,21 @@ function AcompanhamentoPainelCompacto({
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right align-top">
                     {temQtdLiberada ? (
-                      <>
-                        <p className="font-black text-slate-900">{formatNumber(row.qtd_tubetes)}</p>
-                        <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
-                          {formatCx(row.qtd_caixas)}
-                        </p>
-                      </>
+                      isFabrima ? (
+                        <>
+                          <p className="font-black text-slate-900">{formatCx(row.qtd_caixas)}</p>
+                          <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                            {formatNumber(row.qtd_tubetes)} tubetes
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-black text-slate-900">{formatNumber(row.qtd_tubetes)}</p>
+                          <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                            {formatCx(row.qtd_caixas)}
+                          </p>
+                        </>
+                      )
                     ) : (
                       <>
                         <p className="font-black text-slate-300">—</p>
