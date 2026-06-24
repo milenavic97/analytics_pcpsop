@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CalendarDays,
   Clock3,
+  Download,
   FileWarning,
   History,
   Trash2,
@@ -75,6 +76,52 @@ function formatNumero(valor?: number) {
   }).format(valor)
 }
 
+function normalizarTextoFiltro(valor?: string | null) {
+  return String(valor || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase()
+}
+
+function matchDestinoHistorico(destino: string | undefined, filtro: string) {
+  const destinoNorm = normalizarTextoFiltro(destino)
+  const filtroNorm = normalizarTextoFiltro(filtro)
+
+  if (!filtroNorm || filtroNorm === "TODOS") return true
+
+  if (filtroNorm === "SEM DESTINO") {
+    return !destinoNorm || destinoNorm === "-" || destinoNorm === "—"
+  }
+
+  if (filtroNorm === "DESCARTADO") {
+    return destinoNorm.includes("DESCART")
+  }
+
+  return destinoNorm.includes(filtroNorm)
+}
+
+function csvEscape(valor: unknown) {
+  const texto = String(valor ?? "")
+  return `"${texto.replace(/"/g, '""')}"`
+}
+
+function baixarCsv(nomeArquivo: string, linhas: string[][]) {
+  const conteudo = "\ufeff" + linhas.map((linha) => linha.map(csvEscape).join(";")).join("\n")
+  const blob = new Blob([conteudo], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+
+  const link = document.createElement("a")
+  link.href = url
+  link.download = nomeArquivo
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+
+  URL.revokeObjectURL(url)
+}
+
+
 function garantirArray<T>(valor: unknown): T[] {
   if (Array.isArray(valor)) return valor as T[]
 
@@ -102,6 +149,14 @@ function renderDestinoTag(destino?: string) {
   }
 
   const texto = destino.toLowerCase()
+
+  if (texto.includes("descart")) {
+    return (
+      <span className="rounded-full bg-orange-100 px-2 py-1 text-xs font-semibold text-orange-700">
+        Descartado
+      </span>
+    )
+  }
 
   if (texto.includes("reprovado")) {
     return (
@@ -197,6 +252,8 @@ export default function DesviosPage() {
   const [filtroMes, setFiltroMes] = useState("TODOS")
   const [anoHistorico, setAnoHistorico] = useState("2026")
   const [filtroSituacaoHistorico, setFiltroSituacaoHistorico] = useState("TODOS")
+  const [filtroDestinoHistorico, setFiltroDestinoHistorico] = useState("TODOS")
+  const [historicoSelecionado, setHistoricoSelecionado] = useState<Set<string>>(new Set())
 
   async function carregar() {
     try {
@@ -228,6 +285,10 @@ export default function DesviosPage() {
   useEffect(() => {
     carregar()
   }, [anoHistorico])
+
+  useEffect(() => {
+    setHistoricoSelecionado(new Set())
+  }, [anoHistorico, filtroSituacaoHistorico, filtroDestinoHistorico, busca])
 
   async function handleUpload() {
     if (!arquivo) return
@@ -344,9 +405,105 @@ export default function DesviosPage() {
         String(d.situacao_historico || "").toLowerCase() ===
           filtroSituacaoHistorico.toLowerCase()
 
-      return passouBusca && passouSituacao
+      const passouDestino = matchDestinoHistorico(d.destino, filtroDestinoHistorico)
+
+      return passouBusca && passouSituacao && passouDestino
     })
-  }, [historicoSafe, busca, filtroSituacaoHistorico])
+  }, [historicoSafe, busca, filtroSituacaoHistorico, filtroDestinoHistorico])
+
+  const historicoFiltradoSerials = useMemo(
+    () => historicoFiltrado.map((item) => item.serial).filter(Boolean),
+    [historicoFiltrado]
+  )
+
+  const todosHistoricoFiltradosSelecionados =
+    historicoFiltradoSerials.length > 0 &&
+    historicoFiltradoSerials.every((serial) => historicoSelecionado.has(serial))
+
+  const historicoParaExportar = useMemo(() => {
+    const selecionados = historicoFiltrado.filter((item) =>
+      historicoSelecionado.has(item.serial)
+    )
+
+    return selecionados.length ? selecionados : historicoFiltrado
+  }, [historicoFiltrado, historicoSelecionado])
+
+  function toggleSelecionarHistorico(serial: string) {
+    setHistoricoSelecionado((prev) => {
+      const next = new Set(prev)
+
+      if (next.has(serial)) next.delete(serial)
+      else next.add(serial)
+
+      return next
+    })
+  }
+
+  function toggleSelecionarTodosHistoricoFiltrado() {
+    setHistoricoSelecionado((prev) => {
+      const next = new Set(prev)
+
+      if (todosHistoricoFiltradosSelecionados) {
+        historicoFiltradoSerials.forEach((serial) => next.delete(serial))
+      } else {
+        historicoFiltradoSerials.forEach((serial) => next.add(serial))
+      }
+
+      return next
+    })
+  }
+
+  function exportarHistoricoSelecionado() {
+    if (!historicoParaExportar.length) return
+
+    const linhas = [
+      [
+        "Situacao",
+        "Desvio",
+        "Estado",
+        "Destino",
+        "Descricao",
+        "Qtd lotes",
+        "Lotes",
+        "Mes impactado",
+        "Linha",
+        "Grupo",
+        "Qtd prevista",
+        "Primeiro upload",
+        "Ultimo upload",
+        "Fechado detectado em",
+        "Setor",
+      ],
+      ...historicoParaExportar.map((item) => [
+        item.situacao_historico || "",
+        item.serial || "",
+        String(item.estado ?? ""),
+        String(item.destino ?? ""),
+        item.titulo || "",
+        String(item.qtd_lotes ?? 0),
+        item.lotes_texto || "",
+        item.meses_lib_texto || "",
+        item.linhas_texto || "",
+        item.grupos_produto_texto || "",
+        String(item.qtd_prevista_total ?? 0),
+        item.primeiro_upload || "",
+        item.ultimo_upload || "",
+        item.fechado_detectado_em || "",
+        item.setor || "",
+      ]),
+    ]
+
+    const sufixo =
+      historicoSelecionado.size > 0
+        ? "selecionados"
+        : filtroDestinoHistorico !== "TODOS"
+          ? filtroDestinoHistorico.toLowerCase().replaceAll(" ", "_")
+          : "filtrados"
+
+    baixarCsv(`historico_desvios_${anoHistorico}_${sufixo}.csv`, linhas)
+  }
+
+
 
   const novosLotes = eventosSafe.filter((e) => e.tipo_evento === "NOVO_LOTE")
   const lotesRemovidos = eventosSafe.filter((e) => e.tipo_evento === "LOTE_REMOVIDO")
@@ -631,13 +788,57 @@ export default function DesviosPage() {
               <option value="Aberto">Abertos</option>
               <option value="Fechado">Fechados</option>
             </select>
+
+            <select
+              value={filtroDestinoHistorico}
+              onChange={(e) => setFiltroDestinoHistorico(e.target.value)}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm outline-none focus:border-[#17375E]"
+            >
+              <option value="TODOS">Todos os destinos</option>
+              <option value="Aprovado">Aprovado</option>
+              <option value="Reprovado">Reprovado</option>
+              <option value="Descartado">Descartado</option>
+              <option value="SEM DESTINO">Sem destino</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={exportarHistoricoSelecionado}
+              disabled={!historicoParaExportar.length}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#17375E] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0f2947] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={16} />
+              Exportar {historicoSelecionado.size ? `selecionados (${historicoSelecionado.size})` : "filtrados"}
+            </button>
           </div>
+        </div>
+
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          <span>
+            {historicoFiltrado.length} desvio(s) no filtro
+            {historicoSelecionado.size ? ` · ${historicoSelecionado.size} selecionado(s)` : ""}
+          </span>
+
+          {filtroDestinoHistorico === "Descartado" && (
+            <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-700">
+              Exibindo descartados
+            </span>
+          )}
         </div>
 
         <div className="overflow-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="bg-[#17375E] text-white">
+                <th className="w-10 px-4 py-3 text-left font-medium">
+                  <input
+                    type="checkbox"
+                    checked={todosHistoricoFiltradosSelecionados}
+                    onChange={toggleSelecionarTodosHistoricoFiltrado}
+                    className="h-4 w-4 rounded border-white/40 text-[#17375E]"
+                    aria-label="Selecionar todos os desvios filtrados"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left font-medium">Situação</th>
                 <th className="px-4 py-3 text-left font-medium">Desvio</th>
                 <th className="px-4 py-3 text-left font-medium">Estado</th>
@@ -657,6 +858,15 @@ export default function DesviosPage() {
             <tbody>
               {historicoFiltrado.map((item) => (
                 <tr key={`${item.serial}-${item.ultimo_upload || ""}`} className="border-b border-slate-100 align-top">
+                  <td className="px-4 py-4">
+                    <input
+                      type="checkbox"
+                      checked={historicoSelecionado.has(item.serial)}
+                      onChange={() => toggleSelecionarHistorico(item.serial)}
+                      className="h-4 w-4 rounded border-slate-300 text-[#17375E]"
+                      aria-label={`Selecionar ${item.serial}`}
+                    />
+                  </td>
                   <td className="px-4 py-4">{renderSituacaoHistoricoTag(item.situacao_historico)}</td>
                   <td className="px-4 py-4 font-semibold text-slate-900">{item.serial}</td>
                   <td className="px-4 py-4">{renderEstadoTag(item.estado)}</td>
@@ -679,7 +889,7 @@ export default function DesviosPage() {
 
               {!historicoFiltrado.length && !loading && (
                 <tr>
-                  <td colSpan={13} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={14} className="px-4 py-8 text-center text-sm text-slate-500">
                     Nenhum histórico encontrado para o ano selecionado.
                   </td>
                 </tr>
