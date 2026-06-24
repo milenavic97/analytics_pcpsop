@@ -471,7 +471,7 @@ function linhaLabel(linha: LinhaFiltro) {
 const PRODUCAO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v121-plano-atualizado:"
 const PRODUCAO_STORAGE_BUILD_KEY = "dfl-producao-cache-build"
-const PRODUCAO_STORAGE_BUILD_VALUE = "v121-plano-atualizado-cards"
+const PRODUCAO_STORAGE_BUILD_VALUE = "v124-cards-altura-uniforme"
 const PRODUCAO_LAST_STATE_KEY = "dfl-producao-last-state-v94"
 
 type ProducaoLastState = {
@@ -832,7 +832,7 @@ function ChartTooltip({ active, payload, label }: any) {
         const isPct = dataKey.includes("pct") || isAderenciaVisual
         const isHora = dataKey.includes("horas")
         const tooltipValue = isAderenciaVisual
-          ? Number(item.payload?.aderencia_ytd_pct ?? item.payload?.aderencia_pct ?? 0)
+          ? Number(item.payload?.aderencia_mes_pct ?? item.payload?.aderencia_ytd_pct ?? item.payload?.aderencia_pct ?? 0)
           : Number(item.value || 0)
         const value = isPct
           ? formatPercent(tooltipValue)
@@ -1056,7 +1056,7 @@ function MetricCard({
   const style = styles[accent]
 
   return (
-    <div className="group relative min-h-[132px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div className="group relative h-full min-h-[132px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <div className={`absolute inset-x-0 top-0 h-1 ${style.line}`} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1079,9 +1079,12 @@ function MetricCard({
 
 function PercentPointLabel(props: any) {
   const { x, y, value, payload } = props
-  const raw = Number(payload?.aderencia_ytd_pct ?? payload?.aderencia_pct ?? value ?? 0)
+  const rawValue = payload?.aderencia_mes_pct ?? payload?.aderencia_ytd_pct ?? payload?.aderencia_pct ?? value
 
-  if (!x || !y || !raw) return null
+  if (x == null || y == null || rawValue == null) return null
+
+  const raw = Number(rawValue)
+  if (!Number.isFinite(raw)) return null
 
   const fill = raw >= 95 ? COLORS.green : raw >= 80 ? "#4F6FAE" : COLORS.red
   const labelY = Math.max(12, Number(y) - 14)
@@ -1260,7 +1263,7 @@ function ToggleLegend({
     },
     {
       key: "aderencia",
-      label: "% atingido YTD",
+      label: "% atingido mês",
       color: COLORS.slate,
       type: "line",
       enabled: true,
@@ -1338,35 +1341,36 @@ function MonthlyLineChartCard({
     const aderenciaBandMax = 128.5
     const aderenciaBandSize = Math.max(6, aderenciaBandMax - aderenciaBandMin)
 
-    let planejadoAcum = 0
-    let realizadoAcum = 0
-
     return baseMeses.map((item) => {
       const orcadoCx = getOrcadoCx(item)
       const planejadoCx = Number(item.planejado_cx || 0)
       const realizadoCx = Number(item.realizado_cx || 0)
+      const mes = Number(item.mes || 0)
 
-      let aderenciaYtdPct: number | null = null
+      // No gráfico mensal, o % deve acompanhar o mês da barra.
+      // Meses fechados: realizado do mês / planejado do mês.
+      // Mês atual: MTD do mês / planejado do mês.
+      // Meses futuros: sem ponto de %.
+      // Isso evita que a linha esconda o desempenho do mês atual no acumulado YTD.
+      const aderenciaMesPct =
+        mes > 0 && mes <= ytdMonth && planejadoCx > 0
+          ? (realizadoCx / planejadoCx) * 100
+          : null
 
-      if (Number(item.mes || 0) <= ytdMonth) {
-        planejadoAcum += planejadoCx
-        realizadoAcum += realizadoCx
-        aderenciaYtdPct = planejadoAcum > 0 ? (realizadoAcum / planejadoAcum) * 100 : null
-      }
-
-      const pctPlot = Math.min(110, Math.max(0, Number(aderenciaYtdPct || 0)))
+      const pctPlot = Math.min(110, Math.max(0, Number(aderenciaMesPct ?? 0)))
 
       return {
         ...item,
         planejado_plot_cx: planejadoCx > 0 ? planejadoCx : null,
         realizado_plot_cx: realizadoCx > 0 ? realizadoCx : null,
         orcado_plot_cx: orcadoCx > 0 ? orcadoCx : null,
-        aderencia_ytd_pct: aderenciaYtdPct,
+        aderencia_mes_pct: aderenciaMesPct,
+        aderencia_ytd_pct: aderenciaMesPct,
         aderencia_visual:
-          aderenciaYtdPct !== null
+          aderenciaMesPct !== null
             ? aderenciaBandMin + (pctPlot / 110) * aderenciaBandSize
             : null,
-        aderencia_plot_pct: aderenciaYtdPct,
+        aderencia_plot_pct: aderenciaMesPct,
       }
     })
   }, [ano, meses])
@@ -1478,7 +1482,7 @@ function MonthlyLineChartCard({
                 yAxisId="right"
                 type="monotone"
                 dataKey="aderencia_visual"
-                name="% atingido YTD"
+                name="% atingido mês"
                 stroke="#9AAAC0"
                 strokeWidth={1.5}
                 dot={{ r: 2, fill: "#9AAAC0", stroke: "#9AAAC0" }}
@@ -1486,7 +1490,7 @@ function MonthlyLineChartCard({
                 connectNulls={false}
                 isAnimationActive={false}
               >
-                <LabelList dataKey="aderencia_ytd_pct" content={<PercentPointLabel />} />
+                <LabelList dataKey="aderencia_mes_pct" content={<PercentPointLabel />} />
               </Line>
             )}
           </ComposedChart>
@@ -1571,7 +1575,7 @@ function LinhaResumoCards({
   const gapTendenciaOrcado = tendenciaAno - Number(resumo.orcado_cx || 0)
 
   return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+    <div className="grid auto-rows-fr grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
       <MetricCard
         title="Orçado ano"
         value={formatCx(resumo.orcado_cx)}
@@ -1650,7 +1654,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
 
             <MonthlyLineChartCard
               title={`${linha.nome} — planejado x realizado`}
-              subtitle={`Ano fechado ${data.periodo_label}. Barras mostram planejado mensal x realizado; tendência do card usa realizado + plano restante; % acumulado YTD.`}
+              subtitle={`Ano fechado ${data.periodo_label}. Barras mostram planejado mensal x realizado; tendência do card usa realizado + plano restante; % da linha é mensal/MTD.`}
               meses={linha.meses}
               ano={data.ano}
             />
