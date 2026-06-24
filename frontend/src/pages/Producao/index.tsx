@@ -448,18 +448,7 @@ function formatAtualizacaoBR(value?: string | null) {
   return `${data} às ${hora}`
 }
 
-function aderenciaClass(value?: number) {
-  const v = Number(value || 0)
-  if (v >= 95) return "text-green-600"
-  if (v >= 80) return "text-orange-500"
-  return "text-red-500"
-}
 
-function gapClass(value?: number) {
-  const v = Number(value || 0)
-  if (v >= 0) return "text-green-600"
-  return "text-red-500"
-}
 
 function linhaLabel(linha: LinhaFiltro) {
   if (linha === "L1") return "Envase — Linha 1"
@@ -1589,98 +1578,6 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5">
-            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-              Aderência por linha
-            </p>
-            <h2 className="text-xl font-bold text-slate-900">Linha 1 e Linha 2</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Linha 1 considera MAQ 1 e MAQ 2 envasadora. Linha 2 considera L2 envasadora.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            {data.por_linha.map((item) => (
-              <div key={item.linha} className="rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="font-bold text-slate-900">{item.nome}</p>
-                    <p className="text-sm text-slate-500">
-                      Realizado {formatCx(item.realizado_cx)} de {formatCx(item.planejado_cx)} planejadas
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`text-xl font-black ${aderenciaClass(item.aderencia_pct)}`}>
-                      {formatPercent(item.aderencia_pct)}
-                    </p>
-                    <p className={`text-sm font-bold ${gapClass(item.gap_cx)}`}>
-                      Gap {formatCx(item.gap_cx)}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-[#17375E]"
-                    style={{ width: `${Math.min(Math.max(item.aderencia_pct || 0, 0), 100)}%` }}
-                  />
-                </div>
-                <div className="mt-3 flex flex-wrap gap-3 text-xs font-semibold text-slate-500">
-                  <span>{formatHoras(item.horas_paradas)} paradas</span>
-                  <span>{formatNumber(item.lotes)} lotes</span>
-                  <span>Ofensor: {item.principal_ofensor?.motivo || "—"}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Produção por grupo
-              </p>
-              <h2 className="text-xl font-bold text-slate-900">Realizado em envase</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Volume envasado agrupado por família/produto no período.
-              </p>
-            </div>
-            <div className="rounded-xl bg-green-50 p-3 text-green-600">
-              <BarChart3 className="h-5 w-5" />
-            </div>
-          </div>
-
-          <div className="max-h-[430px] overflow-auto rounded-2xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 text-left">Grupo</th>
-                  <th className="px-4 py-3 text-right">Realizado</th>
-                  <th className="px-4 py-3 text-right">Lotes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.por_grupo.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-10 text-center text-slate-400">
-                      Nenhum grupo encontrado.
-                    </td>
-                  </tr>
-                )}
-                {data.por_grupo.map((item) => (
-                  <tr key={item.grupo} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-4 py-3 font-semibold text-slate-800">{item.grupo}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatCx(item.realizado_cx)}</td>
-                    <td className="px-4 py-3 text-right text-slate-600">{formatNumber(item.lotes)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
