@@ -1023,7 +1023,7 @@ type FaturamentoVersaoResponse = {
 }
 
 const FATURAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v201-heatmap:"
+const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v202-heatmap-leitura:"
 const faturamentoRuntimeCache = new Map<string, FaturamentoCacheEntry>()
 
 function faturamentoCacheKey(ano: number, bloco: string, produtoFiltro: string) {
@@ -1184,6 +1184,89 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
     return max
   }, [dados])
 
+  const resumoHeatmap = useMemo(() => {
+    const periodos = {
+      inicio: 0,
+      meio: 0,
+      fim: 0,
+    }
+
+    let total = 0
+    let pico = {
+      mes: 0,
+      mesNome: "-",
+      dia: 0,
+      prepedidos: 0,
+      quantidade: 0,
+    }
+    let maiorMes = {
+      mes: 0,
+      mesNome: "-",
+      prepedidos: 0,
+      media: 0,
+    }
+
+    dados.forEach((mes) => {
+      const totalMes = Number(mes.total_prepedidos ?? 0)
+
+      if (totalMes > maiorMes.prepedidos) {
+        maiorMes = {
+          mes: Number(mes.mes ?? 0),
+          mesNome: mes.mes_nome || String(mes.mes || "-"),
+          prepedidos: totalMes,
+          media: Number(mes.media_diaria_prepedidos ?? 0),
+        }
+      }
+
+      ;(mes.dias ?? []).forEach((dia) => {
+        if (dia.existe_no_mes === false) return
+
+        const qtd = Number(dia.prepedidos ?? 0)
+        const numeroDia = Number(dia.dia ?? 0)
+
+        total += qtd
+
+        if (numeroDia <= 10) periodos.inicio += qtd
+        else if (numeroDia <= 20) periodos.meio += qtd
+        else periodos.fim += qtd
+
+        if (qtd > pico.prepedidos) {
+          pico = {
+            mes: Number(mes.mes ?? 0),
+            mesNome: mes.mes_nome || String(mes.mes || "-"),
+            dia: numeroDia,
+            prepedidos: qtd,
+            quantidade: Number(dia.quantidade ?? 0),
+          }
+        }
+      })
+    })
+
+    const rankingPeriodos = [
+      { key: "inicio", label: "início do mês", intervalo: "dias 01–10", valor: periodos.inicio },
+      { key: "meio", label: "meio do mês", intervalo: "dias 11–20", valor: periodos.meio },
+      { key: "fim", label: "fim do mês", intervalo: "dias 21–31", valor: periodos.fim },
+    ].sort((a, b) => b.valor - a.valor)
+
+    const dominante = rankingPeriodos[0]
+    const participacaoDominante = total > 0 ? (dominante.valor / total) * 100 : 0
+    const leitura =
+      total <= 0
+        ? "Sem dados carregados para leitura."
+        : participacaoDominante >= 45
+          ? `Há maior concentração no ${dominante.label}.`
+          : "Não há concentração forte em uma única parte do mês."
+
+    return {
+      total,
+      pico,
+      maiorMes,
+      dominante,
+      participacaoDominante,
+      leitura,
+    }
+  }, [dados])
+
   const dias = Array.from({ length: 31 }, (_, index) => index + 1)
 
   if (!mesesComDados.length) {
@@ -1204,9 +1287,54 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
   }
 
   return (
-    <div className="overflow-x-auto pb-1">
-      <div className="min-w-[1050px]">
-        <div className="grid grid-cols-[98px_repeat(31,minmax(25px,1fr))_96px] items-center gap-1">
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Maior pico</p>
+          <p className="mt-1 text-xl font-black text-slate-900">
+            {fmtNumero(resumoHeatmap.pico.prepedidos, 0)}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            {resumoHeatmap.pico.dia
+              ? `${String(resumoHeatmap.pico.dia).padStart(2, "0")}/${resumoHeatmap.pico.mesNome}`
+              : "Sem pico"}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Mês com maior entrada</p>
+          <p className="mt-1 text-xl font-black text-slate-900">
+            {resumoHeatmap.maiorMes.mesNome}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            {fmtNumero(resumoHeatmap.maiorMes.prepedidos, 0)} pré-pedidos · {fmtNumero(resumoHeatmap.maiorMes.media, 1)}/dia
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Concentração</p>
+          <p className="mt-1 text-xl font-black text-slate-900">
+            {fmtPct(resumoHeatmap.participacaoDominante)}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            {resumoHeatmap.dominante.intervalo}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Leitura rápida</p>
+          <p className="mt-1 text-sm font-bold leading-snug text-slate-700">
+            {resumoHeatmap.leitura}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            Total analisado: {fmtNumero(resumoHeatmap.total, 0)} pré-pedidos
+          </p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto pb-1">
+        <div className="min-w-[1050px]">
+          <div className="grid grid-cols-[98px_repeat(31,minmax(25px,1fr))_96px] items-center gap-1">
           <div />
           {dias.map((dia) => (
             <div key={dia} className="text-center text-[10px] font-black text-slate-400">
@@ -1260,12 +1388,13 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
           })}
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-          <span className="font-semibold text-slate-600">Intensidade:</span>
-          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-white ring-1 ring-slate-200" />0</span>
-          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-blue-50 ring-1 ring-blue-100" />baixo</span>
-          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-blue-100 ring-1 ring-blue-200" />médio</span>
-          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-[#17375E]" />alto</span>
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span className="font-semibold text-slate-600">Intensidade:</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-white ring-1 ring-slate-200" />0</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-blue-50 ring-1 ring-blue-100" />baixo</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-blue-100 ring-1 ring-blue-200" />médio</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-[#17375E]" />alto</span>
+          </div>
         </div>
       </div>
     </div>
