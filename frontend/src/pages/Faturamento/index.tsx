@@ -28,7 +28,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   CartesianGrid,
 } from "recharts"
 
@@ -437,6 +436,18 @@ function labelMoney(value: unknown) {
   const numero = Number(value || 0)
   if (!numero) return ""
   return fmtMoney(numero)
+}
+
+function labelMoneyUmaLinha(value: unknown) {
+  const numero = Number(value || 0)
+  if (!numero) return ""
+  return fmtMoney(numero).replace(/\s/g, "\u00A0")
+}
+
+function labelNumeroGrafico(value: unknown) {
+  const numero = Number(value || 0)
+  if (!numero) return ""
+  return fmtNumero(numero)
 }
 
 function badgeAbc(classe?: string) {
@@ -1563,9 +1574,21 @@ export default function FaturamentoPage() {
               title="Evolução mensal: atual x ano anterior e plano"
               subtitle="Barras comparam faturamento mensal contra o mesmo mês do ano anterior. Linhas mantêm quantidade real, Forecast S&OP e Orçado."
             >
-              <div className="h-[340px]">
+              <LegendToggle
+                items={[
+                  { key: "Ano anterior", label: "Ano anterior", color: AZUL_CLARO },
+                  { key: "Faturamento", label: "Faturamento", color: AZUL },
+                  { key: "Quantidade", label: "Quantidade", color: AZUL_CLARO },
+                  { key: "Forecast", label: "Forecast", color: LARANJA, dashed: true },
+                  { key: "Orçado", label: "Orçado", color: VERDE, dashed: true },
+                ]}
+                visibleMap={monthlyVisible}
+                onToggle={(key) => setMonthlyVisible((prev) => ({ ...prev, [key]: !prev[key] }))}
+              />
+
+              <div className="h-[380px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={mesesGrafico} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
+                  <ComposedChart data={mesesGrafico} margin={{ top: 34, right: 26, left: 8, bottom: 8 }} barGap={4} barCategoryGap="22%">
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CINZA_CLARO} />
                     <XAxis dataKey="mes" tick={CHART_TICK_12} />
                     <YAxis yAxisId="valor" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
@@ -1577,14 +1600,31 @@ export default function FaturamentoPage() {
                       }}
                       labelStyle={{ color: AZUL, fontWeight: 700 }}
                     />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar yAxisId="valor" dataKey="Ano anterior" fill={AZUL_CLARO} radius={[7, 7, 0, 0]} maxBarSize={34} />
-                    <Bar yAxisId="valor" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={38}>
-                      <LabelList dataKey="Faturamento" position="top" formatter={labelMoney} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
-                    </Bar>
-                    <Line yAxisId="qtd" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false} />
-                    <Line yAxisId="qtd" type="monotone" dataKey="Forecast" stroke={LARANJA} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 2 }} />
-                    <Line yAxisId="qtd" type="monotone" dataKey="Orçado" stroke={VERDE} strokeWidth={2} strokeDasharray="2 3" dot={{ r: 2 }} />
+                    {monthlyVisible["Ano anterior"] !== false && (
+                      <Bar yAxisId="valor" dataKey="Ano anterior" fill={AZUL_CLARO} radius={[7, 7, 0, 0]} maxBarSize={34}>
+                        <LabelList dataKey="Ano anterior" position="top" formatter={labelMoneyUmaLinha} style={{ fill: AZUL_CLARO, fontSize: 10, fontWeight: 700 }} />
+                      </Bar>
+                    )}
+                    {monthlyVisible.Faturamento !== false && (
+                      <Bar yAxisId="valor" dataKey="Faturamento" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={38}>
+                        <LabelList dataKey="Faturamento" position="top" formatter={labelMoneyUmaLinha} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
+                      </Bar>
+                    )}
+                    {monthlyVisible.Quantidade !== false && (
+                      <Line yAxisId="qtd" type="monotone" dataKey="Quantidade" stroke={AZUL_CLARO} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false}>
+                        <LabelList dataKey="Quantidade" position="top" formatter={labelNumeroGrafico} style={{ fill: AZUL_CLARO, fontSize: 9, fontWeight: 700 }} />
+                      </Line>
+                    )}
+                    {monthlyVisible.Forecast !== false && (
+                      <Line yAxisId="qtd" type="monotone" dataKey="Forecast" stroke={LARANJA} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 2 }}>
+                        <LabelList dataKey="Forecast" position="top" formatter={labelNumeroGrafico} style={{ fill: LARANJA, fontSize: 9, fontWeight: 700 }} />
+                      </Line>
+                    )}
+                    {monthlyVisible["Orçado"] !== false && (
+                      <Line yAxisId="qtd" type="monotone" dataKey="Orçado" stroke={VERDE} strokeWidth={2} strokeDasharray="2 3" dot={{ r: 2 }}>
+                        <LabelList dataKey="Orçado" position="bottom" formatter={labelNumeroGrafico} style={{ fill: VERDE, fontSize: 9, fontWeight: 700 }} />
+                      </Line>
+                    )}
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
