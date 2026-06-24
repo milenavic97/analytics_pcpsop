@@ -1134,6 +1134,21 @@ async function getFaturamentoCache(ano: number, bloco: string, produtoFiltro: st
   return (await response.json()) as FaturamentoCacheResponse
 }
 
+async function getEntradaPrepedidosHeatmap(ano: number) {
+  const params = new URLSearchParams({ ano: String(ano), _t: String(Date.now()) })
+
+  const response = await fetch(`${API_BASE}/faturamento/entrada-prepedidos-heatmap?${params.toString()}`, {
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+    },
+  })
+
+  if (!response.ok) throw new Error("Erro ao carregar matriz de pré-pedidos.")
+  return (await response.json()) as { entrada_prepedidos_dia_mes?: EntradaPrepedidoMes[]; debug?: Record<string, unknown> }
+}
+
 function getInitialFaturamentoCache(ano: number, bloco: string, produtoFiltro: string) {
   return readFaturamentoCache(ano, bloco, produtoFiltro)
 }
@@ -1283,6 +1298,7 @@ export default function FaturamentoPage() {
   const [produtoBuscaInput, setProdutoBuscaInput] = useState("")
   const [produtoFiltro, setProdutoFiltro] = useState(produtoFiltroInicial)
   const [aba, setAba] = useState<"resumo" | "atendimento" | "clientes">("resumo")
+  const [entradaPrepedidosHeatmapFallback, setEntradaPrepedidosHeatmapFallback] = useState<EntradaPrepedidoMes[]>([])
 
   const [buscaCliente, setBuscaCliente] = useState("")
   const [buscaProduto, setBuscaProduto] = useState("")
@@ -1426,6 +1442,24 @@ export default function FaturamentoPage() {
     carregarResumo(false, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ano, bloco, produtoFiltro])
+
+  useEffect(() => {
+    let ativo = true
+
+    getEntradaPrepedidosHeatmap(ano)
+      .then((res) => {
+        if (!ativo) return
+        setEntradaPrepedidosHeatmapFallback(res.entrada_prepedidos_dia_mes ?? [])
+      })
+      .catch(() => {
+        if (!ativo) return
+        setEntradaPrepedidosHeatmapFallback([])
+      })
+
+    return () => {
+      ativo = false
+    }
+  }, [ano])
 
   useEffect(() => {
     carregarUltimasAtualizacoesBases()
@@ -1628,7 +1662,10 @@ export default function FaturamentoPage() {
   }, [dados])
 
   const carteiraMesEmissaoLista = useMemo(() => dados?.pendentes_mes_emissao ?? [], [dados])
-  const entradaPrepedidosDiaMes = useMemo(() => dados?.entrada_prepedidos_dia_mes ?? [], [dados])
+  const entradaPrepedidosDiaMes = useMemo(() => {
+    const principal = dados?.entrada_prepedidos_dia_mes ?? []
+    return principal.length ? principal : entradaPrepedidosHeatmapFallback
+  }, [dados, entradaPrepedidosHeatmapFallback])
 
   const pendentesStatusLista = useMemo(() => dados?.pendentes_status ?? [], [dados])
   const pendentesStatusGrafico = useMemo(() => {
