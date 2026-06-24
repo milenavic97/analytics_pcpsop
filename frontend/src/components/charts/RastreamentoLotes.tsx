@@ -842,51 +842,6 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     versaoServidorRef?: string | null,
     atualizacaoServidorRef?: string | null
   ) => {
-    // Fluxo normal: se já existe cache local, mostra imediatamente.
-    // A checagem da versão roda em segundo plano e só troca os dados se o backend mudou.
-    if (false && !forceRefresh) {
-      const cached = lerRastreamentoCache(mesSelecionado, anoSelecionado);
-
-      if (cached) {
-        aplicarDadosRastreamento(cached.data, cached.apontamentoAtualizadoEm || null);
-        setLoading(false);
-        setRefreshing(false);
-
-        buscarVersaoRastreamento().then((versaoServidor) => {
-          const versaoBaseServidor = versaoServidor?.versao_base || null;
-          const atualizacaoServidor = versaoServidor?.ultima_atualizacao || null;
-
-          if (atualizacaoServidor) {
-            setUltimaAtualizacaoProducao(atualizacaoServidor);
-          }
-
-          if (!versaoBaseServidor) return;
-
-          // Compatibilidade com caches antigos salvos antes da versão v54:
-          // se existe dado local mas ainda não existe versaoBase, apenas carimba a versão
-          // no cache local. Não recarrega a seção à toa.
-          if (!cached.versaoBase) {
-            salvarRastreamentoCache(
-              mesSelecionado,
-              anoSelecionado,
-              cached.data,
-              atualizacaoServidor,
-              versaoBaseServidor
-            );
-            return;
-          }
-
-          if (versaoBaseServidor === cached.versaoBase) {
-            return;
-          }
-
-          void carregar(true, true, versaoBaseServidor, atualizacaoServidor);
-        });
-
-        return;
-      }
-    }
-
     // Stale while refresh:
     // se já tem dado na tela, não apaga a seção; só mostra "Atualizando..."
     if (manterTabelaDuranteRefresh || data) {
@@ -927,13 +882,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         versaoServidor?.ultima_atualizacao || atualizacaoServidorRef || null;
 
       aplicarDadosRastreamento(json, atualizacaoServidor);
-      salvarRastreamentoCache(
-        mesSelecionado,
-        anoSelecionado,
-        json,
-        atualizacaoServidor,
-        versaoBase
-      );
+      limparRastreamentoCache(mesSelecionado, anoSelecionado);
     } catch (_) {
       // Se for atualização automática/manual, preserva a tabela antiga para não sumir tudo.
       if (!manterTabelaDuranteRefresh && !data) {
