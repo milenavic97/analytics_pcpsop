@@ -1056,7 +1056,7 @@ function MetricCard({
   const style = styles[accent]
 
   return (
-    <div className="group relative min-h-[126px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div className="group relative min-h-[132px] overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <div className={`absolute inset-x-0 top-0 h-1 ${style.line}`} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1065,7 +1065,7 @@ function MetricCard({
             {value}
           </h3>
           {detail && (
-            <p className="mt-2 truncate text-xs font-bold text-slate-600">{detail}</p>
+            <p className="mt-2 text-xs font-bold leading-4 text-slate-600">{detail}</p>
           )}
           {subtitle && <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{subtitle}</p>}
         </div>
@@ -1583,8 +1583,8 @@ function LinhaResumoCards({
       <MetricCard
         title="Tendência ano"
         value={formatCx(tendenciaAno)}
-        detail={`${gapTendenciaOrcado >= 0 ? "+" : ""}${formatCx(gapTendenciaOrcado)} vs orçado`}
-        subtitle={`Realizado + plano restante · ${periodoLabel}`}
+        detail={formatTubetesFromCx(tendenciaAno)}
+        subtitle={`Gap vs orçado: ${gapTendenciaOrcado >= 0 ? "+" : ""}${formatCx(gapTendenciaOrcado)} · ${formatTubetesFromCx(gapTendenciaOrcado)}`}
         icon={TrendingUp}
         accent={gapTendenciaOrcado >= 0 ? "green" : "purple"}
       />
@@ -1599,8 +1599,8 @@ function LinhaResumoCards({
       <MetricCard
         title="% atingido YTD"
         value={formatPercent(resumo.aderencia_pct)}
-        detail={`Plano original: ${formatCx(planejadoOriginal)}`}
-        subtitle="Realizado / planejado acumulado"
+        detail={`Plano operacional: ${formatCx(planejadoOriginal)}`}
+        subtitle={`${formatTubetesFromCx(planejadoOriginal)} · Realizado / planejado acumulado`}
         icon={Target}
         accent={resumo.aderencia_pct >= 95 ? "green" : resumo.aderencia_pct >= 80 ? "orange" : "red"}
       />
