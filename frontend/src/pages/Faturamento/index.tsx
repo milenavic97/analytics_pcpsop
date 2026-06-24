@@ -347,6 +347,7 @@ type ResumoFaturamento = {
   ciclo_origem?: CicloOrigem[]
   atendimento_mensal?: AtendimentoMensal[]
   faturamento_origem_mensal?: FaturamentoOrigemMensal[]
+  entrada_prepedidos_dia_mes?: EntradaPrepedidoMes[]
   pendentes_status?: PendenteResumo[]
   pendentes_aging?: PendenteResumo[]
   pendentes_mes_emissao?: CarteiraMesEmissao[]
@@ -362,6 +363,25 @@ type ResumoFaturamento = {
     fonte_pedidos?: string
     fonte_carteira_pendente?: string
   }
+}
+
+type EntradaPrepedidoDia = {
+  dia?: number
+  existe_no_mes?: boolean
+  prepedidos?: number | null
+  quantidade?: number | null
+  valor_informado?: number | null
+  intensidade_pct?: number | null
+}
+
+type EntradaPrepedidoMes = {
+  mes?: number
+  mes_nome?: string
+  dias?: EntradaPrepedidoDia[]
+  total_prepedidos?: number
+  total_quantidade?: number
+  valor_informado?: number
+  media_diaria_prepedidos?: number
 }
 
 const AZUL = "#17375E"
@@ -1003,7 +1023,7 @@ type FaturamentoVersaoResponse = {
 }
 
 const FATURAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v100:"
+const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v201-heatmap:"
 const faturamentoRuntimeCache = new Map<string, FaturamentoCacheEntry>()
 
 function faturamentoCacheKey(ano: number, bloco: string, produtoFiltro: string) {
@@ -1146,6 +1166,112 @@ function LegendToggle({
     </div>
   )
 }
+
+function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
+  const mesesComDados = useMemo(
+    () => dados.filter((mes) => Number(mes.total_prepedidos ?? 0) > 0),
+    [dados]
+  )
+
+  const maxDia = useMemo(() => {
+    let max = 0
+    dados.forEach((mes) => {
+      ;(mes.dias ?? []).forEach((dia) => {
+        if (dia.existe_no_mes === false) return
+        max = Math.max(max, Number(dia.prepedidos ?? 0))
+      })
+    })
+    return max
+  }, [dados])
+
+  const dias = Array.from({ length: 31 }, (_, index) => index + 1)
+
+  if (!mesesComDados.length) {
+    return (
+      <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+        Sem pré-pedidos emitidos carregados para montar a matriz.
+      </div>
+    )
+  }
+
+  function classeCelula(intensidade: number, existe: boolean, qtd: number) {
+    if (!existe) return "bg-slate-50 text-slate-200 border-slate-100"
+    if (qtd <= 0) return "bg-white text-slate-300 border-slate-100"
+    if (intensidade < 20) return "bg-blue-50 text-blue-900 border-blue-100"
+    if (intensidade < 45) return "bg-blue-100 text-blue-950 border-blue-200"
+    if (intensidade < 70) return "bg-blue-200 text-blue-950 border-blue-300"
+    return "bg-[#17375E] text-white border-[#17375E]"
+  }
+
+  return (
+    <div className="overflow-x-auto pb-1">
+      <div className="min-w-[1050px]">
+        <div className="grid grid-cols-[98px_repeat(31,minmax(25px,1fr))_96px] items-center gap-1">
+          <div />
+          {dias.map((dia) => (
+            <div key={dia} className="text-center text-[10px] font-black text-slate-400">
+              {String(dia).padStart(2, "0")}
+            </div>
+          ))}
+          <div className="text-right text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+            Total
+          </div>
+
+          {dados.map((mes) => {
+            const diasMes = mes.dias ?? []
+            return (
+              <div key={mes.mes ?? mes.mes_nome} className="contents">
+                <div className="pr-2 text-sm font-bold text-slate-700">
+                  {mes.mes_nome || mes.mes}
+                </div>
+
+                {dias.map((dia) => {
+                  const item = diasMes.find((d) => Number(d.dia) === dia)
+                  const existe = item?.existe_no_mes !== false
+                  const qtd = Number(item?.prepedidos ?? 0)
+                  const intensidade = maxDia > 0 ? (qtd / maxDia) * 100 : 0
+                  const title = existe
+                    ? `${String(dia).padStart(2, "0")}/${String(mes.mes ?? "").padStart(2, "0")}: ${fmtNumero(qtd)} pré-pedidos · ${fmtNumero(item?.quantidade ?? 0)} un.`
+                    : "Dia inexistente no mês"
+
+                  return (
+                    <div
+                      key={`${mes.mes}-${dia}`}
+                      title={title}
+                      className={`flex h-8 items-center justify-center rounded-md border text-[11px] font-black transition hover:ring-2 hover:ring-[#17375E]/25 ${classeCelula(
+                        intensidade,
+                        existe,
+                        qtd
+                      )}`}
+                    >
+                      {existe && qtd > 0 ? fmtNumero(qtd, 0) : ""}
+                    </div>
+                  )
+                })}
+
+                <div className="rounded-lg bg-slate-50 px-2 py-1 text-right text-xs font-black text-slate-700">
+                  {fmtNumero(mes.total_prepedidos ?? 0, 0)}
+                  <p className="text-[10px] font-semibold text-slate-400">
+                    {fmtNumero(mes.media_diaria_prepedidos ?? 0, 1)}/dia
+                  </p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          <span className="font-semibold text-slate-600">Intensidade:</span>
+          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-white ring-1 ring-slate-200" />0</span>
+          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-blue-50 ring-1 ring-blue-100" />baixo</span>
+          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-blue-100 ring-1 ring-blue-200" />médio</span>
+          <span className="inline-flex items-center gap-1"><span className="h-3 w-5 rounded bg-[#17375E]" />alto</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 
 export default function FaturamentoPage() {
   const anoInicial = 2026
@@ -1568,9 +1694,6 @@ export default function FaturamentoPage() {
                 </span>
               )}
             </div>
-            <p className="mt-2 max-w-4xl text-sm text-slate-500">
-              Visão executiva do faturamento, carteira pendente e ciclo pedido → faturamento. Fonte principal: {dados?.meta?.fonte_faturamento || "base carregada"}.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1913,6 +2036,13 @@ export default function FaturamentoPage() {
               <div className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
                 Leitura: pré-pedido do mesmo mês indica demanda nova que virou faturamento no próprio mês. Carteira anterior indica faturamento vindo de backlog/carteira já existente antes do mês.
               </div>
+            </SectionCard>
+
+            <SectionCard
+              title="Entrada de pré-pedidos por dia do mês"
+              subtitle="Quantidade de pré-pedidos emitidos por dia. Ajuda a identificar concentração no começo, meio ou fim do mês."
+            >
+              <EntradaPrepedidosHeatmap dados={dados?.entrada_prepedidos_dia_mes ?? []} />
             </SectionCard>
 
             <div className="grid gap-5 xl:grid-cols-2">
