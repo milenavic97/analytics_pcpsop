@@ -1472,13 +1472,6 @@ function LinhaResumoCards({
         icon={BarChart3}
         accent={resumo.gap_cx >= 0 ? "green" : "red"}
       />
-      <MetricCard
-        title="Horas paradas YTD"
-        value={formatHoras(resumo.horas_paradas)}
-        subtitle="Somente esta linha"
-        icon={TimerReset}
-        accent="orange"
-      />
     </div>
   )
 }
