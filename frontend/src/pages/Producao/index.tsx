@@ -89,6 +89,10 @@ interface MesProducao {
   gap_cx: number
   aderencia_pct: number
   orcado_cx?: number
+  gantt_v1_cx?: number
+  plano_v1_cx?: number
+  aderencia_v1_pct?: number
+  gap_vs_v1_cx?: number
   orcado_producao_cx?: number
   orcado_liberacao_cx?: number
   orcado_caixas?: number
@@ -476,7 +480,7 @@ function linhaLabel(linha: LinhaFiltro) {
 const PRODUCAO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v121-plano-atualizado:"
 const PRODUCAO_STORAGE_BUILD_KEY = "dfl-producao-cache-build"
-const PRODUCAO_STORAGE_BUILD_VALUE = "v126-fabrima-sd3-caixas"
+const PRODUCAO_STORAGE_BUILD_VALUE = "v127-gantt-v1-dashboard"
 const PRODUCAO_LAST_STATE_KEY = "dfl-producao-last-state-v94"
 
 type ProducaoLastState = {
@@ -1147,7 +1151,7 @@ function OrcadoMarkerDot(props: any) {
   )
 }
 
-type MonthlySeriesKey = "planejado" | "realizado" | "orcado" | "aderencia"
+type MonthlySeriesKey = "planejado" | "realizado" | "ganttV1" | "orcado" | "aderencia"
 
 type MonthlySeriesState = Record<MonthlySeriesKey, boolean>
 
@@ -1163,6 +1167,10 @@ function getOrcadoCx(item: MesProducao) {
       item.orcado ??
       0,
   )
+}
+
+function getGanttV1Cx(item: MesProducao) {
+  return Number(item.gantt_v1_cx ?? item.plano_v1_cx ?? 0)
 }
 
 function getMesCorteTendencia(ano: number) {
@@ -1233,10 +1241,12 @@ function ToggleLegend({
   series,
   onToggle,
   showOrcado,
+  showGanttV1,
 }: {
   series: MonthlySeriesState
   onToggle: (key: MonthlySeriesKey) => void
   showOrcado: boolean
+  showGanttV1: boolean
 }) {
   const items: Array<{
     key: MonthlySeriesKey
@@ -1258,6 +1268,13 @@ function ToggleLegend({
       color: COLORS.darkBlue,
       type: "bar",
       enabled: true,
+    },
+    {
+      key: "ganttV1",
+      label: "V1 Gantt",
+      color: COLORS.slate,
+      type: "bar",
+      enabled: showGanttV1,
     },
     {
       key: "orcado",
@@ -1319,6 +1336,7 @@ function MonthlyLineChartCard({
   const [series, setSeries] = useState<MonthlySeriesState>({
     planejado: true,
     realizado: true,
+    ganttV1: true,
     orcado: true,
     aderencia: true,
   })
@@ -1333,6 +1351,7 @@ function MonthlyLineChartCard({
         Math.max(
           Number(item.planejado_cx || 0),
           Number(item.realizado_cx || 0),
+          getGanttV1Cx(item),
           getOrcadoCx(item),
         ),
       ),
@@ -1348,6 +1367,7 @@ function MonthlyLineChartCard({
 
     return baseMeses.map((item) => {
       const orcadoCx = getOrcadoCx(item)
+      const ganttV1Cx = getGanttV1Cx(item)
       const planejadoCx = Number(item.planejado_cx || 0)
       const realizadoCx = Number(item.realizado_cx || 0)
       const mes = Number(item.mes || 0)
@@ -1368,6 +1388,7 @@ function MonthlyLineChartCard({
         ...item,
         planejado_plot_cx: planejadoCx > 0 ? planejadoCx : null,
         realizado_plot_cx: realizadoCx > 0 ? realizadoCx : null,
+        gantt_v1_plot_cx: ganttV1Cx > 0 ? ganttV1Cx : null,
         orcado_plot_cx: orcadoCx > 0 ? orcadoCx : null,
         aderencia_mes_pct: aderenciaMesPct,
         aderencia_ytd_pct: aderenciaMesPct,
@@ -1382,6 +1403,10 @@ function MonthlyLineChartCard({
 
   const showOrcado = useMemo(() => {
     return chartData.some((item) => Number(item.orcado_plot_cx || 0) > 0)
+  }, [chartData])
+
+  const showGanttV1 = useMemo(() => {
+    return chartData.some((item) => Number(item.gantt_v1_plot_cx || 0) > 0)
   }, [chartData])
 
   function toggleSeries(key: MonthlySeriesKey) {
@@ -1399,15 +1424,15 @@ function MonthlyLineChartCard({
           <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
         </div>
 
-        <ToggleLegend series={series} onToggle={toggleSeries} showOrcado={showOrcado} />
+        <ToggleLegend series={series} onToggle={toggleSeries} showOrcado={showOrcado} showGanttV1={showGanttV1} />
       </div>
 
       <div className="h-[430px] rounded-2xl border border-slate-200 bg-white p-4">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={chartData}
-            barCategoryGap="30%"
-            barGap={8}
+            barCategoryGap="24%"
+            barGap={6}
             margin={{ top: 58, right: 14, left: 0, bottom: 0 }}
           >
             <CartesianGrid vertical={false} stroke="#EEF2F7" strokeDasharray="3 3" />
@@ -1462,6 +1487,23 @@ function MonthlyLineChartCard({
                 isAnimationActive={false}
               >
                 <LabelList dataKey="realizado_cx" content={<TopLabel fill="#2F3B7C" dx={7} />} />
+              </Bar>
+            )}
+
+            {showGanttV1 && series.ganttV1 && (
+              <Bar
+                yAxisId="left"
+                dataKey="gantt_v1_plot_cx"
+                name="V1 Gantt"
+                fill="rgba(255,255,255,0.02)"
+                stroke={COLORS.slate}
+                strokeWidth={2}
+                strokeDasharray="4 3"
+                radius={[7, 7, 0, 0]}
+                barSize={22}
+                isAnimationActive={false}
+              >
+                <LabelList dataKey="gantt_v1_cx" content={<TopLabel fill={COLORS.slate} />} />
               </Bar>
             )}
 
@@ -1659,7 +1701,7 @@ function DashboardTab({ data }: { data: DashboardResponse }) {
 
             <MonthlyLineChartCard
               title={`${linha.nome} — planejado x realizado`}
-              subtitle={`Ano fechado ${data.periodo_label}. Barras mostram planejado mensal x realizado; tendência do card usa realizado + plano restante; % da linha é mensal/MTD.`}
+              subtitle={`Ano fechado ${data.periodo_label}. Barras mostram programação atual x realizado; V1 Gantt pontilhado mostra plano original; % da linha é mensal/MTD.`}
               meses={linha.meses}
               ano={data.ano}
             />
