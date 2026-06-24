@@ -1434,20 +1434,20 @@ function LinhaResumoCards({
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
       <MetricCard
-        title="Planejado ano"
-        value={formatCx(resumo.planejado_cx)}
-        detail={formatTubetesFromCx(resumo.planejado_cx)}
-        subtitle={`Programação + MPS · ${periodoLabel}`}
-        icon={Layers}
-        accent="purple"
-      />
-      <MetricCard
         title="Orçado ano"
         value={formatCx(resumo.orcado_cx)}
         detail={formatTubetesFromCx(resumo.orcado_cx)}
         subtitle="Orçado de produção"
         icon={Target}
         accent="orange"
+      />
+      <MetricCard
+        title="Planejado ano"
+        value={formatCx(resumo.planejado_cx)}
+        detail={formatTubetesFromCx(resumo.planejado_cx)}
+        subtitle={`Programação + MPS · ${periodoLabel}`}
+        icon={Layers}
+        accent="purple"
       />
       <MetricCard
         title="Realizado YTD"
