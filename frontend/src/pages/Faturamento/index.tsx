@@ -133,7 +133,6 @@ type Cliente = {
   registros?: number
   participacao_valor_pct?: number
   participacao_qtd_pct?: number
-  participacao_qtd_pct?: number
   acumulado_valor_pct?: number
   acumulado_qtd_pct?: number
   abc_valor?: string
@@ -273,6 +272,7 @@ type PendenteResumo = {
   prepedidos?: number
   clientes?: number
   participacao_valor_pct?: number
+  participacao_qtd_pct?: number
 }
 
 type PendenteCliente = {
@@ -333,6 +333,7 @@ type CarteiraMesEmissao = {
   prepedidos?: number
   clientes?: number
   participacao_valor_pct?: number
+  participacao_qtd_pct?: number
   ordem?: number
 }
 
