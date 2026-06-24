@@ -112,6 +112,22 @@ interface UltimaAtualizacaoResponse {
   ultima_atualizacao: string | null;
 }
 
+interface DesvioHistoricoAnoItem {
+  serial?: string | null;
+  destino?: string | null;
+  estado?: string | null;
+  descricao?: string | null;
+  titulo?: string | null;
+  lotes?: string[] | string | null;
+  lotes_texto?: string | null;
+  mes_impactado?: string | null;
+  meses_lib_texto?: string | null;
+  linha?: string | null;
+  grupo?: string | null;
+  qtd_prevista?: number | null;
+  qtd_prevista_total?: number | null;
+}
+
 const API_URL =
   (import.meta as unknown as { env: Record<string, string> }).env
     .VITE_API_URL || "https://dfl-sop-api.fly.dev";
@@ -266,6 +282,102 @@ interface RastreamentoData {
   atraso_producao_lotes?: AtrasoProducaoLote[];
   lotes: LoteRastreamento[];
 }
+
+
+function extrairLotesHistorico(valor: unknown): string[] {
+  if (Array.isArray(valor)) {
+    return valor.map((v) => String(v || "").trim()).filter(Boolean);
+  }
+
+  return String(valor || "")
+    .split(/[;,]/g)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function normalizarTextoHistorico(valor: unknown) {
+  return String(valor || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase();
+}
+
+function historicoItemEhReprovacaoOuDescarte(item: DesvioHistoricoAnoItem) {
+  const texto = [
+    item.destino,
+    item.estado,
+    item.descricao,
+    item.titulo,
+  ]
+    .map(normalizarTextoHistorico)
+    .join(" ");
+
+  return (
+    texto.includes("REPROV") ||
+    texto.includes("DESCART") ||
+    texto.includes("DESCARTE") ||
+    texto.includes("REJEIT") ||
+    texto.includes("SUCATA") ||
+    texto.includes("DESTRUI")
+  );
+}
+
+function historicoItemImpactaMes(item: DesvioHistoricoAnoItem, mes: number, ano: number) {
+  const mesTxt = String(mes).padStart(2, "0");
+  const anoTxt = String(ano);
+  const campos = [
+    item.mes_impactado,
+    item.meses_lib_texto,
+  ]
+    .map((v) => String(v || ""))
+    .join(" ");
+
+  if (!campos.trim()) return true;
+
+  return campos.includes(`${mesTxt}/${anoTxt}`) || campos.includes(`${mes}/${anoTxt}`);
+}
+
+async function buscarDesviosReprovacaoDescartePorLote(ano: number, mes: number): Promise<Record<string, DesvioHistoricoAnoItem>> {
+  const params = new URLSearchParams({
+    ano: String(ano),
+    _t: String(Date.now()),
+  });
+
+  const res = await fetch(`${API_URL}/desvios/historico-anual?${params.toString()}`, {
+    cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  });
+
+  if (!res.ok) return {};
+
+  const json = await res.json();
+  const itens: DesvioHistoricoAnoItem[] = Array.isArray(json?.data) ? json.data : [];
+  const mapa: Record<string, DesvioHistoricoAnoItem> = {};
+
+  for (const item of itens) {
+    if (!historicoItemEhReprovacaoOuDescarte(item)) continue;
+    if (!historicoItemImpactaMes(item, mes, ano)) continue;
+
+    const lotes = [
+      ...extrairLotesHistorico(item.lotes),
+      ...extrairLotesHistorico(item.lotes_texto),
+    ];
+
+    for (const lote of lotes) {
+      const loteNormalizado = lote.trim().toUpperCase();
+      if (!loteNormalizado) continue;
+      mapa[loteNormalizado] = item;
+    }
+  }
+
+  return mapa;
+}
+
 
 function fmt(n?: number | null) {
   if (n === null || n === undefined) return "—";
@@ -782,9 +894,28 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [sortRendimento, setSortRendimento] = useState<"asc" | "desc" | null>(null);
   const [sortDataLib, setSortDataLib] = useState<"asc" | "desc" | null>(null);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [desviosExternosPorLote, setDesviosExternosPorLote] = useState<Record<string, DesvioHistoricoAnoItem>>({});
 
   const [mesSelecionado, setMesSelecionado] = useState(mesInicial);
   const [anoSelecionado, setAnoSelecionado] = useState(anoInicial);
+
+  useEffect(() => {
+    let ativo = true;
+
+    buscarDesviosReprovacaoDescartePorLote(anoSelecionado, mesSelecionado)
+      .then((mapa) => {
+        if (!ativo) return;
+        setDesviosExternosPorLote(mapa);
+      })
+      .catch(() => {
+        if (!ativo) return;
+        setDesviosExternosPorLote({});
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, [anoSelecionado, mesSelecionado]);
 
   const aplicarDadosRastreamento = (
     json: RastreamentoData,
@@ -1007,6 +1138,12 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   }
 
   function loteEhReprovacaoOuDescarte(l: LoteRastreamento) {
+    const loteNormalizado = String(l.lote || "").trim().toUpperCase();
+
+    if (loteNormalizado && desviosExternosPorLote[loteNormalizado]) {
+      return true;
+    }
+
     const textos = [
       l.desvio_destino,
       l.desvio_destino_consolidado,
@@ -1190,12 +1327,12 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
   const statusOperacionalMesPelosLotes = useMemo(
     () => calcularStatusOperacionalPelosLotes(false),
-    [data?.lotes],
+    [data?.lotes, desviosExternosPorLote],
   );
 
   const statusOperacionalMtdPelosLotes = useMemo(
     () => calcularStatusOperacionalPelosLotes(true),
-    [data?.lotes],
+    [data?.lotes, desviosExternosPorLote],
   );
 
   const gapPorStatusMes = useMemo(() => {
