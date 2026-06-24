@@ -1675,14 +1675,16 @@ export default function FaturamentoPage() {
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <MetricCard title="Faturamento" value={fmtMoney(cards.faturamento_total)} subtitle="Valor faturado" icon={DollarSign} tone="blue" />
-          <MetricCard title="Volume" value={fmtNumero(cards.quantidade_total)} subtitle="Quantidade faturada" icon={BarChart3} tone="slate" />
-          <MetricCard title="Ating. Forecast" value={fmtPct(cards.atingimento_forecast_pct)} subtitle={`${fmtNumero(cards.quantidade_total)} / ${fmtNumero(cards.forecast_total)} un.`} icon={TrendingUp} tone="green" />
-          <MetricCard title="Carteira pendente" value={fmtMoney(cards.carteira_pendente_valor)} subtitle={`${fmtNumero(cards.prepedidos_pendentes)} pré-pedidos`} icon={Package} tone="amber" />
-          <MetricCard title="Entrega vencida" value={fmtMoney(cards.carteira_vencida_valor)} subtitle={`${fmtPct(cards.pct_carteira_vencida_valor)} da carteira`} icon={AlertTriangle} tone="red" />
-          <MetricCard title="Clientes ativos" value={fmtNumero(cards.clientes_ativos)} subtitle="Com venda no período" icon={Users} tone="blue" />
-        </div>
+        {aba === "resumo" && (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <MetricCard title="Faturamento" value={fmtMoney(cards.faturamento_total)} subtitle="Valor faturado" icon={DollarSign} tone="blue" />
+            <MetricCard title="Volume" value={fmtNumero(cards.quantidade_total)} subtitle="Quantidade faturada" icon={BarChart3} tone="slate" />
+            <MetricCard title="Ating. Forecast" value={fmtPct(cards.atingimento_forecast_pct)} subtitle={`${fmtNumero(cards.quantidade_total)} / ${fmtNumero(cards.forecast_total)} un.`} icon={TrendingUp} tone="green" />
+            <MetricCard title="Carteira pendente" value={fmtMoney(cards.carteira_pendente_valor)} subtitle={`${fmtNumero(cards.prepedidos_pendentes)} pré-pedidos`} icon={Package} tone="amber" />
+            <MetricCard title="Entrega vencida" value={fmtMoney(cards.carteira_vencida_valor)} subtitle={`${fmtPct(cards.pct_carteira_vencida_valor)} da carteira`} icon={AlertTriangle} tone="red" />
+            <MetricCard title="Clientes ativos" value={fmtNumero(cards.clientes_ativos)} subtitle="Com venda no período" icon={Users} tone="blue" />
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
           {tabs.map((item) => (
