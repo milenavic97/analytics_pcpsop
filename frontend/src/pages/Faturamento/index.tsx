@@ -1036,7 +1036,7 @@ type FaturamentoVersaoResponse = {
 }
 
 const FATURAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v102-heatmap:"
+const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v100:"
 const faturamentoRuntimeCache = new Map<string, FaturamentoCacheEntry>()
 
 function faturamentoCacheKey(ano: number, bloco: string, produtoFiltro: string) {
@@ -1047,13 +1047,7 @@ function readFaturamentoCache(ano: number, bloco: string, produtoFiltro: string)
   const key = faturamentoCacheKey(ano, bloco, produtoFiltro)
   const runtime = faturamentoRuntimeCache.get(key)
 
-  if (
-    runtime?.data &&
-    Array.isArray(runtime.data.entrada_prepedidos_dia_mes) &&
-    Date.now() - runtime.savedAt <= FATURAMENTO_CACHE_TTL_MS
-  ) {
-    return runtime
-  }
+  if (runtime?.data && Date.now() - runtime.savedAt <= FATURAMENTO_CACHE_TTL_MS) return runtime
   if (runtime) faturamentoRuntimeCache.delete(key)
 
   try {
@@ -1061,9 +1055,7 @@ function readFaturamentoCache(ano: number, bloco: string, produtoFiltro: string)
     if (!raw) return null
 
     const parsed = JSON.parse(raw) as FaturamentoCacheEntry
-    const temHeatmapNovo = Array.isArray(parsed?.data?.entrada_prepedidos_dia_mes)
-
-    if (!parsed?.data || !parsed.savedAt || !temHeatmapNovo || Date.now() - parsed.savedAt > FATURAMENTO_CACHE_TTL_MS) {
+    if (!parsed?.data || !parsed.savedAt || Date.now() - parsed.savedAt > FATURAMENTO_CACHE_TTL_MS) {
       window.localStorage.removeItem(`${FATURAMENTO_CACHE_PREFIX}${key}`)
       return null
     }
