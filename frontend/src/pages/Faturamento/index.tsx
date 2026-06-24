@@ -1023,7 +1023,7 @@ type FaturamentoVersaoResponse = {
 }
 
 const FATURAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v202-heatmap-leitura:"
+const FATURAMENTO_CACHE_PREFIX = "dfl-faturamento-cache-v203-heatmap-fonte-suave:"
 const faturamentoRuntimeCache = new Map<string, FaturamentoCacheEntry>()
 
 function faturamentoCacheKey(ano: number, bloco: string, produtoFiltro: string) {
@@ -1283,15 +1283,15 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
     if (intensidade < 20) return "bg-blue-50 text-blue-900 border-blue-100"
     if (intensidade < 45) return "bg-blue-100 text-blue-950 border-blue-200"
     if (intensidade < 70) return "bg-blue-200 text-blue-950 border-blue-300"
-    return "bg-[#17375E] text-white border-[#17375E]"
+    return "bg-[#17375E] text-white border-[#17375E] shadow-sm shadow-slate-200"
   }
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Maior pico</p>
-          <p className="mt-1 text-xl font-black text-slate-900">
+        <div className="rounded-xl border border-slate-200 bg-white/80 p-4 shadow-sm shadow-slate-100">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Maior pico</p>
+          <p className="mt-1 text-xl font-bold text-slate-800">
             {fmtNumero(resumoHeatmap.pico.prepedidos, 0)}
           </p>
           <p className="mt-1 text-xs font-semibold text-slate-500">
@@ -1301,9 +1301,9 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Mês com maior entrada</p>
-          <p className="mt-1 text-xl font-black text-slate-900">
+        <div className="rounded-xl border border-slate-200 bg-white/80 p-4 shadow-sm shadow-slate-100">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Mês com maior entrada</p>
+          <p className="mt-1 text-xl font-bold text-slate-800">
             {resumoHeatmap.maiorMes.mesNome}
           </p>
           <p className="mt-1 text-xs font-semibold text-slate-500">
@@ -1311,9 +1311,9 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Concentração</p>
-          <p className="mt-1 text-xl font-black text-slate-900">
+        <div className="rounded-xl border border-slate-200 bg-white/80 p-4 shadow-sm shadow-slate-100">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Concentração</p>
+          <p className="mt-1 text-xl font-bold text-slate-800">
             {fmtPct(resumoHeatmap.participacaoDominante)}
           </p>
           <p className="mt-1 text-xs font-semibold text-slate-500">
@@ -1321,9 +1321,9 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Leitura rápida</p>
-          <p className="mt-1 text-sm font-bold leading-snug text-slate-700">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm shadow-slate-100">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Leitura rápida</p>
+          <p className="mt-1 text-sm font-semibold leading-snug text-slate-600">
             {resumoHeatmap.leitura}
           </p>
           <p className="mt-1 text-xs font-semibold text-slate-500">
@@ -1337,11 +1337,11 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
           <div className="grid grid-cols-[98px_repeat(31,minmax(25px,1fr))_96px] items-center gap-1">
           <div />
           {dias.map((dia) => (
-            <div key={dia} className="text-center text-[10px] font-black text-slate-400">
+            <div key={dia} className="text-center text-[10px] font-semibold text-slate-400">
               {String(dia).padStart(2, "0")}
             </div>
           ))}
-          <div className="text-right text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+          <div className="text-right text-[10px] font-semibold uppercase tracking-[0.10em] text-slate-400">
             Total
           </div>
 
@@ -1349,7 +1349,7 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
             const diasMes = mes.dias ?? []
             return (
               <div key={mes.mes ?? mes.mes_nome} className="contents">
-                <div className="pr-2 text-sm font-bold text-slate-700">
+                <div className="pr-2 text-sm font-semibold text-slate-700">
                   {mes.mes_nome || mes.mes}
                 </div>
 
@@ -1366,7 +1366,7 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
                     <div
                       key={`${mes.mes}-${dia}`}
                       title={title}
-                      className={`flex h-8 items-center justify-center rounded-md border text-[11px] font-black transition hover:ring-2 hover:ring-[#17375E]/25 ${classeCelula(
+                      className={`flex h-8 items-center justify-center rounded-md border text-[11px] font-semibold transition hover:ring-2 hover:ring-[#17375E]/25 ${classeCelula(
                         intensidade,
                         existe,
                         qtd
@@ -1377,7 +1377,7 @@ function EntradaPrepedidosHeatmap({ dados }: { dados: EntradaPrepedidoMes[] }) {
                   )
                 })}
 
-                <div className="rounded-lg bg-slate-50 px-2 py-1 text-right text-xs font-black text-slate-700">
+                <div className="rounded-lg bg-slate-50 px-2 py-1 text-right text-xs font-semibold text-slate-700">
                   {fmtNumero(mes.total_prepedidos ?? 0, 0)}
                   <p className="text-[10px] font-semibold text-slate-400">
                     {fmtNumero(mes.media_diaria_prepedidos ?? 0, 1)}/dia
