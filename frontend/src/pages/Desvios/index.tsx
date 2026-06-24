@@ -497,7 +497,7 @@ export default function DesviosPage() {
       historicoSelecionado.size > 0
         ? "selecionados"
         : filtroDestinoHistorico !== "TODOS"
-          ? filtroDestinoHistorico.toLowerCase().replaceAll(" ", "_")
+          ? filtroDestinoHistorico.toLowerCase().replace(/\s+/g, "_")
           : "filtrados"
 
     baixarCsv(`historico_desvios_${anoHistorico}_${sufixo}.csv`, linhas)
