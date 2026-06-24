@@ -305,6 +305,27 @@ type AtendimentoMensal = {
   atendimento_mes_pct?: number
 }
 
+type FaturamentoOrigemMensal = {
+  mes?: number
+  mes_nome?: string
+  faturamento_total?: number
+  faturamento_prepedido_mesmo_mes?: number
+  faturamento_carteira_anterior?: number
+  faturamento_sem_classificacao?: number
+  pct_carteira_anterior?: number
+  pct_prepedido_mesmo_mes?: number
+}
+
+type CarteiraMesEmissao = {
+  mes?: string
+  valor?: number
+  quantidade?: number
+  prepedidos?: number
+  clientes?: number
+  participacao_valor_pct?: number
+  ordem?: number
+}
+
 type ResumoFaturamento = {
   ano: number
   bloco: string
@@ -325,8 +346,10 @@ type ResumoFaturamento = {
   ciclo_aging?: CicloAging[]
   ciclo_origem?: CicloOrigem[]
   atendimento_mensal?: AtendimentoMensal[]
+  faturamento_origem_mensal?: FaturamentoOrigemMensal[]
   pendentes_status?: PendenteResumo[]
   pendentes_aging?: PendenteResumo[]
+  pendentes_mes_emissao?: CarteiraMesEmissao[]
   pendentes_entrega?: PendenteResumo[]
   pendentes_clientes?: PendenteCliente[]
   pendentes_produtos?: PendenteProduto[]
@@ -1157,11 +1180,11 @@ export default function FaturamentoPage() {
     Forecast: true,
     "Orçado": true,
   })
-  const [atendimentoVisible, setAtendimentoVisible] = useState<Record<string, boolean>>({
-    "Demanda do mês": true,
-    "Faturado do mês": true,
-    "Em aberto hoje": true,
-    "% atendimento": true,
+  const [origemMensalVisible, setOrigemMensalVisible] = useState<Record<string, boolean>>({
+    "Faturado total": true,
+    "Pré-pedido do mesmo mês": true,
+    "Carteira anterior": true,
+    "% carteira anterior": true,
   })
 
   const [modalBasesAberto, setModalBasesAberto] = useState(false)
@@ -1468,19 +1491,25 @@ export default function FaturamentoPage() {
     }))
   }, [dados])
 
-  const atendimentoMensalGrafico = useMemo(() => {
-    return (dados?.atendimento_mensal ?? []).map((item) => ({
-      mes: item.mes_nome ?? String(item.mes ?? ""),
-      "Demanda do mês": item.prepedidos_emitidos_valor ?? 0,
-      "Faturado do mês": item.faturamento_prepedido_mesmo_mes ?? 0,
-      "Em aberto hoje": item.saldo_nao_atendido_estimado ?? 0,
-      "% atendimento": item.atendimento_mes_pct ?? null,
-      "Faturado total": item.faturamento_total ?? 0,
-      "Carteira anterior faturada": item.faturamento_carteira_anterior ?? 0,
-      prepedidos_emitidos: item.prepedidos_emitidos ?? 0,
-      clientes_entrada: item.clientes_entrada ?? 0,
-    }))
+  const faturamentoOrigemMensalGrafico = useMemo(() => {
+    const base = dados?.faturamento_origem_mensal?.length
+      ? dados.faturamento_origem_mensal
+      : (dados?.atendimento_mensal ?? [])
+
+    return base.map((item: any) => {
+      const faturamentoTotal = Number(item.faturamento_total ?? 0)
+      const carteiraAnterior = Number(item.faturamento_carteira_anterior ?? 0)
+      return {
+        mes: item.mes_nome ?? String(item.mes ?? ""),
+        "Faturado total": faturamentoTotal,
+        "Pré-pedido do mesmo mês": item.faturamento_prepedido_mesmo_mes ?? 0,
+        "Carteira anterior": carteiraAnterior,
+        "% carteira anterior": item.pct_carteira_anterior ?? (faturamentoTotal > 0 ? (carteiraAnterior / faturamentoTotal) * 100 : null),
+      }
+    })
   }, [dados])
+
+  const carteiraMesEmissaoLista = useMemo(() => dados?.pendentes_mes_emissao ?? [], [dados])
 
   const pendentesStatusLista = useMemo(() => dados?.pendentes_status ?? [], [dados])
   const pendentesStatusGrafico = useMemo(() => {
@@ -1826,53 +1855,53 @@ export default function FaturamentoPage() {
             </div>
 
             <SectionCard
-              title="Atendimento mês a mês"
-              subtitle="Demanda identificada no mês versus o que foi faturado no próprio mês. A parcela em aberto mostra a carteira pendente hoje criada naquele mês."
+              title="Faturamento mês a mês: demanda nova x carteira anterior"
+              subtitle="Mostra se o faturamento do mês veio de pré-pedidos emitidos no próprio mês ou de carteira de meses anteriores."
             >
               <LegendToggle
                 items={[
-                  { key: "Demanda do mês", label: "Demanda do mês", color: AZUL_CLARO },
-                  { key: "Faturado do mês", label: "Faturado do mês", color: AZUL },
-                  { key: "Em aberto hoje", label: "Em aberto hoje", color: LARANJA },
-                  { key: "% atendimento", label: "% atendimento", color: VERDE },
+                  { key: "Faturado total", label: "Faturado total", color: AZUL },
+                  { key: "Pré-pedido do mesmo mês", label: "Pré-pedido do mesmo mês", color: AZUL_CLARO },
+                  { key: "Carteira anterior", label: "Carteira anterior", color: LARANJA },
+                  { key: "% carteira anterior", label: "% carteira anterior", color: VERDE },
                 ]}
-                visibleMap={atendimentoVisible}
-                onToggle={(key) => setAtendimentoVisible((prev) => ({ ...prev, [key]: !prev[key] }))}
+                visibleMap={origemMensalVisible}
+                onToggle={(key) => setOrigemMensalVisible((prev) => ({ ...prev, [key]: !prev[key] }))}
               />
 
               <div className="h-[370px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={atendimentoMensalGrafico} margin={{ top: 28, right: 28, left: 8, bottom: 8 }} barGap={4} barCategoryGap="20%">
+                  <ComposedChart data={faturamentoOrigemMensalGrafico} margin={{ top: 28, right: 28, left: 8, bottom: 8 }} barGap={4} barCategoryGap="22%">
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CINZA_CLARO} />
                     <XAxis dataKey="mes" tick={CHART_TICK_12} />
                     <YAxis yAxisId="valor" tick={CHART_TICK_11} tickFormatter={(v) => fmtMoney(Number(v)).replace("R$ ", "")} />
-                    <YAxis yAxisId="pct" orientation="right" domain={[0, 120]} tick={CHART_TICK_11} tickFormatter={(v) => `${fmtNumero(Number(v), 0)}%`} />
+                    <YAxis yAxisId="pct" orientation="right" domain={[0, 100]} tick={CHART_TICK_11} tickFormatter={(v) => `${fmtNumero(Number(v), 0)}%`} />
                     <Tooltip
                       formatter={(value: any, name: any) => {
                         const nome = String(name)
-                        if (nome === "% atendimento") return [fmtPct(Number(value)), nome]
+                        if (nome === "% carteira anterior") return [fmtPct(Number(value)), nome]
                         return [fmtMoneyFull(Number(value)), nome]
                       }}
                       labelStyle={{ color: AZUL, fontWeight: 700 }}
                     />
-                    {atendimentoVisible["Demanda do mês"] !== false && (
-                      <Bar yAxisId="valor" dataKey="Demanda do mês" fill={AZUL_CLARO} radius={[7, 7, 0, 0]} maxBarSize={34}>
-                        <LabelList dataKey="Demanda do mês" position="top" formatter={labelMoneyUmaLinha} style={{ fill: AZUL_CLARO, fontSize: 10, fontWeight: 700 }} />
+                    {origemMensalVisible["Faturado total"] !== false && (
+                      <Bar yAxisId="valor" dataKey="Faturado total" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={34}>
+                        <LabelList dataKey="Faturado total" position="top" formatter={labelMoneyUmaLinha} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
                       </Bar>
                     )}
-                    {atendimentoVisible["Faturado do mês"] !== false && (
-                      <Bar yAxisId="valor" dataKey="Faturado do mês" fill={AZUL} radius={[7, 7, 0, 0]} maxBarSize={34}>
-                        <LabelList dataKey="Faturado do mês" position="top" formatter={labelMoneyUmaLinha} style={{ fill: AZUL, fontSize: 10, fontWeight: 700 }} />
+                    {origemMensalVisible["Pré-pedido do mesmo mês"] !== false && (
+                      <Bar yAxisId="valor" dataKey="Pré-pedido do mesmo mês" fill={AZUL_CLARO} radius={[7, 7, 0, 0]} maxBarSize={32}>
+                        <LabelList dataKey="Pré-pedido do mesmo mês" position="top" formatter={labelMoneyUmaLinha} style={{ fill: AZUL_CLARO, fontSize: 10, fontWeight: 700 }} />
                       </Bar>
                     )}
-                    {atendimentoVisible["Em aberto hoje"] !== false && (
-                      <Bar yAxisId="valor" dataKey="Em aberto hoje" fill={LARANJA} radius={[7, 7, 0, 0]} maxBarSize={30}>
-                        <LabelList dataKey="Em aberto hoje" position="top" formatter={labelMoneyUmaLinha} style={{ fill: LARANJA, fontSize: 10, fontWeight: 700 }} />
+                    {origemMensalVisible["Carteira anterior"] !== false && (
+                      <Bar yAxisId="valor" dataKey="Carteira anterior" fill={LARANJA} radius={[7, 7, 0, 0]} maxBarSize={32}>
+                        <LabelList dataKey="Carteira anterior" position="top" formatter={labelMoneyUmaLinha} style={{ fill: LARANJA, fontSize: 10, fontWeight: 700 }} />
                       </Bar>
                     )}
-                    {atendimentoVisible["% atendimento"] !== false && (
-                      <Line yAxisId="pct" type="monotone" dataKey="% atendimento" stroke={VERDE} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false}>
-                        <LabelList dataKey="% atendimento" position="top" formatter={labelPctGrafico} style={{ fill: VERDE, fontSize: 10, fontWeight: 700 }} />
+                    {origemMensalVisible["% carteira anterior"] !== false && (
+                      <Line yAxisId="pct" type="monotone" dataKey="% carteira anterior" stroke={VERDE} strokeWidth={2.5} dot={{ r: 3 }} connectNulls={false}>
+                        <LabelList dataKey="% carteira anterior" position="top" formatter={labelPctGrafico} style={{ fill: VERDE, fontSize: 10, fontWeight: 700 }} />
                       </Line>
                     )}
                   </ComposedChart>
@@ -1880,7 +1909,7 @@ export default function FaturamentoPage() {
               </div>
 
               <div className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                Leitura: demanda do mês = pré-pedidos que faturaram no próprio mês + carteira pendente hoje emitida naquele mês. Em aberto hoje mostra o que ainda está pendente na carteira atual.
+                Leitura: pré-pedido do mesmo mês indica demanda nova que virou faturamento no próprio mês. Carteira anterior indica faturamento vindo de backlog/carteira já existente antes do mês.
               </div>
             </SectionCard>
 
@@ -1917,6 +1946,27 @@ export default function FaturamentoPage() {
                 </div>
               </SectionCard>
             </div>
+
+            <SectionCard
+              title="Carteira pendente hoje por mês de emissão"
+              subtitle="Distribuição da carteira aberta atual pela emissão do pré-pedido. A soma desta visão deve fechar com o card de carteira pendente."
+            >
+              <div className="space-y-4">
+                {carteiraMesEmissaoLista.map((item) => (
+                  <HorizontalProgress
+                    key={item.mes}
+                    label={item.mes || "-"}
+                    value={fmtMoney(item.valor)}
+                    detail={`${fmtNumero(item.prepedidos)} pré-pedidos · ${fmtNumero(item.clientes)} clientes`}
+                    pct={item.participacao_valor_pct}
+                    color={AZUL}
+                  />
+                ))}
+                {carteiraMesEmissaoLista.length === 0 && (
+                  <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Sem carteira pendente carregada.</div>
+                )}
+              </div>
+            </SectionCard>
 
             <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
               <SectionCard title="Carteira pendente por status" subtitle="Snapshot operacional do que ainda não foi atendido hoje.">
