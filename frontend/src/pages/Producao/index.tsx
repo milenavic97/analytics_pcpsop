@@ -182,6 +182,11 @@ interface AcompanhamentoLinha {
   qtd_caixas: number
   qtd_planejada_tubetes?: number | null
   qtd_planejada_caixas?: number | null
+  qtd_liberada_tubetes?: number | null
+  qtd_liberada_caixas?: number | null
+  tem_liberacao_sd3?: boolean | null
+  data_liberacao?: string | null
+  armazem_liberacao?: string | null
   primeiro_apontamento: string
   ultimo_apontamento: string
   registros: number
@@ -471,7 +476,7 @@ function linhaLabel(linha: LinhaFiltro) {
 const PRODUCAO_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 const PRODUCAO_STORAGE_PREFIX = "dfl-producao-cache-v121-plano-atualizado:"
 const PRODUCAO_STORAGE_BUILD_KEY = "dfl-producao-cache-build"
-const PRODUCAO_STORAGE_BUILD_VALUE = "v124-cards-altura-uniforme"
+const PRODUCAO_STORAGE_BUILD_VALUE = "v125-fabrima-qtd-liberada"
 const PRODUCAO_LAST_STATE_KEY = "dfl-producao-last-state-v94"
 
 type ProducaoLastState = {
@@ -1884,7 +1889,12 @@ function AcompanhamentoPainelCompacto({
   const realizadoMtdTb = Number(card?.realizado_mtd_tubetes ?? secao.realizado_mtd_tubetes ?? totalTubetes)
   const realizadoMtdCx = Number(card?.realizado_mtd_caixas ?? secao.realizado_mtd_caixas ?? totalCaixas)
   const atingimentoMtd = Number(card?.atingimento_mtd_pct ?? secao.atingimento_mtd_pct ?? 0)
-  const Icon = secao.linha === "FABRIMA" ? Layers : Factory
+  const isFabrima = secao.linha === "FABRIMA"
+  const realizadoTitulo = isFabrima ? "Liberado MTD" : "Realizado MTD"
+  const realizadoSubtitulo = isFabrima ? `${formatCx(realizadoMtdCx)} · SD3 liberado` : `${formatCx(realizadoMtdCx)} · apontado`
+  const totalMesTitulo = isFabrima ? "Total liberado" : "Total mês"
+  const qtdRealizadaHeader = isFabrima ? "Qtd. liberada" : "Qtd. produzida"
+  const Icon = isFabrima ? Layers : Factory
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1920,9 +1930,9 @@ function AcompanhamentoPainelCompacto({
           icon={Layers}
         />
         <MiniMtdCard
-          title="Realizado MTD"
+          title={realizadoTitulo}
           value={formatNumber(realizadoMtdTb)}
-          subtitle={`${formatCx(realizadoMtdCx)} · apontado`}
+          subtitle={realizadoSubtitulo}
           accent="green"
           icon={BarChart3}
         />
@@ -1951,7 +1961,7 @@ function AcompanhamentoPainelCompacto({
         </div>
         <div className="border-l border-slate-200 px-3 py-3">
           <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-            Total mês
+            {totalMesTitulo}
           </p>
           <p className="mt-1 text-sm font-black text-slate-900">
             {formatCx(totalCaixas)}
@@ -1967,7 +1977,7 @@ function AcompanhamentoPainelCompacto({
               <th className="px-3 py-2 text-left">Lote / OP</th>
               <th className="px-3 py-2 text-left">Mês liberação</th>
               <th className="px-3 py-2 text-right">Qtd. planejada</th>
-              <th className="px-3 py-2 text-right">Qtd. produzida</th>
+              <th className="px-3 py-2 text-right">{qtdRealizadaHeader}</th>
             </tr>
           </thead>
 
@@ -1980,45 +1990,60 @@ function AcompanhamentoPainelCompacto({
               </tr>
             )}
 
-            {linhas.map((row, idx) => (
-              <tr
-                key={`${secao.linha}-${row.data}-${row.lote}-${row.op}-${idx}`}
-                className="border-t border-slate-100 hover:bg-slate-50/80"
-              >
-                <td className="whitespace-nowrap px-3 py-2 align-top font-black text-[#A34713]">
-                  {formatDateBR(row.data)}
-                </td>
-                <td className="px-3 py-2 align-top">
-                  <p className="truncate font-black text-slate-900">{row.lote || "—"}</p>
-                  <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-400">
-                    OP {row.op || "—"}
-                  </p>
-                </td>
-                <td className="whitespace-nowrap px-3 py-2 align-top">
-                  <span className="inline-flex rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
-                    {row.mes_liberacao || "—"}
-                  </span>
-                </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right align-top">
-                  {Number(row.qtd_planejada_tubetes || 0) > 0 ? (
-                    <>
-                      <p className="font-black text-slate-700">{formatNumber(row.qtd_planejada_tubetes || 0)}</p>
-                      <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
-                        {formatCx(row.qtd_planejada_caixas || 0)}
-                      </p>
-                    </>
-                  ) : (
-                    <span className="font-black text-slate-300">—</span>
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-3 py-2 text-right align-top">
-                  <p className="font-black text-slate-900">{formatNumber(row.qtd_tubetes)}</p>
-                  <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
-                    {formatCx(row.qtd_caixas)}
-                  </p>
-                </td>
-              </tr>
-            ))}
+            {linhas.map((row, idx) => {
+              const temQtdLiberada = !isFabrima || Boolean(row.tem_liberacao_sd3) || Number(row.qtd_tubetes || 0) > 0
+
+              return (
+                <tr
+                  key={`${secao.linha}-${row.data}-${row.lote}-${row.op}-${idx}`}
+                  className="border-t border-slate-100 hover:bg-slate-50/80"
+                >
+                  <td className="whitespace-nowrap px-3 py-2 align-top font-black text-[#A34713]">
+                    {formatDateBR(row.data)}
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <p className="truncate font-black text-slate-900">{row.lote || "—"}</p>
+                    <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-400">
+                      OP {row.op || "—"}
+                    </p>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 align-top">
+                    <span className="inline-flex rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-black text-slate-700">
+                      {row.mes_liberacao || "—"}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right align-top">
+                    {Number(row.qtd_planejada_tubetes || 0) > 0 ? (
+                      <>
+                        <p className="font-black text-slate-700">{formatNumber(row.qtd_planejada_tubetes || 0)}</p>
+                        <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                          {formatCx(row.qtd_planejada_caixas || 0)}
+                        </p>
+                      </>
+                    ) : (
+                      <span className="font-black text-slate-300">—</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right align-top">
+                    {temQtdLiberada ? (
+                      <>
+                        <p className="font-black text-slate-900">{formatNumber(row.qtd_tubetes)}</p>
+                        <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                          {formatCx(row.qtd_caixas)}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-black text-slate-300">—</p>
+                        <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                          aguardando SD3
+                        </p>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
