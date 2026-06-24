@@ -360,7 +360,6 @@ async function buscarDesviosReprovacaoDescartePorLote(ano: number, mes: number):
   const mapa: Record<string, DesvioHistoricoAnoItem> = {};
 
   for (const item of itens) {
-    if (!historicoItemEhReprovacaoOuDescarte(item)) continue;
     if (!historicoItemImpactaMes(item, mes, ano)) continue;
 
     const lotes = [
@@ -371,7 +370,14 @@ async function buscarDesviosReprovacaoDescartePorLote(ano: number, mes: number):
     for (const lote of lotes) {
       const loteNormalizado = lote.trim().toUpperCase();
       if (!loteNormalizado) continue;
-      mapa[loteNormalizado] = item;
+
+      const existente = mapa[loteNormalizado];
+
+      // Se houver mais de um desvio para o mesmo lote, mantém o pior:
+      // Reprovado/Descartado > Em desvio comum.
+      if (!existente || historicoItemEhReprovacaoOuDescarte(item)) {
+        mapa[loteNormalizado] = item;
+      }
     }
   }
 
@@ -1139,8 +1145,9 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
   function loteEhReprovacaoOuDescarte(l: LoteRastreamento) {
     const loteNormalizado = String(l.lote || "").trim().toUpperCase();
+    const desvioExterno = loteNormalizado ? desviosExternosPorLote[loteNormalizado] : undefined;
 
-    if (loteNormalizado && desviosExternosPorLote[loteNormalizado]) {
+    if (desvioExterno && historicoItemEhReprovacaoOuDescarte(desvioExterno)) {
       return true;
     }
 
@@ -1177,12 +1184,60 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     );
   }
 
+  function getDesvioExternoLote(l: LoteRastreamento) {
+    const loteNormalizado = String(l.lote || "").trim().toUpperCase();
+    return loteNormalizado ? desviosExternosPorLote[loteNormalizado] : undefined;
+  }
+
+  function loteTemDesvioHistorico(l: LoteRastreamento) {
+    return Boolean(getDesvioExternoLote(l));
+  }
+
+  function getDestinoExibicaoLote(l: LoteRastreamento) {
+    const desvioExterno = getDesvioExternoLote(l);
+
+    if (desvioExterno) {
+      const destino = String(desvioExterno.destino || "").trim();
+      const estado = String(desvioExterno.estado || "").trim();
+
+      if (historicoItemEhReprovacaoOuDescarte(desvioExterno)) {
+        return destino
+          ? `Reprovado - Destino: ${destino}`
+          : "Reprovado/Descartado";
+      }
+
+      return destino || estado || "Em desvio";
+    }
+
+    return getDesvioDestino(l) || l.motivo_gap || l.status_gap || "";
+  }
+
+  function getDesvioTooltipExibicao(l: LoteRastreamento) {
+    const desvioExterno = getDesvioExternoLote(l);
+
+    if (!desvioExterno) return getDesvioTooltip(l);
+
+    const linhas = [
+      desvioExterno.serial ? `Serial: ${desvioExterno.serial}` : null,
+      desvioExterno.destino ? `Destino: ${desvioExterno.destino}` : null,
+      desvioExterno.estado ? `Estado: ${desvioExterno.estado}` : null,
+      desvioExterno.descricao || desvioExterno.titulo
+        ? `Descrição: ${desvioExterno.descricao || desvioExterno.titulo}`
+        : null,
+      desvioExterno.meses_lib_texto || desvioExterno.mes_impactado
+        ? `Mês impactado: ${desvioExterno.meses_lib_texto || desvioExterno.mes_impactado}`
+        : null,
+    ].filter(Boolean);
+
+    return linhas.length ? linhas.join("\n") : getDesvioTooltip(l);
+  }
+
   function statusPrincipalLote(l: LoteRastreamento) {
     // Status/causa principal do lote.
     // A ordem evita que um lote reprovado ou reprogramado apareça também como "em envase"
     // só porque já teve apontamento de envase.
     if (loteEhReprovacaoOuDescarte(l)) return "REPROVACAO_DESVIO";
-    if (l.em_desvio) return "DESVIO";
+    if (l.em_desvio || loteTemDesvioHistorico(l)) return "DESVIO";
     if (l.atraso_producao) return "ATRASO_PRODUCAO";
     if (l.perda_rendimento) return "RENDIMENTO";
     if (l.check_liberado) return "LIBERADO";
@@ -2321,7 +2376,7 @@ const textoPercentualV1 = (valor: number) =>
                       style={{
                         borderBottom: "1px solid var(--border)",
                         background:
-                          l.em_desvio && !l.check_liberado
+                          (l.em_desvio || loteTemDesvioHistorico(l)) && !l.check_liberado
                             ? "rgba(245,158,11,0.05)"
                             : (l.atraso_producao || l.atrasado) && !l.check_liberado
                               ? "rgba(220,38,38,0.03)"
@@ -2340,12 +2395,12 @@ const textoPercentualV1 = (valor: number) =>
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1.5">
-                          {(l.em_desvio ||
+                          {((l.em_desvio || loteTemDesvioHistorico(l)) ||
                             ((l.atraso_producao || l.atrasado) && !l.check_liberado)) && (
                             <span
                               title={
-                                l.em_desvio
-                                  ? getDesvioTooltip(l)
+                                (l.em_desvio || loteTemDesvioHistorico(l))
+                                  ? getDesvioTooltipExibicao(l)
                                   : l.motivo_gap || "Lote atrasado"
                               }
                               className="inline-flex items-center"
@@ -2354,7 +2409,7 @@ const textoPercentualV1 = (valor: number) =>
                               <AlertTriangle
                                 size={12}
                                 style={{
-                                  color: l.em_desvio ? "#92400E" : "#DC2626",
+                                  color: (l.em_desvio || loteTemDesvioHistorico(l)) ? "#92400E" : "#DC2626",
                                   flexShrink: 0,
                                 }}
                               />
@@ -2379,6 +2434,23 @@ const textoPercentualV1 = (valor: number) =>
                         )}
 
                         <DesvioBadge lote={l} />
+
+                        {!l.em_desvio && loteTemDesvioHistorico(l) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                              title={getDesvioTooltipExibicao(l)}
+                              style={{
+                                background: loteEhReprovacaoOuDescarte(l) ? "#FEE2E2" : "#FEF3C7",
+                                color: loteEhReprovacaoOuDescarte(l) ? "#991B1B" : "#92400E",
+                                border: `1px solid ${loteEhReprovacaoOuDescarte(l) ? "#FECACA" : "#FDE68A"}`,
+                              }}
+                            >
+                              <AlertTriangle size={10} />
+                              {getDesvioExternoLote(l)?.serial ? `Serial ${getDesvioExternoLote(l)?.serial}` : "Em desvio"}
+                            </span>
+                          </div>
+                        )}
 
                         {l.em_desvio && getListaDesvios(l).length > 1 && (
                           <p
@@ -2415,41 +2487,31 @@ const textoPercentualV1 = (valor: number) =>
                         className="px-3 py-3 text-sm"
                         style={{ color: "var(--text-primary)" }}
                       >
-                        {(getDesvioDestino(l) || l.motivo_gap || l.status_gap) ? (
+                        {getDestinoExibicaoLote(l) ? (
                           <span
                             className="inline-flex max-w-[260px] items-center rounded-full px-2 py-1 text-[11px] font-semibold"
-                            title={(getDesvioDestino(l) || l.motivo_gap || l.status_gap) || undefined}
+                            title={getDesvioTooltipExibicao(l) || getDestinoExibicaoLote(l)}
                             style={{
                               background:
-                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                  .toUpperCase()
-                                  .includes("REPROV") ||
-                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                  .toUpperCase()
-                                  .includes("DESCARTE")
+                                normalizarStatusLocal(getDestinoExibicaoLote(l)).includes("REPROV") ||
+                                normalizarStatusLocal(getDestinoExibicaoLote(l)).includes("DESCART") ||
+                                normalizarStatusLocal(getDestinoExibicaoLote(l)).includes("DESCARTE")
                                   ? "#FEE2E2"
-                                  : String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                        .toUpperCase()
-                                        .includes("APROV")
+                                  : normalizarStatusLocal(getDestinoExibicaoLote(l)).includes("APROV")
                                     ? "#DCFCE7"
                                     : "#F3F4F6",
                               color:
-                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                  .toUpperCase()
-                                  .includes("REPROV") ||
-                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                  .toUpperCase()
-                                  .includes("DESCARTE")
+                                normalizarStatusLocal(getDestinoExibicaoLote(l)).includes("REPROV") ||
+                                normalizarStatusLocal(getDestinoExibicaoLote(l)).includes("DESCART") ||
+                                normalizarStatusLocal(getDestinoExibicaoLote(l)).includes("DESCARTE")
                                   ? "#991B1B"
-                                  : String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                        .toUpperCase()
-                                        .includes("APROV")
+                                  : normalizarStatusLocal(getDestinoExibicaoLote(l)).includes("APROV")
                                     ? "#166534"
                                     : "var(--text-secondary)",
                             }}
                           >
                             <span className="truncate">
-                              {getDesvioDestino(l) || l.motivo_gap || l.status_gap}
+                              {getDestinoExibicaoLote(l)}
                             </span>
                           </span>
                         ) : (
@@ -2461,13 +2523,13 @@ const textoPercentualV1 = (valor: number) =>
                         className="px-3 py-3 text-right text-sm"
                         style={{
                           color:
-                            l.em_desvio && !l.check_liberado
+                            (l.em_desvio || loteTemDesvioHistorico(l)) && !l.check_liberado
                               ? "#92400E"
                               : l.atrasado && !l.check_liberado
                                 ? "#DC2626"
                                 : "var(--text-secondary)",
                           fontWeight:
-                            (l.em_desvio || l.atrasado) && !l.check_liberado
+                            (l.em_desvio || loteTemDesvioHistorico(l) || l.atrasado) && !l.check_liberado
                               ? 600
                               : 400,
                         }}
