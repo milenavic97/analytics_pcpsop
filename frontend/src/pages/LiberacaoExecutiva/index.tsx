@@ -437,7 +437,7 @@ function montarApiDataDaOverviewCache(cache: any, rastreamentos: Record<number, 
     atualizadoLabel: formatarAtualizacao(cache?.ultimaAtualizacao) || "—",
     dados,
     waterfallSteps: montarWaterfallAnual(dados, rastAtual),
-    perdasMensais: montarPerdasMensais(rastreamentos, mesAtual, cache?.projLib),
+    perdasMensais: montarPerdasMensais(rastreamentos, mesAtual, projLib),
     ponteVersoesSteps: [],
     itensReorganizacao: [],
   }
