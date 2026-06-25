@@ -1888,8 +1888,8 @@ export default function LiberacaoExecutiva() {
     ? (disponibilidadeAtualCx / dados.orcadoFaturamentoCx) * 100
     : 0
 
-  // Observação: "lotes" aqui é um indicador auxiliar de lotes impactados por causa.
-  // Não deve ser tratado como cascata acumulada, porque os lotes não têm tamanho fixo.
+  // Observação: quantidade de lotes só deve aparecer quando vier do backend real.
+  // Não deixar lotes mockados no fallback visual para não confundir a leitura executiva.
   const waterfallStepsFallback: WaterfallStep[] = [
     {
       id: "plano1",
@@ -1905,7 +1905,6 @@ export default function LiberacaoExecutiva() {
       value: dados.reorganizacaoPlanoCx,
       tone: "slate",
       clickable: true,
-      lotes: 6,
     },
     {
       id: "atraso",
@@ -1913,7 +1912,6 @@ export default function LiberacaoExecutiva() {
       kind: "delta",
       value: -dados.atrasoProducaoCx,
       tone: "red",
-      lotes: 36,
     },
     {
       id: "reprovacao",
@@ -1921,7 +1919,6 @@ export default function LiberacaoExecutiva() {
       kind: "delta",
       value: -dados.perdaReprovacaoCx,
       tone: "orange",
-      lotes: 14,
     },
     {
       id: "rendimento",
@@ -2035,7 +2032,6 @@ export default function LiberacaoExecutiva() {
       value: 220,
       tone: "slate",
       clickable: true,
-      lotes: 2,
     },
     {
       id: "atraso-v2",
@@ -2043,7 +2039,6 @@ export default function LiberacaoExecutiva() {
       kind: "delta",
       value: -1500,
       tone: "red",
-      lotes: 5,
     },
     {
       id: "reprovacao-v2",
@@ -2051,7 +2046,6 @@ export default function LiberacaoExecutiva() {
       kind: "delta",
       value: -400,
       tone: "orange",
-      lotes: 1,
     },
     {
       id: "rendimento-v2",
@@ -2081,7 +2075,6 @@ export default function LiberacaoExecutiva() {
       value: 140,
       tone: "slate",
       clickable: true,
-      lotes: 1,
     },
     {
       id: "atraso-v3",
@@ -2089,7 +2082,6 @@ export default function LiberacaoExecutiva() {
       kind: "delta",
       value: -900,
       tone: "red",
-      lotes: 3,
     },
     {
       id: "reprovacao-v3",
@@ -2097,7 +2089,6 @@ export default function LiberacaoExecutiva() {
       kind: "delta",
       value: -340,
       tone: "orange",
-      lotes: 1,
     },
     {
       id: "rendimento-v3",
