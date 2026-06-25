@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import type { ChangeEvent, ElementType, MouseEvent } from "react"
 import {
+  BarChart3,
   Boxes,
   CalendarDays,
   PackageCheck,
@@ -105,6 +106,7 @@ type LiberacaoExecutivaPayload = {
   atualizado_label?: string
   dados?: Partial<{
     orcadoFaturamentoCx: number
+    faturamentoProjetadoCx: number
     plano1LiberacaoCx: number
     planoAtualLiberacaoCx: number
     estoqueInicialJanCx: number
@@ -1927,6 +1929,7 @@ export default function LiberacaoExecutiva() {
 
   const dadosFallback = {
     orcadoFaturamentoCx: 0,
+    faturamentoProjetadoCx: 0,
     plano1LiberacaoCx: 0,
     planoAtualLiberacaoCx: 0,
     estoqueInicialJanCx: 0,
@@ -2129,13 +2132,21 @@ export default function LiberacaoExecutiva() {
             Indicadores · 2026
           </p>
 
-          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-6">
             <KpiCard
               title="Orçado faturamento"
               value={`${fmt(dados.orcadoFaturamentoCx)} cx`}
               sub={fmtTubetes(dados.orcadoFaturamentoCx)}
               tone="blue"
               icon={Target}
+            />
+
+            <KpiCard
+              title="Faturamento real + S&OP"
+              value={`${fmt(dados.faturamentoProjetadoCx)} cx`}
+              sub={fmtTubetes(dados.faturamentoProjetadoCx)}
+              tone="green"
+              icon={BarChart3}
             />
 
             <KpiCard
