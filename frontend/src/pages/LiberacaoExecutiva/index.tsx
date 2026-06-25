@@ -1840,18 +1840,27 @@ export default function LiberacaoExecutiva() {
   const [simulacaoDraftPercentual, setSimulacaoDraftPercentual] = useState(0)
   const [simulacaoDraftCustom, setSimulacaoDraftCustom] = useState<Record<string, number>>({})
   const [apiData, setApiData] = useState<LiberacaoExecutivaPayload | null>(null)
+  const [carregandoDados, setCarregandoDados] = useState(true)
+  const [erroCarga, setErroCarga] = useState<string | null>(null)
 
   useEffect(() => {
     let ativo = true
 
     async function carregarDados() {
       try {
-        const response = await fetch(`${API_BASE}/liberacao-executiva/resumo?_t=${Date.now()}`)
+        setCarregandoDados(true)
+        setErroCarga(null)
+
+        const response = await fetch(`${API_BASE}/liberacao-executiva/resumo?force=true&_t=${Date.now()}`)
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
         const json = await response.json()
         if (ativo) setApiData(json)
       } catch (error) {
-        console.warn("Não foi possível carregar a Liberação Executiva. Mantendo fallback visual.", error)
+        console.warn("Não foi possível carregar a Liberação Executiva.", error)
+        if (ativo) setErroCarga(error instanceof Error ? error.message : "Erro ao carregar dados")
+      } finally {
+        if (ativo) setCarregandoDados(false)
       }
     }
 
@@ -1861,6 +1870,60 @@ export default function LiberacaoExecutiva() {
       ativo = false
     }
   }, [])
+
+  if (!apiData) {
+    return (
+      <div className="px-6 py-5 lg:px-8">
+        <div className="w-full space-y-5">
+          <div>
+            <h1
+              className="text-2xl font-black tracking-tight"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Overview disponibilidade
+            </h1>
+
+            <div
+              className="mt-3 inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-1.5 shadow-sm"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <CalendarDays size={13} style={{ color: "var(--text-secondary)" }} />
+              <span
+                className="text-[11px] font-semibold"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Dados atualizados em:
+              </span>
+              <span
+                className="text-[11px] font-semibold"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                —
+              </span>
+            </div>
+          </div>
+
+          <div
+            className="rounded-2xl border bg-white p-6 shadow-sm"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <p
+              className="text-[12px] font-black uppercase tracking-[0.18em]"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {carregandoDados ? "Carregando dados reais" : "Não foi possível carregar os dados"}
+            </p>
+
+            <p className="mt-2 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+              {carregandoDados
+                ? "A página está buscando a mesma base usada na Overview e no MPS/Gantt."
+                : `O backend não retornou os dados da Liberação Executiva. Erro: ${erroCarga || "desconhecido"}`}
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const dadosFallback = {
     orcadoFaturamentoCx: 0,
@@ -2025,7 +2088,7 @@ export default function LiberacaoExecutiva() {
     },
   ]
 
-  const itensReorganizacao: ReorganizacaoItem[] = apiData?.itensReorganizacao || itensReorganizacaoFallback
+  const itensReorganizacao: ReorganizacaoItem[] = apiData?.itensReorganizacao || []
 
   return (
     <div className="px-6 py-5 lg:px-8">
