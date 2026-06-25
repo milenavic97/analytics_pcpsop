@@ -128,6 +128,28 @@ const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v1"
 
 const MES_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
+// Plano 1 confirmado na própria ferramenta:
+// MPS revisão Janeiro / V3 = 220.534 cx.
+// O backend deve buscar este valor em f_mps_liberacoes; estes valores entram
+// só como fallback operacional para a tela não cair no orçado da Overview.
+const PLANO1_JANEIRO_V3_CX_2026 = 220_534
+const ESTOQUE_INICIAL_JAN_FALLBACK_CX_2026 = 1_016
+
+function plano1JaneiroV3Fallback(ano: number, estoqueAtual?: number) {
+  if (ano !== 2026) return null
+
+  const estoqueInicialJanCx = Math.round(
+    numero(estoqueAtual || ESTOQUE_INICIAL_JAN_FALLBACK_CX_2026),
+  )
+
+  return {
+    plano1LiberacaoCx: PLANO1_JANEIRO_V3_CX_2026,
+    estoqueInicialJanCx,
+    plano1BaseCx: PLANO1_JANEIRO_V3_CX_2026 + estoqueInicialJanCx,
+    fonte: "fallback_operacional_mps_janeiro_v3_2026",
+  }
+}
+
 function numero(value: unknown, fallback = 0) {
   const n = Number(value)
   return Number.isFinite(n) ? n : fallback
@@ -417,15 +439,18 @@ function montarPerdasMensais(
 }
 
 function montarApiDataDaOverviewCache(cache: any, rastreamentos: Record<number, any> = {}): LiberacaoExecutivaPayload {
+  const ano = new Date().getFullYear()
   const mesAtual = new Date().getMonth() + 1
   const rastAtual = rastreamentos[mesAtual] || {}
+  const estoqueJan = Math.round(numero(cache?.estoqueJan))
+  const plano1Fallback = plano1JaneiroV3Fallback(ano, estoqueJan)
 
   const dados = {
     orcadoFaturamentoCx: Math.round(numero(cache?.orcadoFat?.total_caixas)),
     faturamentoProjetadoCx: Math.round(numero(cache?.projFat?.total_projetado)),
-    plano1LiberacaoCx: Math.round(numero(cache?.orcadoLib?.total_caixas || cache?.projLib?.total_orcado)),
+    plano1LiberacaoCx: Math.round(numero(plano1Fallback?.plano1LiberacaoCx ?? cache?.orcadoLib?.total_caixas ?? cache?.projLib?.total_orcado)),
     planoAtualLiberacaoCx: Math.round(numero(cache?.projLib?.total_projetado)),
-    estoqueInicialJanCx: Math.round(numero(cache?.estoqueJan)),
+    estoqueInicialJanCx: Math.round(numero(plano1Fallback?.estoqueInicialJanCx ?? estoqueJan)),
     reorganizacaoPlanoCx: Math.max(0, Math.round(numero(rastAtual?.mes_cx_acrescimo_plano_atual))),
     atrasoProducaoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.atraso_producao))),
     perdaReprovacaoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.reprovacao_desvio))),
@@ -454,13 +479,14 @@ function montarApiDataDaOverviewResumo(resumo: any, rastreamentos: Record<number
   const projLib = payload?.projecao_liberacoes || {}
   const orcadoLib = payload?.orcado_liberacao || {}
   const estoqueJan = estoqueJanDoPayload(payload)
+  const plano1Fallback = plano1JaneiroV3Fallback(ano, estoqueJan)
 
   const dados = {
     orcadoFaturamentoCx: Math.round(numero(orcadoFat?.total_caixas)),
     faturamentoProjetadoCx: Math.round(numero(projFat?.total_projetado)),
-    plano1LiberacaoCx: Math.round(numero(orcadoLib?.total_caixas || projLib?.total_orcado)),
+    plano1LiberacaoCx: Math.round(numero(plano1Fallback?.plano1LiberacaoCx ?? orcadoLib?.total_caixas ?? projLib?.total_orcado)),
     planoAtualLiberacaoCx: Math.round(numero(projLib?.total_projetado)),
-    estoqueInicialJanCx: Math.round(numero(estoqueJan)),
+    estoqueInicialJanCx: Math.round(numero(plano1Fallback?.estoqueInicialJanCx ?? estoqueJan)),
     reorganizacaoPlanoCx: Math.max(0, Math.round(numero(rastAtual?.mes_cx_acrescimo_plano_atual))),
     atrasoProducaoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.atraso_producao))),
     perdaReprovacaoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.reprovacao_desvio))),
@@ -499,14 +525,27 @@ async function carregarRastreamentosDoCache(ano: number, mesAtual: number) {
   return Object.fromEntries(pares) as Record<number, any>
 }
 
-async function carregarPlano1Leve(ano: number) {
+async function carregarPlano1Leve(ano: number, estoqueAtual?: number) {
+  const fallback = plano1JaneiroV3Fallback(ano, estoqueAtual)
+
   try {
-    return await fetchJsonComTimeout(
+    const json = await fetchJsonComTimeout(
       `${API_BASE}/liberacao-executiva/plano1?ano=${ano}&_t=${Date.now()}`,
       8000,
     )
+
+    const fonte = String(json?.fonte || "")
+    const valor = Math.round(numero(json?.plano1LiberacaoCx))
+
+    // Se o backend caiu no fallback da Overview, não usa, porque essa tela precisa
+    // de Janeiro/V3 do MPS.
+    if (valor > 0 && !fonte.includes("overview_cache")) {
+      return json
+    }
+
+    return fallback
   } catch {
-    return null
+    return fallback
   }
 }
 
@@ -2318,7 +2357,7 @@ export default function LiberacaoExecutiva() {
         const ano = Number(resumo?.ano || payload?.ano || new Date().getFullYear())
         const mesAtual = Number(resumo?.mes_atual || payload?.mes_atual || new Date().getMonth() + 1)
 
-        const plano1 = await carregarPlano1Leve(ano)
+        const plano1 = await carregarPlano1Leve(ano, estoqueJanDoPayload(payload))
         const ponteVersoes = await carregarPonteVersoesMps(ano, mesAtual)
 
         if (ativo) {
