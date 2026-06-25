@@ -1863,15 +1863,15 @@ export default function LiberacaoExecutiva() {
   }, [])
 
   const dadosFallback = {
-    orcadoFaturamentoCx: 209298,
-    plano1LiberacaoCx: 220534,
-    planoAtualLiberacaoCx: 201748,
-    estoqueInicialJanCx: 1016,
-    reorganizacaoPlanoCx: 2300,
-    atrasoProducaoCx: 15648,
-    perdaReprovacaoCx: 4200,
-    perdaRendimentoCx: 1410,
-    ganhoRendimentoCx: 172,
+    orcadoFaturamentoCx: 0,
+    plano1LiberacaoCx: 0,
+    planoAtualLiberacaoCx: 0,
+    estoqueInicialJanCx: 0,
+    reorganizacaoPlanoCx: 0,
+    atrasoProducaoCx: 0,
+    perdaReprovacaoCx: 0,
+    perdaRendimentoCx: 0,
+    ganhoRendimentoCx: 0,
   }
 
   const dados = {
@@ -1879,7 +1879,7 @@ export default function LiberacaoExecutiva() {
     ...(apiData?.dados || {}),
   }
 
-  const atualizadoLabel = apiData?.atualizadoLabel || apiData?.atualizado_label || "25/06/2026 às 08:21"
+  const atualizadoLabel = apiData?.atualizadoLabel || apiData?.atualizado_label || "—"
 
   const plano1BaseAnualCx = dados.plano1LiberacaoCx + dados.estoqueInicialJanCx
   const disponibilidadeAtualCx = dados.planoAtualLiberacaoCx + dados.estoqueInicialJanCx
@@ -1888,85 +1888,10 @@ export default function LiberacaoExecutiva() {
     ? (disponibilidadeAtualCx / dados.orcadoFaturamentoCx) * 100
     : 0
 
-  // Observação: quantidade de lotes só deve aparecer quando vier do backend real.
-  // Não deixar lotes mockados no fallback visual para não confundir a leitura executiva.
-  const waterfallStepsFallback: WaterfallStep[] = [
-    {
-      id: "plano1",
-      label: "Disp. anual orçada",
-      kind: "total",
-      value: plano1BaseAnualCx,
-      tone: "navy",
-},
-    {
-      id: "reorganizacao",
-      label: "Reorg.",
-      kind: "delta",
-      value: dados.reorganizacaoPlanoCx,
-      tone: "slate",
-      clickable: true,
-    },
-    {
-      id: "atraso",
-      label: "Atraso prod.",
-      kind: "delta",
-      value: -dados.atrasoProducaoCx,
-      tone: "red",
-    },
-    {
-      id: "reprovacao",
-      label: "Reprov. lote",
-      kind: "delta",
-      value: -dados.perdaReprovacaoCx,
-      tone: "orange",
-    },
-    {
-      id: "rendimento",
-      label: "Perda rend.",
-      kind: "delta",
-      value: -dados.perdaRendimentoCx,
-      tone: "gray",
-},
-    {
-      id: "ganho",
-      label: "Ganho rend.",
-      kind: "delta",
-      value: dados.ganhoRendimentoCx,
-      tone: "green",
-    },
-    {
-      id: "disponibilidade",
-      label: "Disp. atual",
-      kind: "total",
-      value: disponibilidadeAtualCx,
-      tone: "teal",
-},
-  ]
+  // Sem fallback visual: esta página não deve exibir número mockado.
+  const waterfallSteps: WaterfallStep[] = apiData?.waterfallSteps || []
 
-  const waterfallSteps: WaterfallStep[] = apiData?.waterfallSteps || waterfallStepsFallback
-
-  const perdasMensaisFallback: MonthlyLossesItem[] = [
-    // Mock visual.
-    // Regra de negócio:
-    // - Jan: comparar Jan atual vs Jan/V3, porque Jan/V3 é a base congelada do Plano 1.
-    // - Meses fechados: comparar Plano Atual do mês vs V1 disponível no Gantt/MPS daquele mês.
-    // - Mês atual: comparar MTD do mês atual vs V1 disponível no Gantt/MPS daquele mês.
-    // - Meses futuros: ficam vazios, porque ainda não há perda realizada/apurada.
-    { mes: "Jan", baseline: "Jan/V3", v1: 14600, status: "fechado", atraso: 1200, reorg: 0, reprovacao: 420 },
-    { mes: "Fev", baseline: "Fev/V1", v1: 16200, status: "fechado", atraso: 1450, reorg: 380, reprovacao: 260 },
-    { mes: "Mar", baseline: "Mar/V1", v1: 19800, status: "fechado", atraso: 1850, reorg: 520, reprovacao: 690 },
-    { mes: "Abr", baseline: "Abr/V1", v1: 21600, status: "fechado", atraso: 2100, reorg: 240, reprovacao: 510 },
-    { mes: "Mai", baseline: "Mai/V1", v1: 19100, status: "fechado", atraso: 1700, reorg: 610, reprovacao: 380 },
-    { mes: "Jun", baseline: "Jun/V1", v1: 20400, status: "mtd", atraso: 2400, reorg: 360, reprovacao: 740 },
-    { mes: "Jul", baseline: "Jul/V1", v1: 18300, status: "futuro", atraso: 0, reorg: 0, reprovacao: 0 },
-    { mes: "Ago", baseline: "Ago/V1", v1: 17200, status: "futuro", atraso: 0, reorg: 0, reprovacao: 0 },
-    { mes: "Set", baseline: "Set/V1", v1: 15100, status: "futuro", atraso: 0, reorg: 0, reprovacao: 0 },
-    { mes: "Out", baseline: "Out/V1", v1: 17100, status: "futuro", atraso: 0, reorg: 0, reprovacao: 0 },
-    { mes: "Nov", baseline: "Nov/V1", v1: 18000, status: "futuro", atraso: 0, reorg: 0, reprovacao: 0 },
-    { mes: "Dez", baseline: "Dez/V1", v1: 9600, status: "futuro", atraso: 0, reorg: 0, reprovacao: 0 },
-  ]
-
-  const perdasMensais: MonthlyLossesItem[] = apiData?.perdasMensais || perdasMensaisFallback
+  const perdasMensais: MonthlyLossesItem[] = apiData?.perdasMensais || []
 
   const mesesFuturos = perdasMensais.filter((item) => item.status === "futuro")
   const perdasRealizadas = perdasMensais.filter((item) => item.status !== "futuro")
@@ -2017,103 +1942,7 @@ export default function LiberacaoExecutiva() {
     }
   })
 
-  const ponteVersoesStepsFallback: WaterfallStep[] = [
-    {
-      id: "v1-mes",
-      label: "V1",
-      kind: "total",
-      value: 20400,
-      tone: "navy",
-    },
-    {
-      id: "reorganizacao-v2",
-      label: "Reorg.",
-      kind: "delta",
-      value: 220,
-      tone: "slate",
-      clickable: true,
-    },
-    {
-      id: "atraso-v2",
-      label: "Atraso",
-      kind: "delta",
-      value: -1500,
-      tone: "red",
-    },
-    {
-      id: "reprovacao-v2",
-      label: "Reprov.",
-      kind: "delta",
-      value: -400,
-      tone: "orange",
-    },
-    {
-      id: "rendimento-v2",
-      label: "Rend.",
-      kind: "delta",
-      value: -120,
-      tone: "gray",
-    },
-    {
-      id: "ganho-v2",
-      label: "Ganho",
-      kind: "delta",
-      value: 50,
-      tone: "green",
-    },
-    {
-      id: "v2-mes",
-      label: "V2",
-      kind: "total",
-      value: 18650,
-      tone: "navy",
-    },
-    {
-      id: "reorganizacao-v3",
-      label: "Reorg.",
-      kind: "delta",
-      value: 140,
-      tone: "slate",
-      clickable: true,
-    },
-    {
-      id: "atraso-v3",
-      label: "Atraso",
-      kind: "delta",
-      value: -900,
-      tone: "red",
-    },
-    {
-      id: "reprovacao-v3",
-      label: "Reprov.",
-      kind: "delta",
-      value: -340,
-      tone: "orange",
-    },
-    {
-      id: "rendimento-v3",
-      label: "Rend.",
-      kind: "delta",
-      value: -90,
-      tone: "gray",
-    },
-    {
-      id: "ganho-v3",
-      label: "Ganho",
-      kind: "delta",
-      value: 40,
-      tone: "green",
-    },
-    {
-      id: "v3-atual",
-      label: "V3 atual",
-      kind: "total",
-      value: 17500,
-      tone: "teal",
-    },
-  ]
-
-  const ponteVersoesSteps: WaterfallStep[] = apiData?.ponteVersoesSteps || ponteVersoesStepsFallback
+  const ponteVersoesSteps: WaterfallStep[] = apiData?.ponteVersoesSteps || []
 
   const abrirSimuladorPerdas = () => {
     setSimulacaoDraftModo(simulacaoAplicada?.modo ?? "media")
