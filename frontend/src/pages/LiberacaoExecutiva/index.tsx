@@ -95,6 +95,7 @@ type MonthlyLossesItem = {
   reorg: number
   atraso: number
   reprovacao: number
+  saldo?: number
   status?: "fechado" | "mtd" | "futuro"
   simulado?: boolean
 }
@@ -260,21 +261,15 @@ function montarWaterfallAnual(dados: Required<NonNullable<LiberacaoExecutivaPayl
   const causasMes = rastreamento?.mes_perdas_vs_v1_por_causa || {}
   const lotes = countLotesPorCausa(rastreamento)
 
-  let reorg = Math.max(0, Math.round(numero(rastreamento?.mes_cx_acrescimo_plano_atual)))
-  let atraso = Math.abs(Math.round(numero(causasMes?.atraso_producao)))
+  const reorg = Math.max(0, Math.round(numero(rastreamento?.mes_cx_acrescimo_plano_atual)))
+  const atraso = Math.abs(Math.round(numero(causasMes?.atraso_producao)))
   const reprovacao = Math.abs(Math.round(numero(causasMes?.reprovacao_desvio)))
   const perdaRendimento = Math.abs(Math.round(numero(causasMes?.rendimento)))
   const ganhoRendimento = Math.abs(Math.round(numero(causasMes?.ganho_rendimento)))
 
   const gap = disponibilidadeAtualCx - plano1BaseCx
   const conhecido = reorg - atraso - reprovacao - perdaRendimento + ganhoRendimento
-  const residuo = gap - conhecido
-
-  if (residuo < 0) {
-    atraso += Math.abs(Math.round(residuo))
-  } else if (residuo > 0) {
-    reorg += Math.round(residuo)
-  }
+  const residuo = Math.round(gap - conhecido)
 
   const steps: WaterfallStep[] = [
     {
@@ -335,6 +330,18 @@ function montarWaterfallAnual(dados: Required<NonNullable<LiberacaoExecutivaPayl
       value: ganhoRendimento,
       tone: "green",
     }, lotes.ganhoRendimento))
+  }
+
+  // Não jogar diferença não classificada em "Atraso prod.".
+  // Se ainda não existe abertura operacional suficiente, mostra como saldo a abrir.
+  if (Math.abs(residuo) > 0) {
+    steps.push({
+      id: "saldo-sem-abertura",
+      label: "Saldo a abrir",
+      kind: "delta",
+      value: residuo,
+      tone: residuo < 0 ? "red" : "green",
+    })
   }
 
   steps.push({
@@ -410,17 +417,17 @@ function montarPerdasMensais(
     )
 
     let reorg = Math.max(0, Math.round(numero(r?.mes_cx_acrescimo_plano_atual)))
-    let atraso = Math.abs(Math.round(numero(causas?.atraso_producao)))
+    const atraso = Math.abs(Math.round(numero(causas?.atraso_producao)))
     const reprovacao = Math.abs(Math.round(numero(causas?.reprovacao_desvio)))
+    let saldo = 0
 
     // Quando o Rastreamento ainda não trouxe a abertura por causa, usa a
-    // comparação real do MPS/Overview para não deixar o gráfico mensal em branco.
-    // Nesse fallback, a perda líquida vira "Atraso prod." porque ainda não há
-    // classificação operacional suficiente para quebrar em causas.
+    // comparação real do MPS/Overview para não deixar o gráfico mensal em branco,
+    // mas NÃO classifica como atraso. Fica como saldo a abrir.
     if (v1 > 0 && atraso + reorg + reprovacao === 0) {
       const gapLiquido = v1 - atual
       if (gapLiquido > 0) {
-        atraso = Math.round(gapLiquido)
+        saldo = Math.round(gapLiquido)
       } else if (gapLiquido < 0) {
         reorg = Math.abs(Math.round(gapLiquido))
       }
@@ -433,6 +440,7 @@ function montarPerdasMensais(
       reorg,
       atraso,
       reprovacao,
+      saldo,
       status: mes > mesAtual ? "futuro" : (mes === mesAtual ? "mtd" : "fechado"),
     }
   })
@@ -557,6 +565,35 @@ async function carregarPonteVersoesMps(ano: number, mes: number) {
     )
   } catch {
     return null
+  }
+}
+
+async function carregarCausasAnuaisReais(ano: number) {
+  try {
+    return await fetchJsonComTimeout(
+      `${API_BASE}/liberacao-executiva/causas-anuais?ano=${ano}&_t=${Date.now()}`,
+      20000,
+    )
+  } catch {
+    return null
+  }
+}
+
+function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
+  payload: T,
+  causasAnuais: any,
+): T {
+  if (!causasAnuais || !Array.isArray(causasAnuais.steps) || causasAnuais.steps.length < 2) {
+    return payload
+  }
+
+  return {
+    ...payload,
+    dados: {
+      ...(payload.dados || {}),
+      ...(causasAnuais.dados || {}),
+    },
+    waterfallSteps: causasAnuais.steps,
   }
 }
 
@@ -1127,9 +1164,10 @@ function MonthlyLossesStackedChart({
     { key: "atraso", label: "Atraso prod.", color: "#2F3E7A", subColor: "#E5ECFF" },
     { key: "reorg", label: "Reorg.", color: "#6B7FC8", subColor: "#F0F3FF" },
     { key: "reprovacao", label: "Reprov. prod.", color: "#E46A1A", subColor: "#FFF1E8" },
+    { key: "saldo", label: "Saldo a abrir", color: "#94A3B8", subColor: "#F1F5F9" },
   ] as const
 
-  const totals = data.map((item) => item.reorg + item.atraso + item.reprovacao)
+  const totals = data.map((item) => item.reorg + item.atraso + item.reprovacao + Number(item.saldo || 0))
   const maxTotal = Math.max(...totals, 1)
   const maxValue = Math.ceil((maxTotal * 1.22) / 1000) * 1000
 
@@ -1179,7 +1217,7 @@ function MonthlyLossesStackedChart({
           <rect x="0" y="0" width={width} height={height} rx="16" fill="#FFFFFF" />
 
           {data.map((item, index) => {
-            const total = item.reorg + item.atraso + item.reprovacao
+            const total = item.reorg + item.atraso + item.reprovacao + Number(item.saldo || 0)
             const hasLoss = total > 0
             const currentX = x(index)
             const clipId = `monthly-loss-stack-${index}`
@@ -2359,24 +2397,31 @@ export default function LiberacaoExecutiva() {
 
         const plano1 = await carregarPlano1Leve(ano, estoqueJanDoPayload(payload))
         const ponteVersoes = await carregarPonteVersoesMps(ano, mesAtual)
+        const causasAnuais = await carregarCausasAnuaisReais(ano)
 
         if (ativo) {
-          const parcial = aplicarPonteVersoes(
-            aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo), plano1),
-            ponteVersoes,
+          const parcial = aplicarCausasAnuais(
+            aplicarPonteVersoes(
+              aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo), plano1),
+              ponteVersoes,
+            ),
+            causasAnuais,
           )
-          setApiData(recalcularWaterfallComDados(parcial, {}))
+          setApiData(causasAnuais ? parcial : recalcularWaterfallComDados(parcial, {}))
           setCarregandoDados(false)
         }
 
         const rastreamentos = await carregarRastreamentosDoCache(ano, mesAtual)
 
         if (ativo) {
-          const completo = aplicarPonteVersoes(
-            aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo, rastreamentos), plano1),
-            ponteVersoes,
+          const completo = aplicarCausasAnuais(
+            aplicarPonteVersoes(
+              aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo, rastreamentos), plano1),
+              ponteVersoes,
+            ),
+            causasAnuais,
           )
-          setApiData(recalcularWaterfallComDados(completo, rastreamentos[mesAtual] || {}))
+          setApiData(causasAnuais ? completo : recalcularWaterfallComDados(completo, rastreamentos[mesAtual] || {}))
         }
       } catch (error) {
         console.warn("Não foi possível carregar a Liberação Executiva.", error)
@@ -2495,7 +2540,7 @@ export default function LiberacaoExecutiva() {
   const mapaCustomVazio = Object.fromEntries(mesesFuturos.map((item) => [item.mes, 0])) as Record<string, number>
 
   const perdaRealizadaTotalCx = perdasRealizadas.reduce(
-    (acc, item) => acc + item.atraso + item.reorg + item.reprovacao,
+    (acc, item) => acc + item.atraso + item.reorg + item.reprovacao + Number(item.saldo || 0),
     0,
   )
   const baseRealizadaTotalCx = perdasRealizadas.reduce((acc, item) => acc + item.v1, 0)
@@ -2506,10 +2551,12 @@ export default function LiberacaoExecutiva() {
   const somaAtrasoAtual = perdasRealizadas.reduce((acc, item) => acc + item.atraso, 0)
   const somaReorgAtual = perdasRealizadas.reduce((acc, item) => acc + item.reorg, 0)
   const somaReprovacaoAtual = perdasRealizadas.reduce((acc, item) => acc + item.reprovacao, 0)
+  const somaSaldoAtual = perdasRealizadas.reduce((acc, item) => acc + Number(item.saldo || 0), 0)
   const somaCausasAtual = somaAtrasoAtual + somaReorgAtual + somaReprovacaoAtual || 1
 
   const shareAtraso = somaAtrasoAtual / somaCausasAtual
   const shareReorg = somaReorgAtual / somaCausasAtual
+  const shareSaldo = somaSaldoAtual / somaCausasAtual
 
   const simulacaoCustomAtual =
     simulacaoAplicada?.custom && Object.keys(simulacaoAplicada.custom).length > 0
@@ -2528,13 +2575,15 @@ export default function LiberacaoExecutiva() {
 
     const atraso = Math.round(perdaTotalCx * shareAtraso)
     const reorg = Math.round(perdaTotalCx * shareReorg)
-    const reprovacao = Math.max(0, perdaTotalCx - atraso - reorg)
+    const saldo = Math.round(perdaTotalCx * shareSaldo)
+    const reprovacao = Math.max(0, perdaTotalCx - atraso - reorg - saldo)
 
     return {
       ...item,
       atraso,
       reorg,
       reprovacao,
+      saldo,
       simulado: true,
     }
   })
