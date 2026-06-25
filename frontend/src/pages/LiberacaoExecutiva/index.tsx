@@ -597,6 +597,23 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
   }
 }
 
+function temCausaClassificada(causasAnuais: any) {
+  const steps = Array.isArray(causasAnuais?.steps) ? causasAnuais.steps : []
+
+  return steps.some((step: any) => {
+    const id = String(step?.id || "")
+    const kind = String(step?.kind || "")
+    const value = Math.abs(Number(step?.value || 0))
+
+    if (kind !== "delta" || value < 1) return false
+
+    // Saldo é só diferença não aberta. Não pode ser tratado como causa carregada.
+    if (id.includes("saldo")) return false
+
+    return true
+  })
+}
+
 function semCausasAnuais<T extends LiberacaoExecutivaPayload>(payload: T): T {
   return {
     ...payload,
@@ -2382,7 +2399,7 @@ export default function LiberacaoExecutiva() {
   const [apiData, setApiData] = useState<LiberacaoExecutivaPayload | null>(null)
   const [carregandoDados, setCarregandoDados] = useState(true)
   const [erroCarga, setErroCarga] = useState<string | null>(null)
-  const [statusCausasAnuais, setStatusCausasAnuais] = useState<"carregando" | "ok" | "erro">("carregando")
+  const [statusCausasAnuais, setStatusCausasAnuais] = useState<"carregando" | "ok" | "parcial" | "erro">("carregando")
   const [mensagemCausasAnuais, setMensagemCausasAnuais] = useState<string | null>(null)
 
   useEffect(() => {
@@ -2393,7 +2410,7 @@ export default function LiberacaoExecutiva() {
         setCarregandoDados(true)
         setErroCarga(null)
         setStatusCausasAnuais("carregando")
-        setMensagemCausasAnuais("Abrindo causas reais do Gantt/MPS, Desvios e SD3.")
+        setMensagemCausasAnuais("Calculando Reorg./Atraso pelo Gantt e Desvios/Rendimento pelo Rastreamento.")
 
         const cacheLocal = getOverviewLocalCache()
         if (cacheLocal && ativo) {
@@ -2434,9 +2451,17 @@ export default function LiberacaoExecutiva() {
         )
 
         if (causasAnuais && Array.isArray(causasAnuais.steps) && causasAnuais.steps.length >= 2) {
-          setStatusCausasAnuais("ok")
-          setMensagemCausasAnuais(null)
-          setApiData(aplicarCausasAnuais(baseCompleta, causasAnuais))
+          if (temCausaClassificada(causasAnuais)) {
+            setStatusCausasAnuais("ok")
+            setMensagemCausasAnuais(null)
+            setApiData(aplicarCausasAnuais(baseCompleta, causasAnuais))
+          } else {
+            setStatusCausasAnuais("parcial")
+            setMensagemCausasAnuais(
+              "O backend retornou apenas saldo a abrir. Isso significa que a diferença ainda não foi quebrada em Reorg., Atraso, Desvios ou Rendimento.",
+            )
+            setApiData(semCausasAnuais(baseCompleta))
+          }
         } else {
           setStatusCausasAnuais("erro")
           setMensagemCausasAnuais("A abertura real das causas ainda não retornou. O gráfico anual foi ocultado para não classificar o saldo como atraso.")
@@ -2554,6 +2579,24 @@ export default function LiberacaoExecutiva() {
     (step) => step.kind === "total" || Math.abs(Number(step.value || 0)) >= 1,
   )
   const causasAnuaisProntas = statusCausasAnuais === "ok" && waterfallSteps.length > 0
+  const tituloStatusCausas =
+    statusCausasAnuais === "erro"
+      ? "Causas anuais não carregadas"
+      : statusCausasAnuais === "parcial"
+        ? "Abertura parcial"
+        : "Abrindo causas reais"
+  const corStatusCausas =
+    statusCausasAnuais === "erro"
+      ? "#B91C1C"
+      : statusCausasAnuais === "parcial"
+        ? "#B45309"
+        : "var(--text-secondary)"
+  const fundoStatusCausas =
+    statusCausasAnuais === "erro"
+      ? "#FEF2F2"
+      : statusCausasAnuais === "parcial"
+        ? "#FFFBEB"
+        : "#F8FAFC"
 
   const perdasMensais: MonthlyLossesItem[] = apiData?.perdasMensais || []
 
@@ -2799,26 +2842,34 @@ export default function LiberacaoExecutiva() {
               onClickReorganizacao={() => setModalReorganizacaoAberto(true)}
             />
           ) : (
-            <div className="flex min-h-[260px] items-center justify-center px-6 pb-8 pt-6">
+            <div className="px-6 pb-5 pt-4">
               <div
-                className="max-w-[680px] rounded-2xl border px-5 py-4 text-center"
+                className="flex items-start justify-between gap-4 rounded-2xl border px-4 py-3"
                 style={{
                   borderColor: "var(--border)",
-                  background: statusCausasAnuais === "erro" ? "#FEF2F2" : "#F8FAFC",
+                  background: fundoStatusCausas,
                 }}
               >
-                <p
-                  className="text-[12px] font-black uppercase tracking-[0.18em]"
-                  style={{ color: statusCausasAnuais === "erro" ? "#B91C1C" : "var(--text-secondary)" }}
-                >
-                  {statusCausasAnuais === "erro" ? "Causas anuais não carregadas" : "Abrindo causas reais"}
-                </p>
-                <p className="mt-2 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  {mensagemCausasAnuais || "Varrendo versões do Gantt/MPS, Desvios e SD3."}
-                </p>
-                <p className="mt-1 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                  Enquanto a abertura real não retorna, a ferramenta não classifica o saldo como atraso.
-                </p>
+                <div className="min-w-0">
+                  <p
+                    className="text-[11px] font-black uppercase tracking-[0.18em]"
+                    style={{ color: corStatusCausas }}
+                  >
+                    {tituloStatusCausas}
+                  </p>
+                  <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                    {mensagemCausasAnuais || "Varrendo versões do Gantt/MPS, Desvios e SD3."}
+                  </p>
+                  <p className="mt-1 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                    A cascata só aparece quando houver causa real classificada. Saldo sozinho não vira atraso.
+                  </p>
+                </div>
+
+                {statusCausasAnuais === "carregando" && (
+                  <div className="mt-1 h-2 w-28 overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-full w-1/2 rounded-full bg-slate-400" />
+                  </div>
+                )}
               </div>
             </div>
           )}
