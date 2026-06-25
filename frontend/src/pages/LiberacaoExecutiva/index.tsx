@@ -597,6 +597,13 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
   }
 }
 
+function semCausasAnuais<T extends LiberacaoExecutivaPayload>(payload: T): T {
+  return {
+    ...payload,
+    waterfallSteps: [],
+  }
+}
+
 function aplicarPonteVersoes<T extends LiberacaoExecutivaPayload>(
   payload: T,
   ponte: any,
@@ -2375,6 +2382,8 @@ export default function LiberacaoExecutiva() {
   const [apiData, setApiData] = useState<LiberacaoExecutivaPayload | null>(null)
   const [carregandoDados, setCarregandoDados] = useState(true)
   const [erroCarga, setErroCarga] = useState<string | null>(null)
+  const [statusCausasAnuais, setStatusCausasAnuais] = useState<"carregando" | "ok" | "erro">("carregando")
+  const [mensagemCausasAnuais, setMensagemCausasAnuais] = useState<string | null>(null)
 
   useEffect(() => {
     let ativo = true
@@ -2383,10 +2392,12 @@ export default function LiberacaoExecutiva() {
       try {
         setCarregandoDados(true)
         setErroCarga(null)
+        setStatusCausasAnuais("carregando")
+        setMensagemCausasAnuais("Abrindo causas reais do Gantt/MPS, Desvios e SD3.")
 
         const cacheLocal = getOverviewLocalCache()
         if (cacheLocal && ativo) {
-          setApiData(montarApiDataDaOverviewCache(cacheLocal))
+          setApiData(semCausasAnuais(montarApiDataDaOverviewCache(cacheLocal)))
           setCarregandoDados(false)
         }
 
@@ -2397,31 +2408,39 @@ export default function LiberacaoExecutiva() {
 
         const plano1 = await carregarPlano1Leve(ano, estoqueJanDoPayload(payload))
         const ponteVersoes = await carregarPonteVersoesMps(ano, mesAtual)
-        const causasAnuais = await carregarCausasAnuaisReais(ano)
 
         if (ativo) {
-          const parcial = aplicarCausasAnuais(
+          const parcial = semCausasAnuais(
             aplicarPonteVersoes(
               aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo), plano1),
               ponteVersoes,
             ),
-            causasAnuais,
           )
-          setApiData(causasAnuais ? parcial : recalcularWaterfallComDados(parcial, {}))
+
+          setApiData(parcial)
           setCarregandoDados(false)
         }
 
-        const rastreamentos = await carregarRastreamentosDoCache(ano, mesAtual)
+        const [causasAnuais, rastreamentos] = await Promise.all([
+          carregarCausasAnuaisReais(ano),
+          carregarRastreamentosDoCache(ano, mesAtual),
+        ])
 
-        if (ativo) {
-          const completo = aplicarCausasAnuais(
-            aplicarPonteVersoes(
-              aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo, rastreamentos), plano1),
-              ponteVersoes,
-            ),
-            causasAnuais,
-          )
-          setApiData(causasAnuais ? completo : recalcularWaterfallComDados(completo, rastreamentos[mesAtual] || {}))
+        if (!ativo) return
+
+        const baseCompleta = aplicarPonteVersoes(
+          aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo, rastreamentos), plano1),
+          ponteVersoes,
+        )
+
+        if (causasAnuais && Array.isArray(causasAnuais.steps) && causasAnuais.steps.length >= 2) {
+          setStatusCausasAnuais("ok")
+          setMensagemCausasAnuais(null)
+          setApiData(aplicarCausasAnuais(baseCompleta, causasAnuais))
+        } else {
+          setStatusCausasAnuais("erro")
+          setMensagemCausasAnuais("A abertura real das causas ainda não retornou. O gráfico anual foi ocultado para não classificar o saldo como atraso.")
+          setApiData(semCausasAnuais(baseCompleta))
         }
       } catch (error) {
         console.warn("Não foi possível carregar a Liberação Executiva.", error)
@@ -2430,7 +2449,9 @@ export default function LiberacaoExecutiva() {
           const cacheLocal = getOverviewLocalCache()
 
           if (cacheLocal) {
-            setApiData(montarApiDataDaOverviewCache(cacheLocal))
+            setApiData(semCausasAnuais(montarApiDataDaOverviewCache(cacheLocal)))
+            setStatusCausasAnuais("erro")
+            setMensagemCausasAnuais("A abertura real das causas ainda não retornou.")
           } else {
             setErroCarga(error instanceof Error ? error.message : "Erro ao carregar dados")
           }
@@ -2532,6 +2553,7 @@ export default function LiberacaoExecutiva() {
   const waterfallSteps: WaterfallStep[] = (apiData?.waterfallSteps || []).filter(
     (step) => step.kind === "total" || Math.abs(Number(step.value || 0)) >= 1,
   )
+  const causasAnuaisProntas = statusCausasAnuais === "ok" && waterfallSteps.length > 0
 
   const perdasMensais: MonthlyLossesItem[] = apiData?.perdasMensais || []
 
@@ -2552,7 +2574,7 @@ export default function LiberacaoExecutiva() {
   const somaReorgAtual = perdasRealizadas.reduce((acc, item) => acc + item.reorg, 0)
   const somaReprovacaoAtual = perdasRealizadas.reduce((acc, item) => acc + item.reprovacao, 0)
   const somaSaldoAtual = perdasRealizadas.reduce((acc, item) => acc + Number(item.saldo || 0), 0)
-  const somaCausasAtual = somaAtrasoAtual + somaReorgAtual + somaReprovacaoAtual || 1
+  const somaCausasAtual = somaAtrasoAtual + somaReorgAtual + somaReprovacaoAtual + somaSaldoAtual || 1
 
   const shareAtraso = somaAtrasoAtual / somaCausasAtual
   const shareReorg = somaReorgAtual / somaCausasAtual
@@ -2770,11 +2792,36 @@ export default function LiberacaoExecutiva() {
             </p>
           </div>
 
-          <WaterfallChart
-            steps={waterfallSteps}
-            orcadoFaturamentoCx={dados.orcadoFaturamentoCx}
-            onClickReorganizacao={() => setModalReorganizacaoAberto(true)}
-          />
+          {causasAnuaisProntas ? (
+            <WaterfallChart
+              steps={waterfallSteps}
+              orcadoFaturamentoCx={dados.orcadoFaturamentoCx}
+              onClickReorganizacao={() => setModalReorganizacaoAberto(true)}
+            />
+          ) : (
+            <div className="flex min-h-[260px] items-center justify-center px-6 pb-8 pt-6">
+              <div
+                className="max-w-[680px] rounded-2xl border px-5 py-4 text-center"
+                style={{
+                  borderColor: "var(--border)",
+                  background: statusCausasAnuais === "erro" ? "#FEF2F2" : "#F8FAFC",
+                }}
+              >
+                <p
+                  className="text-[12px] font-black uppercase tracking-[0.18em]"
+                  style={{ color: statusCausasAnuais === "erro" ? "#B91C1C" : "var(--text-secondary)" }}
+                >
+                  {statusCausasAnuais === "erro" ? "Causas anuais não carregadas" : "Abrindo causas reais"}
+                </p>
+                <p className="mt-2 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  {mensagemCausasAnuais || "Varrendo versões do Gantt/MPS, Desvios e SD3."}
+                </p>
+                <p className="mt-1 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                  Enquanto a abertura real não retorna, a ferramenta não classifica o saldo como atraso.
+                </p>
+              </div>
+            </div>
+          )}
         </section>
 
         <MonthlyLossesStackedChart
