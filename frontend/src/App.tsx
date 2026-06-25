@@ -13,6 +13,7 @@ import AnaliseMrpPage from "./pages/AnaliseMrp"
 import ConfiguracoesPage from "./pages/Configuracoes"
 import FaturamentoPage from "./pages/Faturamento"
 import DesviosPage from "./pages/Desvios"
+import LiberacaoExecutiva from "./pages/LiberacaoExecutiva"
 
 import { CalendarioParadasPage } from "./pages/calendario-paradas"
 
@@ -36,6 +37,7 @@ export default function App() {
 
           <Route element={<Layout />}>
             <Route path="/overview" element={<OverviewPage />} />
+            <Route path="/liberacao-executiva" element={<LiberacaoExecutiva />} />
             <Route path="/producao/*" element={<ProducaoPage />} />
             <Route path="/faturamento" element={<FaturamentoPage />} />
             <Route path="/desvios" element={<DesviosPage />} />
