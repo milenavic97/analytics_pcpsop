@@ -326,32 +326,92 @@ function montarWaterfallAnual(dados: Required<NonNullable<LiberacaoExecutivaPayl
   return steps
 }
 
-function montarPerdasMensais(rastreamentos: Record<number, any>, mesAtual: number): MonthlyLossesItem[] {
+function resumoMensalProjLib(projLib: any, mesAtual: number) {
+  const linhas = Array.isArray(projLib?.linhas) ? projLib.linhas : []
+  const meses = Array.isArray(projLib?.meses) ? projLib.meses : []
+  const resultado: Record<number, { v1: number; atual: number }> = {}
+
+  for (let mes = 1; mes <= 12; mes += 1) {
+    const linhasMes = linhas.filter((linha: any) => Number(linha?.mes) === mes)
+    const mesPayload = meses.find((item: any) => Number(item?.mes) === mes) || {}
+
+    const v1PorLinha = linhasMes.reduce(
+      (acc: number, linha: any) => acc + numero(linha?.planejado_v1),
+      0,
+    )
+
+    let atualPorLinha = 0
+    if (mes < mesAtual) {
+      atualPorLinha = linhasMes.reduce(
+        (acc: number, linha: any) => acc + numero(linha?.realizado),
+        0,
+      )
+    } else {
+      atualPorLinha = linhasMes.reduce(
+        (acc: number, linha: any) => acc + numero(linha?.previsto ?? linha?.planejado),
+        0,
+      )
+    }
+
+    const v1 = Math.round(v1PorLinha || numero(mesPayload?.orcado))
+    const atual = Math.round(
+      atualPorLinha
+      || numero(mesPayload?.real)
+      || numero(mesPayload?.real_mes_atual)
+      || numero(mesPayload?.previsto),
+    )
+
+    resultado[mes] = { v1, atual }
+  }
+
+  return resultado
+}
+
+function montarPerdasMensais(
+  rastreamentos: Record<number, any>,
+  mesAtual: number,
+  projLib?: any,
+): MonthlyLossesItem[] {
+  const resumoProjLib = resumoMensalProjLib(projLib, mesAtual)
+
   return MES_LABELS.map((mesLabel, index) => {
     const mes = index + 1
     const r = rastreamentos[mes] || {}
     const causas = r?.mes_perdas_vs_v1_por_causa || {}
+    const resumoMes = resumoProjLib[mes] || { v1: 0, atual: 0 }
 
-    if (mes > mesAtual) {
-      return {
-        mes: mesLabel,
-        baseline: `${mesLabel}/V1`,
-        v1: 0,
-        reorg: 0,
-        atraso: 0,
-        reprovacao: 0,
-        status: "futuro",
+    const v1 = Math.round(numero(r?.mes_cx_previsto_v1) || resumoMes.v1)
+    const atual = Math.round(
+      numero(r?.mes_cx_plano_atual_tendencia)
+      || numero(r?.mes_cx_plano_atual_puro)
+      || resumoMes.atual,
+    )
+
+    let reorg = Math.max(0, Math.round(numero(r?.mes_cx_acrescimo_plano_atual)))
+    let atraso = Math.abs(Math.round(numero(causas?.atraso_producao)))
+    const reprovacao = Math.abs(Math.round(numero(causas?.reprovacao_desvio)))
+
+    // Quando o Rastreamento ainda não trouxe a abertura por causa, usa a
+    // comparação real do MPS/Overview para não deixar o gráfico mensal em branco.
+    // Nesse fallback, a perda líquida vira "Atraso prod." porque ainda não há
+    // classificação operacional suficiente para quebrar em causas.
+    if (v1 > 0 && atraso + reorg + reprovacao === 0) {
+      const gapLiquido = v1 - atual
+      if (gapLiquido > 0) {
+        atraso = Math.round(gapLiquido)
+      } else if (gapLiquido < 0) {
+        reorg = Math.abs(Math.round(gapLiquido))
       }
     }
 
     return {
       mes: mesLabel,
       baseline: `${mesLabel}/V1`,
-      v1: Math.round(numero(r?.mes_cx_previsto_v1)),
-      reorg: Math.max(0, Math.round(numero(r?.mes_cx_acrescimo_plano_atual))),
-      atraso: Math.abs(Math.round(numero(causas?.atraso_producao))),
-      reprovacao: Math.abs(Math.round(numero(causas?.reprovacao_desvio))),
-      status: mes === mesAtual ? "mtd" : "fechado",
+      v1,
+      reorg,
+      atraso,
+      reprovacao,
+      status: mes > mesAtual ? "futuro" : (mes === mesAtual ? "mtd" : "fechado"),
     }
   })
 }
@@ -377,7 +437,7 @@ function montarApiDataDaOverviewCache(cache: any, rastreamentos: Record<number, 
     atualizadoLabel: formatarAtualizacao(cache?.ultimaAtualizacao) || "—",
     dados,
     waterfallSteps: montarWaterfallAnual(dados, rastAtual),
-    perdasMensais: montarPerdasMensais(rastreamentos, mesAtual),
+    perdasMensais: montarPerdasMensais(rastreamentos, mesAtual, cache?.projLib),
     ponteVersoesSteps: [],
     itensReorganizacao: [],
   }
@@ -412,7 +472,7 @@ function montarApiDataDaOverviewResumo(resumo: any, rastreamentos: Record<number
     atualizadoLabel: formatarAtualizacao(resumo?.ultima_atualizacao || payload?.ultima_atualizacao) || "—",
     dados,
     waterfallSteps: montarWaterfallAnual(dados, rastAtual),
-    perdasMensais: montarPerdasMensais(rastreamentos, mesAtual),
+    perdasMensais: montarPerdasMensais(rastreamentos, mesAtual, cache?.projLib),
     ponteVersoesSteps: [],
     itensReorganizacao: [],
   }
