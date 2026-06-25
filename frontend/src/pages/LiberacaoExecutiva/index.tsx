@@ -1242,7 +1242,7 @@ function MonthlyLossesStackedChart({
                 {hasLoss && (
                   <g clipPath={`url(#${clipId})`}>
                     {causas.map((causa) => {
-                      const value = item[causa.key]
+                      const value = Number(item[causa.key] ?? 0)
 
                       if (value <= 0) return null
 
