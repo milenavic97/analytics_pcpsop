@@ -102,6 +102,8 @@ type MonthlyLossesItem = {
 type SimulationMode = "media" | "custom"
 
 type LiberacaoExecutivaPayload = {
+  erro?: string
+  mensagem?: string
   atualizadoLabel?: string
   atualizado_label?: string
   dados?: Partial<{
@@ -1849,19 +1851,30 @@ export default function LiberacaoExecutiva() {
     let ativo = true
 
     async function carregarDados() {
+      const controller = new AbortController()
+      const timeoutId = window.setTimeout(() => controller.abort(), 25000)
+
       try {
         setCarregandoDados(true)
         setErroCarga(null)
 
-        const response = await fetch(`${API_BASE}/liberacao-executiva/resumo?force=true&_t=${Date.now()}`)
+        const response = await fetch(`${API_BASE}/liberacao-executiva/resumo?force=true&_t=${Date.now()}`, {
+          signal: controller.signal,
+        })
+
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
         const json = await response.json()
+        if (json?.erro) {
+          throw new Error(json.mensagem || json.erro)
+        }
+
         if (ativo) setApiData(json)
       } catch (error) {
         console.warn("Não foi possível carregar a Liberação Executiva.", error)
         if (ativo) setErroCarga(error instanceof Error ? error.message : "Erro ao carregar dados")
       } finally {
+        window.clearTimeout(timeoutId)
         if (ativo) setCarregandoDados(false)
       }
     }
@@ -1918,7 +1931,7 @@ export default function LiberacaoExecutiva() {
 
             <p className="mt-2 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
               {carregandoDados
-                ? "A página está buscando a mesma base usada na Overview e no MPS/Gantt."
+                ? "A página está buscando o cache da Overview e os dados do MPS/Gantt."
                 : `O backend não retornou os dados da Liberação Executiva. Erro: ${erroCarga || "desconhecido"}`}
             </p>
           </div>
