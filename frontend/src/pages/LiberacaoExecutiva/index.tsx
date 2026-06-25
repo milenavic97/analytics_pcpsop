@@ -124,6 +124,370 @@ type LiberacaoExecutivaPayload = {
   itensReorganizacao?: ReorganizacaoItem[]
 }
 
+const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v1"
+
+const MES_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
+function numero(value: unknown, fallback = 0) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function getOverviewLocalCache(): any | null {
+  try {
+    if (typeof window === "undefined") return null
+    const raw = window.localStorage.getItem(OVERVIEW_PAGE_CACHE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+async function fetchJson(url: string) {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return response.json()
+}
+
+async function fetchJsonComTimeout(url: string, timeoutMs = 15000) {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(url, { signal: controller.signal })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return await response.json()
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+function formatarAtualizacao(value: unknown) {
+  if (!value) return undefined
+
+  const texto = String(value)
+  const dt = new Date(texto)
+
+  if (Number.isNaN(dt.getTime())) return texto
+
+  return dt.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).replace(",", " às")
+}
+
+function estoqueJanDoPayload(payload: any) {
+  const estoqueMensal = Array.isArray(payload?.estoque_mensal) ? payload.estoque_mensal : []
+  const jan = estoqueMensal.find((item: any) => Number(item?.mes) === 1)
+  return numero(jan?.qtd_caixas)
+}
+
+function countLotesPorCausa(rastreamento: any) {
+  const lotes = Array.isArray(rastreamento?.lotes) ? rastreamento.lotes : []
+
+  const atraso = new Set<string>()
+  const reprovacao = new Set<string>()
+  const rendimento = new Set<string>()
+  const ganho = new Set<string>()
+
+  lotes.forEach((item: any) => {
+    const lote = String(item?.lote || item?.lote_op || item?.numero_lote || item?.op || "").trim()
+    if (!lote) return
+
+    const status = String(item?.status_gap || "").trim()
+
+    if (item?.atraso_producao || item?.reprogramado || status === "Atraso de produção") {
+      atraso.add(lote)
+    }
+
+    if (item?.desvio_reprovacao || status === "Reprovação/desvio") {
+      reprovacao.add(lote)
+    }
+
+    if (item?.perda_rendimento || status === "Perda por rendimento" || numero(item?.qtd_perda_rendimento_cx) > 0) {
+      rendimento.add(lote)
+    }
+
+    const previsto = numero(item?.qtd_prevista_cx)
+    const liberado = numero(item?.qtd_liberada_cx)
+    if (previsto > 0 && liberado > previsto) {
+      ganho.add(lote)
+    }
+  })
+
+  return {
+    atraso: atraso.size,
+    reprovacao: reprovacao.size,
+    perdaRendimento: rendimento.size,
+    ganhoRendimento: ganho.size,
+  }
+}
+
+function withLotes(step: WaterfallStep, lotes?: number): WaterfallStep {
+  if (lotes && lotes > 0) return { ...step, lotes }
+  return step
+}
+
+function montarWaterfallAnual(dados: Required<NonNullable<LiberacaoExecutivaPayload["dados"]>>, rastreamento: any): WaterfallStep[] {
+  const plano1BaseCx = dados.plano1LiberacaoCx + dados.estoqueInicialJanCx
+  const disponibilidadeAtualCx = dados.planoAtualLiberacaoCx + dados.estoqueInicialJanCx
+  const causasMes = rastreamento?.mes_perdas_vs_v1_por_causa || {}
+  const lotes = countLotesPorCausa(rastreamento)
+
+  let reorg = Math.max(0, Math.round(numero(rastreamento?.mes_cx_acrescimo_plano_atual)))
+  let atraso = Math.abs(Math.round(numero(causasMes?.atraso_producao)))
+  const reprovacao = Math.abs(Math.round(numero(causasMes?.reprovacao_desvio)))
+  const perdaRendimento = Math.abs(Math.round(numero(causasMes?.rendimento)))
+  const ganhoRendimento = Math.abs(Math.round(numero(causasMes?.ganho_rendimento)))
+
+  const gap = disponibilidadeAtualCx - plano1BaseCx
+  const conhecido = reorg - atraso - reprovacao - perdaRendimento + ganhoRendimento
+  const residuo = gap - conhecido
+
+  if (residuo < 0) {
+    atraso += Math.abs(Math.round(residuo))
+  } else if (residuo > 0) {
+    reorg += Math.round(residuo)
+  }
+
+  const steps: WaterfallStep[] = [
+    {
+      id: "plano1",
+      label: "Disp. anual orçada",
+      kind: "total",
+      value: plano1BaseCx,
+      tone: "navy",
+    },
+  ]
+
+  if (Math.abs(reorg) > 0) {
+    steps.push({
+      id: "reorganizacao",
+      label: "Reorg.",
+      kind: "delta",
+      value: reorg,
+      tone: "slate",
+      clickable: true,
+    })
+  }
+
+  if (Math.abs(atraso) > 0) {
+    steps.push(withLotes({
+      id: "atraso",
+      label: "Atraso prod.",
+      kind: "delta",
+      value: -atraso,
+      tone: "red",
+    }, lotes.atraso))
+  }
+
+  if (Math.abs(reprovacao) > 0) {
+    steps.push(withLotes({
+      id: "reprovacao",
+      label: "Reprov. lote",
+      kind: "delta",
+      value: -reprovacao,
+      tone: "orange",
+    }, lotes.reprovacao))
+  }
+
+  if (Math.abs(perdaRendimento) > 0) {
+    steps.push(withLotes({
+      id: "rendimento",
+      label: "Perda rend.",
+      kind: "delta",
+      value: -perdaRendimento,
+      tone: "gray",
+    }, lotes.perdaRendimento))
+  }
+
+  if (Math.abs(ganhoRendimento) > 0) {
+    steps.push(withLotes({
+      id: "ganho",
+      label: "Ganho rend.",
+      kind: "delta",
+      value: ganhoRendimento,
+      tone: "green",
+    }, lotes.ganhoRendimento))
+  }
+
+  steps.push({
+    id: "disponibilidade",
+    label: "Disp. atual",
+    kind: "total",
+    value: disponibilidadeAtualCx,
+    tone: "teal",
+  })
+
+  return steps
+}
+
+function montarPerdasMensais(rastreamentos: Record<number, any>, mesAtual: number): MonthlyLossesItem[] {
+  return MES_LABELS.map((mesLabel, index) => {
+    const mes = index + 1
+    const r = rastreamentos[mes] || {}
+    const causas = r?.mes_perdas_vs_v1_por_causa || {}
+
+    if (mes > mesAtual) {
+      return {
+        mes: mesLabel,
+        baseline: `${mesLabel}/V1`,
+        v1: 0,
+        reorg: 0,
+        atraso: 0,
+        reprovacao: 0,
+        status: "futuro",
+      }
+    }
+
+    return {
+      mes: mesLabel,
+      baseline: `${mesLabel}/V1`,
+      v1: Math.round(numero(r?.mes_cx_previsto_v1)),
+      reorg: Math.max(0, Math.round(numero(r?.mes_cx_acrescimo_plano_atual))),
+      atraso: Math.abs(Math.round(numero(causas?.atraso_producao))),
+      reprovacao: Math.abs(Math.round(numero(causas?.reprovacao_desvio))),
+      status: mes === mesAtual ? "mtd" : "fechado",
+    }
+  })
+}
+
+function montarApiDataDaOverviewCache(cache: any, rastreamentos: Record<number, any> = {}): LiberacaoExecutivaPayload {
+  const mesAtual = new Date().getMonth() + 1
+  const rastAtual = rastreamentos[mesAtual] || {}
+
+  const dados = {
+    orcadoFaturamentoCx: Math.round(numero(cache?.orcadoFat?.total_caixas)),
+    faturamentoProjetadoCx: Math.round(numero(cache?.projFat?.total_projetado)),
+    plano1LiberacaoCx: Math.round(numero(cache?.orcadoLib?.total_caixas || cache?.projLib?.total_orcado)),
+    planoAtualLiberacaoCx: Math.round(numero(cache?.projLib?.total_projetado)),
+    estoqueInicialJanCx: Math.round(numero(cache?.estoqueJan)),
+    reorganizacaoPlanoCx: Math.max(0, Math.round(numero(rastAtual?.mes_cx_acrescimo_plano_atual))),
+    atrasoProducaoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.atraso_producao))),
+    perdaReprovacaoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.reprovacao_desvio))),
+    perdaRendimentoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.rendimento))),
+    ganhoRendimentoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.ganho_rendimento))),
+  }
+
+  return {
+    atualizadoLabel: formatarAtualizacao(cache?.ultimaAtualizacao) || "—",
+    dados,
+    waterfallSteps: montarWaterfallAnual(dados, rastAtual),
+    perdasMensais: montarPerdasMensais(rastreamentos, mesAtual),
+    ponteVersoesSteps: [],
+    itensReorganizacao: [],
+  }
+}
+
+function montarApiDataDaOverviewResumo(resumo: any, rastreamentos: Record<number, any> = {}): LiberacaoExecutivaPayload {
+  const payload = resumo?.payload || {}
+  const ano = Number(resumo?.ano || payload?.ano || new Date().getFullYear())
+  const mesAtual = Number(resumo?.mes_atual || payload?.mes_atual || new Date().getMonth() + 1)
+  const rastAtual = rastreamentos[mesAtual] || {}
+
+  const orcadoFat = payload?.orcado_faturamento || {}
+  const projFat = payload?.projecao_faturamento || {}
+  const projLib = payload?.projecao_liberacoes || {}
+  const orcadoLib = payload?.orcado_liberacao || {}
+  const estoqueJan = estoqueJanDoPayload(payload)
+
+  const dados = {
+    orcadoFaturamentoCx: Math.round(numero(orcadoFat?.total_caixas)),
+    faturamentoProjetadoCx: Math.round(numero(projFat?.total_projetado)),
+    plano1LiberacaoCx: Math.round(numero(orcadoLib?.total_caixas || projLib?.total_orcado)),
+    planoAtualLiberacaoCx: Math.round(numero(projLib?.total_projetado)),
+    estoqueInicialJanCx: Math.round(numero(estoqueJan)),
+    reorganizacaoPlanoCx: Math.max(0, Math.round(numero(rastAtual?.mes_cx_acrescimo_plano_atual))),
+    atrasoProducaoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.atraso_producao))),
+    perdaReprovacaoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.reprovacao_desvio))),
+    perdaRendimentoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.rendimento))),
+    ganhoRendimentoCx: Math.abs(Math.round(numero(rastAtual?.mes_perdas_vs_v1_por_causa?.ganho_rendimento))),
+  }
+
+  return {
+    atualizadoLabel: formatarAtualizacao(resumo?.ultima_atualizacao || payload?.ultima_atualizacao) || "—",
+    dados,
+    waterfallSteps: montarWaterfallAnual(dados, rastAtual),
+    perdasMensais: montarPerdasMensais(rastreamentos, mesAtual),
+    ponteVersoesSteps: [],
+    itensReorganizacao: [],
+  }
+}
+
+async function carregarRastreamentosDoCache(ano: number, mesAtual: number) {
+  const pares = await Promise.all(
+    Array.from({ length: mesAtual }, async (_, index) => {
+      const mes = index + 1
+
+      try {
+        const json = await fetchJsonComTimeout(
+          `${API_BASE}/overview/rastreamento-lotes-cache?mes=${mes}&ano=${ano}&allow_stale=true&_t=${Date.now()}`,
+          8000,
+        )
+
+        return [mes, json?.payload || json] as const
+      } catch {
+        return [mes, {}] as const
+      }
+    }),
+  )
+
+  return Object.fromEntries(pares) as Record<number, any>
+}
+
+async function carregarPlano1Leve(ano: number) {
+  try {
+    return await fetchJsonComTimeout(
+      `${API_BASE}/liberacao-executiva/plano1?ano=${ano}&_t=${Date.now()}`,
+      8000,
+    )
+  } catch {
+    return null
+  }
+}
+
+function aplicarPlano1Override<T extends LiberacaoExecutivaPayload>(
+  payload: T,
+  plano1: any,
+): T {
+  if (!plano1?.plano1LiberacaoCx) return payload
+
+  return {
+    ...payload,
+    dados: {
+      ...(payload.dados || {}),
+      plano1LiberacaoCx: Math.round(numero(plano1.plano1LiberacaoCx)),
+      estoqueInicialJanCx: Math.round(numero(plano1.estoqueInicialJanCx ?? payload.dados?.estoqueInicialJanCx)),
+    },
+  }
+}
+
+function recalcularWaterfallComDados(payload: LiberacaoExecutivaPayload, rastreamento: any): LiberacaoExecutivaPayload {
+  if (!payload.dados) return payload
+
+  const dados = {
+    orcadoFaturamentoCx: numero(payload.dados.orcadoFaturamentoCx),
+    faturamentoProjetadoCx: numero(payload.dados.faturamentoProjetadoCx),
+    plano1LiberacaoCx: numero(payload.dados.plano1LiberacaoCx),
+    planoAtualLiberacaoCx: numero(payload.dados.planoAtualLiberacaoCx),
+    estoqueInicialJanCx: numero(payload.dados.estoqueInicialJanCx),
+    reorganizacaoPlanoCx: numero(payload.dados.reorganizacaoPlanoCx),
+    atrasoProducaoCx: numero(payload.dados.atrasoProducaoCx),
+    perdaReprovacaoCx: numero(payload.dados.perdaReprovacaoCx),
+    perdaRendimentoCx: numero(payload.dados.perdaRendimentoCx),
+    ganhoRendimentoCx: numero(payload.dados.ganhoRendimentoCx),
+  }
+
+  return {
+    ...payload,
+    waterfallSteps: montarWaterfallAnual(dados, rastreamento),
+  }
+}
+
 function getToneStyles(tone: Tone) {
   const tones = {
     blue: {
@@ -1851,30 +2215,48 @@ export default function LiberacaoExecutiva() {
     let ativo = true
 
     async function carregarDados() {
-      const controller = new AbortController()
-      const timeoutId = window.setTimeout(() => controller.abort(), 25000)
-
       try {
         setCarregandoDados(true)
         setErroCarga(null)
 
-        const response = await fetch(`${API_BASE}/liberacao-executiva/resumo?force=true&_t=${Date.now()}`, {
-          signal: controller.signal,
-        })
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-        const json = await response.json()
-        if (json?.erro) {
-          throw new Error(json.mensagem || json.erro)
+        const cacheLocal = getOverviewLocalCache()
+        if (cacheLocal && ativo) {
+          setApiData(montarApiDataDaOverviewCache(cacheLocal))
+          setCarregandoDados(false)
         }
 
-        if (ativo) setApiData(json)
+        const resumo = await fetchJson(`${API_BASE}/overview/resumo?allow_stale=true&_t=${Date.now()}`)
+        const payload = resumo?.payload || {}
+        const ano = Number(resumo?.ano || payload?.ano || new Date().getFullYear())
+        const mesAtual = Number(resumo?.mes_atual || payload?.mes_atual || new Date().getMonth() + 1)
+
+        const plano1 = await carregarPlano1Leve(ano)
+
+        if (ativo) {
+          const parcial = aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo), plano1)
+          setApiData(recalcularWaterfallComDados(parcial, {}))
+          setCarregandoDados(false)
+        }
+
+        const rastreamentos = await carregarRastreamentosDoCache(ano, mesAtual)
+
+        if (ativo) {
+          const completo = aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo, rastreamentos), plano1)
+          setApiData(recalcularWaterfallComDados(completo, rastreamentos[mesAtual] || {}))
+        }
       } catch (error) {
         console.warn("Não foi possível carregar a Liberação Executiva.", error)
-        if (ativo) setErroCarga(error instanceof Error ? error.message : "Erro ao carregar dados")
+
+        if (ativo) {
+          const cacheLocal = getOverviewLocalCache()
+
+          if (cacheLocal) {
+            setApiData(montarApiDataDaOverviewCache(cacheLocal))
+          } else {
+            setErroCarga(error instanceof Error ? error.message : "Erro ao carregar dados")
+          }
+        }
       } finally {
-        window.clearTimeout(timeoutId)
         if (ativo) setCarregandoDados(false)
       }
     }
@@ -1931,7 +2313,7 @@ export default function LiberacaoExecutiva() {
 
             <p className="mt-2 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
               {carregandoDados
-                ? "A página está buscando o cache da Overview e os dados do MPS/Gantt."
+                ? "A página está usando a mesma base da Overview."
                 : `O backend não retornou os dados da Liberação Executiva. Erro: ${erroCarga || "desconhecido"}`}
             </p>
           </div>
@@ -1968,7 +2350,9 @@ export default function LiberacaoExecutiva() {
     : 0
 
   // Sem fallback visual: esta página não deve exibir número mockado.
-  const waterfallSteps: WaterfallStep[] = apiData?.waterfallSteps || []
+  const waterfallSteps: WaterfallStep[] = (apiData?.waterfallSteps || []).filter(
+    (step) => step.kind === "total" || Math.abs(Number(step.value || 0)) >= 1,
+  )
 
   const perdasMensais: MonthlyLossesItem[] = apiData?.perdasMensais || []
 
@@ -2216,10 +2600,12 @@ export default function LiberacaoExecutiva() {
           simulacaoAtiva={!!simulacaoAplicada}
         />
 
-        <VersionBridgeSection
-          steps={ponteVersoesSteps}
-          onClickReorganizacao={() => setModalReorganizacaoAberto(true)}
-        />
+        {ponteVersoesSteps.length > 0 && (
+          <VersionBridgeSection
+            steps={ponteVersoesSteps}
+            onClickReorganizacao={() => setModalReorganizacaoAberto(true)}
+          />
+        )}
       </div>
 
       <ReorganizacaoModal
