@@ -450,6 +450,34 @@ async function carregarPlano1Leve(ano: number) {
   }
 }
 
+async function carregarPonteVersoesMps(ano: number, mes: number) {
+  try {
+    return await fetchJsonComTimeout(
+      `${API_BASE}/liberacao-executiva/ponte-versoes?ano=${ano}&mes=${mes}&_t=${Date.now()}`,
+      10000,
+    )
+  } catch {
+    return null
+  }
+}
+
+function aplicarPonteVersoes<T extends LiberacaoExecutivaPayload>(
+  payload: T,
+  ponte: any,
+): T {
+  if (!Array.isArray(ponte?.steps) || ponte.steps.length === 0) {
+    return {
+      ...payload,
+      ponteVersoesSteps: [],
+    }
+  }
+
+  return {
+    ...payload,
+    ponteVersoesSteps: ponte.steps,
+  }
+}
+
 function aplicarPlano1Override<T extends LiberacaoExecutivaPayload>(
   payload: T,
   plano1: any,
@@ -2231,9 +2259,13 @@ export default function LiberacaoExecutiva() {
         const mesAtual = Number(resumo?.mes_atual || payload?.mes_atual || new Date().getMonth() + 1)
 
         const plano1 = await carregarPlano1Leve(ano)
+        const ponteVersoes = await carregarPonteVersoesMps(ano, mesAtual)
 
         if (ativo) {
-          const parcial = aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo), plano1)
+          const parcial = aplicarPonteVersoes(
+            aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo), plano1),
+            ponteVersoes,
+          )
           setApiData(recalcularWaterfallComDados(parcial, {}))
           setCarregandoDados(false)
         }
@@ -2241,7 +2273,10 @@ export default function LiberacaoExecutiva() {
         const rastreamentos = await carregarRastreamentosDoCache(ano, mesAtual)
 
         if (ativo) {
-          const completo = aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo, rastreamentos), plano1)
+          const completo = aplicarPonteVersoes(
+            aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo, rastreamentos), plano1),
+            ponteVersoes,
+          )
           setApiData(recalcularWaterfallComDados(completo, rastreamentos[mesAtual] || {}))
         }
       } catch (error) {
