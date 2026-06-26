@@ -529,6 +529,21 @@ export default function DesviosPage() {
     desviosFechados.length ||
     alteracoesGerais.length
 
+  const lotesReprovadosAno = useMemo(() => {
+    const lotes = new Set<string>()
+    historicoSafe.forEach((d) => {
+      const destino = normalizarTextoFiltro(d.destino)
+      if (destino.includes("REPROVADO") || destino.includes("DESCART")) {
+        String(d.lotes_texto || "")
+          .split(/[,;]/)
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .forEach((l) => lotes.add(l))
+      }
+    })
+    return lotes.size
+  }, [historicoSafe])
+
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -598,12 +613,13 @@ export default function DesviosPage() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-6">
         <Card title="Desvios atuais" value={resumo?.total_desvios || 0} icon={<FileWarning size={18} />} color="blue" />
         <Card title="Lotes monitorados" value={resumo?.total_lotes || 0} icon={<AlertTriangle size={18} />} color="amber" />
         <Card title="Novos lotes" value={resumo?.novos_lotes || 0} icon={<History size={18} />} color="green" />
         <Card title="Desvios fechados" value={resumo?.desvios_fechados ?? desviosFechados.length} icon={<AlertTriangle size={18} />} color="red" />
         <Card title="Alterações" value={resumo?.alteracoes || 0} icon={<Clock3 size={18} />} color="purple" />
+        <Card title="Lotes reprovados no ano" value={lotesReprovadosAno} icon={<Trash2 size={18} />} color="red" />
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
