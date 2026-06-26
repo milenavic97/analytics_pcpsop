@@ -579,13 +579,70 @@ async function carregarCausasAnuaisReais(ano: number) {
   }
 }
 
+async function carregarLotesReprovadosDesvios(ano: number) {
+  try {
+    const json = await fetchJsonComTimeout(
+      `${API_BASE}/desvios/historico-anual?ano=${ano}&_t=${Date.now()}`,
+      15000,
+    )
+
+    const historico = Array.isArray(json?.data) ? json.data : []
+    const lotes = new Set<string>()
+
+    historico.forEach((desvio: any) => {
+      const destino = String(desvio?.destino || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toUpperCase()
+
+      const ehReprovadoOuDescarte = destino.includes("REPROVADO") || destino.includes("DESCART")
+      if (!ehReprovadoOuDescarte) return
+
+      String(desvio?.lotes_texto || "")
+        .split(/[,;]/)
+        .map((lote) => lote.trim().toUpperCase().replace(/\s+/g, ""))
+        .filter(Boolean)
+        .forEach((lote) => lotes.add(lote.endsWith(".0") ? lote.slice(0, -2) : lote))
+
+      if (Array.isArray(desvio?.lotes)) {
+        desvio.lotes.forEach((item: any) => {
+          const lote = String(item?.lote || "").trim().toUpperCase().replace(/\s+/g, "")
+          if (lote) lotes.add(lote.endsWith(".0") ? lote.slice(0, -2) : lote)
+        })
+      }
+    })
+
+    return lotes.size
+  } catch {
+    return null
+  }
+}
+
 function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
   payload: T,
   causasAnuais: any,
+  lotesReprovadosAno?: number | null,
 ): T {
   if (!causasAnuais || !Array.isArray(causasAnuais.steps) || causasAnuais.steps.length < 2) {
     return payload
   }
+
+  const steps = causasAnuais.steps.map((step: any) => {
+    if (
+      step?.id === "reprovacao" &&
+      lotesReprovadosAno != null &&
+      Number.isFinite(Number(lotesReprovadosAno)) &&
+      Number(lotesReprovadosAno) > 0
+    ) {
+      return {
+        ...step,
+        lotes: Math.round(Number(lotesReprovadosAno)),
+      }
+    }
+
+    return step
+  })
 
   return {
     ...payload,
@@ -593,7 +650,7 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
       ...(payload.dados || {}),
       ...(causasAnuais.dados || {}),
     },
-    waterfallSteps: causasAnuais.steps,
+    waterfallSteps: steps,
   }
 }
 
@@ -2442,7 +2499,10 @@ export default function LiberacaoExecutiva() {
         // O endpoint /causas-anuais já traz a abertura anual pronta. Antes, a tela
         // ficava presa em "Calculando..." porque o Promise.all aguardava também
         // carregarRastreamentosDoCache(12 meses), que é bem mais pesado.
-        const causasAnuais = await carregarCausasAnuaisReais(ano)
+        const [causasAnuais, lotesReprovadosDesvios] = await Promise.all([
+          carregarCausasAnuaisReais(ano),
+          carregarLotesReprovadosDesvios(ano),
+        ])
 
         if (!ativo) return
 
@@ -2455,7 +2515,7 @@ export default function LiberacaoExecutiva() {
           if (temCausaClassificada(causasAnuais)) {
             setStatusCausasAnuais("ok")
             setMensagemCausasAnuais(null)
-            setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais))
+            setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais, lotesReprovadosDesvios))
           } else {
             setStatusCausasAnuais("parcial")
             setMensagemCausasAnuais(
@@ -2482,7 +2542,7 @@ export default function LiberacaoExecutiva() {
           )
 
           if (causasAnuais && temCausaClassificada(causasAnuais)) {
-            setApiData(aplicarCausasAnuais(baseCompleta, causasAnuais))
+            setApiData(aplicarCausasAnuais(baseCompleta, causasAnuais, lotesReprovadosDesvios))
           } else {
             setApiData(semCausasAnuais(baseCompleta))
           }
