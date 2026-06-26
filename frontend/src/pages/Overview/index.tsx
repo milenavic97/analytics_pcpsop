@@ -124,12 +124,13 @@ interface DisponibilidadePayload {
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
-const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v1"
-const OVERVIEW_PAGE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v2"
+const OVERVIEW_PAGE_CACHE_TTL_MS = 5 * 60 * 1000
 
 type OverviewPageSnapshot = {
   savedAt: number
   version: string | null
+  cacheAtualizadoEm?: string | null
   orcadoLib: { total_caixas: number; total_tubetes: number } | null
   orcadoFat: { total_caixas: number } | null
   projFat: ProjFat | null
@@ -213,6 +214,7 @@ export function OverviewPage() {
   const [atendimentoAberto, setAtendimentoAberto] = useState(false)
   const [carregarDetalhes, setCarregarDetalhes] = useState(Boolean(cacheInicial))
   const [versaoCarregada, setVersaoCarregada] = useState<string | null>(cacheInicial?.version ?? null)
+  const [cacheAtualizadoEmCarregado, setCacheAtualizadoEmCarregado] = useState<string | null>(cacheInicial?.cacheAtualizadoEm ?? null)
   const [atualizandoAutomatico, setAtualizandoAutomatico] = useState(false)
 
   const [orcadoLib, setOrcadoLib]             = useState<{ total_caixas: number; total_tubetes: number } | null>(cacheInicial?.orcadoLib ?? null)
@@ -265,8 +267,10 @@ export function OverviewPage() {
     }
 
     const ultima = resumo.ultima_atualizacao || payload.ultima_atualizacao || null
+    const cacheAtualizadoEm = (resumo as any).atualizado_em || null
 
     setVersaoCarregada(resumo.versao_base)
+    setCacheAtualizadoEmCarregado(cacheAtualizadoEm)
     setOrcadoLib(orcadoLibPayload)
     setOrcadoFat(orcadoFatPayload)
     setProjFat(projFatPayload)
@@ -279,6 +283,7 @@ export function OverviewPage() {
 
     writeOverviewPageCache({
       version: resumo.versao_base,
+      cacheAtualizadoEm,
       orcadoLib: orcadoLibPayload,
       orcadoFat: orcadoFatPayload,
       projFat: projFatPayload,
@@ -313,11 +318,16 @@ export function OverviewPage() {
         const ultima = versao.ultima_atualizacao || null
         setUltimaAtualizacao(ultima)
 
-        // Se a versão do banco é a mesma que já está na tela,
-        // não refaz nenhuma chamada pesada.
+        const cacheAtualizadoEmBackend = (versao as any).cache_atualizado_em || null
+        const cacheLocal = readOverviewPageCache()
+
+        // Se a versão e o timestamp do snapshot são os mesmos que já estão na tela,
+        // não refaz nenhuma chamada pesada. O timestamp evita prender número antigo
+        // quando o backend recalcula a mesma versao_base depois de uma nova rodada MPS.
         if (
           versaoCarregada === versao.versao_base &&
-          isOverviewSnapshotCompleto(readOverviewPageCache())
+          cacheAtualizadoEmCarregado === cacheAtualizadoEmBackend &&
+          isOverviewSnapshotCompleto(cacheLocal)
         ) {
           if (!carregarDetalhes) {
             window.setTimeout(() => {
@@ -358,7 +368,7 @@ export function OverviewPage() {
       if (intervalId) window.clearInterval(intervalId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versaoCarregada])
+  }, [versaoCarregada, cacheAtualizadoEmCarregado])
 
 
 
