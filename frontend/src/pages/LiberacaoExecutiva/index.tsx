@@ -125,7 +125,7 @@ type LiberacaoExecutivaPayload = {
   itensReorganizacao?: ReorganizacaoItem[]
 }
 
-const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v1"
+const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v2"
 
 const MES_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
@@ -572,7 +572,7 @@ async function carregarCausasAnuaisReais(ano: number) {
   try {
     return await fetchJsonComTimeout(
       `${API_BASE}/liberacao-executiva/causas-anuais?ano=${ano}&_t=${Date.now()}`,
-      20000,
+      60000,
     )
   } catch {
     return null
@@ -2438,15 +2438,16 @@ export default function LiberacaoExecutiva() {
           setCarregandoDados(false)
         }
 
-        const [causasAnuais, rastreamentos] = await Promise.all([
-          carregarCausasAnuaisReais(ano),
-          carregarRastreamentosDoCache(ano, mesAtual),
-        ])
+        // Importante: a cascata anual NÃO pode esperar todos os rastreamentos mensais.
+        // O endpoint /causas-anuais já traz a abertura anual pronta. Antes, a tela
+        // ficava presa em "Calculando..." porque o Promise.all aguardava também
+        // carregarRastreamentosDoCache(12 meses), que é bem mais pesado.
+        const causasAnuais = await carregarCausasAnuaisReais(ano)
 
         if (!ativo) return
 
-        const baseCompleta = aplicarPonteVersoes(
-          aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo, rastreamentos), plano1),
+        const baseSemRastreamentos = aplicarPonteVersoes(
+          aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo), plano1),
           ponteVersoes,
         )
 
@@ -2454,18 +2455,39 @@ export default function LiberacaoExecutiva() {
           if (temCausaClassificada(causasAnuais)) {
             setStatusCausasAnuais("ok")
             setMensagemCausasAnuais(null)
-            setApiData(aplicarCausasAnuais(baseCompleta, causasAnuais))
+            setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais))
           } else {
             setStatusCausasAnuais("parcial")
             setMensagemCausasAnuais(
               "O backend retornou apenas saldo a abrir. Isso significa que a diferença ainda não foi quebrada em Reorg., Atraso, Desvios ou Rendimento.",
             )
-            setApiData(semCausasAnuais(baseCompleta))
+            setApiData(semCausasAnuais(baseSemRastreamentos))
           }
         } else {
           setStatusCausasAnuais("erro")
           setMensagemCausasAnuais("A abertura real das causas ainda não retornou. O gráfico anual foi ocultado para não classificar o saldo como atraso.")
-          setApiData(semCausasAnuais(baseCompleta))
+          setApiData(semCausasAnuais(baseSemRastreamentos))
+        }
+
+        // Depois que a cascata anual já apareceu, carrega os rastreamentos mensais
+        // para refinar o gráfico inferior. Se demorar/falhar, não derruba a tela.
+        try {
+          const rastreamentos = await carregarRastreamentosDoCache(ano, mesAtual)
+
+          if (!ativo) return
+
+          const baseCompleta = aplicarPonteVersoes(
+            aplicarPlano1Override(montarApiDataDaOverviewResumo(resumo, rastreamentos), plano1),
+            ponteVersoes,
+          )
+
+          if (causasAnuais && temCausaClassificada(causasAnuais)) {
+            setApiData(aplicarCausasAnuais(baseCompleta, causasAnuais))
+          } else {
+            setApiData(semCausasAnuais(baseCompleta))
+          }
+        } catch (rastError) {
+          console.warn("Não foi possível carregar rastreamentos mensais da Liberação Executiva.", rastError)
         }
       } catch (error) {
         console.warn("Não foi possível carregar a Liberação Executiva.", error)
