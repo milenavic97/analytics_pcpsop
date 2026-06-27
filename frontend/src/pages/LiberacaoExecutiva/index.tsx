@@ -582,7 +582,7 @@ async function carregarCausasAnuaisReais(ano: number) {
 async function carregarLotesReprovadosDesvios(ano: number) {
   try {
     const json = await fetchJsonComTimeout(
-      `${API_BASE}/desvios/historico-anual?ano=${ano}&_t=${Date.now()}`,
+      `${API_BASE}/desvios/historico-anual?ano=${ano}&destino=Descartado&_t=${Date.now()}`,
       15000,
     )
 
@@ -590,15 +590,6 @@ async function carregarLotesReprovadosDesvios(ano: number) {
     const lotes = new Set<string>()
 
     historico.forEach((desvio: any) => {
-      const destino = String(desvio?.destino || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim()
-        .toUpperCase()
-
-      const ehReprovadoOuDescarte = destino.includes("REPROVADO") || destino.includes("DESCART")
-      if (!ehReprovadoOuDescarte) return
-
       String(desvio?.lotes_texto || "")
         .split(/[,;]/)
         .map((lote) => lote.trim().toUpperCase().replace(/\s+/g, ""))
@@ -629,8 +620,12 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
   }
 
   const steps = causasAnuais.steps.map((step: any) => {
+    const id = String(step?.id || "").toLowerCase()
+    const label = String(step?.label || "").toLowerCase()
+    const ehReprovacao = id.includes("reprov") || label.includes("reprov")
+
     if (
-      step?.id === "reprovacao" &&
+      ehReprovacao &&
       lotesReprovadosAno != null &&
       Number.isFinite(Number(lotesReprovadosAno)) &&
       Number(lotesReprovadosAno) > 0
@@ -2499,10 +2494,8 @@ export default function LiberacaoExecutiva() {
         // O endpoint /causas-anuais já traz a abertura anual pronta. Antes, a tela
         // ficava presa em "Calculando..." porque o Promise.all aguardava também
         // carregarRastreamentosDoCache(12 meses), que é bem mais pesado.
-        const [causasAnuais, lotesReprovadosDesvios] = await Promise.all([
-          carregarCausasAnuaisReais(ano),
-          carregarLotesReprovadosDesvios(ano),
-        ])
+        const causasAnuais = await carregarCausasAnuaisReais(ano)
+        let lotesReprovadosDesvios: number | null = null
 
         if (!ativo) return
 
@@ -2515,7 +2508,15 @@ export default function LiberacaoExecutiva() {
           if (temCausaClassificada(causasAnuais)) {
             setStatusCausasAnuais("ok")
             setMensagemCausasAnuais(null)
-            setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais, lotesReprovadosDesvios))
+            setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais))
+
+            // Não deixa a busca dos lotes do Monitor travar ou ocultar a cascata anual.
+            // Primeiro carrega a cascata com o retorno original; depois só ajusta o texto "lotes" da reprovação.
+            lotesReprovadosDesvios = await carregarLotesReprovadosDesvios(ano)
+            if (!ativo) return
+            if (lotesReprovadosDesvios != null && lotesReprovadosDesvios > 0) {
+              setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais, lotesReprovadosDesvios))
+            }
           } else {
             setStatusCausasAnuais("parcial")
             setMensagemCausasAnuais(
