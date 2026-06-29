@@ -4140,57 +4140,15 @@ function ItensDrilldownDashboardTable({
 
   return (
     <div className="rounded-2xl border bg-white" style={{ borderColor: "var(--border)" }}>
-      <div className="flex flex-col justify-between gap-3 border-b p-4 xl:flex-row xl:items-start" style={{ borderColor: "var(--border)" }}>
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full" style={{ background: accentColor }} />
-            <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{titulo}</h3>
-          </div>
-          {subtitulo && <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{subtitulo}</p>}
-          {acao && <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{acao}</p>}
-        </div>
-
-        <div className="flex flex-col gap-3 xl:items-end">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-            <div className="relative">
-              <input
-                value={buscaDescricao}
-                onChange={(event) => setBuscaDescricao(event.target.value)}
-                list={datalistId}
-                placeholder="Buscar descrição ou SKU..."
-                className="h-10 w-full rounded-xl border bg-white px-3 pr-9 text-xs font-semibold outline-none transition focus:border-slate-400 sm:w-[280px]"
-                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-              />
-              {!!buscaDescricao && (
-                <button
-                  type="button"
-                  onClick={() => setBuscaDescricao("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 transition hover:bg-slate-100"
-                  style={{ color: "var(--text-secondary)" }}
-                  title="Limpar busca"
-                >
-                  <X size={14} />
-                </button>
-              )}
-              <datalist id={datalistId}>
-                {opcoesAutocomplete.map((opcao) => (
-                  <option key={opcao} value={opcao} />
-                ))}
-              </datalist>
+      <div className="border-b p-4" style={{ borderColor: "var(--border)" }}>
+        <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-start">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full" style={{ background: accentColor }} />
+              <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{titulo}</h3>
             </div>
-
-            <button
-              type="button"
-              onClick={alternarOrdenacaoEstoque}
-              className="h-10 rounded-xl border bg-white px-3 text-xs font-bold transition hover:bg-slate-50"
-              style={{
-                borderColor: ordenacaoEstoque !== "none" ? accentColor : "var(--border)",
-                color: ordenacaoEstoque !== "none" ? accentColor : "var(--text-primary)",
-              }}
-              title="Ordenar por quantidade de estoque"
-            >
-              {ordenacaoEstoqueLabel}
-            </button>
+            {subtitulo && <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{subtitulo}</p>}
+            {acao && <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{acao}</p>}
           </div>
 
           {itensOrdenados.length > itensPorPagina && (
@@ -4220,15 +4178,58 @@ function ItensDrilldownDashboardTable({
             </div>
           )}
         </div>
+
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative w-full sm:max-w-[360px]">
+            <input
+              value={buscaDescricao}
+              onChange={(event) => setBuscaDescricao(event.target.value)}
+              list={datalistId}
+              placeholder="Buscar descrição ou SKU..."
+              className="h-10 w-full rounded-xl border bg-white px-3 pr-9 text-xs font-semibold outline-none transition focus:border-slate-400"
+              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            />
+            {!!buscaDescricao && (
+              <button
+                type="button"
+                onClick={() => setBuscaDescricao("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 transition hover:bg-slate-100"
+                style={{ color: "var(--text-secondary)" }}
+                title="Limpar busca"
+              >
+                <X size={14} />
+              </button>
+            )}
+            <datalist id={datalistId}>
+              {opcoesAutocomplete.map((opcao) => (
+                <option key={opcao} value={opcao} />
+              ))}
+            </datalist>
+          </div>
+
+          <button
+            type="button"
+            onClick={alternarOrdenacaoEstoque}
+            className="h-10 rounded-xl border bg-white px-3 text-xs font-bold transition hover:bg-slate-50"
+            style={{
+              borderColor: ordenacaoEstoque !== "none" ? accentColor : "var(--border)",
+              color: ordenacaoEstoque !== "none" ? accentColor : "var(--text-primary)",
+            }}
+            title="Ordenar por quantidade de estoque"
+          >
+            {ordenacaoEstoqueLabel}
+          </button>
+        </div>
       </div>
 
       <div className="overflow-auto">
-        <table className="w-full min-w-[1480px] text-xs">
+        <table className="w-full min-w-[1580px] text-xs">
           <thead style={{ background: "#1F5C7A", color: "#FFFFFF" }}>
             <tr className="text-left uppercase tracking-wide">
               <th className="px-3 py-3">SKU</th>
               <th className="px-3 py-3">Descrição</th>
               <th className="px-3 py-3">Linha</th>
+              <th className="px-3 py-3 text-right">Lead time</th>
               <th className="px-3 py-3 text-right">
                 <button
                   type="button"
@@ -4254,6 +4255,7 @@ function ItensDrilldownDashboardTable({
               const codigo = String(raw.codigo || raw.cod_produto || "")
               const descricao = String(raw.produto || raw.descricao || raw.desc_produto || "—")
               const linha = getLinhaDashboardItem(item)
+              const leadTime = getNum(item, "lead_time_dias")
               const estoque = getEstoqueAtualReal(item)
               const entradas = getEntradasMesAtualDashboard(item)
               const total6m = getTotalSeisMesesDashboard(item)
@@ -4273,6 +4275,7 @@ function ItensDrilldownDashboardTable({
                     </div>
                   </td>
                   <td className="px-3 py-3 align-middle" style={{ color: "var(--text-secondary)" }}>{linha}</td>
+                  <td className="px-3 py-3 text-right align-middle font-semibold" style={{ color: "var(--text-primary)" }}>{leadTime > 0 ? `${fmtNumber(leadTime, 0)} d` : "—"}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(estoque)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(total6m, 0)}</td>
                   <td className="px-3 py-3 text-center align-middle"><MiniHistoricoDashboard item={item} /></td>
@@ -4285,7 +4288,7 @@ function ItensDrilldownDashboardTable({
             })}
             {!itensVisiveis.length && (
               <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>{buscaDescricao ? "Nenhum SKU encontrado para a busca aplicada." : vazio}</td>
+                <td colSpan={11} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>{buscaDescricao ? "Nenhum SKU encontrado para a busca aplicada." : vazio}</td>
               </tr>
             )}
           </tbody>
@@ -4550,7 +4553,7 @@ function MatrizEstoqueGiroPanel({
       <div className="mt-4">
         <ItensDrilldownDashboardTable
           titulo={quadranteAtual ? quadranteAtual.titulo : "Todos os quadrantes"}
-          subtitulo={quadranteAtual ? quadranteAtual.subtitulo : "Matriz sem filtro; clique em um quadrante para isolar os SKUs."}
+          subtitulo={quadranteAtual ? quadranteAtual.subtitulo : undefined}
           acao={quadranteAtual?.acao}
           itens={pontosTabela.map((ponto) => ponto.raw)}
           accentColor={quadranteAtual ? quadranteAtual.color : "#163B63"}
