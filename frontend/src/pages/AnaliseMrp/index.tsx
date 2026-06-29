@@ -1138,19 +1138,55 @@ function getDetalhesEntradasMesAtualDashboard(item: AgingEstoqueItem | AgingEsto
   }
 
   // Se houver pedido detalhado, ele é a fonte mais útil para o tooltip.
-  // As séries mensais entram só como fallback, para não duplicar a mesma entrada.
+  // As séries mensais entram só como fallback visual. Importante: NÃO usamos
+  // data_inicio/período da série como data de entrega, porque isso cria datas
+  // falsas como 01/06. Data de entrega precisa vir da RELPC/f_compras_abertas
+  // via raw.pedidos ou detalhe carregado do item.
   if (!detalhes.length) {
     const series = [raw.entradas_previstas_serie, raw.pedidos_futuros_por_mes, raw.entradas_previstas_periodo, raw.linha_tempo_estoque, raw.serie_operacional]
     for (const serie of series) {
       if (!Array.isArray(serie)) continue
       for (const ponto of serie) {
-        const ano = Number(ponto?.ano || 0)
-        const mes = Number(ponto?.mes || 0)
-        if (ano === anoAtual && mes === mesAtual) {
-          adicionar(ponto, "série mensal", `${ano}-${String(mes).padStart(2, "0")}-01`)
-        } else {
-          adicionar(ponto, "série mensal")
+        let ano = Number(ponto?.ano || 0)
+        let mes = Number(ponto?.mes || 0)
+
+        const dataReal = ponto?.data_prevista_entrega ?? ponto?.data_previsao_necessidade ?? ponto?.data_entrega
+        const dataParsed = parseDataEntradaDashboard(dataReal)
+        if ((!ano || !mes) && dataParsed) {
+          ano = dataParsed.getFullYear()
+          mes = dataParsed.getMonth() + 1
         }
+
+        if (ano !== anoAtual || mes !== mesAtual) continue
+
+        if (dataReal) {
+          adicionar({ ...ponto, data_inicio: undefined }, "série mensal")
+          continue
+        }
+
+        const quantidade = Math.max(
+          0,
+          toNumberSafe(
+            ponto?.quantidade_pendente ??
+            ponto?.entradas_previstas ??
+            ponto?.qtd_entradas_previstas ??
+            ponto?.quantidade ??
+            ponto?.qtd ??
+            0,
+            0
+          )
+        )
+        if (quantidade <= 0) continue
+
+        detalhes.push({
+          quantidade,
+          data_prevista_entrega: null,
+          pedido_numero: ponto?.pedido_numero ? String(ponto.pedido_numero) : null,
+          sc_numero: ponto?.sc_numero ? String(ponto.sc_numero) : null,
+          fornecedor: ponto?.fornecedor ? String(ponto.fornecedor) : null,
+          status_entrega: ponto?.status_entrega ? String(ponto.status_entrega) : null,
+          origem: "série mensal",
+        })
       }
       if (detalhes.length) break
     }
@@ -4423,7 +4459,9 @@ function ItensDrilldownDashboardTable({
               const estoque = getEstoqueAtualReal(item)
               const quarentena = getQuarentenaAtualReal(item)
               const entradas = getEntradasMesAtualDashboard(item)
-              const detalhesEntradas = getDetalhesEntradasMesAtualDashboard(item)
+              const detalheCarregado = codigo ? detalhesItemPorCodigo[codigo] : undefined
+              const detalhesEntradas = getDetalhesEntradasMesAtualDashboard(detalheCarregado || item)
+              const carregandoDetalheEntrada = codigo ? detalhesItemCarregando[codigo] === true : false
               const total6m = getTotalSeisMesesDashboard(item)
               const leadTime = getNum(item, "lead_time_dias")
               const valor = getValorEstoqueMatriz(item)
@@ -4444,24 +4482,39 @@ function ItensDrilldownDashboardTable({
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(estoque)}</td>
                   <td className="px-3 py-3 text-right align-middle font-semibold" style={{ color: "var(--text-primary)" }}>{quarentena > 0 ? fmtQtdEstoque(quarentena) : "—"}</td>
                   <td className="px-3 py-3 text-right align-middle">
-                    <div className="group relative inline-flex justify-end">
-                      <span className={detalhesEntradas.length ? "cursor-help border-b border-dotted border-slate-400 font-bold" : "font-semibold"} style={{ color: "var(--text-primary)" }}>
+                    <div className="group relative inline-flex justify-end" onMouseEnter={() => carregarDetalheEntradas(codigo, entradas)}>
+                      <span className={entradas > 0 ? "cursor-help border-b border-dotted border-slate-400 font-bold" : "font-semibold"} style={{ color: "var(--text-primary)" }}>
                         {fmtQtdEstoque(entradas)}
                       </span>
-                      {detalhesEntradas.length > 0 && (
+                      {entradas > 0 && (
                         <div className="pointer-events-none absolute right-0 top-full z-40 mt-2 hidden w-80 rounded-2xl border bg-white p-3 text-left text-xs shadow-xl group-hover:block" style={{ borderColor: "var(--border)" }}>
                           <p className="mb-2 font-bold" style={{ color: "var(--text-primary)" }}>Entregas previstas no mês</p>
+                          {carregandoDetalheEntrada && !detalheCarregado && (
+                            <p className="mb-2" style={{ color: "var(--text-secondary)" }}>Carregando detalhe da RELPC...</p>
+                          )}
                           <div className="space-y-2">
-                            {detalhesEntradas.slice(0, 6).map((entrada, idx) => (
+                            {detalhesEntradas.length > 0 ? detalhesEntradas.slice(0, 6).map((entrada, idx) => (
                               <div key={`${entrada.data_prevista_entrega}-${entrada.pedido_numero}-${entrada.sc_numero}-${idx}`} className="rounded-xl bg-slate-50 p-2">
                                 <div className="flex items-center justify-between gap-3">
                                   <span className="truncate" style={{ color: "var(--text-secondary)" }}>{entrada.pedido_numero || entrada.sc_numero || "Entrada prevista"}</span>
                                   <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(entrada.quantidade)}</span>
                                 </div>
-                                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Entrega: {fmtDate(entrada.data_prevista_entrega)}</p>
+                                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>
+                                  Entrega: {entrada.data_prevista_entrega ? fmtDate(entrada.data_prevista_entrega) : "aguardando detalhe da RELPC"}
+                                </p>
+                                {entrada.status_entrega && <p className="mt-0.5 truncate font-semibold" style={{ color: String(entrada.status_entrega).toUpperCase().includes("ATRAS") ? "#DC2626" : "var(--text-secondary)" }}>Status: {entrada.status_entrega}</p>}
                                 {entrada.fornecedor && <p className="mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>Fornecedor: {entrada.fornecedor}</p>}
+                                {entrada.origem && entrada.origem !== "pedido" && <p className="mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>Origem: {entrada.origem}</p>}
                               </div>
-                            ))}
+                            )) : (
+                              <div className="rounded-xl bg-slate-50 p-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span style={{ color: "var(--text-secondary)" }}>Entrada prevista</span>
+                                  <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(entradas)}</span>
+                                </div>
+                                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Carregue o detalhe para ver data/pedido/fornecedor.</p>
+                              </div>
+                            )}
                             {detalhesEntradas.length > 6 && <p style={{ color: "var(--text-secondary)" }}>+ {fmtNumber(detalhesEntradas.length - 6)} entrega(s)</p>}
                           </div>
                         </div>
@@ -4534,6 +4587,26 @@ function MatrizEstoqueGiroPanel({
 }) {
   const matriz = useMemo(() => montarPontosMatrizEstoque(itens || []), [itens])
   const [quadranteSelecionado, setQuadranteSelecionado] = useState<QuadranteMatrizKey | null>(null)
+  const [detalhesItemPorCodigo, setDetalhesItemPorCodigo] = useState<Record<string, AgingEstoqueItemDetalhe>>({})
+  const [detalhesItemCarregando, setDetalhesItemCarregando] = useState<Record<string, boolean>>({})
+
+  const carregarDetalheEntradas = (codigo: string, entradasMes: number) => {
+    const codigoLimpo = String(codigo || "").trim()
+    if (!codigoLimpo || entradasMes <= 0) return
+    if (detalhesItemPorCodigo[codigoLimpo] || detalhesItemCarregando[codigoLimpo]) return
+
+    setDetalhesItemCarregando((prev) => ({ ...prev, [codigoLimpo]: true }))
+    getAgingEstoqueItemComCache(codigoLimpo, 6)
+      .then((detalhe) => {
+        setDetalhesItemPorCodigo((prev) => ({ ...prev, [codigoLimpo]: detalhe }))
+      })
+      .catch((err) => {
+        console.warn("Não foi possível carregar detalhes de entradas do item", codigoLimpo, err)
+      })
+      .finally(() => {
+        setDetalhesItemCarregando((prev) => ({ ...prev, [codigoLimpo]: false }))
+      })
+  }
 
   useEffect(() => {
     setQuadranteSelecionado(null)
