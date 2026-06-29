@@ -1379,19 +1379,12 @@ function WaterfallStepModal({
 
           {detalhesCalendario.length > 0 && (
             <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <MiniResumo
                   label="Impacto calendário"
                   value={`${impactoCalendario >= 0 ? "+" : "-"}${fmt(Math.abs(impactoCalendario))} cx`}
                   sub="paradas/horas quantificáveis"
                   color={impactoCalendario >= 0 ? "#16A34A" : "#DC2626"}
-                  bg="#F8FAFC"
-                />
-                <MiniResumo
-                  label="Mix / fila"
-                  value={`${Number(resumoCalendario.ajuste_mix_fila_cx || 0) >= 0 ? "+" : "-"}${fmt(Math.abs(Number(resumoCalendario.ajuste_mix_fila_cx || 0)))} cx`}
-                  sub="reprogramação/mix para fechar Reorg."
-                  color={Number(resumoCalendario.ajuste_mix_fila_cx || 0) >= 0 ? "#16A34A" : "#DC2626"}
                   bg="#F8FAFC"
                 />
                 <MiniResumo
@@ -2633,7 +2626,7 @@ function ReorganizacaoModal({
                     <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Horas Atual</th>
                     <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Impacto h</th>
                     <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Impacto cx</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Lotes / Mix</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Lotes</th>
                   </tr>
                 </thead>
 
