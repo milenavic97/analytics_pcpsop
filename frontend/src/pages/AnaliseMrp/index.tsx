@@ -4005,15 +4005,89 @@ function ItensDrilldownDashboardTable({
   vazio?: string
 }) {
   const [paginaAtual, setPaginaAtual] = useState(1)
+  const [buscaDescricao, setBuscaDescricao] = useState("")
+  const [ordenacaoEstoque, setOrdenacaoEstoque] = useState<"none" | "desc" | "asc">("none")
   const itensPorPagina = 10
+
+  const normalizarBusca = (value: unknown) => {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim()
+  }
+
+  const datalistId = useMemo(() => `opcoes-descricao-estoque-${Math.random().toString(36).slice(2)}`, [])
 
   useEffect(() => {
     setPaginaAtual(1)
-  }, [titulo, itens.length])
+  }, [titulo, itens.length, buscaDescricao, ordenacaoEstoque])
+
+  const opcoesAutocomplete = useMemo(() => {
+    const vistos = new Set<string>()
+    const opcoes: string[] = []
+
+    ;(itens || []).forEach((item) => {
+      const raw = item as any
+      const codigo = String(raw.codigo || raw.cod_produto || "").trim()
+      const descricao = String(raw.produto || raw.descricao || raw.desc_produto || "").trim()
+      const label = [codigo, descricao].filter(Boolean).join(" · ")
+
+      if (!label || vistos.has(label)) return
+
+      vistos.add(label)
+      opcoes.push(label)
+    })
+
+    return opcoes.slice(0, 250)
+  }, [itens])
+
+  const itensFiltrados = useMemo(() => {
+    const termo = normalizarBusca(buscaDescricao)
+    const base = [...(itens || [])]
+
+    if (!termo) return base
+
+    return base.filter((item) => {
+      const raw = item as any
+      const textoBusca = [
+        raw.codigo,
+        raw.cod_produto,
+        raw.sku,
+        raw.produto,
+        raw.descricao,
+        raw.desc_produto,
+        raw.status_portfolio,
+        raw.tipo,
+        raw.tipo_produto_erp,
+        getLinhaDashboardItem(item),
+      ].map(normalizarBusca).join(" ")
+
+      return textoBusca.includes(termo)
+    })
+  }, [itens, buscaDescricao])
 
   const itensOrdenados = useMemo(() => {
-    const base = [...(itens || [])]
+    const base = [...itensFiltrados]
+
+    if (ordenacaoEstoque !== "none") {
+      const multiplicador = ordenacaoEstoque === "desc" ? -1 : 1
+
+      return base.sort((a, b) => {
+        const estoqueDiff = (getEstoqueAtualReal(a) - getEstoqueAtualReal(b)) * multiplicador
+        if (estoqueDiff !== 0) return estoqueDiff
+
+        const valorDiff = (getValorEstoqueMatriz(a) - getValorEstoqueMatriz(b)) * multiplicador
+        if (valorDiff !== 0) return valorDiff
+
+        const descA = String((a as any).produto || (a as any).descricao || (a as any).desc_produto || "")
+        const descB = String((b as any).produto || (b as any).descricao || (b as any).desc_produto || "")
+        return descA.localeCompare(descB, "pt-BR")
+      })
+    }
+
     if (preserveOrder) return base
+
     return base.sort((a, b) => {
       const valorDiff = getValorEstoqueMatriz(b) - getValorEstoqueMatriz(a)
       if (valorDiff !== 0) return valorDiff
@@ -4021,16 +4095,30 @@ function ItensDrilldownDashboardTable({
       if (estoqueDiff !== 0) return estoqueDiff
       return getTotalSeisMesesDashboard(b) - getTotalSeisMesesDashboard(a)
     })
-  }, [itens, preserveOrder])
+  }, [itensFiltrados, preserveOrder, ordenacaoEstoque])
 
   const totalPaginas = Math.max(1, Math.ceil(itensOrdenados.length / itensPorPagina))
   const paginaSegura = Math.min(Math.max(1, paginaAtual), totalPaginas)
   const inicioPagina = (paginaSegura - 1) * itensPorPagina
   const itensVisiveis = itensOrdenados.slice(inicioPagina, inicioPagina + itensPorPagina)
 
+  const ordenacaoEstoqueLabel = ordenacaoEstoque === "desc"
+    ? "Estoque ↓"
+    : ordenacaoEstoque === "asc"
+      ? "Estoque ↑"
+      : "Estoque"
+
+  const alternarOrdenacaoEstoque = () => {
+    setOrdenacaoEstoque((atual) => {
+      if (atual === "none") return "desc"
+      if (atual === "desc") return "asc"
+      return "none"
+    })
+  }
+
   return (
     <div className="rounded-2xl border bg-white" style={{ borderColor: "var(--border)" }}>
-      <div className="flex flex-col justify-between gap-3 border-b p-4 md:flex-row md:items-start" style={{ borderColor: "var(--border)" }}>
+      <div className="flex flex-col justify-between gap-3 border-b p-4 xl:flex-row xl:items-start" style={{ borderColor: "var(--border)" }}>
         <div>
           <div className="flex items-center gap-2">
             <span className="h-3 w-3 rounded-full" style={{ background: accentColor }} />
@@ -4039,32 +4127,77 @@ function ItensDrilldownDashboardTable({
           {subtitulo && <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{subtitulo}</p>}
           {acao && <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{acao}</p>}
         </div>
-        {itensOrdenados.length > itensPorPagina && (
-          <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-            <span className="font-semibold">{fmtNumber(inicioPagina + 1)}-{fmtNumber(Math.min(inicioPagina + itensPorPagina, itensOrdenados.length))} de {fmtNumber(itensOrdenados.length)}</span>
+
+        <div className="flex flex-col gap-3 xl:items-end">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <div className="relative">
+              <input
+                value={buscaDescricao}
+                onChange={(event) => setBuscaDescricao(event.target.value)}
+                list={datalistId}
+                placeholder="Buscar descrição ou SKU..."
+                className="h-10 w-full rounded-xl border bg-white px-3 pr-9 text-xs font-semibold outline-none transition focus:border-slate-400 sm:w-[280px]"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              />
+              {!!buscaDescricao && (
+                <button
+                  type="button"
+                  onClick={() => setBuscaDescricao("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 transition hover:bg-slate-100"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Limpar busca"
+                >
+                  <X size={14} />
+                </button>
+              )}
+              <datalist id={datalistId}>
+                {opcoesAutocomplete.map((opcao) => (
+                  <option key={opcao} value={opcao} />
+                ))}
+              </datalist>
+            </div>
+
             <button
               type="button"
-              disabled={paginaSegura <= 1}
-              onClick={() => setPaginaAtual((atual) => Math.max(1, atual - 1))}
-              className="rounded-xl border bg-white px-3 py-2 font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              onClick={alternarOrdenacaoEstoque}
+              className="h-10 rounded-xl border bg-white px-3 text-xs font-bold transition hover:bg-slate-50"
+              style={{
+                borderColor: ordenacaoEstoque !== "none" ? accentColor : "var(--border)",
+                color: ordenacaoEstoque !== "none" ? accentColor : "var(--text-primary)",
+              }}
+              title="Ordenar por quantidade de estoque"
             >
-              Anterior
-            </button>
-            <span className="rounded-xl border bg-white px-3 py-2 font-bold" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
-              {paginaSegura}/{totalPaginas}
-            </span>
-            <button
-              type="button"
-              disabled={paginaSegura >= totalPaginas}
-              onClick={() => setPaginaAtual((atual) => Math.min(totalPaginas, atual + 1))}
-              className="rounded-xl border bg-white px-3 py-2 font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            >
-              Próxima
+              {ordenacaoEstoqueLabel}
             </button>
           </div>
-        )}
+
+          {itensOrdenados.length > itensPorPagina && (
+            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+              <span className="font-semibold">{fmtNumber(inicioPagina + 1)}-{fmtNumber(Math.min(inicioPagina + itensPorPagina, itensOrdenados.length))} de {fmtNumber(itensOrdenados.length)}</span>
+              <button
+                type="button"
+                disabled={paginaSegura <= 1}
+                onClick={() => setPaginaAtual((atual) => Math.max(1, atual - 1))}
+                className="rounded-xl border bg-white px-3 py-2 font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                Anterior
+              </button>
+              <span className="rounded-xl border bg-white px-3 py-2 font-bold" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+                {paginaSegura}/{totalPaginas}
+              </span>
+              <button
+                type="button"
+                disabled={paginaSegura >= totalPaginas}
+                onClick={() => setPaginaAtual((atual) => Math.min(totalPaginas, atual + 1))}
+                className="rounded-xl border bg-white px-3 py-2 font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                Próxima
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="overflow-auto">
@@ -4074,7 +4207,17 @@ function ItensDrilldownDashboardTable({
               <th className="px-3 py-3">SKU</th>
               <th className="px-3 py-3">Descrição</th>
               <th className="px-3 py-3">Linha</th>
-              <th className="px-3 py-3 text-right">Estoque</th>
+              <th className="px-3 py-3 text-right">
+                <button
+                  type="button"
+                  onClick={alternarOrdenacaoEstoque}
+                  className="inline-flex items-center justify-end gap-1 font-bold uppercase tracking-wide text-white"
+                  title="Ordenar por quantidade de estoque"
+                >
+                  Estoque
+                  <span className="text-[10px]">{ordenacaoEstoque === "desc" ? "↓" : ordenacaoEstoque === "asc" ? "↑" : "↕"}</span>
+                </button>
+              </th>
               <th className="px-3 py-3 text-right">Total 6M</th>
               <th className="px-3 py-3 text-center">Histórico 6M</th>
               <th className="px-3 py-3 text-center">Forecast</th>
@@ -4120,7 +4263,7 @@ function ItensDrilldownDashboardTable({
             })}
             {!itensVisiveis.length && (
               <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>{vazio}</td>
+                <td colSpan={10} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>{buscaDescricao ? "Nenhum SKU encontrado para a busca aplicada." : vazio}</td>
               </tr>
             )}
           </tbody>
@@ -4128,7 +4271,10 @@ function ItensDrilldownDashboardTable({
       </div>
       {itensOrdenados.length > itensPorPagina && (
         <div className="flex flex-col gap-2 border-t px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-          <span>Mostrando {fmtNumber(inicioPagina + 1)}-{fmtNumber(Math.min(inicioPagina + itensPorPagina, itensOrdenados.length))} de {fmtNumber(itensOrdenados.length)} itens.</span>
+          <span>
+            Mostrando {fmtNumber(inicioPagina + 1)}-{fmtNumber(Math.min(inicioPagina + itensPorPagina, itensOrdenados.length))} de {fmtNumber(itensOrdenados.length)} itens
+            {itensOrdenados.length !== (itens || []).length ? ` filtrados de ${fmtNumber((itens || []).length)}.` : "."}
+          </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
