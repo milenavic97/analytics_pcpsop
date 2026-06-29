@@ -77,6 +77,9 @@ type WaterfallStep =
       value: number
       tone: Tone
       lotes?: number
+      modal?: any
+      observacao?: string
+      statusCalculo?: string
     }
   | {
       id: string
@@ -86,6 +89,11 @@ type WaterfallStep =
       tone: Tone
       clickable?: boolean
       lotes?: number
+      modal?: any
+      calculo?: any
+      observacao?: string
+      statusCalculo?: string
+      lotesTipo?: string
     }
 
 type MonthlyLossesItem = {
@@ -582,7 +590,7 @@ async function carregarCausasAnuaisReais(ano: number) {
 async function carregarLotesReprovadosDesvios(ano: number) {
   try {
     const json = await fetchJsonComTimeout(
-      `${API_BASE}/desvios/historico-anual?ano=${ano}&destino=Descartado&_t=${Date.now()}`,
+      `${API_BASE}/desvios/historico-anual?ano=${ano}&_t=${Date.now()}`,
       15000,
     )
 
@@ -590,6 +598,15 @@ async function carregarLotesReprovadosDesvios(ano: number) {
     const lotes = new Set<string>()
 
     historico.forEach((desvio: any) => {
+      const destino = String(desvio?.destino || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toUpperCase()
+
+      const ehReprovadoOuDescarte = destino.includes("REPROVADO") || destino.includes("DESCART")
+      if (!ehReprovadoOuDescarte) return
+
       String(desvio?.lotes_texto || "")
         .split(/[,;]/)
         .map((lote) => lote.trim().toUpperCase().replace(/\s+/g, ""))
@@ -620,12 +637,8 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
   }
 
   const steps = causasAnuais.steps.map((step: any) => {
-    const id = String(step?.id || "").toLowerCase()
-    const label = String(step?.label || "").toLowerCase()
-    const ehReprovacao = id.includes("reprov") || label.includes("reprov")
-
     if (
-      ehReprovacao &&
+      step?.id === "reprovacao" &&
       lotesReprovadosAno != null &&
       Number.isFinite(Number(lotesReprovadosAno)) &&
       Number(lotesReprovadosAno) > 0
@@ -958,7 +971,7 @@ function WaterfallChart({
 }: {
   steps: WaterfallStep[]
   orcadoFaturamentoCx: number
-  onClickReorganizacao: () => void
+  onClickReorganizacao: (step: WaterfallStep) => void
 }) {
   const width = 1080
   const height = 236
@@ -1123,11 +1136,13 @@ function WaterfallChart({
           const connectorX1 = currentX + stepWidth / 2
           const connectorX2 = getConnectorTargetX(index)
 
+          const stepClickable = Boolean(bar.clickable || bar.id.startsWith("reorganizacao") || bar.id === "reorg-plano")
+
           return (
             <g
               key={bar.id}
-              onClick={bar.id.startsWith("reorganizacao") ? onClickReorganizacao : undefined}
-              style={{ cursor: bar.id.startsWith("reorganizacao") ? "pointer" : "default" }}
+              onClick={stepClickable ? () => onClickReorganizacao(bar) : undefined}
+              style={{ cursor: stepClickable ? "pointer" : "default" }}
             >
               <line
                 x1={currentX}
@@ -1199,7 +1214,7 @@ function WaterfallChart({
                 {bar.label}
               </text>
 
-              {bar.id.startsWith("reorganizacao") && (
+              {stepClickable && (
                 <text
                   x={currentX}
                   y={height - 6}
@@ -1215,6 +1230,157 @@ function WaterfallChart({
           )
         })}
       </svg>
+    </div>
+  )
+}
+
+
+function formatarModalValue(value: any): string {
+  if (value == null || value === "") return "—"
+  if (typeof value === "number") return fmt(value)
+  if (typeof value === "boolean") return value ? "Sim" : "Não"
+  if (Array.isArray(value)) return value.length ? `${value.length} itens` : "—"
+  if (typeof value === "object") return "ver detalhes"
+  return String(value)
+}
+
+function labelCalculo(campo: string): string {
+  const labels: Record<string, string> = {
+    delta_total_cx: "Delta total",
+    atraso_producao_cx: "Atraso produção",
+    reprovacao_cx: "Reprov. lote",
+    perda_rendimento_cx: "Perda rendimento",
+    ganho_rendimento_cx: "Ganho rendimento",
+    resultado_reorg_plano_cx: "Resultado Reorg. plano",
+    plano1_liberacao_cx: "Plano 1 Jan/V3",
+    plano_atual_mrp_liberacao_cx: "Plano atual MRP/Gantt",
+    resultado_cx: "Resultado",
+    estoque_inicial_jan_cx: "Estoque inicial Jan",
+  }
+  return labels[campo] || campo.replace(/_/g, " ")
+}
+
+function WaterfallStepModal({
+  step,
+  onClose,
+}: {
+  step: WaterfallStep | null
+  onClose: () => void
+}) {
+  if (!step) return null
+
+  const modal = (step as any).modal || {}
+  const calculo = modal.calculo || (step as any).calculo || {}
+  const titulo = modal.titulo || step.label
+  const descricao = modal.descricao || (step as any).observacao || "Abertura do cálculo da causa selecionada na cascata anual."
+  const deltaModal = modal.delta_cx ?? modal.delta_disponibilidade_cx ?? step.value
+  const formula = calculo.formula || modal.regra
+  const calculoLinhas = Object.entries(calculo).filter(([key]) => key !== "formula")
+  const positivo = Number(deltaModal || 0) >= 0
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(15,23,42,0.45)" }}
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
+        style={{ borderColor: "var(--border)" }}
+        onClick={(event: MouseEvent<HTMLDivElement>) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
+              Detalhe da cascata anual
+            </p>
+            <h2 className="mt-1 text-xl font-black" style={{ color: "var(--text-primary)" }}>
+              {titulo}
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              {descricao}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl p-2 transition hover:bg-black/5"
+            aria-label="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="overflow-auto p-5">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <MiniResumo
+              label="Impacto na disponibilidade"
+              value={`${positivo ? "+" : "-"}${fmt(Math.abs(Number(deltaModal || 0)))} cx`}
+              sub={`${positivo ? "+" : "-"}${fmtTubetes(Math.abs(Number(deltaModal || 0)))}`}
+              color={positivo ? "#16A34A" : "#DC2626"}
+              bg={positivo ? "#F0FDF4" : "#FEF2F2"}
+            />
+
+            <MiniResumo
+              label="Status do cálculo"
+              value={String((step as any).statusCalculo || "auditável")}
+              sub="informado pelo backend"
+              color="#334155"
+              bg="#F8FAFC"
+            />
+
+            <MiniResumo
+              label="Lotes"
+              value={step.lotes != null ? fmtLotesQtd(step.lotes) : "—"}
+              sub={(step as any).lotesTipo ? `tipo: ${(step as any).lotesTipo}` : "quando aplicável"}
+              color="#334155"
+              bg="#F8FAFC"
+            />
+          </div>
+
+          {formula && (
+            <div className="mt-4 rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
+              <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
+                Fórmula
+              </p>
+              <p className="mt-1 text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                {String(formula)}
+              </p>
+            </div>
+          )}
+
+          {calculoLinhas.length > 0 && (
+            <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+              <table className="w-full text-sm">
+                <tbody>
+                  {calculoLinhas.map(([key, value]) => (
+                    <tr key={key} className="border-t first:border-t-0" style={{ borderColor: "var(--border)" }}>
+                      <td className="w-1/2 px-4 py-3 font-bold" style={{ color: "var(--text-secondary)" }}>
+                        {labelCalculo(key)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-black" style={{ color: "var(--text-primary)" }}>
+                        {formatarModalValue(value)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {modal.leitura && (
+            <div className="mt-4 rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "#FFF7ED" }}>
+              <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "#9A3412" }}>
+                Leitura de negócio
+              </p>
+              <p className="mt-1 text-sm font-semibold leading-relaxed" style={{ color: "#7C2D12" }}>
+                {String(modal.leitura)}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -1463,7 +1629,7 @@ function VersionBridgeSection({
   onClickReorganizacao,
 }: {
   steps: WaterfallStep[]
-  onClickReorganizacao: () => void
+  onClickReorganizacao: (step: WaterfallStep) => void
 }) {
   const primeiro = steps[0]
   const ultimo = steps[steps.length - 1]
@@ -1589,7 +1755,7 @@ function VersionBridgeSection({
                 const styles = getToneStyles(step.tone)
 
                 const leitura =
-                  step.id.startsWith("reorganizacao")
+                  (step.id.startsWith("reorganizacao") || step.id === "reorg-plano")
                     ? "Mudança planejada de calendário, parada ou mix."
                     : step.id === "atraso"
                       ? "Lotes postergados ou retirados da janela da versão."
@@ -1606,7 +1772,7 @@ function VersionBridgeSection({
                     <td className="px-3 py-2.5">
                       <button
                         type="button"
-                        onClick={step.id.startsWith("reorganizacao") ? onClickReorganizacao : undefined}
+                        onClick={(step.id.startsWith("reorganizacao") || (step as any).clickable) ? () => onClickReorganizacao(step) : undefined}
                         className="inline-flex items-center gap-2 rounded-xl px-2 py-1 text-left transition hover:bg-slate-50"
                         style={{ color: "var(--text-primary)" }}
                       >
@@ -2439,6 +2605,7 @@ function ReorganizacaoModal({
 
 export default function LiberacaoExecutiva() {
   const [modalReorganizacaoAberto, setModalReorganizacaoAberto] = useState(false)
+  const [modalWaterfallStep, setModalWaterfallStep] = useState<WaterfallStep | null>(null)
   const [modalSimuladorPerdasAberto, setModalSimuladorPerdasAberto] = useState(false)
   const [simulacaoAplicada, setSimulacaoAplicada] = useState<{
     modo: SimulationMode
@@ -2494,8 +2661,10 @@ export default function LiberacaoExecutiva() {
         // O endpoint /causas-anuais já traz a abertura anual pronta. Antes, a tela
         // ficava presa em "Calculando..." porque o Promise.all aguardava também
         // carregarRastreamentosDoCache(12 meses), que é bem mais pesado.
-        const causasAnuais = await carregarCausasAnuaisReais(ano)
-        let lotesReprovadosDesvios: number | null = null
+        const [causasAnuais, lotesReprovadosDesvios] = await Promise.all([
+          carregarCausasAnuaisReais(ano),
+          carregarLotesReprovadosDesvios(ano),
+        ])
 
         if (!ativo) return
 
@@ -2508,15 +2677,7 @@ export default function LiberacaoExecutiva() {
           if (temCausaClassificada(causasAnuais)) {
             setStatusCausasAnuais("ok")
             setMensagemCausasAnuais(null)
-            setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais))
-
-            // Não deixa a busca dos lotes do Monitor travar ou ocultar a cascata anual.
-            // Primeiro carrega a cascata com o retorno original; depois só ajusta o texto "lotes" da reprovação.
-            lotesReprovadosDesvios = await carregarLotesReprovadosDesvios(ano)
-            if (!ativo) return
-            if (lotesReprovadosDesvios != null && lotesReprovadosDesvios > 0) {
-              setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais, lotesReprovadosDesvios))
-            }
+            setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais, lotesReprovadosDesvios))
           } else {
             setStatusCausasAnuais("parcial")
             setMensagemCausasAnuais(
@@ -2821,6 +2982,17 @@ export default function LiberacaoExecutiva() {
 
   const itensReorganizacao: ReorganizacaoItem[] = apiData?.itensReorganizacao || []
 
+  const abrirModalWaterfall = (step: WaterfallStep) => {
+    if ((step as any).modal || step.id === "reorg-plano" || (step as any).clickable) {
+      setModalWaterfallStep(step)
+      return
+    }
+
+    if (step.id.startsWith("reorganizacao")) {
+      setModalReorganizacaoAberto(true)
+    }
+  }
+
   return (
     <div className="px-6 py-5 lg:px-8">
       <div className="w-full space-y-5">
@@ -2922,7 +3094,7 @@ export default function LiberacaoExecutiva() {
             <WaterfallChart
               steps={waterfallSteps}
               orcadoFaturamentoCx={dados.orcadoFaturamentoCx}
-              onClickReorganizacao={() => setModalReorganizacaoAberto(true)}
+              onClickReorganizacao={abrirModalWaterfall}
             />
           ) : (
             <div className="px-6 pb-5 pt-4">
@@ -2967,10 +3139,15 @@ export default function LiberacaoExecutiva() {
         {ponteVersoesSteps.length > 0 && (
           <VersionBridgeSection
             steps={ponteVersoesSteps}
-            onClickReorganizacao={() => setModalReorganizacaoAberto(true)}
+            onClickReorganizacao={abrirModalWaterfall}
           />
         )}
       </div>
+
+      <WaterfallStepModal
+        step={modalWaterfallStep}
+        onClose={() => setModalWaterfallStep(null)}
+      />
 
       <ReorganizacaoModal
         open={modalReorganizacaoAberto}
