@@ -1339,9 +1339,9 @@ function WaterfallStepModal({
             />
 
             <MiniResumo
-              label="Lotes"
-              value={step.lotes != null ? fmtLotesQtd(step.lotes) : "—"}
-              sub={(step as any).lotesTipo ? `tipo: ${(step as any).lotesTipo}` : "quando aplicável"}
+              label={isReorgPlano ? "Eventos com impacto" : "Lotes"}
+              value={isReorgPlano ? `${fmt(Number(resumoCalendario.qtd_detalhes_total || detalhesCalendario.length || 0))} eventos` : (step.lotes != null ? fmtLotesQtd(step.lotes) : "—")}
+              sub={isReorgPlano ? "sem converter horas parciais em lote" : ((step as any).lotesTipo ? `tipo: ${(step as any).lotesTipo}` : "quando aplicável")}
               color="#334155"
               bg="#F8FAFC"
             />
@@ -1379,25 +1379,32 @@ function WaterfallStepModal({
 
           {detalhesCalendario.length > 0 && (
             <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                 <MiniResumo
-                  label="Impacto líquido calendário"
+                  label="Impacto calendário"
                   value={`${impactoCalendario >= 0 ? "+" : "-"}${fmt(Math.abs(impactoCalendario))} cx`}
-                  sub="impacto líquido do calendário"
+                  sub="paradas/horas quantificáveis"
                   color={impactoCalendario >= 0 ? "#16A34A" : "#DC2626"}
                   bg="#F8FAFC"
                 />
                 <MiniResumo
-                  label="Lotes liberados"
-                  value={fmtLotesQtd(Number(resumoCalendario.lotes_adicionados_equivalentes || 0)) || "—"}
-                  sub="paradas removidas/reduzidas"
+                  label="Mix / fila"
+                  value={`${Number(resumoCalendario.ajuste_mix_fila_cx || 0) >= 0 ? "+" : "-"}${fmt(Math.abs(Number(resumoCalendario.ajuste_mix_fila_cx || 0)))} cx`}
+                  sub="reprogramação/mix para fechar Reorg."
+                  color={Number(resumoCalendario.ajuste_mix_fila_cx || 0) >= 0 ? "#16A34A" : "#DC2626"}
+                  bg="#F8FAFC"
+                />
+                <MiniResumo
+                  label="Horas liberadas"
+                  value={`${fmt(Number(resumoCalendario.horas_liberadas || 0))} h`}
+                  sub={`${fmt(Number(resumoCalendario.eventos_capacidade_liberada || 0))} eventos`}
                   color="#16A34A"
                   bg="#F0FDF4"
                 />
                 <MiniResumo
-                  label="Lotes consumidos"
-                  value={fmtLotesQtd(Number(resumoCalendario.lotes_removidos_equivalentes || 0)) || "—"}
-                  sub="paradas adicionadas/aumentadas"
+                  label="Horas consumidas"
+                  value={`${fmt(Number(resumoCalendario.horas_consumidas || 0))} h`}
+                  sub={`${fmt(Number(resumoCalendario.eventos_capacidade_consumida || 0))} eventos`}
                   color="#DC2626"
                   bg="#FEF2F2"
                 />
@@ -1406,10 +1413,10 @@ function WaterfallStepModal({
               <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
                 <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
                   <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
-                    Paradas adicionadas/removidas no plano
+                    Paradas/horas alteradas no plano
                   </p>
                   <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Linha a linha por data + linha, comparando o calendário Jan/V3 com a versão atual. O comentário explica o motivo; a disponibilidade/capacidade do dia calcula o impacto.
+                    Linha a linha por data + linha. Só aparece quando há impacto real em horas ou caixas; mudança só textual no comentário fica fora.
                   </p>
                 </div>
                 <div className="max-h-[360px] overflow-auto">
@@ -1424,7 +1431,7 @@ function WaterfallStepModal({
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Plano atual</th>
                         <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Impacto h</th>
                         <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Impacto cx</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Lotes equiv.</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Critério</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1476,10 +1483,10 @@ function WaterfallStepModal({
                                 {impacto >= 0 ? "+" : "-"}{fmtTubetes(Math.abs(impacto))}
                               </div>
                             </td>
-                            <td className="px-3 py-3 text-right font-black" style={{ color: "var(--text-primary)" }}>
-                              {fmtLotesQtd(Number(item.lotes_equivalentes || 0)) || "—"}
+                            <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>
+                              sem lote equiv.
                               <div className="text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-                                lote ref.: {fmt(Number(item.tamanho_lote_ref_cx || 0))} cx
+                                impacto parcial em h/cx
                               </div>
                             </td>
                           </tr>
