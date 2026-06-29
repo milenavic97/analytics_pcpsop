@@ -1279,6 +1279,7 @@ function WaterfallStepModal({
   const positivo = Number(deltaModal || 0) >= 0
   const detalhesCalendario = Array.isArray(modal.detalhes_calendario) ? modal.detalhes_calendario : []
   const resumoCalendario = modal.resumo_calendario || {}
+  const isReorgPlano = step.id === "reorg-plano"
 
   return (
     <div
@@ -1325,9 +1326,9 @@ function WaterfallStepModal({
             />
 
             <MiniResumo
-              label="Status do cálculo"
-              value={String((step as any).statusCalculo || "auditável")}
-              sub="informado pelo backend"
+              label={isReorgPlano ? "Comparação" : "Status do cálculo"}
+              value={isReorgPlano ? "Jan/V3 × Atual" : String((step as any).statusCalculo || "auditável")}
+              sub={isReorgPlano ? "f_mrp_calendario_dia" : "informado pelo backend"}
               color="#334155"
               bg="#F8FAFC"
             />
@@ -1341,7 +1342,7 @@ function WaterfallStepModal({
             />
           </div>
 
-          {formula && (
+          {formula && !isReorgPlano && (
             <div className="mt-4 rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
               <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
                 Fórmula
@@ -1352,7 +1353,7 @@ function WaterfallStepModal({
             </div>
           )}
 
-          {calculoLinhas.length > 0 && (
+          {calculoLinhas.length > 0 && !isReorgPlano && (
             <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
               <table className="w-full text-sm">
                 <tbody>
@@ -1473,6 +1474,17 @@ function WaterfallStepModal({
                   </table>
                 </div>
               </div>
+            </div>
+          )}
+
+          {isReorgPlano && detalhesCalendario.length === 0 && (
+            <div className="mt-4 rounded-2xl border px-4 py-3" style={{ borderColor: "#FCD34D", background: "#FFFBEB" }}>
+              <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "#92400E" }}>
+                Detalhe de calendário não carregado
+              </p>
+              <p className="mt-1 text-sm font-semibold" style={{ color: "#92400E" }}>
+                O backend precisa retornar modal.detalhes_calendario com a comparação real de data + linha + comentario_calendario entre Jan/V3 e a versão atual.
+              </p>
             </div>
           )}
 
@@ -1833,7 +1845,7 @@ function VersionBridgeSection({
           </p>
 
           <p className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-            Clique em Reorg. para ver a abertura de parada/mix
+            Somente Reorg. plano abre detalhe
           </p>
         </div>
 
