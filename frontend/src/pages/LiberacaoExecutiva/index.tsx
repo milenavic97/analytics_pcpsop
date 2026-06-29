@@ -1277,6 +1277,8 @@ function WaterfallStepModal({
   const formula = calculo.formula || modal.regra
   const calculoLinhas = Object.entries(calculo).filter(([key]) => key !== "formula")
   const positivo = Number(deltaModal || 0) >= 0
+  const detalhesCalendario = Array.isArray(modal.detalhes_calendario) ? modal.detalhes_calendario : []
+  const resumoCalendario = modal.resumo_calendario || {}
 
   return (
     <div
@@ -1285,7 +1287,7 @@ function WaterfallStepModal({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
+        className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
         style={{ borderColor: "var(--border)" }}
         onClick={(event: MouseEvent<HTMLDivElement>) => event.stopPropagation()}
       >
@@ -1366,6 +1368,111 @@ function WaterfallStepModal({
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {detalhesCalendario.length > 0 && (
+            <div className="mt-4 space-y-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <MiniResumo
+                  label="Impacto bruto das paradas"
+                  value={`${Number(resumoCalendario.impacto_bruto_calendario_cx || 0) >= 0 ? "+" : "-"}${fmt(Math.abs(Number(resumoCalendario.impacto_bruto_calendario_cx || 0)))} cx`}
+                  sub="comparação Plano 1 × Plano Atual"
+                  color={Number(resumoCalendario.impacto_bruto_calendario_cx || 0) >= 0 ? "#16A34A" : "#DC2626"}
+                  bg="#F8FAFC"
+                />
+                <MiniResumo
+                  label="Lotes liberados"
+                  value={fmtLotesQtd(Number(resumoCalendario.lotes_adicionados_equivalentes || 0)) || "—"}
+                  sub="paradas removidas/reduzidas"
+                  color="#16A34A"
+                  bg="#F0FDF4"
+                />
+                <MiniResumo
+                  label="Lotes consumidos"
+                  value={fmtLotesQtd(Number(resumoCalendario.lotes_removidos_equivalentes || 0)) || "—"}
+                  sub="paradas adicionadas/aumentadas"
+                  color="#DC2626"
+                  bg="#FEF2F2"
+                />
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+                <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
+                  <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
+                    Paradas adicionadas/removidas no plano
+                  </p>
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Linha a linha, comparando o calendário do Plano 1 Jan/V3 com a rodada atual. Impacto positivo libera capacidade/lotes; impacto negativo consome capacidade/lotes.
+                  </p>
+                </div>
+                <div className="max-h-[360px] overflow-auto">
+                  <table className="w-full min-w-[1100px] text-xs">
+                    <thead style={{ background: "#F8FAFC", color: "var(--text-secondary)" }}>
+                      <tr>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Movimento</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Data</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Linha</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Categoria</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Plano 1</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Plano atual</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Impacto h</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Impacto cx</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Lotes equiv.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detalhesCalendario.map((item: any, index: number) => {
+                        const impacto = Number(item.impacto_cx || 0)
+                        const ganho = impacto >= 0
+                        const horas = Number(item.horas_impacto || 0)
+                        const dataTexto = String(item.data || "—")
+                        return (
+                          <tr key={String(item.id || index)} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+                            <td className="px-3 py-3">
+                              <span
+                                className="inline-flex rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider"
+                                style={{
+                                  background: ganho ? "#DCFCE7" : "#FEE2E2",
+                                  color: ganho ? "#166534" : "#991B1B",
+                                }}
+                              >
+                                {String(item.movimento || (ganho ? "Parada removida" : "Parada adicionada"))}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{dataTexto}</td>
+                            <td className="px-3 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{String(item.linha || "—")}</td>
+                            <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>{String(item.categoria || "—")}</td>
+                            <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
+                              <div className="max-w-[220px] whitespace-pre-line leading-relaxed">{String(item.motivo_plano1 || "—")}</div>
+                              <div className="mt-1 font-semibold">{fmt(Number(item.horas_plano1 || 0))} h indisponíveis</div>
+                            </td>
+                            <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
+                              <div className="max-w-[220px] whitespace-pre-line leading-relaxed">{String(item.motivo_atual || "—")}</div>
+                              <div className="mt-1 font-semibold">{fmt(Number(item.horas_atual || 0))} h indisponíveis</div>
+                            </td>
+                            <td className="px-3 py-3 text-right font-black" style={{ color: ganho ? "#16A34A" : "#DC2626" }}>
+                              {horas >= 0 ? "+" : "-"}{fmt(Math.abs(horas))} h
+                            </td>
+                            <td className="px-3 py-3 text-right font-black" style={{ color: ganho ? "#16A34A" : "#DC2626" }}>
+                              {impacto >= 0 ? "+" : "-"}{fmt(Math.abs(impacto))} cx
+                              <div className="text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                                {impacto >= 0 ? "+" : "-"}{fmtTubetes(Math.abs(impacto))}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-right font-black" style={{ color: "var(--text-primary)" }}>
+                              {fmtLotesQtd(Number(item.lotes_equivalentes || 0)) || "—"}
+                              <div className="text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                                lote ref.: {fmt(Number(item.tamanho_lote_ref_cx || 0))} cx
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
 
