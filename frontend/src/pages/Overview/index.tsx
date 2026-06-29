@@ -125,7 +125,9 @@ interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
 const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v2"
-const OVERVIEW_PAGE_CACHE_TTL_MS = 5 * 60 * 1000
+// Importante: a Overview não pode usar snapshot persistido no navegador.
+// Número operacional precisa ser igual em aba normal, aba anônima e outros PCs.
+// Mantemos a chave só para apagar caches antigos que já ficaram no localStorage.
 
 type OverviewPageSnapshot = {
   savedAt: number
@@ -156,50 +158,58 @@ function isOverviewSnapshotCompleto(snapshot: OverviewPageSnapshot | null): snap
   )
 }
 
-function readOverviewPageCache(): OverviewPageSnapshot | null {
-  try {
-    if (typeof window === "undefined") return null
-
-    const raw = window.localStorage.getItem(OVERVIEW_PAGE_CACHE_KEY)
-    if (!raw) return null
-
-    const parsed = JSON.parse(raw) as OverviewPageSnapshot
-
-    if (!parsed || typeof parsed.savedAt !== "number") {
-      window.localStorage.removeItem(OVERVIEW_PAGE_CACHE_KEY)
-      return null
-    }
-
-    if (Date.now() - parsed.savedAt > OVERVIEW_PAGE_CACHE_TTL_MS) {
-      window.localStorage.removeItem(OVERVIEW_PAGE_CACHE_KEY)
-      return null
-    }
-
-    if (!isOverviewSnapshotCompleto(parsed)) {
-      window.localStorage.removeItem(OVERVIEW_PAGE_CACHE_KEY)
-      return null
-    }
-
-    return parsed
-  } catch {
-    return null
-  }
-}
-
-function writeOverviewPageCache(snapshot: Omit<OverviewPageSnapshot, "savedAt">) {
+function limparCachesOperacionaisLocais() {
   try {
     if (typeof window === "undefined") return
 
-    window.localStorage.setItem(
-      OVERVIEW_PAGE_CACHE_KEY,
-      JSON.stringify({
-        ...snapshot,
-        savedAt: Date.now(),
-      })
-    )
+    const termos = [
+      "overview",
+      "resumo",
+      "rastreamento",
+      "lotes",
+      "liberacao",
+      "liberação",
+      "disponibilidade",
+      "mps",
+      "mrp",
+      "gantt",
+    ]
+
+    const deveRemover = (key: string) => {
+      const k = key.toLowerCase()
+      return key === OVERVIEW_PAGE_CACHE_KEY || termos.some((termo) => k.includes(termo))
+    }
+
+    Object.keys(window.localStorage)
+      .filter(deveRemover)
+      .forEach((key) => window.localStorage.removeItem(key))
+
+    Object.keys(window.sessionStorage)
+      .filter(deveRemover)
+      .forEach((key) => window.sessionStorage.removeItem(key))
+
+    if ("caches" in window) {
+      window.caches
+        .keys()
+        .then((keys) => keys.forEach((key) => window.caches.delete(key)))
+        .catch(() => undefined)
+    }
   } catch {
-    // Cache local é apenas acelerador de tela.
+    // Cache local é só acelerador. Se falhar, não bloqueia a tela.
   }
+}
+
+function readOverviewPageCache(): OverviewPageSnapshot | null {
+  // Desativado de propósito.
+  // O cache local foi a causa de aba normal e aba anônima mostrarem números diferentes.
+  limparCachesOperacionaisLocais()
+  return null
+}
+
+function writeOverviewPageCache(_snapshot: Omit<OverviewPageSnapshot, "savedAt">) {
+  // Desativado de propósito.
+  // Não persistir números operacionais da Overview no navegador.
+  limparCachesOperacionaisLocais()
 }
 
 
@@ -229,6 +239,10 @@ export function OverviewPage() {
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(cacheInicial?.ultimaAtualizacao ?? null)
   const [mtdCxPrevisto, setMtdCxPrevisto] = useState<number>(cacheInicial?.mtdCxPrevisto ?? 0)
   const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(cacheInicial?.mtdCxLiberado ?? 0)
+
+  useEffect(() => {
+    limparCachesOperacionaisLocais()
+  }, [])
 
   function aplicarResumo(resumo: OverviewResumoResponse) {
     const payload = resumo.payload || {}
@@ -363,9 +377,20 @@ export function OverviewPage() {
       void verificarEAtualizar(true)
     }, 60 * 1000)
 
+    const atualizarAoVoltarParaAba = () => {
+      if (!document.hidden) {
+        void verificarEAtualizar(true)
+      }
+    }
+
+    window.addEventListener("focus", atualizarAoVoltarParaAba)
+    document.addEventListener("visibilitychange", atualizarAoVoltarParaAba)
+
     return () => {
       alive = false
       if (intervalId) window.clearInterval(intervalId)
+      window.removeEventListener("focus", atualizarAoVoltarParaAba)
+      document.removeEventListener("visibilitychange", atualizarAoVoltarParaAba)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [versaoCarregada, cacheAtualizadoEmCarregado])
@@ -483,14 +508,7 @@ export function OverviewPage() {
               setMtdCxPrevisto(p)
               setMtdCxLiberado(l)
 
-              const snapshot = readOverviewPageCache()
-              if (snapshot) {
-                writeOverviewPageCache({
-                  ...snapshot,
-                  mtdCxPrevisto: p,
-                  mtdCxLiberado: l,
-                })
-              }
+              // Não persistir MTD no navegador. O valor precisa vir sempre do backend/SD3 atual.
             }} />
           ) : null}
         </div>
