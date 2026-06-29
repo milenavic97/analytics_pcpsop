@@ -1136,7 +1136,7 @@ function WaterfallChart({
           const connectorX1 = currentX + stepWidth / 2
           const connectorX2 = getConnectorTargetX(index)
 
-          const stepClickable = Boolean(bar.clickable || bar.id.startsWith("reorganizacao") || bar.id === "reorg-plano")
+          const stepClickable = Boolean(bar.id === "reorg-plano" || bar.id.startsWith("reorganizacao"))
 
           return (
             <g
@@ -1862,7 +1862,7 @@ function VersionBridgeSection({
                 const styles = getToneStyles(step.tone)
 
                 const leitura =
-                  (step.id.startsWith("reorganizacao") || step.id === "reorg-plano")
+                  (step.id === "reorg-plano" || step.id.startsWith("reorganizacao"))
                     ? "Mudança planejada de calendário, parada ou mix."
                     : step.id === "atraso"
                       ? "Lotes postergados ou retirados da janela da versão."
@@ -1879,7 +1879,7 @@ function VersionBridgeSection({
                     <td className="px-3 py-2.5">
                       <button
                         type="button"
-                        onClick={(step.id.startsWith("reorganizacao") || (step as any).clickable) ? () => onClickReorganizacao(step) : undefined}
+                        onClick={(step.id === "reorg-plano" || step.id.startsWith("reorganizacao")) ? () => onClickReorganizacao(step) : undefined}
                         className="inline-flex items-center gap-2 rounded-xl px-2 py-1 text-left transition hover:bg-slate-50"
                         style={{ color: "var(--text-primary)" }}
                       >
@@ -3090,7 +3090,7 @@ export default function LiberacaoExecutiva() {
   const itensReorganizacao: ReorganizacaoItem[] = apiData?.itensReorganizacao || []
 
   const abrirModalWaterfall = (step: WaterfallStep) => {
-    if ((step as any).modal || step.id === "reorg-plano" || (step as any).clickable) {
+    if (step.id === "reorg-plano") {
       setModalWaterfallStep(step)
       return
     }
