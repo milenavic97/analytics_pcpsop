@@ -4019,6 +4019,12 @@ function ItensDrilldownDashboardTable({
       .trim()
   }
 
+  const extrairCodigoBusca = (value: unknown) => {
+    const texto = String(value || "").trim()
+    const match = texto.match(/^\s*(\d{3,})/)
+    return match?.[1] || ""
+  }
+
   const datalistId = useMemo(() => `opcoes-descricao-estoque-${Math.random().toString(36).slice(2)}`, [])
 
   useEffect(() => {
@@ -4046,12 +4052,21 @@ function ItensDrilldownDashboardTable({
 
   const itensFiltrados = useMemo(() => {
     const termo = normalizarBusca(buscaDescricao)
+    const codigoSelecionado = extrairCodigoBusca(buscaDescricao)
+    const tokens = termo.split(" ").filter(Boolean)
     const base = [...(itens || [])]
 
-    if (!termo) return base
+    if (!termo && !codigoSelecionado) return base
 
     return base.filter((item) => {
       const raw = item as any
+      const codigoItem = normalizarBusca(raw.codigo || raw.cod_produto || raw.sku)
+
+      // Quando o usuário seleciona uma opção do autocomplete, o valor fica como
+      // "52749 · BENZOTOP...". Nesse caso a busca precisa casar pelo SKU primeiro,
+      // senão a pontuação/formatação do label pode zerar a tabela.
+      if (codigoSelecionado && codigoItem === codigoSelecionado) return true
+
       const textoBusca = [
         raw.codigo,
         raw.cod_produto,
@@ -4065,7 +4080,12 @@ function ItensDrilldownDashboardTable({
         getLinhaDashboardItem(item),
       ].map(normalizarBusca).join(" ")
 
-      return textoBusca.includes(termo)
+      if (!tokens.length) return true
+
+      // Usa tokens em vez de frase inteira para permitir buscar/selecionar
+      // "52832 · AGULHA UNOJECT 30G CURTA" mesmo que o texto da linha tenha
+      // hífen, ponto, espaços ou caracteres diferentes.
+      return tokens.every((token) => textoBusca.includes(token))
     })
   }, [itens, buscaDescricao])
 
