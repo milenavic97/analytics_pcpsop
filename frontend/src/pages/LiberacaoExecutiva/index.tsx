@@ -1280,6 +1280,7 @@ function WaterfallStepModal({
   const detalhesCalendario = Array.isArray(modal.detalhes_calendario) ? modal.detalhes_calendario : []
   const resumoCalendario = modal.resumo_calendario || {}
   const isReorgPlano = step.id === "reorg-plano"
+  const impactoCalendario = Number(resumoCalendario.impacto_liquido_calendario_cx ?? resumoCalendario.impacto_bruto_calendario_cx ?? 0)
 
   return (
     <div
@@ -1376,10 +1377,10 @@ function WaterfallStepModal({
             <div className="mt-4 space-y-3">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <MiniResumo
-                  label="Impacto bruto das paradas"
-                  value={`${Number(resumoCalendario.impacto_bruto_calendario_cx || 0) >= 0 ? "+" : "-"}${fmt(Math.abs(Number(resumoCalendario.impacto_bruto_calendario_cx || 0)))} cx`}
-                  sub="comparação Plano 1 × Plano Atual"
-                  color={Number(resumoCalendario.impacto_bruto_calendario_cx || 0) >= 0 ? "#16A34A" : "#DC2626"}
+                  label="Impacto líquido calendário"
+                  value={`${impactoCalendario >= 0 ? "+" : "-"}${fmt(Math.abs(impactoCalendario))} cx`}
+                  sub="impacto líquido do calendário"
+                  color={impactoCalendario >= 0 ? "#16A34A" : "#DC2626"}
                   bg="#F8FAFC"
                 />
                 <MiniResumo
@@ -1404,7 +1405,7 @@ function WaterfallStepModal({
                     Paradas adicionadas/removidas no plano
                   </p>
                   <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Linha a linha, comparando o calendário do Plano 1 Jan/V3 com a rodada atual. Impacto positivo libera capacidade/lotes; impacto negativo consome capacidade/lotes.
+                    Linha a linha por data + linha, comparando o calendário Jan/V3 com a versão atual. O comentário explica o motivo; a disponibilidade/capacidade do dia calcula o impacto.
                   </p>
                 </div>
                 <div className="max-h-[360px] overflow-auto">
@@ -1446,11 +1447,21 @@ function WaterfallStepModal({
                             <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>{String(item.categoria || "—")}</td>
                             <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
                               <div className="max-w-[220px] whitespace-pre-line leading-relaxed">{String(item.motivo_plano1 || "—")}</div>
-                              <div className="mt-1 font-semibold">{fmt(Number(item.horas_plano1 || 0))} h indisponíveis</div>
+                              {item.disponivel_plano1_cx != null && (
+                                <div className="mt-1 font-semibold">Disp.: {fmt(Number(item.disponivel_plano1_cx || 0))} cx</div>
+                              )}
+                              {Number(item.horas_plano1 || 0) > 0 && (
+                                <div className="mt-1 font-semibold">Indisp.: {fmt(Number(item.horas_plano1 || 0))} h</div>
+                              )}
                             </td>
                             <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
                               <div className="max-w-[220px] whitespace-pre-line leading-relaxed">{String(item.motivo_atual || "—")}</div>
-                              <div className="mt-1 font-semibold">{fmt(Number(item.horas_atual || 0))} h indisponíveis</div>
+                              {item.disponivel_atual_cx != null && (
+                                <div className="mt-1 font-semibold">Disp.: {fmt(Number(item.disponivel_atual_cx || 0))} cx</div>
+                              )}
+                              {Number(item.horas_atual || 0) > 0 && (
+                                <div className="mt-1 font-semibold">Indisp.: {fmt(Number(item.horas_atual || 0))} h</div>
+                              )}
                             </td>
                             <td className="px-3 py-3 text-right font-black" style={{ color: ganho ? "#16A34A" : "#DC2626" }}>
                               {horas >= 0 ? "+" : "-"}{fmt(Math.abs(horas))} h
