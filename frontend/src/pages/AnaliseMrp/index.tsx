@@ -4182,7 +4182,27 @@ function ItensDrilldownDashboardTable({
   const [buscaDescricao, setBuscaDescricao] = useState("")
   const [sortKeyDrilldown, setSortKeyDrilldown] = useState<DrilldownDashboardSortKey | null>(null)
   const [sortDirectionDrilldown, setSortDirectionDrilldown] = useState<SortDirection>("desc")
+  const [detalhesItemPorCodigo, setDetalhesItemPorCodigo] = useState<Record<string, AgingEstoqueItemDetalhe>>({})
+  const [detalhesItemCarregando, setDetalhesItemCarregando] = useState<Record<string, boolean>>({})
   const itensPorPagina = 10
+
+  const carregarDetalheEntradas = (codigo: string, entradasMes: number) => {
+    const codigoLimpo = String(codigo || "").trim()
+    if (!codigoLimpo || entradasMes <= 0) return
+    if (detalhesItemPorCodigo[codigoLimpo] || detalhesItemCarregando[codigoLimpo]) return
+
+    setDetalhesItemCarregando((prev) => ({ ...prev, [codigoLimpo]: true }))
+    getAgingEstoqueItemComCache(codigoLimpo, 6)
+      .then((detalhe) => {
+        setDetalhesItemPorCodigo((prev) => ({ ...prev, [codigoLimpo]: detalhe }))
+      })
+      .catch((err) => {
+        console.warn("Não foi possível carregar detalhes de entradas do item", codigoLimpo, err)
+      })
+      .finally(() => {
+        setDetalhesItemCarregando((prev) => ({ ...prev, [codigoLimpo]: false }))
+      })
+  }
 
   const normalizarBusca = (value: unknown) => {
     return String(value || "")
@@ -4587,26 +4607,6 @@ function MatrizEstoqueGiroPanel({
 }) {
   const matriz = useMemo(() => montarPontosMatrizEstoque(itens || []), [itens])
   const [quadranteSelecionado, setQuadranteSelecionado] = useState<QuadranteMatrizKey | null>(null)
-  const [detalhesItemPorCodigo, setDetalhesItemPorCodigo] = useState<Record<string, AgingEstoqueItemDetalhe>>({})
-  const [detalhesItemCarregando, setDetalhesItemCarregando] = useState<Record<string, boolean>>({})
-
-  const carregarDetalheEntradas = (codigo: string, entradasMes: number) => {
-    const codigoLimpo = String(codigo || "").trim()
-    if (!codigoLimpo || entradasMes <= 0) return
-    if (detalhesItemPorCodigo[codigoLimpo] || detalhesItemCarregando[codigoLimpo]) return
-
-    setDetalhesItemCarregando((prev) => ({ ...prev, [codigoLimpo]: true }))
-    getAgingEstoqueItemComCache(codigoLimpo, 6)
-      .then((detalhe) => {
-        setDetalhesItemPorCodigo((prev) => ({ ...prev, [codigoLimpo]: detalhe }))
-      })
-      .catch((err) => {
-        console.warn("Não foi possível carregar detalhes de entradas do item", codigoLimpo, err)
-      })
-      .finally(() => {
-        setDetalhesItemCarregando((prev) => ({ ...prev, [codigoLimpo]: false }))
-      })
-  }
 
   useEffect(() => {
     setQuadranteSelecionado(null)
