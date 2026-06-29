@@ -1277,7 +1277,11 @@ function WaterfallStepModal({
   const formula = calculo.formula || modal.regra
   const calculoLinhas = Object.entries(calculo).filter(([key]) => key !== "formula")
   const positivo = Number(deltaModal || 0) >= 0
-  const detalhesCalendario = Array.isArray(modal.detalhes_calendario) ? modal.detalhes_calendario : []
+  const detalhesCalendario = (Array.isArray(modal.detalhes_calendario) ? modal.detalhes_calendario : []).filter((item: any) => {
+    const impacto = Number(item?.impacto_cx || 0)
+    const horas = Number(item?.horas_impacto || 0)
+    return Math.abs(impacto) >= 0.5 || Math.abs(horas) >= 0.05
+  })
   const resumoCalendario = modal.resumo_calendario || {}
   const isReorgPlano = step.id === "reorg-plano"
   const impactoCalendario = Number(resumoCalendario.impacto_liquido_calendario_cx ?? resumoCalendario.impacto_bruto_calendario_cx ?? 0)
