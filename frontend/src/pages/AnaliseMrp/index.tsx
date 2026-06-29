@@ -3987,6 +3987,17 @@ function DashboardSkuDetailModal({
   )
 }
 
+
+type DrilldownDashboardSortKey =
+  | "lead_time"
+  | "estoque"
+  | "total6m"
+  | "historico6m"
+  | "forecast"
+  | "cobertura"
+  | "entradas"
+  | "valor_estoque"
+
 function ItensDrilldownDashboardTable({
   titulo,
   subtitulo,
@@ -4006,7 +4017,8 @@ function ItensDrilldownDashboardTable({
 }) {
   const [paginaAtual, setPaginaAtual] = useState(1)
   const [buscaDescricao, setBuscaDescricao] = useState("")
-  const [ordenacaoEstoque, setOrdenacaoEstoque] = useState<"none" | "desc" | "asc">("none")
+  const [sortKeyDrilldown, setSortKeyDrilldown] = useState<DrilldownDashboardSortKey | null>(null)
+  const [sortDirectionDrilldown, setSortDirectionDrilldown] = useState<SortDirection>("desc")
   const itensPorPagina = 10
 
   const normalizarBusca = (value: unknown) => {
@@ -4029,7 +4041,7 @@ function ItensDrilldownDashboardTable({
 
   useEffect(() => {
     setPaginaAtual(1)
-  }, [titulo, itens.length, buscaDescricao, ordenacaoEstoque])
+  }, [titulo, itens.length, buscaDescricao, sortKeyDrilldown, sortDirectionDrilldown])
 
   const opcoesAutocomplete = useMemo(() => {
     const vistos = new Set<string>()
@@ -4089,18 +4101,40 @@ function ItensDrilldownDashboardTable({
     })
   }, [itens, buscaDescricao])
 
+  const getValorOrdenacaoDrilldown = (item: AgingEstoqueItem, chave: DrilldownDashboardSortKey) => {
+    switch (chave) {
+      case "lead_time":
+        return getNum(item, "lead_time_dias")
+      case "estoque":
+        return getEstoqueAtualReal(item)
+      case "total6m":
+      case "historico6m":
+        return getTotalSeisMesesDashboard(item)
+      case "forecast":
+        return getTotalForecastDashboard(item)
+      case "cobertura":
+        return getCoberturaMatriz(item)
+      case "entradas":
+        return getEntradasMesAtualDashboard(item)
+      case "valor_estoque":
+        return getValorEstoqueMatriz(item)
+      default:
+        return 0
+    }
+  }
+
   const itensOrdenados = useMemo(() => {
     const base = [...itensFiltrados]
 
-    if (ordenacaoEstoque !== "none") {
-      const multiplicador = ordenacaoEstoque === "desc" ? -1 : 1
+    if (sortKeyDrilldown) {
+      const multiplicador = sortDirectionDrilldown === "desc" ? -1 : 1
 
       return base.sort((a, b) => {
-        const estoqueDiff = (getEstoqueAtualReal(a) - getEstoqueAtualReal(b)) * multiplicador
-        if (estoqueDiff !== 0) return estoqueDiff
+        const diff = (getValorOrdenacaoDrilldown(a, sortKeyDrilldown) - getValorOrdenacaoDrilldown(b, sortKeyDrilldown)) * multiplicador
+        if (diff !== 0) return diff
 
-        const valorDiff = (getValorEstoqueMatriz(a) - getValorEstoqueMatriz(b)) * multiplicador
-        if (valorDiff !== 0) return valorDiff
+        const estoqueDiff = (getEstoqueAtualReal(a) - getEstoqueAtualReal(b)) * -1
+        if (estoqueDiff !== 0) return estoqueDiff
 
         const descA = String((a as any).produto || (a as any).descricao || (a as any).desc_produto || "")
         const descB = String((b as any).produto || (b as any).descricao || (b as any).desc_produto || "")
@@ -4117,25 +4151,42 @@ function ItensDrilldownDashboardTable({
       if (estoqueDiff !== 0) return estoqueDiff
       return getTotalSeisMesesDashboard(b) - getTotalSeisMesesDashboard(a)
     })
-  }, [itensFiltrados, preserveOrder, ordenacaoEstoque])
+  }, [itensFiltrados, preserveOrder, sortKeyDrilldown, sortDirectionDrilldown])
 
   const totalPaginas = Math.max(1, Math.ceil(itensOrdenados.length / itensPorPagina))
   const paginaSegura = Math.min(Math.max(1, paginaAtual), totalPaginas)
   const inicioPagina = (paginaSegura - 1) * itensPorPagina
   const itensVisiveis = itensOrdenados.slice(inicioPagina, inicioPagina + itensPorPagina)
 
-  const ordenacaoEstoqueLabel = ordenacaoEstoque === "desc"
-    ? "Estoque ↓"
-    : ordenacaoEstoque === "asc"
-      ? "Estoque ↑"
-      : "Estoque"
+  const alternarOrdenacaoDrilldown = (chave: DrilldownDashboardSortKey) => {
+    setSortKeyDrilldown((atual) => {
+      if (atual !== chave) {
+        setSortDirectionDrilldown("desc")
+        return chave
+      }
 
-  const alternarOrdenacaoEstoque = () => {
-    setOrdenacaoEstoque((atual) => {
-      if (atual === "none") return "desc"
-      if (atual === "desc") return "asc"
-      return "none"
+      setSortDirectionDrilldown((direcaoAtual) => direcaoAtual === "desc" ? "asc" : "desc")
+      return atual
     })
+  }
+
+  const SortableDrilldownTh = ({ label, chave, align = "right" }: { label: string; chave: DrilldownDashboardSortKey; align?: "right" | "center" }) => {
+    const ativo = sortKeyDrilldown === chave
+    const seta = ativo ? (sortDirectionDrilldown === "asc" ? "↑" : "↓") : "↕"
+
+    return (
+      <th className={`px-3 py-3 ${align === "center" ? "text-center" : "text-right"}`}>
+        <button
+          type="button"
+          onClick={() => alternarOrdenacaoDrilldown(chave)}
+          className={`inline-flex w-full items-center gap-1 font-bold uppercase tracking-wide text-white ${align === "center" ? "justify-center" : "justify-end"}`}
+          title={`Ordenar por ${label}`}
+        >
+          <span>{label}</span>
+          <span className={ativo ? "text-white" : "text-white/60"}>{seta}</span>
+        </button>
+      </th>
+    )
   }
 
   return (
@@ -4179,8 +4230,12 @@ function ItensDrilldownDashboardTable({
           )}
         </div>
 
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative w-full sm:max-w-[360px]">
+        <div className="mt-3 max-w-[420px]">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+            <Filter size={13} />
+            <span>Filtro</span>
+          </div>
+          <div className="relative w-full">
             <input
               value={buscaDescricao}
               onChange={(event) => setBuscaDescricao(event.target.value)}
@@ -4206,19 +4261,6 @@ function ItensDrilldownDashboardTable({
               ))}
             </datalist>
           </div>
-
-          <button
-            type="button"
-            onClick={alternarOrdenacaoEstoque}
-            className="h-10 rounded-xl border bg-white px-3 text-xs font-bold transition hover:bg-slate-50"
-            style={{
-              borderColor: ordenacaoEstoque !== "none" ? accentColor : "var(--border)",
-              color: ordenacaoEstoque !== "none" ? accentColor : "var(--text-primary)",
-            }}
-            title="Ordenar por quantidade de estoque"
-          >
-            {ordenacaoEstoqueLabel}
-          </button>
         </div>
       </div>
 
@@ -4229,24 +4271,14 @@ function ItensDrilldownDashboardTable({
               <th className="px-3 py-3">SKU</th>
               <th className="px-3 py-3">Descrição</th>
               <th className="px-3 py-3">Linha</th>
-              <th className="px-3 py-3 text-right">Lead time</th>
-              <th className="px-3 py-3 text-right">
-                <button
-                  type="button"
-                  onClick={alternarOrdenacaoEstoque}
-                  className="inline-flex items-center justify-end gap-1 font-bold uppercase tracking-wide text-white"
-                  title="Ordenar por quantidade de estoque"
-                >
-                  Estoque
-                  <span className="text-[10px]">{ordenacaoEstoque === "desc" ? "↓" : ordenacaoEstoque === "asc" ? "↑" : "↕"}</span>
-                </button>
-              </th>
-              <th className="px-3 py-3 text-right">Total 6M</th>
-              <th className="px-3 py-3 text-center">Histórico 6M</th>
-              <th className="px-3 py-3 text-center">Forecast</th>
-              <th className="px-3 py-3 text-right">Cobertura</th>
-              <th className="px-3 py-3 text-right">Entradas mês</th>
-              <th className="px-3 py-3 text-right">Valor estoque</th>
+              <SortableDrilldownTh label="Lead time" chave="lead_time" />
+              <SortableDrilldownTh label="Estoque" chave="estoque" />
+              <SortableDrilldownTh label="Total 6M" chave="total6m" />
+              <SortableDrilldownTh label="Histórico 6M" chave="historico6m" align="center" />
+              <SortableDrilldownTh label="Forecast" chave="forecast" align="center" />
+              <SortableDrilldownTh label="Cobertura" chave="cobertura" />
+              <SortableDrilldownTh label="Entradas mês" chave="entradas" />
+              <SortableDrilldownTh label="Valor estoque" chave="valor_estoque" />
             </tr>
           </thead>
           <tbody>
