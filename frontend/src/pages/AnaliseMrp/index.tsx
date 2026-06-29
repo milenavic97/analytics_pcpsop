@@ -1104,7 +1104,14 @@ function getDetalhesEntradasMesAtualDashboard(item: AgingEstoqueItem | AgingEsto
   const detalhes: EntradaMesAtualDetalheDashboard[] = []
 
   const adicionar = (entrada: any, origem: string, dataFallback?: string | null) => {
-    const dataRaw = entrada?.data_prevista_entrega ?? entrada?.data_previsao_necessidade ?? entrada?.data_entrega ?? entrada?.data_inicio ?? dataFallback
+    const dataRaw =
+      entrada?.data_prevista_entrega ??
+      entrada?.data_previsao_necessidade ??
+      entrada?.data_entrega ??
+      entrada?.data_recebimento ??
+      entrada?.data_inicio ??
+      dataFallback
+
     const data = parseDataEntradaDashboard(dataRaw)
     if (!data || data.getFullYear() !== anoAtual || data.getMonth() + 1 !== mesAtual) return
 
@@ -1112,10 +1119,11 @@ function getDetalhesEntradasMesAtualDashboard(item: AgingEstoqueItem | AgingEsto
       0,
       toNumberSafe(
         entrada?.quantidade_pendente ??
-        entrada?.entradas_previstas ??
-        entrada?.qtd_entradas_previstas ??
+        entrada?.quantidade_pc ??
         entrada?.quantidade ??
         entrada?.qtd ??
+        entrada?.entradas_previstas ??
+        entrada?.qtd_entradas_previstas ??
         0,
         0
       )
@@ -1125,70 +1133,47 @@ function getDetalhesEntradasMesAtualDashboard(item: AgingEstoqueItem | AgingEsto
     detalhes.push({
       quantidade,
       data_prevista_entrega: dataRaw ? String(dataRaw) : null,
-      pedido_numero: entrada?.pedido_numero ? String(entrada.pedido_numero) : null,
-      sc_numero: entrada?.sc_numero ? String(entrada.sc_numero) : null,
-      fornecedor: entrada?.fornecedor ? String(entrada.fornecedor) : null,
-      status_entrega: entrada?.status_entrega ? String(entrada.status_entrega) : null,
+      pedido_numero: entrada?.pedido_numero ?? entrada?.pedido ?? entrada?.pc_numero ? String(entrada?.pedido_numero ?? entrada?.pedido ?? entrada?.pc_numero) : null,
+      sc_numero: entrada?.sc_numero ?? entrada?.solicitacao_compra ?? entrada?.sc ? String(entrada?.sc_numero ?? entrada?.solicitacao_compra ?? entrada?.sc) : null,
+      fornecedor: entrada?.fornecedor ?? entrada?.razao_social_fornecedor ?? entrada?.nome_fornecedor ? String(entrada?.fornecedor ?? entrada?.razao_social_fornecedor ?? entrada?.nome_fornecedor) : null,
+      status_entrega: entrada?.status_entrega ?? entrada?.entrega_status ?? entrada?.situacao_entrega ?? entrada?.situacao ? String(entrada?.status_entrega ?? entrada?.entrega_status ?? entrada?.situacao_entrega ?? entrada?.situacao) : null,
       origem,
     })
   }
 
-  for (const pedido of Array.isArray(raw.pedidos) ? raw.pedidos : []) {
-    adicionar(pedido, "pedido")
+  const adicionarLista = (lista: any, origem: string, dataFallback?: string | null) => {
+    if (!Array.isArray(lista)) return
+    for (const entrada of lista) adicionar(entrada, origem, dataFallback)
   }
 
-  // Se houver pedido detalhado, ele é a fonte mais útil para o tooltip.
-  // As séries mensais entram só como fallback visual. Importante: NÃO usamos
-  // data_inicio/período da série como data de entrega, porque isso cria datas
-  // falsas como 01/06. Data de entrega precisa vir da RELPC/f_compras_abertas
-  // via raw.pedidos ou detalhe carregado do item.
-  if (!detalhes.length) {
-    const series = [raw.entradas_previstas_serie, raw.pedidos_futuros_por_mes, raw.entradas_previstas_periodo, raw.linha_tempo_estoque, raw.serie_operacional]
-    for (const serie of series) {
-      if (!Array.isArray(serie)) continue
-      for (const ponto of serie) {
-        let ano = Number(ponto?.ano || 0)
-        let mes = Number(ponto?.mes || 0)
+  // Fonte preferencial: detalhe real da RELPC/f_compras_abertas.
+  // A aba Gestão de Estoque já usa essas listas para montar o tooltip do gráfico.
+  adicionarLista(raw.pedidos, "RELPC")
+  adicionarLista(raw.pedidos_detalhe, "RELPC")
+  adicionarLista(raw.entradas_detalhe, "RELPC")
+  adicionarLista(raw.entradas_previstas_detalhe, "RELPC")
 
-        const dataReal = ponto?.data_prevista_entrega ?? ponto?.data_previsao_necessidade ?? ponto?.data_entrega
-        const dataParsed = parseDataEntradaDashboard(dataReal)
-        if ((!ano || !mes) && dataParsed) {
-          ano = dataParsed.getFullYear()
-          mes = dataParsed.getMonth() + 1
-        }
+  const series = [
+    raw.linha_tempo_estoque,
+    raw.serie_operacional,
+    raw.entradas_previstas_serie,
+    raw.pedidos_futuros_por_mes,
+    raw.entradas_previstas_periodo,
+  ]
 
-        if (ano !== anoAtual || mes !== mesAtual) continue
+  for (const serie of series) {
+    if (!Array.isArray(serie)) continue
 
-        if (dataReal) {
-          adicionar({ ...ponto, data_inicio: undefined }, "série mensal")
-          continue
-        }
+    for (const ponto of serie) {
+      const dataFallback = ponto?.data_prevista_entrega ?? ponto?.data_previsao_necessidade ?? ponto?.data_entrega ?? null
 
-        const quantidade = Math.max(
-          0,
-          toNumberSafe(
-            ponto?.quantidade_pendente ??
-            ponto?.entradas_previstas ??
-            ponto?.qtd_entradas_previstas ??
-            ponto?.quantidade ??
-            ponto?.qtd ??
-            0,
-            0
-          )
-        )
-        if (quantidade <= 0) continue
+      adicionarLista(ponto?.pedidos_detalhe, "RELPC", dataFallback)
+      adicionarLista(ponto?.entradas_detalhe, "RELPC", dataFallback)
+      adicionarLista(ponto?.pedidos, "RELPC", dataFallback)
 
-        detalhes.push({
-          quantidade,
-          data_prevista_entrega: null,
-          pedido_numero: ponto?.pedido_numero ? String(ponto.pedido_numero) : null,
-          sc_numero: ponto?.sc_numero ? String(ponto.sc_numero) : null,
-          fornecedor: ponto?.fornecedor ? String(ponto.fornecedor) : null,
-          status_entrega: ponto?.status_entrega ? String(ponto.status_entrega) : null,
-          origem: "série mensal",
-        })
-      }
-      if (detalhes.length) break
+      // Só usa a própria linha da série se ela tiver uma data real de entrega.
+      // Não usar data_inicio/período da série, porque isso cria datas falsas como 01/06.
+      if (dataFallback) adicionar(ponto, "RELPC", dataFallback)
     }
   }
 
@@ -4192,9 +4177,11 @@ function ItensDrilldownDashboardTable({
     if (detalhesItemPorCodigo[codigoLimpo] || detalhesItemCarregando[codigoLimpo]) return
 
     setDetalhesItemCarregando((prev) => ({ ...prev, [codigoLimpo]: true }))
-    getAgingEstoqueItemComCache(codigoLimpo, 6)
+    // Para o tooltip das entradas, não usamos o cache local antigo porque ele pode
+    // estar com a versão simplificada do dashboard, sem o detalhe real da RELPC.
+    getAgingEstoqueItem(codigoLimpo, 12)
       .then((detalhe) => {
-        setDetalhesItemPorCodigo((prev) => ({ ...prev, [codigoLimpo]: detalhe }))
+        setDetalhesItemPorCodigo((prev) => ({ ...prev, [codigoLimpo]: detalhe as AgingEstoqueItemDetalhe }))
       })
       .catch((err) => {
         console.warn("Não foi possível carregar detalhes de entradas do item", codigoLimpo, err)
@@ -4452,12 +4439,14 @@ function ItensDrilldownDashboardTable({
       </div>
 
       <div className="overflow-auto">
-        <table className="w-full min-w-[1780px] text-xs">
+        <table className="w-full min-w-[2100px] text-xs">
           <thead style={{ background: "#1F5C7A", color: "#FFFFFF" }}>
             <tr className="text-left uppercase tracking-wide">
               <th className="px-3 py-3">SKU</th>
               <th className="px-3 py-3">Descrição</th>
               <th className="px-3 py-3">Linha</th>
+              <SortableDrilldownTh label="Histórico 6M" chave="historico6m" align="center" />
+              <SortableDrilldownTh label="Forecast" chave="forecast" align="center" />
               <SortableDrilldownTh label="Estoque atual" chave="estoque_atual" />
               <SortableDrilldownTh label="Quarentena" chave="quarentena" />
               <SortableDrilldownTh label="Entradas mês" chave="entradas" />
@@ -4466,8 +4455,6 @@ function ItensDrilldownDashboardTable({
               <SortableDrilldownTh label="Total 6M" chave="total6m" />
               <SortableDrilldownTh label="Lead time" chave="lead_time" />
               <SortableDrilldownTh label="Valor estoque" chave="valor_estoque" />
-              <SortableDrilldownTh label="Histórico 6M" chave="historico6m" align="center" />
-              <SortableDrilldownTh label="Forecast" chave="forecast" align="center" />
             </tr>
           </thead>
           <tbody>
@@ -4480,7 +4467,7 @@ function ItensDrilldownDashboardTable({
               const quarentena = getQuarentenaAtualReal(item)
               const entradas = getEntradasMesAtualDashboard(item)
               const detalheCarregado = codigo ? detalhesItemPorCodigo[codigo] : undefined
-              const detalhesEntradas = getDetalhesEntradasMesAtualDashboard(detalheCarregado || item)
+              const detalhesEntradas = detalheCarregado ? getDetalhesEntradasMesAtualDashboard(detalheCarregado) : []
               const carregandoDetalheEntrada = codigo ? detalhesItemCarregando[codigo] === true : false
               const total6m = getTotalSeisMesesDashboard(item)
               const leadTime = getNum(item, "lead_time_dias")
@@ -4499,6 +4486,8 @@ function ItensDrilldownDashboardTable({
                     </div>
                   </td>
                   <td className="px-3 py-3 align-middle" style={{ color: "var(--text-secondary)" }}>{linha}</td>
+                  <td className="px-3 py-3 text-center align-middle min-w-[330px]"><MiniHistoricoDashboard item={item} /></td>
+                  <td className="px-3 py-3 text-center align-middle min-w-[330px]"><MiniForecastDashboard item={item} /></td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(estoque)}</td>
                   <td className="px-3 py-3 text-right align-middle font-semibold" style={{ color: "var(--text-primary)" }}>{quarentena > 0 ? fmtQtdEstoque(quarentena) : "—"}</td>
                   <td className="px-3 py-3 text-right align-middle">
@@ -4532,7 +4521,7 @@ function ItensDrilldownDashboardTable({
                                   <span style={{ color: "var(--text-secondary)" }}>Entrada prevista</span>
                                   <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(entradas)}</span>
                                 </div>
-                                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Carregue o detalhe para ver data/pedido/fornecedor.</p>
+                                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Aguardando retorno da RELPC para data/pedido/fornecedor.</p>
                               </div>
                             )}
                             {detalhesEntradas.length > 6 && <p style={{ color: "var(--text-secondary)" }}>+ {fmtNumber(detalhesEntradas.length - 6)} entrega(s)</p>}
@@ -4546,8 +4535,6 @@ function ItensDrilldownDashboardTable({
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(total6m, 0)}</td>
                   <td className="px-3 py-3 text-right align-middle font-semibold" style={{ color: "var(--text-primary)" }}>{leadTime > 0 ? `${fmtNumber(leadTime, 0)} d` : "—"}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold">{fmtCurrency(valor, 0)}</td>
-                  <td className="px-3 py-3 text-center align-middle"><MiniHistoricoDashboard item={item} /></td>
-                  <td className="px-3 py-3 text-center align-middle"><MiniForecastDashboard item={item} /></td>
                 </tr>
               )
             })}
