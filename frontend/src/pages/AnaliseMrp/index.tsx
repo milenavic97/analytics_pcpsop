@@ -1064,6 +1064,116 @@ function getEntradasMesAtualDashboard(item: AgingEstoqueItem | AgingEstoqueItemD
   return 0
 }
 
+function parseDataEntradaDashboard(value: unknown): Date | null {
+  if (!value) return null
+  const texto = String(value).slice(0, 10)
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) {
+    const data = new Date(`${texto}T00:00:00`)
+    return Number.isNaN(data.getTime()) ? null : data
+  }
+
+  const matchBr = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (matchBr) {
+    const [, dia, mes, ano] = matchBr
+    const data = new Date(Number(ano), Number(mes) - 1, Number(dia))
+    return Number.isNaN(data.getTime()) ? null : data
+  }
+
+  const data = new Date(String(value))
+  return Number.isNaN(data.getTime()) ? null : data
+}
+
+type EntradaMesAtualDetalheDashboard = {
+  quantidade: number
+  data_prevista_entrega?: string | null
+  pedido_numero?: string | null
+  sc_numero?: string | null
+  fornecedor?: string | null
+  status_entrega?: string | null
+  origem?: string
+}
+
+function getDetalhesEntradasMesAtualDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined): EntradaMesAtualDetalheDashboard[] {
+  if (!item) return []
+
+  const raw = item as unknown as Record<string, any>
+  const hoje = new Date()
+  const anoAtual = hoje.getFullYear()
+  const mesAtual = hoje.getMonth() + 1
+  const detalhes: EntradaMesAtualDetalheDashboard[] = []
+
+  const adicionar = (entrada: any, origem: string, dataFallback?: string | null) => {
+    const dataRaw = entrada?.data_prevista_entrega ?? entrada?.data_previsao_necessidade ?? entrada?.data_entrega ?? entrada?.data_inicio ?? dataFallback
+    const data = parseDataEntradaDashboard(dataRaw)
+    if (!data || data.getFullYear() !== anoAtual || data.getMonth() + 1 !== mesAtual) return
+
+    const quantidade = Math.max(
+      0,
+      toNumberSafe(
+        entrada?.quantidade_pendente ??
+        entrada?.entradas_previstas ??
+        entrada?.qtd_entradas_previstas ??
+        entrada?.quantidade ??
+        entrada?.qtd ??
+        0,
+        0
+      )
+    )
+    if (quantidade <= 0) return
+
+    detalhes.push({
+      quantidade,
+      data_prevista_entrega: dataRaw ? String(dataRaw) : null,
+      pedido_numero: entrada?.pedido_numero ? String(entrada.pedido_numero) : null,
+      sc_numero: entrada?.sc_numero ? String(entrada.sc_numero) : null,
+      fornecedor: entrada?.fornecedor ? String(entrada.fornecedor) : null,
+      status_entrega: entrada?.status_entrega ? String(entrada.status_entrega) : null,
+      origem,
+    })
+  }
+
+  for (const pedido of Array.isArray(raw.pedidos) ? raw.pedidos : []) {
+    adicionar(pedido, "pedido")
+  }
+
+  // Se houver pedido detalhado, ele é a fonte mais útil para o tooltip.
+  // As séries mensais entram só como fallback, para não duplicar a mesma entrada.
+  if (!detalhes.length) {
+    const series = [raw.entradas_previstas_serie, raw.pedidos_futuros_por_mes, raw.entradas_previstas_periodo, raw.linha_tempo_estoque, raw.serie_operacional]
+    for (const serie of series) {
+      if (!Array.isArray(serie)) continue
+      for (const ponto of serie) {
+        const ano = Number(ponto?.ano || 0)
+        const mes = Number(ponto?.mes || 0)
+        if (ano === anoAtual && mes === mesAtual) {
+          adicionar(ponto, "série mensal", `${ano}-${String(mes).padStart(2, "0")}-01`)
+        } else {
+          adicionar(ponto, "série mensal")
+        }
+      }
+      if (detalhes.length) break
+    }
+  }
+
+  const chave = (entrada: EntradaMesAtualDetalheDashboard) => [
+    entrada.data_prevista_entrega || "",
+    entrada.pedido_numero || "",
+    entrada.sc_numero || "",
+    entrada.quantidade,
+  ].join("|")
+
+  const vistos = new Set<string>()
+  return detalhes
+    .filter((entrada) => {
+      const key = chave(entrada)
+      if (vistos.has(key)) return false
+      vistos.add(key)
+      return true
+    })
+    .sort((a, b) => String(a.data_prevista_entrega || "").localeCompare(String(b.data_prevista_entrega || "")))
+}
+
 function getDemandaMesAtualStatusDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
   const raw = item as unknown as Record<string, unknown>
@@ -2565,6 +2675,21 @@ function formatarCoberturaDashboard(item: AgingEstoqueItem | null | undefined) {
   return `${fmtNumber(cobertura, 1)} m`
 }
 
+function formatarCoberturaFuturaDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return "0,0 m"
+  const disponivelFuturo = getEstoqueAtualReal(item) + getEntradasMesAtualDashboard(item)
+  if (disponivelFuturo <= 0) return "0,0 m"
+  if (!itemTemForecastFuturoDashboard(item)) return "Sem forecast"
+  const cobertura = calcularCoberturaMesesPorForecastDashboard(item, true)
+  return cobertura === null ? "Sem forecast" : `${fmtNumber(cobertura, 1)} m`
+}
+
+function getCoberturaFuturaDashboard(item: AgingEstoqueItem | null | undefined) {
+  if (!item) return 0
+  const cobertura = calcularCoberturaMesesPorForecastDashboard(item, true)
+  return cobertura === null ? 0 : cobertura
+}
+
 function percentile(values: number[], p: number) {
   const nums = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b)
   if (!nums.length) return 0
@@ -3956,7 +4081,7 @@ function DashboardSkuDetailModal({
                     )
                   })}
                   {!itensVisiveis.length && (
-                    <tr><td colSpan={11} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum SKU encontrado neste recorte.</td></tr>
+                    <tr><td colSpan={13} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum SKU encontrado neste recorte.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -3989,13 +4114,15 @@ function DashboardSkuDetailModal({
 
 
 type DrilldownDashboardSortKey =
-  | "lead_time"
-  | "estoque"
+  | "estoque_atual"
+  | "quarentena"
+  | "entradas"
+  | "cobertura_atual"
+  | "cobertura_futura"
   | "total6m"
   | "historico6m"
   | "forecast"
-  | "cobertura"
-  | "entradas"
+  | "lead_time"
   | "valor_estoque"
 
 function ItensDrilldownDashboardTable({
@@ -4103,19 +4230,23 @@ function ItensDrilldownDashboardTable({
 
   const getValorOrdenacaoDrilldown = (item: AgingEstoqueItem, chave: DrilldownDashboardSortKey) => {
     switch (chave) {
-      case "lead_time":
-        return getNum(item, "lead_time_dias")
-      case "estoque":
+      case "estoque_atual":
         return getEstoqueAtualReal(item)
+      case "quarentena":
+        return getQuarentenaAtualReal(item)
+      case "entradas":
+        return getEntradasMesAtualDashboard(item)
+      case "cobertura_atual":
+        return getCoberturaMatriz(item)
+      case "cobertura_futura":
+        return getCoberturaFuturaDashboard(item)
       case "total6m":
       case "historico6m":
         return getTotalSeisMesesDashboard(item)
       case "forecast":
         return getTotalForecastDashboard(item)
-      case "cobertura":
-        return getCoberturaMatriz(item)
-      case "entradas":
-        return getEntradasMesAtualDashboard(item)
+      case "lead_time":
+        return getNum(item, "lead_time_dias")
       case "valor_estoque":
         return getValorEstoqueMatriz(item)
       default:
@@ -4265,20 +4396,22 @@ function ItensDrilldownDashboardTable({
       </div>
 
       <div className="overflow-auto">
-        <table className="w-full min-w-[1580px] text-xs">
+        <table className="w-full min-w-[1780px] text-xs">
           <thead style={{ background: "#1F5C7A", color: "#FFFFFF" }}>
             <tr className="text-left uppercase tracking-wide">
               <th className="px-3 py-3">SKU</th>
               <th className="px-3 py-3">Descrição</th>
               <th className="px-3 py-3">Linha</th>
-              <SortableDrilldownTh label="Lead time" chave="lead_time" />
-              <SortableDrilldownTh label="Estoque" chave="estoque" />
+              <SortableDrilldownTh label="Estoque atual" chave="estoque_atual" />
+              <SortableDrilldownTh label="Quarentena" chave="quarentena" />
+              <SortableDrilldownTh label="Entradas mês" chave="entradas" />
+              <SortableDrilldownTh label="Cob. atual" chave="cobertura_atual" />
+              <SortableDrilldownTh label="Cob. futura" chave="cobertura_futura" />
               <SortableDrilldownTh label="Total 6M" chave="total6m" />
+              <SortableDrilldownTh label="Lead time" chave="lead_time" />
+              <SortableDrilldownTh label="Valor estoque" chave="valor_estoque" />
               <SortableDrilldownTh label="Histórico 6M" chave="historico6m" align="center" />
               <SortableDrilldownTh label="Forecast" chave="forecast" align="center" />
-              <SortableDrilldownTh label="Cobertura" chave="cobertura" />
-              <SortableDrilldownTh label="Entradas mês" chave="entradas" />
-              <SortableDrilldownTh label="Valor estoque" chave="valor_estoque" />
             </tr>
           </thead>
           <tbody>
@@ -4287,11 +4420,12 @@ function ItensDrilldownDashboardTable({
               const codigo = String(raw.codigo || raw.cod_produto || "")
               const descricao = String(raw.produto || raw.descricao || raw.desc_produto || "—")
               const linha = getLinhaDashboardItem(item)
-              const leadTime = getNum(item, "lead_time_dias")
               const estoque = getEstoqueAtualReal(item)
+              const quarentena = getQuarentenaAtualReal(item)
               const entradas = getEntradasMesAtualDashboard(item)
+              const detalhesEntradas = getDetalhesEntradasMesAtualDashboard(item)
               const total6m = getTotalSeisMesesDashboard(item)
-              const cobertura = getCoberturaMatriz(item)
+              const leadTime = getNum(item, "lead_time_dias")
               const valor = getValorEstoqueMatriz(item)
 
               return (
@@ -4307,20 +4441,46 @@ function ItensDrilldownDashboardTable({
                     </div>
                   </td>
                   <td className="px-3 py-3 align-middle" style={{ color: "var(--text-secondary)" }}>{linha}</td>
-                  <td className="px-3 py-3 text-right align-middle font-semibold" style={{ color: "var(--text-primary)" }}>{leadTime > 0 ? `${fmtNumber(leadTime, 0)} d` : "—"}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(estoque)}</td>
+                  <td className="px-3 py-3 text-right align-middle font-semibold" style={{ color: "var(--text-primary)" }}>{quarentena > 0 ? fmtQtdEstoque(quarentena) : "—"}</td>
+                  <td className="px-3 py-3 text-right align-middle">
+                    <div className="group relative inline-flex justify-end">
+                      <span className={detalhesEntradas.length ? "cursor-help border-b border-dotted border-slate-400 font-bold" : "font-semibold"} style={{ color: "var(--text-primary)" }}>
+                        {fmtQtdEstoque(entradas)}
+                      </span>
+                      {detalhesEntradas.length > 0 && (
+                        <div className="pointer-events-none absolute right-0 top-full z-40 mt-2 hidden w-80 rounded-2xl border bg-white p-3 text-left text-xs shadow-xl group-hover:block" style={{ borderColor: "var(--border)" }}>
+                          <p className="mb-2 font-bold" style={{ color: "var(--text-primary)" }}>Entregas previstas no mês</p>
+                          <div className="space-y-2">
+                            {detalhesEntradas.slice(0, 6).map((entrada, idx) => (
+                              <div key={`${entrada.data_prevista_entrega}-${entrada.pedido_numero}-${entrada.sc_numero}-${idx}`} className="rounded-xl bg-slate-50 p-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="truncate" style={{ color: "var(--text-secondary)" }}>{entrada.pedido_numero || entrada.sc_numero || "Entrada prevista"}</span>
+                                  <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtQtdEstoque(entrada.quantidade)}</span>
+                                </div>
+                                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Entrega: {fmtDate(entrada.data_prevista_entrega)}</p>
+                                {entrada.fornecedor && <p className="mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>Fornecedor: {entrada.fornecedor}</p>}
+                              </div>
+                            ))}
+                            {detalhesEntradas.length > 6 && <p style={{ color: "var(--text-secondary)" }}>+ {fmtNumber(detalhesEntradas.length - 6)} entrega(s)</p>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-right align-middle" title="Cobertura usada nos cortes da matriz: estoque atual contra o forecast/demanda futura.">{formatarCoberturaDashboard(item)}</td>
+                  <td className="px-3 py-3 text-right align-middle" title="Cobertura futura considerando estoque atual + entradas do mês contra o forecast/demanda futura.">{formatarCoberturaFuturaDashboard(item)}</td>
                   <td className="px-3 py-3 text-right align-middle font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(total6m, 0)}</td>
+                  <td className="px-3 py-3 text-right align-middle font-semibold" style={{ color: "var(--text-primary)" }}>{leadTime > 0 ? `${fmtNumber(leadTime, 0)} d` : "—"}</td>
+                  <td className="px-3 py-3 text-right align-middle font-bold">{fmtCurrency(valor, 0)}</td>
                   <td className="px-3 py-3 text-center align-middle"><MiniHistoricoDashboard item={item} /></td>
                   <td className="px-3 py-3 text-center align-middle"><MiniForecastDashboard item={item} /></td>
-                  <td className="px-3 py-3 text-right align-middle">{formatarCoberturaDashboard(item)}</td>
-                  <td className="px-3 py-3 text-right align-middle">{fmtQtdEstoque(entradas)}</td>
-                  <td className="px-3 py-3 text-right align-middle font-bold">{fmtCurrency(valor, 0)}</td>
                 </tr>
               )
             })}
             {!itensVisiveis.length && (
               <tr>
-                <td colSpan={11} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>{buscaDescricao ? "Nenhum SKU encontrado para a busca aplicada." : vazio}</td>
+                <td colSpan={13} className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>{buscaDescricao ? "Nenhum SKU encontrado para a busca aplicada." : vazio}</td>
               </tr>
             )}
           </tbody>
