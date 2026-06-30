@@ -1350,6 +1350,127 @@ function labelCalculo(campo: string): string {
   return labels[campo] || campo.replace(/_/g, " ")
 }
 
+function firstFiniteNumber(...values: any[]): number | null {
+  for (const value of values) {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+  }
+  return null
+}
+
+function numeroResumoCalendario(resumo: any, campos: string[]): number | null {
+  if (!resumo || typeof resumo !== "object") return null
+
+  for (const campo of campos) {
+    if (Object.prototype.hasOwnProperty.call(resumo, campo)) {
+      const n = Number(resumo[campo])
+      if (Number.isFinite(n)) return n
+    }
+  }
+
+  return null
+}
+
+function fmtHoras(value: number | null | undefined, digits = 1) {
+  if (value == null || !Number.isFinite(Number(value))) return "—"
+  return `${fmtDecimal(Number(value), digits)} h`
+}
+
+function fmtSignedHoras(value: number | null | undefined, digits = 1) {
+  if (value == null || !Number.isFinite(Number(value))) return "—"
+  const n = Number(value)
+  return `${n >= 0 ? "+" : "-"}${fmtDecimal(Math.abs(n), digits)} h`
+}
+
+function fmtSignedCx(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(Number(value))) return "—"
+  const n = Number(value)
+  return `${n >= 0 ? "+" : "-"}${fmt(Math.abs(n))} cx`
+}
+
+type LinhaResumoHorasDisponiveis = {
+  linha: string
+  horasV1: number | null
+  horasAtual: number | null
+  deltaHoras: number
+  taxaTubetesHora: number | null
+  impactoCx: number
+}
+
+function montarResumoLinhasCalendario(resumo: any, detalhes: any[]): LinhaResumoHorasDisponiveis[] {
+  const fonte = resumo?.por_linha || resumo?.linhas || resumo?.resumo_por_linha
+
+  if (Array.isArray(fonte)) {
+    return fonte.map((item: any) => {
+      const horasV1 = firstFiniteNumber(
+        item?.horas_disponiveis_v1,
+        item?.horas_v1,
+        item?.horas_plano1,
+        item?.horasPlano1,
+      )
+      const horasAtual = firstFiniteNumber(
+        item?.horas_disponiveis_atual,
+        item?.horas_atual,
+        item?.horasAtual,
+      )
+      const deltaHoras = firstFiniteNumber(
+        item?.delta_horas_disponiveis,
+        item?.variacao_horas,
+        item?.delta_horas,
+        horasV1 != null && horasAtual != null ? horasAtual - horasV1 : null,
+        0,
+      ) || 0
+      const impactoCx = firstFiniteNumber(item?.impacto_cx, item?.impactoCx, item?.delta_cx, 0) || 0
+      const taxaTubetesHora = firstFiniteNumber(item?.cap_ooe_tubetes_hora, item?.taxa_tubetes_hora, item?.tubetes_hora)
+      return {
+        linha: String(item?.linha || item?.recurso || "—"),
+        horasV1,
+        horasAtual,
+        deltaHoras,
+        taxaTubetesHora,
+        impactoCx,
+      }
+    }).filter((item) => Math.abs(item.deltaHoras) >= 0.05 || Math.abs(item.impactoCx) >= 0.5)
+  }
+
+  if (fonte && typeof fonte === "object") {
+    return Object.entries(fonte).map(([linha, item]: [string, any]) => {
+      const horasV1 = firstFiniteNumber(item?.horas_disponiveis_v1, item?.horas_v1, item?.horas_plano1)
+      const horasAtual = firstFiniteNumber(item?.horas_disponiveis_atual, item?.horas_atual)
+      const deltaHoras = firstFiniteNumber(
+        item?.delta_horas_disponiveis,
+        item?.variacao_horas,
+        item?.delta_horas,
+        horasV1 != null && horasAtual != null ? horasAtual - horasV1 : null,
+        0,
+      ) || 0
+      const impactoCx = firstFiniteNumber(item?.impacto_cx, item?.impactoCx, item?.delta_cx, 0) || 0
+      const taxaTubetesHora = firstFiniteNumber(item?.cap_ooe_tubetes_hora, item?.taxa_tubetes_hora, item?.tubetes_hora)
+      return { linha, horasV1, horasAtual, deltaHoras, taxaTubetesHora, impactoCx }
+    }).filter((item) => Math.abs(item.deltaHoras) >= 0.05 || Math.abs(item.impactoCx) >= 0.5)
+  }
+
+  const porLinha: Record<string, LinhaResumoHorasDisponiveis> = {}
+  detalhes.forEach((item: any) => {
+    const linha = String(item?.linha || "—")
+    const atual = porLinha[linha] || {
+      linha,
+      horasV1: null,
+      horasAtual: null,
+      deltaHoras: 0,
+      taxaTubetesHora: null,
+      impactoCx: 0,
+    }
+    atual.deltaHoras += Number(item?.horas_impacto || 0)
+    atual.impactoCx += Number(item?.impacto_cx || 0)
+    porLinha[linha] = atual
+  })
+
+  return Object.values(porLinha)
+    .filter((item) => Math.abs(item.deltaHoras) >= 0.05 || Math.abs(item.impactoCx) >= 0.5)
+    .sort((a, b) => a.linha.localeCompare(b.linha))
+}
+
 function WaterfallStepModal({
   step,
   onClose,
@@ -1361,8 +1482,11 @@ function WaterfallStepModal({
 
   const modal = (step as any).modal || {}
   const calculo = modal.calculo || (step as any).calculo || {}
-  const titulo = modal.titulo || step.label
-  const descricao = modal.descricao || (step as any).observacao || "Abertura do cálculo da causa selecionada na cascata anual."
+  const isReorgPlano = step.id === "reorg-plano"
+  const titulo = isReorgPlano ? "Variação de horas disponíveis" : (modal.titulo || step.label)
+  const descricao = isReorgPlano
+    ? "Comparação Jan/V3 × Plano atual por data + linha. A leitura é feita em horas disponíveis de produção, não em horas indisponíveis."
+    : (modal.descricao || (step as any).observacao || "Abertura do cálculo da causa selecionada na cascata anual.")
   const deltaModal = modal.delta_cx ?? modal.delta_disponibilidade_cx ?? step.value
   const formula = calculo.formula || modal.regra
   const calculoLinhas = Object.entries(calculo).filter(([key]) => key !== "formula")
@@ -1373,8 +1497,51 @@ function WaterfallStepModal({
     return Math.abs(impacto) >= 0.5 || Math.abs(horas) >= 0.05
   })
   const resumoCalendario = modal.resumo_calendario || {}
-  const isReorgPlano = step.id === "reorg-plano"
-  const impactoCalendario = Number(resumoCalendario.impacto_liquido_calendario_cx ?? resumoCalendario.impacto_bruto_calendario_cx ?? 0)
+  const impactoCalendario = firstFiniteNumber(
+    resumoCalendario.impacto_calendario_cx,
+    resumoCalendario.impacto_liquido_calendario_cx,
+    resumoCalendario.impacto_bruto_calendario_cx,
+    resumoCalendario.delta_cx,
+    deltaModal,
+    0,
+  ) || 0
+
+  const horasDisponiveisV1 = numeroResumoCalendario(resumoCalendario, [
+    "horas_disponiveis_v1_total",
+    "horas_disponíveis_v1_total",
+    "horas_v1_total",
+    "total_horas_v1",
+    "horas_plano1_total",
+    "horas_disponiveis_plano1_total",
+  ])
+  const horasDisponiveisAtual = numeroResumoCalendario(resumoCalendario, [
+    "horas_disponiveis_atual_total",
+    "horas_disponíveis_atual_total",
+    "horas_atual_total",
+    "total_horas_atual",
+    "horas_plano_atual_total",
+    "horas_disponiveis_v_atual_total",
+  ])
+  const deltaHorasDisponiveis = firstFiniteNumber(
+    numeroResumoCalendario(resumoCalendario, [
+      "delta_horas_disponiveis",
+      "delta_horas_disponíveis",
+      "variacao_horas_disponiveis",
+      "var_horas_disponiveis",
+      "horas_liquidas",
+    ]),
+    horasDisponiveisV1 != null && horasDisponiveisAtual != null ? horasDisponiveisAtual - horasDisponiveisV1 : null,
+    null,
+  )
+  const horasGanhas = numeroResumoCalendario(resumoCalendario, ["horas_liberadas", "horas_ganhas", "horas_capacidade_liberada"])
+  const horasPerdidas = numeroResumoCalendario(resumoCalendario, ["horas_consumidas", "horas_perdidas", "horas_capacidade_consumida"])
+  const eventosComVariacao = firstFiniteNumber(
+    resumoCalendario.qtd_detalhes_total,
+    resumoCalendario.eventos_com_variacao,
+    detalhesCalendario.length,
+    0,
+  ) || 0
+  const linhasResumo = montarResumoLinhasCalendario(resumoCalendario, detalhesCalendario)
 
   return (
     <div
@@ -1411,31 +1578,64 @@ function WaterfallStepModal({
         </div>
 
         <div className="overflow-auto p-5">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <MiniResumo
-              label="Impacto na disponibilidade"
-              value={`${positivo ? "+" : "-"}${fmt(Math.abs(Number(deltaModal || 0)))} cx`}
-              sub={`${positivo ? "+" : "-"}${fmtTubetes(Math.abs(Number(deltaModal || 0)))}`}
-              color={positivo ? "#16A34A" : "#DC2626"}
-              bg={positivo ? "#F0FDF4" : "#FEF2F2"}
-            />
+          {isReorgPlano ? (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <MiniResumo
+                label="Horas disponíveis V1"
+                value={fmtHoras(horasDisponiveisV1)}
+                sub="Plano 1 Jan/V3"
+                color="#334155"
+                bg="#F8FAFC"
+              />
+              <MiniResumo
+                label="Horas disponíveis atual"
+                value={fmtHoras(horasDisponiveisAtual)}
+                sub="Plano atual"
+                color="#334155"
+                bg="#F8FAFC"
+              />
+              <MiniResumo
+                label="Variação líquida"
+                value={fmtSignedHoras(deltaHorasDisponiveis)}
+                sub="Atual - V1"
+                color={(deltaHorasDisponiveis || 0) >= 0 ? "#16A34A" : "#DC2626"}
+                bg={(deltaHorasDisponiveis || 0) >= 0 ? "#F0FDF4" : "#FEF2F2"}
+              />
+              <MiniResumo
+                label="Impacto calendário"
+                value={fmtSignedCx(impactoCalendario)}
+                sub={`${impactoCalendario >= 0 ? "+" : "-"}${fmtTubetes(Math.abs(impactoCalendario))}`}
+                color={impactoCalendario >= 0 ? "#16A34A" : "#DC2626"}
+                bg={impactoCalendario >= 0 ? "#F0FDF4" : "#FEF2F2"}
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <MiniResumo
+                label="Impacto na disponibilidade"
+                value={`${positivo ? "+" : "-"}${fmt(Math.abs(Number(deltaModal || 0)))} cx`}
+                sub={`${positivo ? "+" : "-"}${fmtTubetes(Math.abs(Number(deltaModal || 0)))}`}
+                color={positivo ? "#16A34A" : "#DC2626"}
+                bg={positivo ? "#F0FDF4" : "#FEF2F2"}
+              />
 
-            <MiniResumo
-              label={isReorgPlano ? "Comparação" : "Status do cálculo"}
-              value={isReorgPlano ? "Jan/V3 × Atual" : String((step as any).statusCalculo || "auditável")}
-              sub={isReorgPlano ? "f_mrp_calendario_dia" : "informado pelo backend"}
-              color="#334155"
-              bg="#F8FAFC"
-            />
+              <MiniResumo
+                label="Status do cálculo"
+                value={String((step as any).statusCalculo || "auditável")}
+                sub="informado pelo backend"
+                color="#334155"
+                bg="#F8FAFC"
+              />
 
-            <MiniResumo
-              label={isReorgPlano ? "Eventos com impacto" : "Lotes"}
-              value={isReorgPlano ? `${fmt(Number(resumoCalendario.qtd_detalhes_total || detalhesCalendario.length || 0))} eventos` : (step.lotes != null ? fmtLotesQtd(step.lotes) : "—")}
-              sub={isReorgPlano ? "sem converter horas parciais em lote" : ((step as any).lotesTipo ? `tipo: ${(step as any).lotesTipo}` : "quando aplicável")}
-              color="#334155"
-              bg="#F8FAFC"
-            />
-          </div>
+              <MiniResumo
+                label="Lotes"
+                value={step.lotes != null ? fmtLotesQtd(step.lotes) : "—"}
+                sub={(step as any).lotesTipo ? `tipo: ${(step as any).lotesTipo}` : "quando aplicável"}
+                color="#334155"
+                bg="#F8FAFC"
+              />
+            </div>
+          )}
 
           {formula && !isReorgPlano && (
             <div className="mt-4 rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
@@ -1467,122 +1667,145 @@ function WaterfallStepModal({
             </div>
           )}
 
-          {detalhesCalendario.length > 0 && (
+          {isReorgPlano && (
             <div className="mt-4 space-y-3">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <MiniResumo
-                  label="Impacto calendário"
-                  value={`${impactoCalendario >= 0 ? "+" : "-"}${fmt(Math.abs(impactoCalendario))} cx`}
-                  sub="paradas/horas quantificáveis"
-                  color={impactoCalendario >= 0 ? "#16A34A" : "#DC2626"}
-                  bg="#F8FAFC"
-                />
-                <MiniResumo
-                  label="Horas liberadas"
-                  value={`${fmt(Number(resumoCalendario.horas_liberadas || 0))} h`}
+                  label="Horas ganhas"
+                  value={fmtHoras(horasGanhas)}
                   sub={`${fmt(Number(resumoCalendario.eventos_capacidade_liberada || 0))} eventos`}
                   color="#16A34A"
                   bg="#F0FDF4"
                 />
                 <MiniResumo
-                  label="Horas consumidas"
-                  value={`${fmt(Number(resumoCalendario.horas_consumidas || 0))} h`}
+                  label="Horas perdidas"
+                  value={fmtHoras(horasPerdidas)}
                   sub={`${fmt(Number(resumoCalendario.eventos_capacidade_consumida || 0))} eventos`}
                   color="#DC2626"
                   bg="#FEF2F2"
                 />
+                <MiniResumo
+                  label="Eventos com variação"
+                  value={`${fmt(eventosComVariacao)} eventos`}
+                  sub="linhas com impacto em horas ou caixas"
+                  color="#334155"
+                  bg="#F8FAFC"
+                />
               </div>
 
-              <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
-                <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
-                    Variação de horas disponíveis no plano
-                  </p>
-                  <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Linha a linha por data + linha. A comparação usa horas disponíveis: Atual - Plano 1. Mudança só textual no comentário fica fora.
-                  </p>
-                </div>
-                <div className="max-h-[360px] overflow-auto">
-                  <table className="w-full min-w-[1100px] text-xs">
+              {linhasResumo.length > 0 && (
+                <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+                  <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
+                      Resumo por linha
+                    </p>
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                      O impacto é calculado por variação de horas disponíveis × Cap. OEE da linha.
+                    </p>
+                  </div>
+                  <table className="w-full text-xs">
                     <thead style={{ background: "#F8FAFC", color: "var(--text-secondary)" }}>
                       <tr>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Movimento</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Data</th>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Linha</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Categoria</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Plano 1</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Plano atual</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Impacto h</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Horas V1</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Horas atual</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Variação h</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Cap. OEE</th>
                         <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Impacto cx</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Critério</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {detalhesCalendario.map((item: any, index: number) => {
-                        const impacto = Number(item.impacto_cx || 0)
-                        const ganho = impacto >= 0
-                        const horas = Number(item.horas_impacto || 0)
-                        const dataTexto = String(item.data || "—")
+                      {linhasResumo.map((item) => {
+                        const positivoLinha = item.impactoCx >= 0
                         return (
-                          <tr key={String(item.id || index)} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
-                            <td className="px-3 py-3">
-                              <span
-                                className="inline-flex rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider"
-                                style={{
-                                  background: ganho ? "#DCFCE7" : "#FEE2E2",
-                                  color: ganho ? "#166534" : "#991B1B",
-                                }}
-                              >
-                                {(() => {
-                                  const movimentoRaw = String(item.movimento || "").toLowerCase()
-                                  if (movimentoRaw.includes("liberada") || movimentoRaw.includes("removida") || ganho) return "Capacidade liberada"
-                                  return "Capacidade consumida"
-                                })()}
-                              </span>
-                            </td>
-                            <td className="px-3 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{dataTexto}</td>
-                            <td className="px-3 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{String(item.linha || "—")}</td>
-                            <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>{String(item.categoria || "—")}</td>
-                            <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
-                              <div className="max-w-[220px] whitespace-pre-line leading-relaxed">{String(item.motivo_plano1 || "—")}</div>
-                              {item.disponivel_plano1_cx != null && (
-                                <div className="mt-1 font-semibold">Disp.: {fmt(Number(item.disponivel_plano1_cx || 0))} cx</div>
-                              )}
-                              {Number(item.horas_plano1 || 0) > 0 && (
-                                <div className="mt-1 font-semibold">Disp.: {fmtDecimal(Number(item.horas_plano1 || 0), 1)} h</div>
-                              )}
-                            </td>
-                            <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
-                              <div className="max-w-[220px] whitespace-pre-line leading-relaxed">{String(item.motivo_atual || "—")}</div>
-                              {item.disponivel_atual_cx != null && (
-                                <div className="mt-1 font-semibold">Disp.: {fmt(Number(item.disponivel_atual_cx || 0))} cx</div>
-                              )}
-                              {Number(item.horas_atual || 0) > 0 && (
-                                <div className="mt-1 font-semibold">Disp.: {fmtDecimal(Number(item.horas_atual || 0), 1)} h</div>
-                              )}
-                            </td>
-                            <td className="px-3 py-3 text-right font-black" style={{ color: ganho ? "#16A34A" : "#DC2626" }}>
-                              {horas >= 0 ? "+" : "-"}{fmtDecimal(Math.abs(horas), 1)} h
-                            </td>
-                            <td className="px-3 py-3 text-right font-black" style={{ color: ganho ? "#16A34A" : "#DC2626" }}>
-                              {impacto >= 0 ? "+" : "-"}{fmt(Math.abs(impacto))} cx
-                              <div className="text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-                                {impacto >= 0 ? "+" : "-"}{fmtTubetes(Math.abs(impacto))}
-                              </div>
-                            </td>
+                          <tr key={item.linha} className="border-t" style={{ borderColor: "var(--border)" }}>
+                            <td className="px-3 py-3 font-black" style={{ color: "var(--text-primary)" }}>{item.linha}</td>
+                            <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmtHoras(item.horasV1)}</td>
+                            <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmtHoras(item.horasAtual)}</td>
+                            <td className="px-3 py-3 text-right font-black" style={{ color: item.deltaHoras >= 0 ? "#16A34A" : "#DC2626" }}>{fmtSignedHoras(item.deltaHoras)}</td>
                             <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>
-                              sem lote equiv.
-                              <div className="text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-                                impacto parcial em h/cx
-                              </div>
+                              {item.taxaTubetesHora != null ? `${fmt(item.taxaTubetesHora)} tub/h` : "—"}
                             </td>
+                            <td className="px-3 py-3 text-right font-black" style={{ color: positivoLinha ? "#16A34A" : "#DC2626" }}>{fmtSignedCx(item.impactoCx)}</td>
                           </tr>
                         )
                       })}
                     </tbody>
                   </table>
                 </div>
-              </div>
+              )}
+
+              {detalhesCalendario.length > 0 && (
+                <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+                  <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
+                      Linhas com perda/ganho de capacidade
+                    </p>
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                      Detalhe por data + linha. Variação de horas = Plano atual - V1.
+                    </p>
+                  </div>
+                  <div className="max-h-[360px] overflow-auto">
+                    <table className="w-full min-w-[1120px] text-xs">
+                      <thead style={{ background: "#F8FAFC", color: "var(--text-secondary)" }}>
+                        <tr>
+                          <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Movimento</th>
+                          <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Data</th>
+                          <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Linha</th>
+                          <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Horas V1</th>
+                          <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Horas atual</th>
+                          <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Variação h</th>
+                          <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Impacto cx</th>
+                          <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Motivo V1</th>
+                          <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Motivo atual</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detalhesCalendario.map((item: any, index: number) => {
+                          const impacto = Number(item.impacto_cx || 0)
+                          const horas = Number(item.horas_impacto || 0)
+                          const ganho = impacto >= 0 || horas >= 0
+                          const dataTexto = String(item.data || "—")
+                          return (
+                            <tr key={String(item.id || index)} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+                              <td className="px-3 py-3">
+                                <span
+                                  className="inline-flex rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider"
+                                  style={{
+                                    background: ganho ? "#DCFCE7" : "#FEE2E2",
+                                    color: ganho ? "#166534" : "#991B1B",
+                                  }}
+                                >
+                                  {ganho ? "Capacidade liberada" : "Capacidade consumida"}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{dataTexto}</td>
+                              <td className="px-3 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{String(item.linha || "—")}</td>
+                              <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmtHoras(Number(item.horas_plano1 || 0))}</td>
+                              <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmtHoras(Number(item.horas_atual || 0))}</td>
+                              <td className="px-3 py-3 text-right font-black" style={{ color: horas >= 0 ? "#16A34A" : "#DC2626" }}>
+                                {fmtSignedHoras(horas)}
+                              </td>
+                              <td className="px-3 py-3 text-right font-black" style={{ color: impacto >= 0 ? "#16A34A" : "#DC2626" }}>
+                                {fmtSignedCx(impacto)}
+                                <div className="text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                                  {impacto >= 0 ? "+" : "-"}{fmtTubetes(Math.abs(impacto))}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
+                                <div className="max-w-[230px] whitespace-pre-line leading-relaxed">{String(item.motivo_plano1 || "—")}</div>
+                              </td>
+                              <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
+                                <div className="max-w-[230px] whitespace-pre-line leading-relaxed">{String(item.motivo_atual || "—")}</div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1592,7 +1815,7 @@ function WaterfallStepModal({
                 Detalhe de calendário não carregado
               </p>
               <p className="mt-1 text-sm font-semibold" style={{ color: "#92400E" }}>
-                O backend precisa retornar modal.detalhes_calendario com a comparação real de data + linha + comentario_calendario entre Jan/V3 e a versão atual.
+                O backend precisa retornar modal.detalhes_calendario e modal.resumo_calendario com horas disponíveis V1, horas disponíveis atuais, variação e impacto por linha.
               </p>
             </div>
           )}
@@ -1612,7 +1835,6 @@ function WaterfallStepModal({
     </div>
   )
 }
-
 
 function MonthlyLossesStackedChart({
   data,
