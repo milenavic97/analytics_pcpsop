@@ -654,7 +654,7 @@ export function OverviewPage() {
 
         <div className="mt-6">
           {carregarDetalhes ? (
-            <RastreamentoLotes onMtdLoad={(p, l, detalhes) => {
+            <RastreamentoLotes onMtdLoad={(p: number, l: number, detalhes?: RastreamentoMtdLoadPayload) => {
               const liberadoOficial = Number(detalhes?.liberadoSd3MtdTotal ?? l ?? 0)
 
               setMtdCxPrevisto(Number(detalhes?.previstoAteHoje ?? p ?? 0))
