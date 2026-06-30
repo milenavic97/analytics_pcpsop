@@ -106,8 +106,6 @@ type MonthlyLossesItem = {
   saldo?: number
 
   // Nova regra do gráfico mensal:
-  // Jan compara contra Jan/V3; demais meses contra V1 do próprio mês.
-  // Lotes reprovados não contam como liberados.
   planoRefCx?: number
   liberadoBrutoCx?: number
   reprovadoCx?: number
@@ -1669,9 +1667,6 @@ function MonthlyLossesStackedChart({
             Perda mensal vs plano de referência
           </p>
 
-          <p className="mt-1 text-[10.5px] font-semibold" style={{ color: "#64748B" }}>
-            Jan compara contra Jan/V3; demais meses contra V1. Lotes reprovados não contam como liberados.
-          </p>
 
           {simulacaoAtiva && (
             <p className="mt-1 text-[10.5px] font-semibold" style={{ color: "#64748B" }}>
