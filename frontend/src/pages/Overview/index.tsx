@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import {
   DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package, CalendarDays, ChevronDown, ChevronUp,
 } from "lucide-react"
@@ -121,6 +121,14 @@ interface DisponibilidadePayload {
   entradas_previstas_mtd_por_grupo: GrupoItem[]
   meses: DisponibilidadeMes[]
 }
+interface RastreamentoMtdLoadPayload {
+  previstoAteHoje: number
+  liberadoSd3MtdTotal: number
+  liberadoVinculadoLotesPrevistos: number
+  liberadoSd3ForaGanttMesAtual: number
+  fonte: "mtd_resumo_liberacao" | "fallback"
+}
+
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
@@ -213,6 +221,137 @@ function writeOverviewPageCache(_snapshot: Omit<OverviewPageSnapshot, "savedAt">
 }
 
 
+
+function clonarLinhas(linhas?: { L1?: number; L2?: number } | null) {
+  return {
+    L1: Number(linhas?.L1 || 0),
+    L2: Number(linhas?.L2 || 0),
+  }
+}
+
+function ajustarLinhasParaTotal(
+  totalOficial: number,
+  linhas?: { L1?: number; L2?: number } | null,
+) {
+  const atuais = clonarLinhas(linhas)
+  const somaAtual = atuais.L1 + atuais.L2
+
+  if (totalOficial <= 0) return { L1: 0, L2: 0 }
+  if (somaAtual <= 0) return { L1: totalOficial, L2: 0 }
+
+  const fator = totalOficial / somaAtual
+  const l1 = Math.round(atuais.L1 * fator)
+  const l2 = totalOficial - l1
+
+  return { L1: l1, L2: l2 }
+}
+
+function aplicarSd3MtdOficialNaDisponibilidade(
+  disponibilidade: DisponibilidadePayload | null,
+  liberadoSd3MtdTotal: number,
+): DisponibilidadePayload | null {
+  if (!disponibilidade?.meses?.length || liberadoSd3MtdTotal <= 0) return disponibilidade
+
+  const mesAtual = Number(disponibilidade.mes_atual || new Date().getMonth() + 1)
+  let deltaMesAtual = 0
+  let encontrouMesAtual = false
+
+  const meses = disponibilidade.meses.map((mes) => {
+    const numeroMes = Number(mes.mes)
+    const clone: DisponibilidadeMes = {
+      ...mes,
+      estoque_inicio_por_grupo: [...(mes.estoque_inicio_por_grupo || [])],
+      entradas_linhas: mes.entradas_linhas ? { ...mes.entradas_linhas } : mes.entradas_linhas,
+      entradas_real_mes_atual_linhas: mes.entradas_real_mes_atual_linhas
+        ? { ...mes.entradas_real_mes_atual_linhas }
+        : mes.entradas_real_mes_atual_linhas,
+      entradas_previstas_mtd_por_grupo: mes.entradas_previstas_mtd_por_grupo
+        ? [...mes.entradas_previstas_mtd_por_grupo]
+        : mes.entradas_previstas_mtd_por_grupo,
+      entradas_real_mes_atual_por_grupo: mes.entradas_real_mes_atual_por_grupo
+        ? [...mes.entradas_real_mes_atual_por_grupo]
+        : mes.entradas_real_mes_atual_por_grupo,
+      entradas_previstas_por_grupo_mes_atual: mes.entradas_previstas_por_grupo_mes_atual
+        ? [...mes.entradas_previstas_por_grupo_mes_atual]
+        : mes.entradas_previstas_por_grupo_mes_atual,
+      entradas_por_grupo: mes.entradas_por_grupo ? [...mes.entradas_por_grupo] : mes.entradas_por_grupo,
+      saidas_por_grupo: mes.saidas_por_grupo ? [...mes.saidas_por_grupo] : mes.saidas_por_grupo,
+      saidas_real_mes_atual_por_grupo: mes.saidas_real_mes_atual_por_grupo
+        ? [...mes.saidas_real_mes_atual_por_grupo]
+        : mes.saidas_real_mes_atual_por_grupo,
+    }
+
+    if (numeroMes === mesAtual) {
+      encontrouMesAtual = true
+      const entradaAnterior = Number(
+        clone.entradas_real_mes_atual ??
+          (clone.entradas_tipo === "real" ? clone.entradas : 0) ??
+          0,
+      )
+      deltaMesAtual = liberadoSd3MtdTotal - entradaAnterior
+
+      // Não sobrescrever `entradas`/`entradas_tipo` aqui para não duplicar barra no gráfico.
+      // O mês atual é exibido pela série específica `entradas_real_mes_atual_plot`.
+      clone.entradas_real_mes_atual = liberadoSd3MtdTotal
+      clone.entradas_real_mes_atual_linhas = ajustarLinhasParaTotal(
+        liberadoSd3MtdTotal,
+        clone.entradas_real_mes_atual_linhas || clone.entradas_linhas,
+      )
+      clone.disponibilidade_total = Number(clone.disponibilidade_total || 0) + deltaMesAtual
+      clone.saldo_final = Number(clone.saldo_final || 0) + deltaMesAtual
+    } else if (encontrouMesAtual && numeroMes > mesAtual && deltaMesAtual !== 0) {
+      clone.estoque_inicio = Number(clone.estoque_inicio || 0) + deltaMesAtual
+      clone.disponibilidade_total = Number(clone.disponibilidade_total || 0) + deltaMesAtual
+      clone.saldo_final = Number(clone.saldo_final || 0) + deltaMesAtual
+    }
+
+    return clone
+  })
+
+  return {
+    ...disponibilidade,
+    meses,
+  }
+}
+
+function calcularProjecaoLiberacoesOficial(
+  projLib: ProjLib | null,
+  disponibilidade: DisponibilidadePayload | null,
+): ProjLib | null {
+  if (!projLib || !disponibilidade?.meses?.length) return projLib
+
+  const mesAtual = Number(disponibilidade.mes_atual || new Date().getMonth() + 1)
+  let totalReal = 0
+  let totalPrevisto = 0
+
+  disponibilidade.meses.forEach((mes) => {
+    const numeroMes = Number(mes.mes)
+    const entrada = Number(mes.entradas || 0)
+
+    if (numeroMes < mesAtual) {
+      totalReal += entrada
+    } else if (numeroMes === mesAtual) {
+      // Mês atual oficial = SD3 MTD total vindo da conciliação do Rastreamento.
+      totalReal += Number(mes.entradas_real_mes_atual ?? entrada ?? 0)
+    } else {
+      totalPrevisto += entrada
+    }
+  })
+
+  const totalProjetado = totalReal + totalPrevisto
+  const totalOrcado = Number(projLib.total_orcado || 0)
+
+  return {
+    ...projLib,
+    total_real: totalReal,
+    total_previsto: totalPrevisto,
+    total_projetado: totalProjetado,
+    pct_atingimento: totalOrcado > 0 ? (totalProjetado / totalOrcado) * 100 : projLib.pct_atingimento,
+    delta_caixas: totalOrcado > 0 ? totalProjetado - totalOrcado : projLib.delta_caixas,
+    ultimo_mes_fechado: mesAtual,
+  }
+}
+
 export function OverviewPage() {
   const [cacheInicial] = useState<OverviewPageSnapshot | null>(() => readOverviewPageCache())
 
@@ -239,6 +378,7 @@ export function OverviewPage() {
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(cacheInicial?.ultimaAtualizacao ?? null)
   const [mtdCxPrevisto, setMtdCxPrevisto] = useState<number>(cacheInicial?.mtdCxPrevisto ?? 0)
   const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(cacheInicial?.mtdCxLiberado ?? 0)
+  const [mtdLiberacaoOficial, setMtdLiberacaoOficial] = useState<RastreamentoMtdLoadPayload | null>(null)
 
   useEffect(() => {
     limparCachesOperacionaisLocais()
@@ -397,15 +537,25 @@ export function OverviewPage() {
 
 
 
+  const disponibilidadeMensalOficial = useMemo(
+    () => aplicarSd3MtdOficialNaDisponibilidade(disponibilidadeMensal, mtdLiberacaoOficial?.liberadoSd3MtdTotal ?? mtdCxLiberado),
+    [disponibilidadeMensal, mtdLiberacaoOficial?.liberadoSd3MtdTotal, mtdCxLiberado],
+  )
+
+  const projLibOficial = useMemo(
+    () => calcularProjecaoLiberacoesOficial(projLib, disponibilidadeMensalOficial),
+    [projLib, disponibilidadeMensalOficial],
+  )
+
   const pctFat = projFat?.pct_atingimento ?? 0
-  const pctLib = projLib?.pct_atingimento ?? 0
+  const pctLib = projLibOficial?.pct_atingimento ?? 0
   const ultimoMesFat = projFat ? MES_LABELS[(projFat.ultimo_mes_fechado ?? 1) - 1] ?? "" : ""
-  const ultimoMesLib = projLib ? MES_LABELS[(projLib.ultimo_mes_fechado ?? 1) - 1] ?? "" : ""
+  const ultimoMesLib = projLibOficial ? MES_LABELS[(projLibOficial.ultimo_mes_fechado ?? 1) - 1] ?? "" : ""
   const corPctFat = pctFat >= 100 ? "#16A34A" : pctFat >= 95 ? "#F59E0B" : pctFat > 0 ? "#DC2626" : "var(--text-primary)"
   const corPctLib = pctLib >= 100 ? "#16A34A" : pctLib >= 95 ? "#F59E0B" : pctLib > 0 ? "#DC2626" : "var(--text-primary)"
-  const disponibilidadeAnual = projLib ? projLib.total_projetado + estoqueJan : 0
-  const pctDispVsFat = projLib && orcadoFat && orcadoFat.total_caixas > 0 ? (disponibilidadeAnual / orcadoFat.total_caixas) * 100 : 0
-  const gapDispVsFatCaixas = projLib && orcadoFat ? disponibilidadeAnual - orcadoFat.total_caixas : 0
+  const disponibilidadeAnual = projLibOficial ? projLibOficial.total_projetado + estoqueJan : 0
+  const pctDispVsFat = projLibOficial && orcadoFat && orcadoFat.total_caixas > 0 ? (disponibilidadeAnual / orcadoFat.total_caixas) * 100 : 0
+  const gapDispVsFatCaixas = projLibOficial && orcadoFat ? disponibilidadeAnual - orcadoFat.total_caixas : 0
   const corDispVsFat = pctDispVsFat >= 100 ? "#16A34A" : pctDispVsFat >= 95 ? "#F59E0B" : pctDispVsFat > 0 ? "#DC2626" : "var(--text-primary)"
 
   return (
@@ -453,8 +603,8 @@ export function OverviewPage() {
         <p className="card-label mb-3 fade-in fade-in-2">Liberações</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
           <KpiCard label="Orçado de liberações anual" value={orcadoLib ? `${fmt(orcadoLib.total_caixas)} cx` : "Carregando..."} sub={orcadoLib ? `${fmt(tubetes(orcadoLib.total_caixas))} tubetes` : undefined} Icon={PackageCheck} iconBg="#F5F3FF" iconColor="#7C3AED" onClick={() => setModalLib(true)} delay={260} />
-          <KpiCard label="Liberações reais + previstas" value={projLib ? `${fmt(projLib.total_projetado)} cx` : "—"} sub={projLib ? `${fmt(tubetes(projLib.total_projetado))} tubetes` : "aguardando base"} Icon={Package} iconBg="#F0FDF4" iconColor="#16A34A" onClick={projLib ? () => setModalLibProj(true) : undefined} delay={320} />
-          <KpiCard label="% Liberações vs orçado" value={projLib && pctLib > 0 ? `${pctLib.toFixed(1).replace(".", ",")}%` : "—"} sub={projLib && ultimoMesLib ? `fechado até ${ultimoMesLib}/26` : undefined} delta={projLib && projLib.delta_caixas !== 0 ? `${fmt(projLib.delta_caixas)} cx / ${fmt(tubetes(projLib.delta_caixas))} tubetes vs orçado` : undefined} positive={projLib ? projLib.delta_caixas >= 0 : undefined} neutral={pctLib >= 95 && pctLib < 100} valueColor={corPctLib} Icon={TrendingUp} iconBg="#FFF7ED" iconColor="#EA580C" delay={380} />
+          <KpiCard label="Liberações reais + previstas" value={projLibOficial ? `${fmt(projLibOficial.total_projetado)} cx` : "—"} sub={projLibOficial ? `${fmt(tubetes(projLibOficial.total_projetado))} tubetes` : "aguardando base"} Icon={Package} iconBg="#F0FDF4" iconColor="#16A34A" onClick={projLibOficial ? () => setModalLibProj(true) : undefined} delay={320} />
+          <KpiCard label="% Liberações vs orçado" value={projLibOficial && pctLib > 0 ? `${pctLib.toFixed(1).replace(".", ",")}%` : "—"} sub={projLibOficial && ultimoMesLib ? `fechado até ${ultimoMesLib}/26` : undefined} delta={projLibOficial && projLibOficial.delta_caixas !== 0 ? `${fmt(projLibOficial.delta_caixas)} cx / ${fmt(tubetes(projLibOficial.delta_caixas))} tubetes vs orçado` : undefined} positive={projLibOficial ? projLibOficial.delta_caixas >= 0 : undefined} neutral={pctLib >= 95 && pctLib < 100} valueColor={corPctLib} Icon={TrendingUp} iconBg="#FFF7ED" iconColor="#EA580C" delay={380} />
         </div>
       </section>
 
@@ -471,11 +621,11 @@ export function OverviewPage() {
           </div>
           <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3 xl:min-w-[980px] xl:grid-cols-5 xl:gap-4">
             {[
-              { label: "Disponibilidade anual", value: projLib ? `${fmt(disponibilidadeAnual)} cx` : "—", sub: projLib ? `${fmt(tubetes(disponibilidadeAnual))} tubetes` : "—", w: 700 },
-              { label: "Liberações", value: projLib ? `${fmt(projLib.total_projetado)} cx` : "—", sub: projLib ? `${fmt(tubetes(projLib.total_projetado))} tubetes` : "—", w: 600 },
+              { label: "Disponibilidade anual", value: projLibOficial ? `${fmt(disponibilidadeAnual)} cx` : "—", sub: projLibOficial ? `${fmt(tubetes(disponibilidadeAnual))} tubetes` : "—", w: 700 },
+              { label: "Liberações", value: projLibOficial ? `${fmt(projLibOficial.total_projetado)} cx` : "—", sub: projLibOficial ? `${fmt(tubetes(projLibOficial.total_projetado))} tubetes` : "—", w: 600 },
               { label: "Estoque inicial Jan", value: `${fmt(estoqueJan)} cx`, sub: `${fmt(tubetes(estoqueJan))} tubetes`, w: 600 },
               { label: "Orçado faturamento", value: orcadoFat ? `${fmt(orcadoFat.total_caixas)} cx` : "—", sub: orcadoFat ? `${fmt(tubetes(orcadoFat.total_caixas))} tubetes` : "—", w: 600 },
-              { label: "Gap", value: projLib && orcadoFat ? `${fmt(gapDispVsFatCaixas)} cx` : "—", sub: projLib && orcadoFat ? `${fmt(tubetes(gapDispVsFatCaixas))} tubetes` : "—", w: 600, gap: true },
+              { label: "Gap", value: projLibOficial && orcadoFat ? `${fmt(gapDispVsFatCaixas)} cx` : "—", sub: projLibOficial && orcadoFat ? `${fmt(tubetes(gapDispVsFatCaixas))} tubetes` : "—", w: 600, gap: true },
             ].map(k => (
               <div key={k.label}>
                 <p className="card-label mb-1">{k.label}</p>
@@ -493,7 +643,7 @@ export function OverviewPage() {
         <div className="overflow-x-auto rounded-2xl">
           <div className="min-w-[860px] md:min-w-0">
             {carregarDetalhes ? (
-              <DemandaDisponibilidadeChart initialData={disponibilidadeMensal} />
+              <DemandaDisponibilidadeChart initialData={disponibilidadeMensalOficial} />
             ) : (
               <div className="flex h-[260px] items-center justify-center text-sm font-medium text-slate-400">
                 Preparando gráfico...
@@ -504,11 +654,20 @@ export function OverviewPage() {
 
         <div className="mt-6">
           {carregarDetalhes ? (
-            <RastreamentoLotes onMtdLoad={(p, l) => {
-              setMtdCxPrevisto(p)
-              setMtdCxLiberado(l)
+            <RastreamentoLotes onMtdLoad={(p, l, detalhes) => {
+              const liberadoOficial = Number(detalhes?.liberadoSd3MtdTotal ?? l ?? 0)
 
-              // Não persistir MTD no navegador. O valor precisa vir sempre do backend/SD3 atual.
+              setMtdCxPrevisto(Number(detalhes?.previstoAteHoje ?? p ?? 0))
+              setMtdCxLiberado(liberadoOficial)
+              setMtdLiberacaoOficial(detalhes ?? {
+                previstoAteHoje: Number(p ?? 0),
+                liberadoSd3MtdTotal: liberadoOficial,
+                liberadoVinculadoLotesPrevistos: Number(l ?? 0),
+                liberadoSd3ForaGanttMesAtual: 0,
+                fonte: "fallback",
+              })
+
+              // Não persistir MTD no navegador. O valor oficial precisa vir sempre do SD3 total.
             }} />
           ) : null}
         </div>
