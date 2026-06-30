@@ -104,6 +104,17 @@ type MonthlyLossesItem = {
   atraso: number
   reprovacao: number
   saldo?: number
+
+  // Nova regra do gráfico mensal:
+  // Jan compara contra Jan/V3; demais meses contra V1 do próprio mês.
+  // Lotes reprovados não contam como liberados.
+  planoRefCx?: number
+  liberadoBrutoCx?: number
+  reprovadoCx?: number
+  liberadoValidoCx?: number
+  perdaCx?: number
+  ganhoCx?: number
+
   status?: "fechado" | "mtd" | "futuro"
   simulado?: boolean
 }
@@ -417,41 +428,121 @@ function montarPerdasMensais(
     const causas = r?.mes_perdas_vs_v1_por_causa || {}
     const resumoMes = resumoProjLib[mes] || { v1: 0, atual: 0 }
 
-    const v1 = Math.round(numero(r?.mes_cx_previsto_v1) || resumoMes.v1)
-    const atual = Math.round(
+    const planoRefCx = Math.round(numero(r?.mes_cx_previsto_v1) || resumoMes.v1)
+    const liberadoBrutoCx = Math.round(
       numero(r?.mes_cx_plano_atual_tendencia)
       || numero(r?.mes_cx_plano_atual_puro)
       || resumoMes.atual,
     )
-
-    let reorg = Math.max(0, Math.round(numero(r?.mes_cx_acrescimo_plano_atual)))
-    const atraso = Math.abs(Math.round(numero(causas?.atraso_producao)))
-    const reprovacao = Math.abs(Math.round(numero(causas?.reprovacao_desvio)))
-    let saldo = 0
-
-    // Quando o Rastreamento ainda não trouxe a abertura por causa, usa a
-    // comparação real do MPS/Overview para não deixar o gráfico mensal em branco,
-    // mas NÃO classifica como atraso. Fica como saldo a abrir.
-    if (v1 > 0 && atraso + reorg + reprovacao === 0) {
-      const gapLiquido = v1 - atual
-      if (gapLiquido > 0) {
-        saldo = Math.round(gapLiquido)
-      } else if (gapLiquido < 0) {
-        reorg = Math.abs(Math.round(gapLiquido))
-      }
-    }
+    const reprovadoCx = Math.abs(Math.round(numero(causas?.reprovacao_desvio)))
+    const liberadoValidoCx = Math.max(0, liberadoBrutoCx - reprovadoCx)
+    const deltaVsPlano = planoRefCx - liberadoValidoCx
+    const perdaCx = Math.max(0, Math.round(deltaVsPlano))
+    const ganhoCx = Math.max(0, Math.round(-deltaVsPlano))
 
     return {
       mes: mesLabel,
-      baseline: `${mesLabel}/V1`,
-      v1,
-      reorg,
-      atraso,
-      reprovacao,
-      saldo,
+      baseline: mes === 1 ? "Jan/V3" : `${mesLabel}/V1`,
+      v1: planoRefCx,
+
+      // Compatibilidade temporária com o gráfico antigo: a barra única de perda
+      // usa atraso, enquanto as causas deixam de ser abertas mês a mês.
+      reorg: 0,
+      atraso: perdaCx,
+      reprovacao: 0,
+      saldo: 0,
+
+      planoRefCx,
+      liberadoBrutoCx,
+      reprovadoCx,
+      liberadoValidoCx,
+      perdaCx,
+      ganhoCx,
       status: mes > mesAtual ? "futuro" : (mes === mesAtual ? "mtd" : "fechado"),
     }
   })
+}
+
+function mensalPlanoRefCx(item: MonthlyLossesItem) {
+  const anyItem = item as any
+  return Math.round(
+    numero(anyItem?.planoRefCx)
+    || numero(anyItem?.plano_ref_cx)
+    || numero(anyItem?.plano_ref)
+    || numero(item?.v1),
+  )
+}
+
+function mensalReprovadoCx(item: MonthlyLossesItem) {
+  const anyItem = item as any
+  return Math.max(0, Math.round(
+    numero(anyItem?.reprovadoCx)
+    || numero(anyItem?.reprovado_cx)
+    || numero(anyItem?.reprovado)
+    || numero(item?.reprovacao),
+  ))
+}
+
+function mensalLiberadoValidoCx(item: MonthlyLossesItem) {
+  const anyItem = item as any
+  const direto = Math.round(
+    numero(anyItem?.liberadoValidoCx)
+    || numero(anyItem?.liberado_valido_cx)
+    || numero(anyItem?.liberado_valido),
+  )
+
+  if (direto > 0) return direto
+
+  const bruto = Math.round(
+    numero(anyItem?.liberadoBrutoCx)
+    || numero(anyItem?.liberado_bruto_cx)
+    || numero(anyItem?.liberado_bruto)
+    || numero(anyItem?.atual)
+    || numero(anyItem?.planoAtualCx)
+    || numero(anyItem?.plano_atual_cx),
+  )
+
+  if (bruto > 0) return Math.max(0, bruto - mensalReprovadoCx(item))
+
+  const plano = mensalPlanoRefCx(item)
+  return Math.max(0, plano - mensalPerdaCx(item) + mensalGanhoCx(item))
+}
+
+function mensalPerdaCx(item: MonthlyLossesItem) {
+  const anyItem = item as any
+  const direto = Math.round(
+    numero(anyItem?.perdaCx)
+    || numero(anyItem?.perda_cx)
+    || numero(anyItem?.perda)
+    || numero(anyItem?.perdaVsPlanoCx)
+    || numero(anyItem?.perda_vs_plano_cx),
+  )
+  if (direto > 0) return direto
+
+  const causasLegadas =
+    numero(item?.atraso)
+    + numero(item?.reorg)
+    + numero(item?.reprovacao)
+    + numero(item?.saldo)
+
+  return Math.max(0, Math.round(causasLegadas))
+}
+
+function mensalGanhoCx(item: MonthlyLossesItem) {
+  const anyItem = item as any
+  const direto = Math.round(
+    numero(anyItem?.ganhoCx)
+    || numero(anyItem?.ganho_cx)
+    || numero(anyItem?.ganho)
+    || numero(anyItem?.ganhoVsPlanoCx)
+    || numero(anyItem?.ganho_vs_plano_cx),
+  )
+  return Math.max(0, direto)
+}
+
+function mensalPctVsPlano(valorCx: number, item: MonthlyLossesItem) {
+  const plano = mensalPlanoRefCx(item)
+  return plano > 0 ? (valorCx / plano) * 100 : 0
 }
 
 function montarApiDataDaOverviewCache(cache: any, rastreamentos: Record<number, any> = {}): LiberacaoExecutivaPayload {
@@ -1530,21 +1621,30 @@ function MonthlyLossesStackedChart({
   simulacaoAtiva: boolean
 }) {
   const width = 1080
-  const height = 248
-  const margin = { top: 24, right: 34, bottom: 42, left: 46 }
+  const height = 266
+  const margin = { top: 34, right: 34, bottom: 58, left: 46 }
   const plotWidth = width - margin.left - margin.right
   const plotHeight = 160
-  const barWidth = 62
+  const barWidth = 60
 
-  const causas = [
-    { key: "atraso", label: "Atraso prod.", color: "#2F3E7A", subColor: "#E5ECFF" },
-    { key: "reorg", label: "Reorg.", color: "#6B7FC8", subColor: "#F0F3FF" },
-    { key: "reprovacao", label: "Reprov. prod.", color: "#E46A1A", subColor: "#FFF1E8" },
-    { key: "saldo", label: "Saldo a abrir", color: "#94A3B8", subColor: "#F1F5F9" },
-  ] as const
+  const pontos = data.map((item) => {
+    const perdaCx = mensalPerdaCx(item)
+    const ganhoCx = mensalGanhoCx(item)
+    const planoRefCx = mensalPlanoRefCx(item)
+    const liberadoValidoCx = mensalLiberadoValidoCx(item)
 
-  const totals = data.map((item) => item.reorg + item.atraso + item.reprovacao + Number(item.saldo || 0))
-  const maxTotal = Math.max(...totals, 1)
+    return {
+      item,
+      perdaCx,
+      ganhoCx,
+      planoRefCx,
+      liberadoValidoCx,
+      valorGrafico: perdaCx > 0 ? perdaCx : ganhoCx,
+      tipo: perdaCx > 0 ? "perda" : ganhoCx > 0 ? "ganho" : "neutro",
+    }
+  })
+
+  const maxTotal = Math.max(...pontos.map((ponto) => ponto.valorGrafico), 1)
   const maxValue = Math.ceil((maxTotal * 1.22) / 1000) * 1000
 
   const y = (value: number) => margin.top + ((maxValue - value) / maxValue) * plotHeight
@@ -1566,7 +1666,11 @@ function MonthlyLossesStackedChart({
             className="text-[12px] font-black uppercase tracking-[0.18em]"
             style={{ color: "var(--text-secondary)" }}
           >
-            Causas das perdas mensais
+            Perda mensal vs plano de referência
+          </p>
+
+          <p className="mt-1 text-[10.5px] font-semibold" style={{ color: "#64748B" }}>
+            Jan compara contra Jan/V3; demais meses contra V1. Lotes reprovados não contam como liberados.
           </p>
 
           {simulacaoAtiva && (
@@ -1592,131 +1696,87 @@ function MonthlyLossesStackedChart({
         <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[1080px]">
           <rect x="0" y="0" width={width} height={height} rx="16" fill="#FFFFFF" />
 
-          {data.map((item, index) => {
-            const total = item.reorg + item.atraso + item.reprovacao + Number(item.saldo || 0)
-            const hasLoss = total > 0
+          {pontos.map((ponto, index) => {
+            const { item, valorGrafico, tipo, planoRefCx, liberadoValidoCx } = ponto
+            const hasValue = valorGrafico > 0
             const currentX = x(index)
-            const clipId = `monthly-loss-stack-${index}`
-            let acumulado = 0
+            const barY = y(valorGrafico)
+            const barHeight = Math.max(0, baselineY - barY)
+            const pctVsPlano = mensalPctVsPlano(valorGrafico, item)
+            const fill = tipo === "ganho" ? "#16A34A" : "#DC2626"
+            const fillSoft = tipo === "ganho" ? "#DCFCE7" : "#FEE2E2"
+            const prefix = tipo === "ganho" ? "+" : "-"
 
             return (
               <g key={item.mes}>
-                {hasLoss && (
-                  <defs>
-                    <clipPath id={clipId}>
-                      <rect
-                        x={currentX - barWidth / 2}
-                        y={y(total)}
-                        width={barWidth}
-                        height={baselineY - y(total)}
-                        rx={6}
-                      />
-                    </clipPath>
-                  </defs>
+                {hasValue && (
+                  <rect
+                    x={currentX - barWidth / 2}
+                    y={barY}
+                    width={barWidth}
+                    height={barHeight}
+                    rx={7}
+                    fill={item.simulado ? fillSoft : fill}
+                    stroke={item.simulado ? fill : "none"}
+                    strokeWidth={item.simulado ? 1.6 : 0}
+                    strokeDasharray={item.simulado ? "4 3" : undefined}
+                    opacity={item.simulado ? 0.95 : 0.98}
+                  />
                 )}
 
-                {hasLoss && (
-                  <g clipPath={`url(#${clipId})`}>
-                    {causas.map((causa) => {
-                      const value = Number(item[causa.key] ?? 0)
-
-                      if (value <= 0) return null
-
-                      const yTop = y(acumulado + value)
-                      const yBottom = y(acumulado)
-                      const segmentHeight = Math.max(0, yBottom - yTop)
-                      const pctVsV1 = item.v1 > 0 ? (value / item.v1) * 100 : 0
-                      const labelY = yTop + segmentHeight / 2
-                      const showFullLabel = !item.simulado && segmentHeight >= 26
-                      const showCompactLabel = !item.simulado && segmentHeight >= 11 && segmentHeight < 26
-
-                      acumulado += value
-
-                      return (
-                        <g key={causa.key}>
-                          <rect
-                            x={currentX - barWidth / 2}
-                            y={yTop}
-                            width={barWidth}
-                            height={segmentHeight}
-                            fill={causa.color}
-                            opacity={item.simulado ? 0.16 : 0.98}
-                            stroke={item.simulado ? causa.color : "none"}
-                            strokeWidth={item.simulado ? 1.4 : 0}
-                            strokeDasharray={item.simulado ? "4 3" : undefined}
-                          />
-
-                          {showFullLabel && (
-                            <>
-                              <text
-                                x={currentX}
-                                y={labelY - 3}
-                                textAnchor="middle"
-                                fontSize="6.7"
-                                fontWeight="900"
-                                fill="#FFFFFF"
-                              >
-                                {fmt(value)} cx
-                              </text>
-                              <text
-                                x={currentX}
-                                y={labelY + 8}
-                                textAnchor="middle"
-                                fontSize="6.4"
-                                fontWeight="800"
-                                fill={causa.subColor}
-                              >
-                                {`${fmtPct(pctVsV1)}% V1`}
-                              </text>
-                            </>
-                          )}
-
-                          {showCompactLabel && (
-                            <text
-                              x={currentX}
-                              y={labelY + 2}
-                              textAnchor="middle"
-                              fontSize="5.8"
-                              fontWeight="900"
-                              fill="#FFFFFF"
-                            >
-                              {`${fmt(value)} · ${fmtPct(pctVsV1)}%`}
-                            </text>
-                          )}
-                        </g>
-                      )
-                    })}
-                  </g>
-                )}
-
-                {hasLoss && (
+                {hasValue && barHeight >= 36 && !item.simulado && (
                   <>
                     <text
                       x={currentX}
-                      y={Math.max(18, y(total) - 16)}
+                      y={barY + barHeight / 2 - 3}
+                      textAnchor="middle"
+                      fontSize="7.4"
+                      fontWeight="900"
+                      fill="#FFFFFF"
+                    >
+                      {prefix}{fmt(valorGrafico)} cx
+                    </text>
+                    <text
+                      x={currentX}
+                      y={barY + barHeight / 2 + 9}
+                      textAnchor="middle"
+                      fontSize="6.6"
+                      fontWeight="800"
+                      fill={tipo === "ganho" ? "#ECFDF5" : "#FFF1F2"}
+                    >
+                      {fmtPct(pctVsPlano)}% ref.
+                    </text>
+                  </>
+                )}
+
+                {hasValue && (
+                  <>
+                    <text
+                      x={currentX}
+                      y={Math.max(18, barY - 16)}
                       textAnchor="middle"
                       fontSize="9.5"
                       fontWeight="900"
-                      fill="#0F172A"
+                      fill={tipo === "ganho" ? "#15803D" : "#0F172A"}
                     >
-                      {fmt(total)} cx
+                      {prefix}{fmt(valorGrafico)} cx
                     </text>
 
                     <text
                       x={currentX}
-                      y={Math.max(28, y(total) - 4)}
+                      y={Math.max(29, barY - 4)}
                       textAnchor="middle"
-                      fontSize="7.2"
+                      fontSize="7.1"
                       fontWeight="800"
                       fill="#64748B"
                     >
-                      {`${fmtPct(item.v1 > 0 ? (total / item.v1) * 100 : 0)}% da V1`}
+                      {`${fmtPct(pctVsPlano)}% da ref.`}
                     </text>
 
                     {item.simulado && (
                       <text
                         x={currentX}
-                        y={Math.max(40, y(total) + 8)}
+                        y={Math.max(40, barY + 9)}
                         textAnchor="middle"
                         fontSize="6.8"
                         fontWeight="800"
@@ -1728,9 +1788,21 @@ function MonthlyLossesStackedChart({
                   </>
                 )}
 
+                {!hasValue && (
+                  <line
+                    x1={currentX - barWidth / 2}
+                    x2={currentX + barWidth / 2}
+                    y1={baselineY}
+                    y2={baselineY}
+                    stroke="#CBD5E1"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                )}
+
                 <text
                   x={currentX}
-                  y={baselineY + 22}
+                  y={baselineY + 21}
                   textAnchor="middle"
                   fontSize="9.5"
                   fontWeight="900"
@@ -1738,6 +1810,25 @@ function MonthlyLossesStackedChart({
                 >
                   {item.mes}
                 </text>
+
+                <text
+                  x={currentX}
+                  y={baselineY + 35}
+                  textAnchor="middle"
+                  fontSize="6.7"
+                  fontWeight="800"
+                  fill="#64748B"
+                >
+                  {item.baseline || (item.mes === "Jan" ? "Jan/V3" : `${item.mes}/V1`)}
+                </text>
+
+                <title>
+                  {`${item.mes} (${item.baseline || "ref."})
+Plano ref.: ${fmt(planoRefCx)} cx
+Liberado válido: ${fmt(liberadoValidoCx)} cx
+Reprovado descontado: ${fmt(mensalReprovadoCx(item))} cx
+${tipo === "ganho" ? "Ganho vs plano" : "Perda vs plano"}: ${prefix}${fmt(valorGrafico)} cx`}
+                </title>
               </g>
             )
           })}
@@ -1745,14 +1836,26 @@ function MonthlyLossesStackedChart({
       </div>
 
       <div className="mt-1 flex flex-wrap items-center justify-center gap-4">
-        {causas.map((causa) => (
-          <div key={causa.key} className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: causa.color }} />
-            <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
-              {causa.label}
-            </span>
-          </div>
-        ))}
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#DC2626" }} />
+          <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
+            Perda vs plano
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#16A34A" }} />
+          <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
+            Acima do plano
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-[3px] border border-dashed" style={{ borderColor: "#DC2626", background: "#FEE2E2" }} />
+          <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
+            Simulado
+          </span>
+        </div>
       </div>
     </section>
   )
@@ -1992,7 +2095,7 @@ function LossSimulationModal({
       Object.fromEntries(
         futureMonths.map((month) => [
           month.mes,
-          Math.max(0, Math.round(month.v1 * (averageLossPct / 100))),
+          Math.max(0, Math.round(mensalPlanoRefCx(month) * (averageLossPct / 100))),
         ]),
       ),
     )
@@ -2005,13 +2108,18 @@ function LossSimulationModal({
   const projectedLosses = futureMonths.map((month) => {
     const perdaCx =
       mode === "media"
-        ? Math.max(0, Math.round(month.v1 * (Number(averagePctInput || 0) / 100)))
+        ? Math.max(0, Math.round(mensalPlanoRefCx(month) * (Number(averagePctInput || 0) / 100)))
         : Math.max(0, Number(customLosses[month.mes] || 0))
+
+    const planoRefCx = mensalPlanoRefCx(month)
 
     return {
       ...month,
+      v1: planoRefCx,
+      planoRefCx,
       perdaCx,
-      disponibilidadeProjetadaCx: Math.max(0, month.v1 - perdaCx),
+      ganhoCx: 0,
+      disponibilidadeProjetadaCx: Math.max(0, planoRefCx - perdaCx),
     }
   })
 
@@ -2019,7 +2127,7 @@ function LossSimulationModal({
   const disponibilidadeSimuladaCx = Math.max(0, disponibilidadeAtualCx - perdaProjetadaTotalCx)
   const atingimentoAtual = orcadoCx > 0 ? (disponibilidadeAtualCx / orcadoCx) * 100 : 0
   const atingimentoSimulado = orcadoCx > 0 ? (disponibilidadeSimuladaCx / orcadoCx) * 100 : 0
-  const maxPlanoMes = Math.max(...projectedLosses.map((month) => month.v1), 1)
+  const maxPlanoMes = Math.max(...projectedLosses.map((month) => mensalPlanoRefCx(month)), 1)
   const maxValue = Math.ceil((maxPlanoMes * 1.12) / 1000) * 1000
   const perdaCustomTotalCx = futureMonths.reduce((acc, month) => acc + Math.max(0, Number(customLosses[month.mes] || 0)), 0)
 
@@ -2059,7 +2167,7 @@ function LossSimulationModal({
               Projeção de disponibilidade até o fim do ano
             </h3>
             <p className="mt-1 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-              Aplica perdas simuladas nos meses futuros e recalcula a disponibilidade mensal contra o plano mais atual do Gantt/MPS.
+              Aplica perdas simuladas nos meses futuros e recalcula a disponibilidade mensal contra o plano de referência.
             </p>
           </div>
 
@@ -2135,17 +2243,17 @@ function LossSimulationModal({
             <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
-                  Plano atual vs. disponibilidade projetada
+                  Plano ref. vs. disponibilidade projetada
                 </p>
                 <p className="mt-1 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                  Barras lado a lado: plano atual vs. disponibilidade projetada após a perda simulada.
+                  Barras lado a lado: plano de referência vs. disponibilidade projetada após a perda simulada.
                 </p>
               </div>
 
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#D6DEE9" }} />
-                  <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>Plano atual</span>
+                  <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>Plano ref.</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-[3px] border" style={{ borderColor: "#1F4164", background: "#EEF4FF" }} />
@@ -2160,11 +2268,12 @@ function LossSimulationModal({
 
                 {projectedLosses.map((month, index) => {
                   const currentX = x(index)
-                  const planoY = y(month.v1)
+                  const planoRefMes = mensalPlanoRefCx(month)
+                  const planoY = y(planoRefMes)
                   const planoHeight = baselineY - planoY
                   const projetadoY = y(month.disponibilidadeProjetadaCx)
                   const projetadoHeight = baselineY - projetadoY
-                  const pctMes = month.v1 > 0 ? (month.disponibilidadeProjetadaCx / month.v1) * 100 : 0
+                  const pctMes = planoRefMes > 0 ? (month.disponibilidadeProjetadaCx / planoRefMes) * 100 : 0
                   const planoX = currentX - (gapBetweenBars / 2) - singleBarWidth
                   const projetadoX = currentX + gapBetweenBars / 2
 
@@ -2199,7 +2308,7 @@ function LossSimulationModal({
                         fontWeight="900"
                         fill="#64748B"
                       >
-                        {fmt(month.v1)} cx
+                        {fmt(planoRefMes)} cx
                       </text>
 
                       <text
@@ -2210,7 +2319,7 @@ function LossSimulationModal({
                         fontWeight="800"
                         fill="#64748B"
                       >
-                        plano
+                        plano ref.
                       </text>
 
                       <text
@@ -2438,7 +2547,8 @@ function LossSimulationModal({
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
                   {futureMonths.map((month) => {
                     const perdaMes = Math.max(0, Number(customLosses[month.mes] || 0))
-                    const disponibilidadeProjetadaMes = Math.max(0, month.v1 - perdaMes)
+                    const planoRefMes = mensalPlanoRefCx(month)
+                    const disponibilidadeProjetadaMes = Math.max(0, planoRefMes - perdaMes)
 
                     return (
                       <div
@@ -2452,7 +2562,7 @@ function LossSimulationModal({
                               {month.mes}
                             </p>
                             <p className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-                              Plano {fmt(month.v1)} cx
+                              Plano ref. {fmt(planoRefMes)} cx
                             </p>
                           </div>
 
@@ -2983,23 +3093,13 @@ export default function LiberacaoExecutiva() {
   const mapaCustomVazio = Object.fromEntries(mesesFuturos.map((item) => [item.mes, 0])) as Record<string, number>
 
   const perdaRealizadaTotalCx = perdasRealizadas.reduce(
-    (acc, item) => acc + item.atraso + item.reorg + item.reprovacao + Number(item.saldo || 0),
+    (acc, item) => acc + mensalPerdaCx(item),
     0,
   )
-  const baseRealizadaTotalCx = perdasRealizadas.reduce((acc, item) => acc + item.v1, 0)
+  const baseRealizadaTotalCx = perdasRealizadas.reduce((acc, item) => acc + mensalPlanoRefCx(item), 0)
   const percentualMedioPerdaAtual = baseRealizadaTotalCx > 0
     ? (perdaRealizadaTotalCx / baseRealizadaTotalCx) * 100
     : 0
-
-  const somaAtrasoAtual = perdasRealizadas.reduce((acc, item) => acc + item.atraso, 0)
-  const somaReorgAtual = perdasRealizadas.reduce((acc, item) => acc + item.reorg, 0)
-  const somaReprovacaoAtual = perdasRealizadas.reduce((acc, item) => acc + item.reprovacao, 0)
-  const somaSaldoAtual = perdasRealizadas.reduce((acc, item) => acc + Number(item.saldo || 0), 0)
-  const somaCausasAtual = somaAtrasoAtual + somaReorgAtual + somaReprovacaoAtual + somaSaldoAtual || 1
-
-  const shareAtraso = somaAtrasoAtual / somaCausasAtual
-  const shareReorg = somaReorgAtual / somaCausasAtual
-  const shareSaldo = somaSaldoAtual / somaCausasAtual
 
   const simulacaoCustomAtual =
     simulacaoAplicada?.custom && Object.keys(simulacaoAplicada.custom).length > 0
@@ -3009,24 +3109,30 @@ export default function LiberacaoExecutiva() {
   const perdasMensaisPlotadas: MonthlyLossesItem[] = perdasMensais.map((item) => {
     if (item.status !== "futuro" || !simulacaoAplicada) return item
 
+    const planoRefCx = mensalPlanoRefCx(item)
     const perdaTotalCx =
       simulacaoAplicada.modo === "media"
-        ? Math.max(0, Math.round(item.v1 * (simulacaoAplicada.percentual / 100)))
+        ? Math.max(0, Math.round(planoRefCx * (simulacaoAplicada.percentual / 100)))
         : Math.max(0, Number(simulacaoCustomAtual[item.mes] || 0))
 
     if (perdaTotalCx <= 0) return item
 
-    const atraso = Math.round(perdaTotalCx * shareAtraso)
-    const reorg = Math.round(perdaTotalCx * shareReorg)
-    const saldo = Math.round(perdaTotalCx * shareSaldo)
-    const reprovacao = Math.max(0, perdaTotalCx - atraso - reorg - saldo)
+    const liberadoValidoCx = Math.max(0, planoRefCx - perdaTotalCx)
 
     return {
       ...item,
-      atraso,
-      reorg,
-      reprovacao,
-      saldo,
+      v1: planoRefCx,
+      planoRefCx,
+      liberadoValidoCx,
+      perdaCx: perdaTotalCx,
+      ganhoCx: 0,
+
+      // Compatibilidade com versões antigas do componente: a perda mensal fica
+      // em uma barra única, sem distribuir por causa.
+      atraso: perdaTotalCx,
+      reorg: 0,
+      reprovacao: 0,
+      saldo: 0,
       simulado: true,
     }
   })
