@@ -85,6 +85,10 @@ function formatarDataHoraAtualizacao(value?: string | null) {
 
 const MES_LABELS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
 
+// Orçado oficial de liberações = Plano 1 do ano (MPS Jan/2026 V3), sem estoque inicial.
+// Mantém o card da Overview alinhado com a Liberação Executiva.
+const ORCADO_LIBERACAO_ANUAL_PLANO1_JAN_V3_CX = 220534
+
 interface ProjFat { total_real: number; total_forecast: number; total_projetado: number; total_orcado: number; pct_atingimento: number; delta_caixas: number; ultimo_mes_fechado: number }
 interface ProjLib { total_real: number; total_previsto: number; total_projetado: number; total_orcado: number; pct_atingimento: number; delta_caixas: number; ultimo_mes_fechado: number }
 interface EstoqueMes { mes: number; qtd_caixas: number }
@@ -542,10 +546,31 @@ export function OverviewPage() {
     [disponibilidadeMensal, mtdLiberacaoOficial?.liberadoSd3MtdTotal, mtdCxLiberado],
   )
 
-  const projLibOficial = useMemo(
+  const projLibBase = useMemo(
     () => calcularProjecaoLiberacoesOficial(projLib, disponibilidadeMensalOficial),
     [projLib, disponibilidadeMensalOficial],
   )
+
+  const orcadoLibPlano1JanV3 = useMemo(
+    () => ({
+      total_caixas: ORCADO_LIBERACAO_ANUAL_PLANO1_JAN_V3_CX,
+      total_tubetes: tubetes(ORCADO_LIBERACAO_ANUAL_PLANO1_JAN_V3_CX),
+    }),
+    [],
+  )
+
+  const projLibOficial = useMemo(() => {
+    if (!projLibBase) return null
+
+    const totalOrcado = orcadoLibPlano1JanV3.total_caixas
+
+    return {
+      ...projLibBase,
+      total_orcado: totalOrcado,
+      pct_atingimento: totalOrcado > 0 ? (projLibBase.total_projetado / totalOrcado) * 100 : projLibBase.pct_atingimento,
+      delta_caixas: totalOrcado > 0 ? projLibBase.total_projetado - totalOrcado : projLibBase.delta_caixas,
+    }
+  }, [projLibBase, orcadoLibPlano1JanV3.total_caixas])
 
   const pctFat = projFat?.pct_atingimento ?? 0
   const pctLib = projLibOficial?.pct_atingimento ?? 0
@@ -602,7 +627,7 @@ export function OverviewPage() {
       <section>
         <p className="card-label mb-3 fade-in fade-in-2">Liberações</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-          <KpiCard label="Orçado de liberações anual" value={orcadoLib ? `${fmt(orcadoLib.total_caixas)} cx` : "Carregando..."} sub={orcadoLib ? `${fmt(tubetes(orcadoLib.total_caixas))} tubetes` : undefined} Icon={PackageCheck} iconBg="#F5F3FF" iconColor="#7C3AED" onClick={() => setModalLib(true)} delay={260} />
+          <KpiCard label="Orçado de liberações anual" value={`${fmt(orcadoLibPlano1JanV3.total_caixas)} cx`} sub={`${fmt(orcadoLibPlano1JanV3.total_tubetes)} tubetes`} Icon={PackageCheck} iconBg="#F5F3FF" iconColor="#7C3AED" onClick={() => setModalLib(true)} delay={260} />
           <KpiCard label="Liberações reais + previstas" value={projLibOficial ? `${fmt(projLibOficial.total_projetado)} cx` : "—"} sub={projLibOficial ? `${fmt(tubetes(projLibOficial.total_projetado))} tubetes` : "aguardando base"} Icon={Package} iconBg="#F0FDF4" iconColor="#16A34A" onClick={projLibOficial ? () => setModalLibProj(true) : undefined} delay={320} />
           <KpiCard label="% Liberações vs orçado" value={projLibOficial && pctLib > 0 ? `${pctLib.toFixed(1).replace(".", ",")}%` : "—"} sub={projLibOficial && ultimoMesLib ? `fechado até ${ultimoMesLib}/26` : undefined} delta={projLibOficial && projLibOficial.delta_caixas !== 0 ? `${fmt(projLibOficial.delta_caixas)} cx / ${fmt(tubetes(projLibOficial.delta_caixas))} tubetes vs orçado` : undefined} positive={projLibOficial ? projLibOficial.delta_caixas >= 0 : undefined} neutral={pctLib >= 95 && pctLib < 100} valueColor={corPctLib} Icon={TrendingUp} iconBg="#FFF7ED" iconColor="#EA580C" delay={380} />
         </div>
