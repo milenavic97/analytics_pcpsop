@@ -697,8 +697,6 @@ async function buscarRastreamentoLotesDireto(params: Record<string, any>): Promi
 }
 
 
-const RASTREAMENTO_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-
 // Cache em memória do módulo.
 // Diferente do localStorage, ele permanece vivo enquanto a SPA está aberta.
 // Isso evita que o Rastreamento suma ao navegar por várias páginas e voltar.
@@ -708,71 +706,20 @@ function getRastreamentoCacheKey(mes: number, ano: number) {
   return `rastreamento-lotes-v7-direto-cache-rapido:${ano}-${String(mes).padStart(2, "0")}`;
 }
 
-function lerRastreamentoCache(mes: number, ano: number): RastreamentoCacheEntry | null {
-  const cacheKey = getRastreamentoCacheKey(mes, ano);
-
-  const runtime = rastreamentoRuntimeCache.get(cacheKey);
-  if (runtime?.data) {
-    const createdAt = Number(runtime.createdAt || 0);
-    const isValid = createdAt > 0 && Date.now() - createdAt <= RASTREAMENTO_CACHE_TTL_MS;
-
-    if (isValid) {
-      return runtime;
-    }
-
-    rastreamentoRuntimeCache.delete(cacheKey);
-  }
-
-  try {
-    const raw = window.localStorage.getItem(cacheKey);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw);
-    const createdAt = Number(parsed?.createdAt || 0);
-    const isValid = createdAt > 0 && Date.now() - createdAt <= RASTREAMENTO_CACHE_TTL_MS;
-
-    if (!isValid || !parsed?.data) {
-      window.localStorage.removeItem(cacheKey);
-      rastreamentoRuntimeCache.delete(cacheKey);
-      return null;
-    }
-
-    const entry: RastreamentoCacheEntry = {
-      createdAt,
-      apontamentoAtualizadoEm: parsed?.apontamentoAtualizadoEm || null,
-      versaoBase: parsed?.versaoBase || null,
-      data: parsed.data as RastreamentoData,
-    };
-
-    rastreamentoRuntimeCache.set(cacheKey, entry);
-    return entry;
-  } catch (_) {
-    return null;
-  }
+function lerRastreamentoCache(_mes: number, _ano: number): RastreamentoCacheEntry | null {
+  // Desativado: o Rastreamento alimenta números oficiais da Overview.
+  // Cache local/runtime fez aba normal e aba anônima mostrarem valores diferentes.
+  return null;
 }
 
 function salvarRastreamentoCache(
-  mes: number,
-  ano: number,
-  data: RastreamentoData,
-  apontamentoAtualizadoEm: string | null,
-  versaoBase: string | null
+  _mes: number,
+  _ano: number,
+  _data: RastreamentoData,
+  _apontamentoAtualizadoEm: string | null,
+  _versaoBase: string | null
 ) {
-  const cacheKey = getRastreamentoCacheKey(mes, ano);
-  const entry: RastreamentoCacheEntry = {
-    createdAt: Date.now(),
-    apontamentoAtualizadoEm,
-    versaoBase,
-    data,
-  };
-
-  rastreamentoRuntimeCache.set(cacheKey, entry);
-
-  try {
-    window.localStorage.setItem(cacheKey, JSON.stringify(entry));
-  } catch (_) {
-    // localStorage pode estar indisponível; o cache em memória ainda segura a navegação.
-  }
+  // Desativado de propósito. O payload precisa vir sempre do backend/SD3 atual.
 }
 
 function limparRastreamentoCache(mes: number, ano: number) {
@@ -786,12 +733,19 @@ function limparRastreamentoCache(mes: number, ano: number) {
   }
 }
 
-export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto: number, mtd_cx_liberado: number) => void } = {}) {
+interface RastreamentoMtdLoadPayload {
+  previstoAteHoje: number;
+  liberadoSd3MtdTotal: number;
+  liberadoVinculadoLotesPrevistos: number;
+  liberadoSd3ForaGanttMesAtual: number;
+  fonte: "mtd_resumo_liberacao" | "fallback";
+}
+
+export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto: number, mtd_cx_liberado: number, payload?: RastreamentoMtdLoadPayload) => void } = {}) {
   const hojeBase = new Date();
   const mesInicial = hojeBase.getMonth() + 1;
   const anoInicial = hojeBase.getFullYear();
-  // Usa cache local/runtime somente desta versão nova.
-  // Isso evita recarregar tudo do zero ao navegar para outra página e voltar.
+  // Cache local/runtime desativado: esta seção alimenta números oficiais da Overview.
   const cacheInicial = lerRastreamentoCache(mesInicial, anoInicial);
 
   const [data, setData] = useState<RastreamentoData | null>(cacheInicial?.data ?? null);
@@ -824,7 +778,36 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     setUltimaAtualizacaoProducao(atualizacaoServidor || null);
 
     if (onMtdLoad) {
-      onMtdLoad(json.mtd_cx_previsto ?? 0, json.mtd_cx_liberado ?? 0);
+      const resumoLiberacao = json.mtd_resumo_liberacao;
+      const previstoAteHoje = Number(
+        resumoLiberacao?.previsto_ate_hoje ?? json.mtd_cx_previsto ?? 0
+      );
+      const liberadoSd3MtdTotal = Number(
+        resumoLiberacao?.liberado_sd3_mtd_total ??
+          json.total_cx_sd3_mes ??
+          json.mtd_cx_liberado ??
+          0
+      );
+      const liberadoVinculado = Number(
+        resumoLiberacao?.liberado_vinculado_lotes_previstos ??
+          json.mtd_cx_liberado ??
+          0
+      );
+      const liberadoForaGantt = Number(
+        resumoLiberacao?.liberado_sd3_fora_gantt_mes_atual ??
+          json.total_cx_fora_gantt ??
+          0
+      );
+
+      // Valor oficial para a Overview/gráfico/card: SD3 MTD total.
+      // O vinculado aos lotes é apenas uma visão de conciliação operacional.
+      onMtdLoad(previstoAteHoje, liberadoSd3MtdTotal, {
+        previstoAteHoje,
+        liberadoSd3MtdTotal,
+        liberadoVinculadoLotesPrevistos: liberadoVinculado,
+        liberadoSd3ForaGanttMesAtual: liberadoForaGantt,
+        fonte: resumoLiberacao ? "mtd_resumo_liberacao" : "fallback",
+      });
     }
   };
 
