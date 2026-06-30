@@ -145,6 +145,7 @@ type LiberacaoExecutivaPayload = {
 const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v2"
 
 const MES_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+const fmtDecimal = (value: number, digits = 1) => Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits })
 
 // Plano 1 confirmado na própria ferramenta:
 // MPS revisão Janeiro / V3 = 220.534 cx.
@@ -1495,10 +1496,10 @@ function WaterfallStepModal({
               <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
                 <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
                   <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
-                    Paradas/horas alteradas no plano
+                    Variação de horas disponíveis no plano
                   </p>
                   <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Linha a linha por data + linha. Só aparece quando há impacto real em horas ou caixas; mudança só textual no comentário fica fora.
+                    Linha a linha por data + linha. A comparação usa horas disponíveis: Atual - Plano 1. Mudança só textual no comentário fica fora.
                   </p>
                 </div>
                 <div className="max-h-[360px] overflow-auto">
@@ -1532,7 +1533,11 @@ function WaterfallStepModal({
                                   color: ganho ? "#166534" : "#991B1B",
                                 }}
                               >
-                                {String(item.movimento || (ganho ? "Parada removida" : "Parada adicionada"))}
+                                {(() => {
+                                  const movimentoRaw = String(item.movimento || "").toLowerCase()
+                                  if (movimentoRaw.includes("liberada") || movimentoRaw.includes("removida") || ganho) return "Capacidade liberada"
+                                  return "Capacidade consumida"
+                                })()}
                               </span>
                             </td>
                             <td className="px-3 py-3 font-bold" style={{ color: "var(--text-primary)" }}>{dataTexto}</td>
@@ -1544,7 +1549,7 @@ function WaterfallStepModal({
                                 <div className="mt-1 font-semibold">Disp.: {fmt(Number(item.disponivel_plano1_cx || 0))} cx</div>
                               )}
                               {Number(item.horas_plano1 || 0) > 0 && (
-                                <div className="mt-1 font-semibold">Indisp.: {fmt(Number(item.horas_plano1 || 0))} h</div>
+                                <div className="mt-1 font-semibold">Disp.: {fmtDecimal(Number(item.horas_plano1 || 0), 1)} h</div>
                               )}
                             </td>
                             <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
@@ -1553,11 +1558,11 @@ function WaterfallStepModal({
                                 <div className="mt-1 font-semibold">Disp.: {fmt(Number(item.disponivel_atual_cx || 0))} cx</div>
                               )}
                               {Number(item.horas_atual || 0) > 0 && (
-                                <div className="mt-1 font-semibold">Indisp.: {fmt(Number(item.horas_atual || 0))} h</div>
+                                <div className="mt-1 font-semibold">Disp.: {fmtDecimal(Number(item.horas_atual || 0), 1)} h</div>
                               )}
                             </td>
                             <td className="px-3 py-3 text-right font-black" style={{ color: ganho ? "#16A34A" : "#DC2626" }}>
-                              {horas >= 0 ? "+" : "-"}{fmt(Math.abs(horas))} h
+                              {horas >= 0 ? "+" : "-"}{fmtDecimal(Math.abs(horas), 1)} h
                             </td>
                             <td className="px-3 py-3 text-right font-black" style={{ color: ganho ? "#16A34A" : "#DC2626" }}>
                               {impacto >= 0 ? "+" : "-"}{fmt(Math.abs(impacto))} cx
