@@ -556,12 +556,26 @@ function statusComponenteVisual(comp: Record<string, unknown>): StatusOP {
   // Mantém compatibilidade mesmo se o front receber status antigo = falta.
   const statusOperacional = String(comp.status_operacional || "")
   const statusCompra = String(comp.status_compra || "")
-  const abreNoPrazo = Boolean(comp.abre_no_prazo)
+  // Usa a mesma fonte de verdade das colunas "Abre OP?"/"Status compra" (prioriza abre_op,
+  // só cai pro campo legado abre_no_prazo se abre_op não existir). Ler abre_no_prazo direto
+  // aqui fazia essa badge divergir das outras quando o backend manda os dois campos e eles
+  // não estão sincronizados (ex.: abre_op=false mais atualizado, abre_no_prazo=true legado).
+  const abreNoPrazo = getAbreOP(comp)
   const temFaltanteAposCompras =
     Object.prototype.hasOwnProperty.call(comp, "faltante_apos_compras") ||
     Object.prototype.hasOwnProperty.call(comp, "faltante_pos_compra") ||
     Object.prototype.hasOwnProperty.call(comp, "faltante_na_data_op")
   const faltanteAposCompras = toNumber(comp.faltante_apos_compras ?? comp.faltante_pos_compra ?? comp.faltante_na_data_op)
+
+  // status_compra pode dizer explicitamente que a compra não resolve no prazo (nao_abre,
+  // atrasado, parcial, nao_cobre). Nesse caso, "faltante_apos_compras <= 0" (que só olha
+  // quantidade total comprada, sem considerar a data de entrega) não pode sobrescrever esse
+  // sinal — senão um material que só chega depois do prazo aparece como "ok" só porque a
+  // quantidade compra cobre o necessário.
+  const naoAbreExplicito =
+    !abreNoPrazo && ["nao_abre", "atrasado", "parcial", "nao_cobre"].includes(statusCompra)
+
+  if (naoAbreExplicito) return "falta"
 
   if (
     statusOperacional === "compra_no_prazo" ||
