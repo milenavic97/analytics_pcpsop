@@ -1422,7 +1422,7 @@ function useGargaloColResize(defaultWidth = GARGALO_COL_DEFAULT) {
 // ─── Componentes base ─────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: StatusOP }) {
-  const cfg = STATUS_CONFIG[status]
+  const cfg = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.ok
   const Icon = cfg.icon
   return (
     <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap"
