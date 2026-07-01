@@ -1958,12 +1958,18 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   // Saldo é uma foto atual. No gráfico mensal, ele só deve aparecer do mês atual para frente.
   // Não usamos estoque médio/fechamento histórico aqui para não dar a impressão de que o saldo atual existia nos meses fechados.
 
-  // Consumo histórico: só aparece nos meses que existem no histórico.
+  // Consumo histórico: só aparece nos meses que existem no histórico E que já fecharam.
   // Não projetamos consumo para frente com zero, porque isso achata/distorce o gráfico.
+  // IMPORTANTE: o filtro antigo só checava os limites da janela do gráfico (inicio/fim),
+  // não o mês atual — então se o backend mandasse alguma linha de historico_consumo pra
+  // um mês futuro (mesmo com consumo 0), ela entrava e desenhava uma linha reta em zero
+  // até dezembro. Agora exige explicitamente que o mês seja anterior ao mês atual.
   for (const p of item.historico_consumo || []) {
     const ano = Number(p.ano || 0)
     const mes = Number(p.mes || 0)
     if (!ano || !mes) continue
+    const key = monthKey(ano, mes)
+    if (key >= chaveAtual) continue
     const keyDate = new Date(ano, mes - 1, 1)
     if (keyDate < inicio || keyDate > fim) continue
     const ponto = ensure(ano, mes)
