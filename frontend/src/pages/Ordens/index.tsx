@@ -2206,7 +2206,7 @@ function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColW
   onAjusteCompraDataChange: (key: string, value: string) => void
 }) {
   const [aberto, setAberto] = useState(false)
-  const cfg = STATUS_CONFIG[op.status]
+  const cfg = STATUS_CONFIG[op.status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.aberta
   const tipo = tipoProduto(op.linha)
   const qtdTeorica = getQtdTeoricaOP(op)
   const usaLoteTeorico = usaLoteTeoricoOP(op)
