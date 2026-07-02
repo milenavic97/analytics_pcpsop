@@ -273,6 +273,56 @@ function withLotes(step: WaterfallStep, lotes?: number): WaterfallStep {
   return step
 }
 
+type LoteReprovadoDetalhe = {
+  lote: string
+  grupo?: string
+  produto?: string
+  qtdPrevistaCx: number
+  qtdLiberadaCx: number
+  qtdPerdaCx: number
+  motivo?: string
+  setor?: string
+  destino?: string
+  estado?: string
+  diasDesvio?: number
+}
+
+function listarLotesReprovados(rastreamento: any): LoteReprovadoDetalhe[] {
+  const lotes = Array.isArray(rastreamento?.lotes) ? rastreamento.lotes : []
+  const vistos = new Set<string>()
+  const resultado: LoteReprovadoDetalhe[] = []
+
+  lotes.forEach((item: any) => {
+    const lote = String(item?.lote || item?.lote_op || item?.numero_lote || item?.op || "").trim()
+    if (!lote) return
+
+    const status = String(item?.status_gap || "").trim()
+    const ehReprovado = Boolean(item?.desvio_reprovacao) || status === "Reprovação/desvio"
+    if (!ehReprovado) return
+    if (vistos.has(lote)) return
+    vistos.add(lote)
+
+    const qtdPrevistaCx = numero(item?.qtd_prevista_cx)
+    const qtdLiberadaCx = numero(item?.qtd_liberada_cx)
+
+    resultado.push({
+      lote,
+      grupo: item?.grupo || undefined,
+      produto: item?.sku_pa || undefined,
+      qtdPrevistaCx,
+      qtdLiberadaCx,
+      qtdPerdaCx: Math.max(qtdPrevistaCx - qtdLiberadaCx, 0),
+      motivo: item?.desvio_titulo || item?.motivo_gap || undefined,
+      setor: item?.desvio_setor || undefined,
+      destino: item?.desvio_destino_consolidado || item?.desvio_destino || undefined,
+      estado: item?.desvio_estado || undefined,
+      diasDesvio: item?.desvio_dias != null ? numero(item.desvio_dias) : undefined,
+    })
+  })
+
+  return resultado.sort((a, b) => b.qtdPerdaCx - a.qtdPerdaCx)
+}
+
 function montarWaterfallAnual(dados: Required<NonNullable<LiberacaoExecutivaPayload["dados"]>>, rastreamento: any): WaterfallStep[] {
   const plano1BaseCx = dados.plano1LiberacaoCx + dados.estoqueInicialJanCx
   const disponibilidadeAtualCx = dados.planoAtualLiberacaoCx + dados.estoqueInicialJanCx
@@ -327,6 +377,13 @@ function montarWaterfallAnual(dados: Required<NonNullable<LiberacaoExecutivaPayl
       kind: "delta",
       value: -reprovacao,
       tone: "orange",
+      clickable: true,
+      modal: {
+        titulo: "Lotes reprovados / em desvio",
+        descricao: "Lotes do mês atual classificados como Reprovação/desvio, com motivo, setor e destino informados pela base de Desvios.",
+        delta_cx: -reprovacao,
+        lotesReprovados: listarLotesReprovados(rastreamento),
+      },
     }, lotes.reprovacao))
   }
 
@@ -1226,7 +1283,7 @@ function WaterfallChart({
           const connectorX1 = currentX + stepWidth / 2
           const connectorX2 = getConnectorTargetX(index)
 
-          const stepClickable = Boolean(bar.id === "reorg-plano" || bar.id.startsWith("reorganizacao"))
+          const stepClickable = Boolean(bar.id === "reorg-plano" || bar.id.startsWith("reorganizacao") || bar.id === "reprovacao")
 
           return (
             <g
@@ -1479,6 +1536,118 @@ function WaterfallStepModal({
   onClose: () => void
 }) {
   if (!step) return null
+
+  if (step.id === "reprovacao") {
+    const modalReprovacao = (step as any).modal || {}
+    const lotesReprovados: LoteReprovadoDetalhe[] = modalReprovacao.lotesReprovados || []
+    const totalPerdaCx = lotesReprovados.reduce((acc, item) => acc + item.qtdPerdaCx, 0)
+
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        style={{ background: "rgba(15,23,42,0.45)" }}
+        onClick={onClose}
+      >
+        <div
+          className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
+          style={{ borderColor: "var(--border)" }}
+          onClick={(event: MouseEvent<HTMLDivElement>) => event.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-4 border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
+                Detalhe da cascata anual
+              </p>
+              <h2 className="mt-1 text-xl font-black" style={{ color: "var(--text-primary)" }}>
+                {modalReprovacao.titulo || "Lotes reprovados / em desvio"}
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {modalReprovacao.descricao || "Abertura dos lotes que compõem a causa Reprov. lote na cascata anual."}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl p-2 transition hover:bg-black/5"
+              aria-label="Fechar"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="overflow-auto p-5">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <MiniResumo
+                label="Impacto na disponibilidade"
+                value={`-${fmt(Math.abs(Number(modalReprovacao.delta_cx || 0)))} cx`}
+                sub={`-${fmtTubetes(Math.abs(Number(modalReprovacao.delta_cx || 0)))}`}
+                color="#DC2626"
+                bg="#FEF2F2"
+              />
+              <MiniResumo
+                label="Lotes reprovados"
+                value={fmtLotesQtd(lotesReprovados.length)}
+                sub="com desvio classificado como reprovação"
+                color="#334155"
+                bg="#F8FAFC"
+              />
+              <MiniResumo
+                label="Caixas perdidas (soma dos lotes)"
+                value={`${fmt(totalPerdaCx)} cx`}
+                sub={fmtTubetes(totalPerdaCx)}
+                color="#DC2626"
+                bg="#FEF2F2"
+              />
+            </div>
+
+            {lotesReprovados.length > 0 ? (
+              <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+                <div className="max-h-[420px] overflow-auto">
+                  <table className="w-full min-w-[920px] text-xs">
+                    <thead style={{ background: "#F8FAFC", color: "var(--text-secondary)" }}>
+                      <tr>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Lote</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Produto</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Previsto</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Liberado</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Perda cx</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Motivo do desvio</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Setor</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Destino</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Estado</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Dias em desvio</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lotesReprovados.map((item) => (
+                        <tr key={item.lote} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+                          <td className="px-3 py-3 font-black" style={{ color: "var(--text-primary)" }}>{item.lote}</td>
+                          <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-secondary)" }}>{item.produto || item.grupo || "—"}</td>
+                          <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmt(item.qtdPrevistaCx)} cx</td>
+                          <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmt(item.qtdLiberadaCx)} cx</td>
+                          <td className="px-3 py-3 text-right font-black" style={{ color: "#DC2626" }}>{fmt(item.qtdPerdaCx)} cx</td>
+                          <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>{item.motivo || "—"}</td>
+                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.setor || "—"}</td>
+                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.destino || "—"}</td>
+                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.estado || "—"}</td>
+                          <td className="px-3 py-3 text-right" style={{ color: "var(--text-secondary)" }}>{item.diasDesvio != null ? fmt(item.diasDesvio) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm" style={{ color: "var(--text-secondary)" }}>
+                Nenhum lote com detalhe de desvio disponível para o período.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const modal = (step as any).modal || {}
   const calculo = modal.calculo || (step as any).calculo || {}
@@ -3445,7 +3614,7 @@ export default function LiberacaoExecutiva() {
   const itensReorganizacao: ReorganizacaoItem[] = apiData?.itensReorganizacao || []
 
   const abrirModalWaterfall = (step: WaterfallStep) => {
-    if (step.id === "reorg-plano") {
+    if (step.id === "reorg-plano" || step.id === "reprovacao") {
       setModalWaterfallStep(step)
       return
     }
