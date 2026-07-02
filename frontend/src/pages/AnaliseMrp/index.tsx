@@ -990,6 +990,12 @@ function getQuarentenaAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe
   if (!item) return 0
 
   const raw = item as unknown as Record<string, unknown>
+  // Mesmo padrão de getEstoqueAtualReal: usa o PRIMEIRO campo válido, não o maior
+  // entre todos. Antes, pegar o "maior" fazia esse valor às vezes vir do campo
+  // bruto (saldo_quarentena_bruto, antes de descontar empenho/reserva) mesmo
+  // quando saldo_quarentena (líquido, o que a coluna "Quarentena 98" mostra) já
+  // existia e era 0 — inflando "Estoque + entradas" com quarentena que na
+  // prática já estava reservada/indisponível.
   const candidatos = [
     raw.saldo_quarentena,
     raw.quarentena,
@@ -1000,13 +1006,14 @@ function getQuarentenaAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe
     raw.estoque_quarentena,
   ]
 
-  let maior = 0
   for (const candidato of candidatos) {
     const valor = toNumberSafe(candidato, Number.NaN)
-    if (Number.isFinite(valor) && valor > maior) maior = valor
+    if (Number.isFinite(valor)) {
+      return Math.max(0, valor)
+    }
   }
 
-  return Math.max(0, maior)
+  return 0
 }
 
 function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -1292,6 +1299,8 @@ function getDiasEstoqueProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe 
 }
 
 function getEstoqueMaisEntradasProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  // Estoque + entradas = estoque atual + o que está chegando + quarentena
+  // (mesmo valor líquido mostrado na coluna "Quarentena 98").
   return getEstoqueAtualReal(item) + getPedidosAbertos(item) + getQuarentenaAtualReal(item)
 }
 
