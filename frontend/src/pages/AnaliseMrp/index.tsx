@@ -5779,9 +5779,12 @@ function BraviSeriePanel({
       const demanda = Math.max(0, Number(ponto.demanda || ponto.forecast || 0))
 
       if (isAtual) {
-        // Regra visual: entradas do mês atual viram base para o saldo projetado futuro.
-        // Não descontamos o forecast do mês corrente para evitar misturar realizado parcial com previsão mensal.
-        saldoProjetado = Math.max(0, saldoProjetado + entradas)
+        // Antes: não descontávamos a demanda do mês atual (só somava entradas),
+        // pra evitar misturar realizado parcial com previsão mensal. Na prática
+        // isso fazia a demanda do mês corrente sumir do cálculo — nunca era
+        // descontada de lugar nenhum — inflando o saldo projetado dos meses
+        // seguintes. Agora desconta igual aos meses futuros.
+        saldoProjetado = Math.max(0, saldoProjetado + entradas - demanda)
         ponto.saldo_projetado = null
         ponto.estoque_projetado = null
         continue
