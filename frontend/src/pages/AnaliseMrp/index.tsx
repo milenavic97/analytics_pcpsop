@@ -2060,21 +2060,25 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
       if (key > chaveAtual) {
         const demanda = Number(p.demanda || 0)
         p.ponto_pedido = calcularPontoPedidoMensal(item, p.ano, p.mes, demanda)
-        saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - demanda
-        p.saldo_projetado = saldoProjetado
+        // Mostra o saldo de ABERTURA do mês — o que sobrou do mês anterior,
+        // ANTES de somar a entrada/descontar a demanda deste próprio mês.
+        // Assim a barra cinza + a entrada laranja empilhada em cima fazem
+        // sentido visual (abertura + o que ainda vai chegar), em vez da barra
+        // já vir com a entrada do mês embutida silenciosamente.
+        p.saldo_projetado = Math.max(0, saldoProjetado)
         p.saldo_grafico = Math.max(0, saldoProjetado)
+        // Só agora atualiza o acumulador — vira a abertura do mês seguinte.
+        saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - demanda
       } else if (key === chaveAtual) {
         const demanda = Number(p.demanda || 0)
         p.ponto_pedido = calcularPontoPedidoMensal(item, p.ano, p.mes, demanda)
-        // Antes: o mês atual não atualizava saldoProjetado (nem somava entrada,
-        // nem descontava demanda) — o mês seguinte (ex: Ago) começava direto do
-        // saldo de hoje, como se as entradas e o consumo do mês atual nunca
-        // tivessem acontecido. Agora aplica o líquido do mês atual no
-        // acumulador, só não muda o que é exibido na própria barra do mês
-        // atual (continua mostrando o saldo real de hoje).
-        saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - demanda
+        // O mês atual já mostrava o saldo de abertura (estoqueAtualReal = saldo
+        // real de hoje), então aqui não muda o que é exibido — só atualiza o
+        // acumulador com o líquido do mês atual, pra virar a abertura do mês
+        // seguinte (ex: Ago parte do saldo líquido de Jul, não do saldo de hoje).
         p.saldo_projetado = null
         p.saldo_grafico = p.saldo_grafico ?? estoqueAtualReal
+        saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - demanda
       } else {
         p.ponto_pedido = (p.ponto_pedido ?? Number(item.consumo_durante_lt || 0)) || null
         p.saldo_projetado = null
@@ -5798,9 +5802,12 @@ function BraviSeriePanel({
       }
 
       if (isFuturo) {
-        saldoProjetado = Math.max(0, saldoProjetado + entradas - demanda)
-        ponto.saldo_projetado = saldoProjetado
+        // Mostra o saldo de abertura do mês (herdado do mês anterior), antes
+        // de aplicar a entrada/demanda deste próprio mês — mesmo racional do
+        // buildLinhaTempoFallback acima.
+        ponto.saldo_projetado = Math.max(0, saldoProjetado)
         ponto.estoque_projetado = saldoProjetado > 0 ? saldoProjetado : null
+        saldoProjetado = Math.max(0, saldoProjetado + entradas - demanda)
       }
     }
 
