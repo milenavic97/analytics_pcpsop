@@ -2066,6 +2066,13 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
       } else if (key === chaveAtual) {
         const demanda = Number(p.demanda || 0)
         p.ponto_pedido = calcularPontoPedidoMensal(item, p.ano, p.mes, demanda)
+        // Antes: o mês atual não atualizava saldoProjetado (nem somava entrada,
+        // nem descontava demanda) — o mês seguinte (ex: Ago) começava direto do
+        // saldo de hoje, como se as entradas e o consumo do mês atual nunca
+        // tivessem acontecido. Agora aplica o líquido do mês atual no
+        // acumulador, só não muda o que é exibido na própria barra do mês
+        // atual (continua mostrando o saldo real de hoje).
+        saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - demanda
         p.saldo_projetado = null
         p.saldo_grafico = p.saldo_grafico ?? estoqueAtualReal
       } else {
