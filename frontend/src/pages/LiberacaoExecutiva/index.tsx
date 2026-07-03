@@ -907,6 +907,58 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
     ? causasAnuais.perdasMensais
     : null
 
+  // O resumo novo da Liberação Executiva pode trazer apenas a reprovação oficial
+  // recalculada por mês de liberação. Não podemos substituir a série inteira,
+  // senão somem os atrasos/alterações que ainda vêm da base de rastreamento.
+  // A regra aqui é: mantém a curva mensal original e troca somente a parcela
+  // de Reprovação quando o backend novo trouxer valor oficial para aquele mês.
+  const perdasMensaisMescladas = (() => {
+    const base = Array.isArray(payload.perdasMensais) ? payload.perdasMensais : []
+    if (!perdasMensaisBackend || perdasMensaisBackend.length <= 0) return base
+
+    const byMes = new Map<string, any>()
+    perdasMensaisBackend.forEach((item: any) => {
+      const mesKey = String(item?.mes || '').trim()
+      if (mesKey) byMes.set(mesKey, item)
+    })
+
+    const mesesBase = base.length > 0
+      ? base
+      : MES_LABELS.map((mesLabel, idx) => ({
+          mes: mesLabel,
+          baseline: idx === 0 ? 'Jan/V3' : `${mesLabel}/V1`,
+          v1: 0,
+          atraso: 0,
+          reorg: 0,
+          reprovacao: 0,
+          status: 'futuro' as const,
+        }))
+
+    return mesesBase.map((baseItem) => {
+      const oficial = byMes.get(String(baseItem?.mes || '').trim())
+      if (!oficial) return baseItem
+
+      const reprovacaoOficial = mensalReprovadoCx(oficial as MonthlyLossesItem)
+      const atrasoAlteracoesBase = Math.max(0, Math.round(numero(baseItem?.atraso) + numero(baseItem?.reorg)))
+      const reprovacaoFinal = reprovacaoOficial > 0
+        ? reprovacaoOficial
+        : Math.max(0, Math.round(numero(baseItem?.reprovacao)))
+      const perdaFinal = atrasoAlteracoesBase + reprovacaoFinal
+
+      return {
+        ...baseItem,
+        ...(oficial?.planoRefCx || oficial?.plano_ref_cx ? { planoRefCx: mensalPlanoRefCx(oficial as MonthlyLossesItem) } : {}),
+        // Front agrupado: atraso + reorg aparecem como um único segmento azul.
+        atraso: atrasoAlteracoesBase,
+        reorg: 0,
+        reprovacao: reprovacaoFinal,
+        reprovadoCx: reprovacaoFinal,
+        perdaCx: perdaFinal,
+        ganhoCx: 0,
+      }
+    })
+  })()
+
   return {
     ...payload,
     dados: {
@@ -914,9 +966,7 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
       ...(causasAnuais.dados || {}),
     },
     waterfallSteps: steps,
-    perdasMensais: perdasMensaisBackend && perdasMensaisBackend.length > 0
-      ? perdasMensaisBackend
-      : payload.perdasMensais,
+    perdasMensais: perdasMensaisMescladas,
   }
 }
 
