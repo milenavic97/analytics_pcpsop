@@ -1015,10 +1015,9 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
   // de Reprovação quando o backend novo trouxer valor oficial para aquele mês.
   const perdasMensaisMescladas = (() => {
     const base = Array.isArray(payload.perdasMensais) ? payload.perdasMensais : []
-    if (!perdasMensaisBackend || perdasMensaisBackend.length <= 0) return base
 
     const byMes = new Map<string, any>()
-    perdasMensaisBackend.forEach((item: any) => {
+    ;(perdasMensaisBackend || []).forEach((item: any) => {
       const mesKey = String(item?.mes || '').trim()
       if (mesKey) byMes.set(mesKey, item)
     })
@@ -1035,24 +1034,34 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
           status: 'futuro' as const,
         }))
 
-    return mesesBase.map((baseItem) => {
-      const oficial = byMes.get(String(baseItem?.mes || '').trim())
-      if (!oficial) return baseItem
+    const temReprovacaoModal = reprovacaoMensalModal.size > 0
 
-      const reprovacaoModal = reprovacaoMensalModal.get(String(baseItem?.mes || oficial?.mes || "").trim()) || 0
-      const reprovacaoOficial = mensalReprovadoCx(oficial as MonthlyLossesItem)
-      const atrasoAlteracoesBase = Math.max(0, Math.round(numero(baseItem?.atraso) + numero(baseItem?.reorg)))
-      const reprovacaoFinal = reprovacaoModal > 0
+    return mesesBase.map((baseItem) => {
+      const mesKey = String(baseItem?.mes || '').trim()
+      const oficial = byMes.get(mesKey)
+
+      const reprovacaoModal = Math.max(0, Math.round(reprovacaoMensalModal.get(mesKey) || 0))
+      const reprovacaoOficial = oficial ? mensalReprovadoCx(oficial as MonthlyLossesItem) : 0
+      const reprovacaoBase = Math.max(0, Math.round(numero(baseItem?.reprovacao)))
+
+      // Quando o modal anual veio com os lotes oficiais, ele é a fonte de verdade
+      // para a parcela mensal de reprovação. Meses sem lote oficial ficam com zero,
+      // mesmo que a série antiga trouxesse uma reprovação parcial/cacheada.
+      const reprovacaoFinal = temReprovacaoModal
         ? reprovacaoModal
         : reprovacaoOficial > 0
           ? reprovacaoOficial
-          : Math.max(0, Math.round(numero(baseItem?.reprovacao)))
+          : reprovacaoBase
+
+      // O azul representa o restante mensal que não é reprovação. Mantemos a perda
+      // mensal base e substituímos só a parte vermelha, para não apagar atraso/reorg.
+      const perdaBase = Math.max(0, Math.round(mensalPerdaCx(baseItem)))
+      const atrasoAlteracoesBase = Math.max(0, perdaBase - reprovacaoBase)
       const perdaFinal = atrasoAlteracoesBase + reprovacaoFinal
 
       return {
         ...baseItem,
         ...(oficial?.planoRefCx || oficial?.plano_ref_cx ? { planoRefCx: mensalPlanoRefCx(oficial as MonthlyLossesItem) } : {}),
-        // Front agrupado: atraso + reorg aparecem como um único segmento azul.
         atraso: atrasoAlteracoesBase,
         reorg: 0,
         reprovacao: reprovacaoFinal,
