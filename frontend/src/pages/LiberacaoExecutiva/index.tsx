@@ -794,15 +794,31 @@ async function carregarPonteVersoesMps(ano: number, mes: number) {
 }
 
 async function carregarCausasAnuaisReais(ano: number, mesAtual?: number) {
-  try {
-    const mesParam = mesAtual ? `&mes_atual=${mesAtual}` : ""
-    return await fetchJsonComTimeout(
-      `${API_BASE}/liberacao-executiva/causas-anuais?ano=${ano}${mesParam}&_t=${Date.now()}`,
-      60000,
-    )
-  } catch {
-    return null
+  // Tenta o mês atual e, se o snapshot/cálculo ainda não existir no mês virado
+  // (ex.: julho logo após fechar junho), volta mês a mês até achar a última
+  // cascata anual válida. Isso evita a tela ficar sem waterfall só porque o
+  // MPS do novo mês ainda não foi processado.
+  const mesesTentativa = mesAtual
+    ? Array.from({ length: Math.max(1, Math.min(12, mesAtual)) }, (_, idx) => Math.min(12, mesAtual) - idx)
+    : [undefined]
+
+  for (const mes of mesesTentativa) {
+    try {
+      const mesParam = mes ? `&mes_atual=${mes}` : ""
+      const json = await fetchJsonComTimeout(
+        `${API_BASE}/liberacao-executiva/causas-anuais?ano=${ano}${mesParam}&_t=${Date.now()}`,
+        60000,
+      )
+
+      if (json && Array.isArray(json.steps) && json.steps.length >= 2) {
+        return json
+      }
+    } catch {
+      // tenta o mês anterior
+    }
   }
+
+  return null
 }
 
 async function carregarLotesReprovadosDesvios(ano: number) {
