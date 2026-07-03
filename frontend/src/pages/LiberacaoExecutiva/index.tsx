@@ -310,11 +310,11 @@ function normalizarLoteReprovado(item: any): LoteReprovadoDetalhe | null {
     grupo: item?.grupo || undefined,
     produto: item?.produto || item?.sku_pa || item?.codigo || item?.codigo_produto || undefined,
     descricao: descricao || undefined,
-    caixas: perdaCx,
-    tubetes: firstFiniteNumber(item?.tubetes, item?.qtd_tubetes, perdaCx * 500, 0) || 0,
-    qtdPrevistaCx: previstoCx,
-    qtdLiberadaCx: liberadoCx,
-    qtdPerdaCx: perdaCx > 0 ? perdaCx : Math.max(previstoCx - liberadoCx, 0),
+    caixas: quantidadeInformada ? perdaCx : undefined,
+    tubetes: quantidadeInformada ? (firstFiniteNumber(item?.tubetes, item?.qtd_tubetes, perdaCx * 500, 0) || 0) : undefined,
+    qtdPrevistaCx: quantidadeInformada ? previstoCx : 0,
+    qtdLiberadaCx: quantidadeInformada ? liberadoCx : 0,
+    qtdPerdaCx: quantidadeInformada ? (perdaCx > 0 ? perdaCx : Math.max(previstoCx - liberadoCx, 0)) : 0,
     quantidadeInformada,
     motivo: descricao || undefined,
     setor: item?.setor || item?.desvio_setor || undefined,
@@ -793,10 +793,11 @@ async function carregarPonteVersoesMps(ano: number, mes: number) {
   }
 }
 
-async function carregarCausasAnuaisReais(ano: number) {
+async function carregarCausasAnuaisReais(ano: number, mesAtual?: number) {
   try {
+    const mesParam = mesAtual ? `&mes_atual=${mesAtual}` : ""
     return await fetchJsonComTimeout(
-      `${API_BASE}/liberacao-executiva/causas-anuais?ano=${ano}&_t=${Date.now()}`,
+      `${API_BASE}/liberacao-executiva/causas-anuais?ano=${ano}${mesParam}&_t=${Date.now()}`,
       60000,
     )
   } catch {
@@ -3411,7 +3412,7 @@ export default function LiberacaoExecutiva() {
         // ficava presa em "Calculando..." porque o Promise.all aguardava também
         // carregarRastreamentosDoCache(12 meses), que é bem mais pesado.
         const [causasAnuais, lotesReprovadosDesvios] = await Promise.all([
-          carregarCausasAnuaisReais(ano),
+          carregarCausasAnuaisReais(ano, mesAtual),
           carregarLotesReprovadosDesvios(ano),
         ])
 
