@@ -274,9 +274,13 @@ function withLotes(step: WaterfallStep, lotes?: number): WaterfallStep {
 }
 
 type LoteReprovadoDetalhe = {
+  nc?: string
   lote: string
   grupo?: string
   produto?: string
+  descricao?: string
+  caixas?: number
+  tubetes?: number
   qtdPrevistaCx: number
   qtdLiberadaCx: number
   qtdPerdaCx: number
@@ -284,7 +288,38 @@ type LoteReprovadoDetalhe = {
   setor?: string
   destino?: string
   estado?: string
+  status?: string
   diasDesvio?: number
+}
+
+function normalizarLoteReprovado(item: any): LoteReprovadoDetalhe | null {
+  const lote = String(item?.lote || item?.lote_original || item?.loteOriginal || item?.lote_op || item?.numero_lote || item?.op || "").trim()
+  if (!lote) return null
+
+  const perdaCx = firstFiniteNumber(item?.qtdPerdaCx, item?.qtd_perda_cx, item?.caixas, item?.qtd_cx, item?.qtdPrevistaCx, item?.qtd_prevista_cx, 0) || 0
+  const previstoCx = firstFiniteNumber(item?.qtdPrevistaCx, item?.qtd_prevista_cx, item?.qtd_cx, item?.caixas, perdaCx, 0) || 0
+  const liberadoCx = firstFiniteNumber(item?.qtdLiberadaCx, item?.qtd_liberada_cx, 0) || 0
+  const descricao = String(item?.descricao || item?.titulo || item?.motivo || item?.desvio_titulo || item?.motivo_gap || "").trim()
+  const status = String(item?.status || item?.estado || item?.desvio_estado || "").trim()
+
+  return {
+    nc: String(item?.nc || item?.serial || item?.numero_nc || "").trim() || undefined,
+    lote,
+    grupo: item?.grupo || undefined,
+    produto: item?.produto || item?.sku_pa || item?.codigo || item?.codigo_produto || undefined,
+    descricao: descricao || undefined,
+    caixas: perdaCx,
+    tubetes: firstFiniteNumber(item?.tubetes, item?.qtd_tubetes, perdaCx * 500, 0) || 0,
+    qtdPrevistaCx: previstoCx,
+    qtdLiberadaCx: liberadoCx,
+    qtdPerdaCx: perdaCx > 0 ? perdaCx : Math.max(previstoCx - liberadoCx, 0),
+    motivo: descricao || undefined,
+    setor: item?.setor || item?.desvio_setor || undefined,
+    destino: item?.destino || item?.desvio_destino_consolidado || item?.desvio_destino || undefined,
+    estado: status || undefined,
+    status: status || undefined,
+    diasDesvio: item?.diasDesvio != null ? numero(item.diasDesvio) : (item?.dias_desvio != null ? numero(item.dias_desvio) : undefined),
+  }
 }
 
 function listarLotesReprovados(rastreamento: any): LoteReprovadoDetalhe[] {
@@ -1571,12 +1606,21 @@ function WaterfallStepModal({
 
   if (step.id === "reprovacao") {
     const modalReprovacao = (step as any).modal || {}
-    const lotesReprovados: LoteReprovadoDetalhe[] = modalReprovacao.lotesReprovados || []
-    const totalPerdaDetalheCx = lotesReprovados.reduce((acc, item) => acc + item.qtdPerdaCx, 0)
+    const lotesRaw = Array.isArray(modalReprovacao.lotesReprovados)
+      ? modalReprovacao.lotesReprovados
+      : (Array.isArray(modalReprovacao.detalhes_lotes) ? modalReprovacao.detalhes_lotes : [])
+    const lotesReprovados: LoteReprovadoDetalhe[] = lotesRaw
+      .map((item: any) => normalizarLoteReprovado(item))
+      .filter(Boolean) as LoteReprovadoDetalhe[]
+    const totalPerdaDetalheCx = lotesReprovados.reduce((acc, item) => acc + numero(item.qtdPerdaCx || item.caixas), 0)
     const totalPerdaCx = totalPerdaDetalheCx > 0
       ? totalPerdaDetalheCx
-      : Math.abs(Number(modalReprovacao.delta_cx ?? step.value ?? 0))
-    const qtdLotesReprovados = lotesReprovados.length || Math.max(0, Math.round(Number((step as any).lotes || modalReprovacao.qtd_lotes || 0)))
+      : Math.abs(Number(modalReprovacao.total_caixas ?? modalReprovacao.delta_cx ?? step.value ?? 0))
+    const ncsUnicas = new Set(lotesReprovados.map((item) => item.nc).filter(Boolean))
+    const qtdLotesReprovados = Math.max(
+      lotesReprovados.length,
+      Math.round(Number((step as any).lotes || modalReprovacao.qtd_lotes || modalReprovacao.lotes || 0)),
+    )
 
     return (
       <div
@@ -1613,11 +1657,11 @@ function WaterfallStepModal({
           </div>
 
           <div className="overflow-auto p-5">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <MiniResumo
                 label="Impacto na disponibilidade"
-                value={`-${fmt(Math.abs(Number(modalReprovacao.delta_cx || 0)))} cx`}
-                sub={`-${fmtTubetes(Math.abs(Number(modalReprovacao.delta_cx || 0)))}`}
+                value={`-${fmt(Math.abs(Number(modalReprovacao.delta_cx || step.value || 0)))} cx`}
+                sub={`-${fmtTubetes(Math.abs(Number(modalReprovacao.delta_cx || step.value || 0)))}`}
                 color="#DC2626"
                 bg="#FEF2F2"
               />
@@ -1629,7 +1673,14 @@ function WaterfallStepModal({
                 bg="#F8FAFC"
               />
               <MiniResumo
-                label="Caixas perdidas (soma dos lotes)"
+                label="NCs relacionadas"
+                value={fmt(ncsUnicas.size || Number(modalReprovacao.qtd_ncs || 0))}
+                sub="Monitor de desvios"
+                color="#334155"
+                bg="#F8FAFC"
+              />
+              <MiniResumo
+                label="Caixas perdidas"
                 value={`${fmt(totalPerdaCx)} cx`}
                 sub={fmtTubetes(totalPerdaCx)}
                 color="#DC2626"
@@ -1640,34 +1691,28 @@ function WaterfallStepModal({
             {lotesReprovados.length > 0 ? (
               <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
                 <div className="max-h-[420px] overflow-auto">
-                  <table className="w-full min-w-[920px] text-xs">
+                  <table className="w-full min-w-[980px] text-xs">
                     <thead style={{ background: "#F8FAFC", color: "var(--text-secondary)" }}>
                       <tr>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">NC</th>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Lote</th>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Produto</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Previsto</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Liberado</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Perda cx</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Motivo do desvio</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Setor</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Descrição</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Caixas</th>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Destino</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Estado</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Dias em desvio</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {lotesReprovados.map((item) => (
-                        <tr key={item.lote} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
-                          <td className="px-3 py-3 font-black" style={{ color: "var(--text-primary)" }}>{item.lote}</td>
+                      {lotesReprovados.map((item, index) => (
+                        <tr key={`${item.nc || "NC"}-${item.lote}-${index}`} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+                          <td className="px-3 py-3 font-black whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{item.nc || "—"}</td>
+                          <td className="px-3 py-3 font-black whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{item.lote}</td>
                           <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-secondary)" }}>{item.produto || item.grupo || "—"}</td>
-                          <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmt(item.qtdPrevistaCx)} cx</td>
-                          <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmt(item.qtdLiberadaCx)} cx</td>
-                          <td className="px-3 py-3 text-right font-black" style={{ color: "#DC2626" }}>{fmt(item.qtdPerdaCx)} cx</td>
-                          <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>{item.motivo || "—"}</td>
-                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.setor || "—"}</td>
+                          <td className="max-w-[360px] px-3 py-3 font-semibold leading-relaxed" style={{ color: "var(--text-primary)" }}>{item.descricao || item.motivo || "—"}</td>
+                          <td className="px-3 py-3 text-right font-black whitespace-nowrap" style={{ color: "#DC2626" }}>{fmt(numero(item.qtdPerdaCx || item.caixas))} cx</td>
                           <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.destino || "—"}</td>
-                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.estado || "—"}</td>
-                          <td className="px-3 py-3 text-right" style={{ color: "var(--text-secondary)" }}>{item.diasDesvio != null ? fmt(item.diasDesvio) : "—"}</td>
+                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.status || item.estado || "—"}</td>
                         </tr>
                       ))}
                     </tbody>
