@@ -2142,18 +2142,11 @@ function MonthlyLossesStackedChart({
 
     return [
       {
-        id: 'atraso',
-        label: 'Atraso produção',
-        value: Math.max(0, Math.round(numero(item.atraso))),
+        id: 'atraso_alteracoes',
+        label: 'Atraso produção / Alterações plano',
+        value: Math.max(0, Math.round(numero(item.atraso) + numero(item.reorg))),
         color: COLORS.atraso,
         soft: '#EAF4FA',
-      },
-      {
-        id: 'reorg',
-        label: 'Reorg.',
-        value: Math.max(0, Math.round(numero(item.reorg))),
-        color: COLORS.reorg,
-        soft: '#E9ECF8',
       },
       {
         id: 'reprovacao',
@@ -2228,7 +2221,7 @@ function MonthlyLossesStackedChart({
         <div className="w-[140px]" />
 
         <div className="flex-1 px-1 text-center">
-          <p className="text-[12px] font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-secondary)' }}>
+          <p className="text-[13px] font-black uppercase tracking-[0.18em]" style={{ color: 'var(--text-secondary)' }}>
             Causas das perdas mensais
           </p>
 
@@ -2291,7 +2284,7 @@ function MonthlyLossesStackedChart({
                           height: segmentHeight,
                           radius: 8,
                           roundTop: isTopSegment || isOnlySegment,
-                          roundBottom: isBottomSegment || isOnlySegment,
+                          roundBottom: false,
                         })}
                         fill={isSimulado ? segment.soft : segment.color}
                         stroke={isSimulado ? segment.color : 'none'}
@@ -2389,8 +2382,7 @@ function MonthlyLossesStackedChart({
                 <title>{`${item.mes} (${refLabel})
 Plano ref.: ${fmt(planoRefCx)} cx
 Liberado válido: ${fmt(liberadoValidoCx)} cx
-Atraso produção: ${fmt(Math.max(0, numero(item.atraso)))} cx
-Reorg.: ${fmt(Math.max(0, numero(item.reorg)))} cx
+Atraso produção / Alterações plano: ${fmt(Math.max(0, numero(item.atraso) + numero(item.reorg)))} cx
 Reprovação: ${fmt(Math.max(0, numero(item.reprovacao)))} cx
 Total de perdas classificadas: ${fmt(totalCx)} cx`}</title>
               </g>
@@ -2403,14 +2395,7 @@ Total de perdas classificadas: ${fmt(totalCx)} cx`}</title>
         <div className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: COLORS.atraso }} />
           <span className="text-[10.5px] font-bold" style={{ color: 'var(--text-secondary)' }}>
-            Atraso produção
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: COLORS.reorg }} />
-          <span className="text-[10.5px] font-bold" style={{ color: 'var(--text-secondary)' }}>
-            Reorg.
+            Atraso produção / Alterações plano
           </span>
         </div>
 
@@ -2457,7 +2442,7 @@ function VersionBridgeSection({
       <div className="border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
         <div className="text-center">
           <p
-            className="text-[12px] font-black uppercase tracking-[0.18em]"
+            className="text-[13px] font-black uppercase tracking-[0.18em]"
             style={{ color: "var(--text-secondary)" }}
           >
             Variação entre versões - mês atual
@@ -3894,7 +3879,7 @@ export default function LiberacaoExecutiva() {
         <section className="rounded-2xl border bg-white shadow-sm" style={{ borderColor: "var(--border)" }}>
           <div className="px-5 pt-4 text-center">
             <p
-              className="text-[12px] font-black uppercase tracking-[0.18em]"
+              className="text-[13px] font-black uppercase tracking-[0.18em]"
               style={{ color: "var(--text-secondary)" }}
             >
               Causas da variação anual
