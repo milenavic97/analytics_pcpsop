@@ -277,42 +277,14 @@ type LoteReprovadoDetalhe = {
   lote: string
   grupo?: string
   produto?: string
-  codigo?: string
-  serial?: string
-  titulo?: string
   qtdPrevistaCx: number
   qtdLiberadaCx: number
   qtdPerdaCx: number
-  qtdCx?: number
   motivo?: string
   setor?: string
   destino?: string
-  estado?: string | number
+  estado?: string
   diasDesvio?: number
-  dataCriacao?: string
-  arquivoOrigem?: string
-}
-
-type DesvioReprovadoGrupo = {
-  chave: string
-  serial: string
-  titulo: string
-  setor?: string
-  destino?: string
-  estado?: string | number
-  estadoLabel?: string
-  diasDesvio?: number
-  lotes: string[]
-  qtdLotes: number
-  qtdCx: number
-  detalhes: LoteReprovadoDetalhe[]
-}
-
-type LotesReprovadosDesviosPayload = {
-  totalLotes: number
-  totalNcs: number
-  detalhes: LoteReprovadoDetalhe[]
-  grupos: DesvioReprovadoGrupo[]
 }
 
 function listarLotesReprovados(rastreamento: any): LoteReprovadoDetalhe[] {
@@ -349,152 +321,6 @@ function listarLotesReprovados(rastreamento: any): LoteReprovadoDetalhe[] {
   })
 
   return resultado.sort((a, b) => b.qtdPerdaCx - a.qtdPerdaCx)
-}
-
-function normalizarTextoBusca(value: any) {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toUpperCase()
-}
-
-function normalizarLote(value: any) {
-  const lote = String(value ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, "")
-  return lote.endsWith(".0") ? lote.slice(0, -2) : lote
-}
-
-function estadoDesvioLabel(estado: any) {
-  const raw = String(estado ?? "").trim()
-  if (!raw) return "—"
-  const mapa: Record<string, string> = {
-    "1": "Novo",
-    "2": "Em aberto",
-    "3": "Em análise",
-    "4": "Fechado",
-    "5": "Cancelado",
-  }
-  return mapa[raw] || raw
-}
-
-function extrairLotesDoDesvio(desvio: any) {
-  const lotes = new Set<string>()
-
-  ;[desvio?.lote, desvio?.lote_original, desvio?.loteOriginal].forEach((value) => {
-    String(value ?? "")
-      .split(/[,;]/)
-      .map(normalizarLote)
-      .filter(Boolean)
-      .forEach((lote) => lotes.add(lote))
-  })
-
-  String(desvio?.lotes_texto || desvio?.lotesTexto || "")
-    .split(/[,;]/)
-    .map(normalizarLote)
-    .filter(Boolean)
-    .forEach((lote) => lotes.add(lote))
-
-  if (Array.isArray(desvio?.lotes)) {
-    desvio.lotes.forEach((item: any) => {
-      const lote = normalizarLote(item?.lote || item?.lote_original || item)
-      if (lote) lotes.add(lote)
-    })
-  }
-
-  return Array.from(lotes)
-}
-
-function agruparLotesReprovadosPorNc(detalhes: LoteReprovadoDetalhe[]): DesvioReprovadoGrupo[] {
-  const map = new Map<string, DesvioReprovadoGrupo>()
-
-  detalhes.forEach((item) => {
-    const serial = String(item.serial || "Sem NC").trim() || "Sem NC"
-    const titulo = String(item.titulo || item.motivo || "Sem título").trim() || "Sem título"
-    const destino = item.destino || "—"
-    const chave = `${serial}||${titulo}||${destino}`
-
-    const atual = map.get(chave) || {
-      chave,
-      serial,
-      titulo,
-      setor: item.setor,
-      destino: item.destino,
-      estado: item.estado,
-      estadoLabel: estadoDesvioLabel(item.estado),
-      diasDesvio: item.diasDesvio,
-      lotes: [],
-      qtdLotes: 0,
-      qtdCx: 0,
-      detalhes: [],
-    }
-
-    if (item.lote && !atual.lotes.includes(item.lote)) atual.lotes.push(item.lote)
-    atual.qtdCx += Number(item.qtdCx ?? item.qtdPerdaCx ?? 0)
-    atual.detalhes.push(item)
-    atual.qtdLotes = atual.lotes.length
-    map.set(chave, atual)
-  })
-
-  return Array.from(map.values()).sort((a, b) => {
-    if (b.qtdCx !== a.qtdCx) return b.qtdCx - a.qtdCx
-    if (b.qtdLotes !== a.qtdLotes) return b.qtdLotes - a.qtdLotes
-    return a.serial.localeCompare(b.serial)
-  })
-}
-
-function montarDetalhesDesviosReprovados(historico: any[]): LotesReprovadosDesviosPayload {
-  const vistos = new Set<string>()
-  const detalhes: LoteReprovadoDetalhe[] = []
-
-  historico.forEach((desvio: any) => {
-    const destino = normalizarTextoBusca(desvio?.destino || desvio?.desvio_destino || desvio?.destino_consolidado)
-    const tituloBusca = normalizarTextoBusca(desvio?.titulo || desvio?.desvio_titulo)
-    const ehReprovadoOuDescarte =
-      destino.includes("REPROVADO") ||
-      destino.includes("DESCART") ||
-      tituloBusca.includes("REPROV")
-
-    if (!ehReprovadoOuDescarte) return
-
-    const lotes = extrairLotesDoDesvio(desvio)
-    lotes.forEach((lote) => {
-      const chave = `${String(desvio?.serial || "").trim()}||${lote}`
-      if (!lote || vistos.has(chave)) return
-      vistos.add(chave)
-
-      detalhes.push({
-        lote,
-        codigo: desvio?.codigo || desvio?.produto_codigo || undefined,
-        produto: desvio?.produto || desvio?.grupo_produto || undefined,
-        serial: desvio?.serial || undefined,
-        titulo: desvio?.titulo || undefined,
-        qtdPrevistaCx: numero(desvio?.qtd_prevista_cx),
-        qtdLiberadaCx: numero(desvio?.qtd_liberada_cx),
-        qtdPerdaCx: Math.abs(numero(desvio?.qtd_cx || desvio?.qtd_caixas || desvio?.qtdPerdaCx)),
-        qtdCx: Math.abs(numero(desvio?.qtd_cx || desvio?.qtd_caixas || desvio?.qtdPerdaCx)),
-        motivo: desvio?.titulo || desvio?.motivo || undefined,
-        setor: desvio?.setor || undefined,
-        destino: desvio?.destino || undefined,
-        estado: desvio?.estado,
-        diasDesvio: desvio?.dias_desvio != null ? numero(desvio.dias_desvio) : undefined,
-        dataCriacao: desvio?.data_criacao || desvio?.created_at || undefined,
-        arquivoOrigem: desvio?.arquivo_origem || undefined,
-      })
-    })
-  })
-
-  const grupos = agruparLotesReprovadosPorNc(detalhes)
-  const lotesUnicos = new Set(detalhes.map((item) => item.lote).filter(Boolean))
-
-  return {
-    totalLotes: lotesUnicos.size,
-    totalNcs: grupos.filter((grupo) => grupo.serial && grupo.serial !== "Sem NC").length,
-    detalhes,
-    grupos,
-  }
 }
 
 function montarWaterfallAnual(dados: Required<NonNullable<LiberacaoExecutivaPayload["dados"]>>, rastreamento: any): WaterfallStep[] {
@@ -645,6 +471,14 @@ function resumoMensalProjLib(projLib: any, mesAtual: number) {
   return resultado
 }
 
+function valorCausaMensal(causas: any, campos: string[]) {
+  for (const campo of campos) {
+    const n = Number(causas?.[campo])
+    if (Number.isFinite(n) && Math.abs(n) > 0) return Math.abs(Math.round(n))
+  }
+  return 0
+}
+
 function montarPerdasMensais(
   rastreamentos: Record<number, any>,
   mesAtual: number,
@@ -664,22 +498,46 @@ function montarPerdasMensais(
       || numero(r?.mes_cx_plano_atual_puro)
       || resumoMes.atual,
     )
-    const reprovadoCx = Math.abs(Math.round(numero(causas?.reprovacao_desvio)))
+
+    // Regra de negócio: não cobrir delta automaticamente.
+    // O gráfico mensal só mostra causas que vierem classificadas pelo backend.
+    // Assim a tela não transforma diferença residual em atraso/reorg “fake”.
+    const atrasoCx = valorCausaMensal(causas, [
+      "atraso_producao",
+      "atraso_producao_cx",
+      "atraso",
+    ])
+
+    const reorgCx = valorCausaMensal(causas, [
+      "reorganizacao_plano",
+      "reorganizacao_plano_cx",
+      "reorg_plano",
+      "reorg_plano_cx",
+      "reorg",
+      "reorg_cx",
+      "resultado_reorg_plano_cx",
+    ])
+
+    const reprovadoCx = valorCausaMensal(causas, [
+      "reprovacao_desvio",
+      "reprovacao_desvio_cx",
+      "reprovacao_cx",
+      "reprovacao",
+    ])
+
     const liberadoValidoCx = Math.max(0, liberadoBrutoCx - reprovadoCx)
-    const deltaVsPlano = planoRefCx - liberadoValidoCx
-    const perdaCx = Math.max(0, Math.round(deltaVsPlano))
-    const ganhoCx = Math.max(0, Math.round(-deltaVsPlano))
+    const perdaCx = atrasoCx + reorgCx + reprovadoCx
+    const ganhoCx = Math.max(0, liberadoValidoCx - planoRefCx)
 
     return {
       mes: mesLabel,
       baseline: mes === 1 ? "Jan/V3" : `${mesLabel}/V1`,
       v1: planoRefCx,
 
-      // Compatibilidade temporária com o gráfico antigo: a barra única de perda
-      // usa atraso, enquanto as causas deixam de ser abertas mês a mês.
-      reorg: 0,
-      atraso: perdaCx,
-      reprovacao: 0,
+      // Ordem do gráfico: Atraso produção -> Reorg. -> Reprovação.
+      atraso: atrasoCx,
+      reorg: reorgCx,
+      reprovacao: reprovadoCx,
       saldo: 0,
 
       planoRefCx,
@@ -908,22 +766,41 @@ async function carregarCausasAnuaisReais(ano: number) {
   }
 }
 
-async function carregarLotesReprovadosDesvios(ano: number): Promise<LotesReprovadosDesviosPayload | null> {
+async function carregarLotesReprovadosDesvios(ano: number) {
   try {
     const json = await fetchJsonComTimeout(
       `${API_BASE}/desvios/historico-anual?ano=${ano}&_t=${Date.now()}`,
       15000,
     )
 
-    const historico = Array.isArray(json?.data)
-      ? json.data
-      : Array.isArray(json?.itens)
-        ? json.itens
-        : Array.isArray(json)
-          ? json
-          : []
+    const historico = Array.isArray(json?.data) ? json.data : []
+    const lotes = new Set<string>()
 
-    return montarDetalhesDesviosReprovados(historico)
+    historico.forEach((desvio: any) => {
+      const destino = String(desvio?.destino || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toUpperCase()
+
+      const ehReprovadoOuDescarte = destino.includes("REPROVADO") || destino.includes("DESCART")
+      if (!ehReprovadoOuDescarte) return
+
+      String(desvio?.lotes_texto || "")
+        .split(/[,;]/)
+        .map((lote) => lote.trim().toUpperCase().replace(/\s+/g, ""))
+        .filter(Boolean)
+        .forEach((lote) => lotes.add(lote.endsWith(".0") ? lote.slice(0, -2) : lote))
+
+      if (Array.isArray(desvio?.lotes)) {
+        desvio.lotes.forEach((item: any) => {
+          const lote = String(item?.lote || "").trim().toUpperCase().replace(/\s+/g, "")
+          if (lote) lotes.add(lote.endsWith(".0") ? lote.slice(0, -2) : lote)
+        })
+      }
+    })
+
+    return lotes.size
   } catch {
     return null
   }
@@ -932,63 +809,22 @@ async function carregarLotesReprovadosDesvios(ano: number): Promise<LotesReprova
 function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
   payload: T,
   causasAnuais: any,
-  lotesReprovadosDesvios?: LotesReprovadosDesviosPayload | null,
+  lotesReprovadosAno?: number | null,
 ): T {
   if (!causasAnuais || !Array.isArray(causasAnuais.steps) || causasAnuais.steps.length < 2) {
     return payload
   }
 
   const steps = causasAnuais.steps.map((step: any) => {
-    if (step?.id === "reprovacao") {
-      const modalAtual = step?.modal || {}
-      const detalhesDoBackend: LoteReprovadoDetalhe[] = Array.isArray(modalAtual?.detalhes_lotes)
-        ? modalAtual.detalhes_lotes.map((item: any) => ({
-            lote: normalizarLote(item?.lote),
-            codigo: item?.codigo,
-            produto: item?.produto,
-            serial: item?.serial,
-            titulo: item?.titulo,
-            qtdPrevistaCx: numero(item?.qtd_planejada_cx || item?.qtd_prevista_cx),
-            qtdLiberadaCx: numero(item?.qtd_liberada_cx),
-            qtdPerdaCx: Math.abs(numero(item?.qtd_cx || item?.qtdPerdaCx || item?.qtd_perda_cx)),
-            qtdCx: Math.abs(numero(item?.qtd_cx || item?.qtdPerdaCx || item?.qtd_perda_cx)),
-            motivo: item?.titulo || item?.motivo,
-            setor: item?.setor,
-            destino: item?.destino,
-            estado: item?.estado,
-            diasDesvio: item?.dias_desvio != null ? numero(item.dias_desvio) : undefined,
-            dataCriacao: item?.data_criacao || item?.created_at,
-            arquivoOrigem: item?.arquivo_origem,
-          }))
-        : Array.isArray(modalAtual?.lotesReprovados)
-          ? modalAtual.lotesReprovados
-          : []
-
-      const detalhes = lotesReprovadosDesvios?.detalhes?.length
-        ? lotesReprovadosDesvios.detalhes
-        : detalhesDoBackend
-
-      const grupos = lotesReprovadosDesvios?.grupos?.length
-        ? lotesReprovadosDesvios.grupos
-        : agruparLotesReprovadosPorNc(detalhes)
-
-      const totalLotes = lotesReprovadosDesvios?.totalLotes || step?.lotes || new Set(detalhes.map((item) => item.lote)).size || modalAtual?.lotes || 0
-      const totalNcs = lotesReprovadosDesvios?.totalNcs || grupos.length || modalAtual?.desvios || 0
-
+    if (
+      step?.id === "reprovacao" &&
+      lotesReprovadosAno != null &&
+      Number.isFinite(Number(lotesReprovadosAno)) &&
+      Number(lotesReprovadosAno) > 0
+    ) {
       return {
         ...step,
-        lotes: totalLotes || step?.lotes,
-        modal: {
-          ...modalAtual,
-          titulo: modalAtual?.titulo || "Lotes reprovados por qualidade",
-          descricao:
-            modalAtual?.descricao ||
-            "Lotes reprovados/descartados por qualidade. Eles não entram no rendimento nem no liberado válido, evitando dupla contagem.",
-          lotesReprovados: detalhes,
-          desviosAgrupados: grupos,
-          totalNcs,
-          totalLotes,
-        },
+        lotes: Math.round(Number(lotesReprovadosAno)),
       }
     }
 
@@ -1735,17 +1571,12 @@ function WaterfallStepModal({
 
   if (step.id === "reprovacao") {
     const modalReprovacao = (step as any).modal || {}
-    const lotesReprovados: LoteReprovadoDetalhe[] = Array.isArray(modalReprovacao.lotesReprovados)
-      ? modalReprovacao.lotesReprovados
-      : []
-    const desviosAgrupados: DesvioReprovadoGrupo[] = Array.isArray(modalReprovacao.desviosAgrupados)
-      ? modalReprovacao.desviosAgrupados
-      : agruparLotesReprovadosPorNc(lotesReprovados)
-
-    const totalLotes = Number(modalReprovacao.totalLotes || step.lotes || new Set(lotesReprovados.map((item) => item.lote)).size || 0)
-    const totalNcs = Number(modalReprovacao.totalNcs || desviosAgrupados.length || 0)
-    const impactoCx = Math.abs(Number(modalReprovacao.delta_cx || step.value || 0))
-    const totalCxDetalhe = desviosAgrupados.reduce((acc, item) => acc + Number(item.qtdCx || 0), 0)
+    const lotesReprovados: LoteReprovadoDetalhe[] = modalReprovacao.lotesReprovados || []
+    const totalPerdaDetalheCx = lotesReprovados.reduce((acc, item) => acc + item.qtdPerdaCx, 0)
+    const totalPerdaCx = totalPerdaDetalheCx > 0
+      ? totalPerdaDetalheCx
+      : Math.abs(Number(modalReprovacao.delta_cx ?? step.value ?? 0))
+    const qtdLotesReprovados = lotesReprovados.length || Math.max(0, Math.round(Number((step as any).lotes || modalReprovacao.qtd_lotes || 0)))
 
     return (
       <div
@@ -1764,11 +1595,10 @@ function WaterfallStepModal({
                 Detalhe da cascata anual
               </p>
               <h2 className="mt-1 text-xl font-black" style={{ color: "var(--text-primary)" }}>
-                {modalReprovacao.titulo || "Lotes reprovados por qualidade"}
+                {modalReprovacao.titulo || "Lotes reprovados / em desvio"}
               </h2>
-              <p className="mt-1 max-w-3xl text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                {modalReprovacao.descricao ||
-                  "Lotes reprovados/descartados por qualidade. Eles não entram no rendimento nem no liberado válido, evitando dupla contagem."}
+              <p className="mt-1 max-w-2xl text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {modalReprovacao.descricao || "Abertura dos lotes que compõem a causa Reprov. lote na cascata anual."}
               </p>
             </div>
 
@@ -1783,98 +1613,31 @@ function WaterfallStepModal({
           </div>
 
           <div className="overflow-auto p-5">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <MiniResumo
                 label="Impacto na disponibilidade"
-                value={`-${fmt(impactoCx)} cx`}
-                sub={`-${fmtTubetes(impactoCx)}`}
+                value={`-${fmt(Math.abs(Number(modalReprovacao.delta_cx || 0)))} cx`}
+                sub={`-${fmtTubetes(Math.abs(Number(modalReprovacao.delta_cx || 0)))}`}
                 color="#DC2626"
                 bg="#FEF2F2"
               />
               <MiniResumo
                 label="Lotes reprovados"
-                value={fmtLotesQtd(totalLotes)}
-                sub="fora do rendimento"
+                value={fmtLotesQtd(qtdLotesReprovados)}
+                sub={`${fmt(totalPerdaCx)} cx · ${fmtTubetes(totalPerdaCx)}`}
                 color="#334155"
                 bg="#F8FAFC"
               />
               <MiniResumo
-                label="NCs relacionadas"
-                value={fmt(totalNcs)}
-                sub="desvios agrupados por serial"
-                color="#334155"
-                bg="#F8FAFC"
-              />
-              <MiniResumo
-                label="Cx no detalhe"
-                value={totalCxDetalhe > 0 ? `${fmt(totalCxDetalhe)} cx` : "—"}
-                sub={totalCxDetalhe > 0 ? fmtTubetes(totalCxDetalhe) : "usar impacto da cascata"}
-                color={totalCxDetalhe > 0 ? "#DC2626" : "#64748B"}
-                bg={totalCxDetalhe > 0 ? "#FEF2F2" : "#F8FAFC"}
+                label="Caixas perdidas (soma dos lotes)"
+                value={`${fmt(totalPerdaCx)} cx`}
+                sub={fmtTubetes(totalPerdaCx)}
+                color="#DC2626"
+                bg="#FEF2F2"
               />
             </div>
 
-            {desviosAgrupados.length > 0 ? (
-              <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
-                <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
-                    Desvios que compõem a reprovação
-                  </p>
-                  <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Agrupado por NC. A lista de lotes fica explícita para auditoria da perda.
-                  </p>
-                </div>
-                <div className="max-h-[460px] overflow-auto">
-                  <table className="w-full min-w-[1050px] text-xs">
-                    <thead style={{ background: "#F8FAFC", color: "var(--text-secondary)" }}>
-                      <tr>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">NC</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Título / descrição</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Lotes</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Qtd. lotes</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Cx</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Destino</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Estado</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Setor</th>
-                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Dias</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {desviosAgrupados.map((grupo) => (
-                        <tr key={grupo.chave} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
-                          <td className="px-3 py-3 font-black whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{grupo.serial || "—"}</td>
-                          <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>
-                            <div className="max-w-[360px] leading-relaxed">{grupo.titulo || "—"}</div>
-                          </td>
-                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>
-                            <div className="flex max-w-[280px] flex-wrap gap-1">
-                              {grupo.lotes.slice(0, 8).map((lote) => (
-                                <span key={lote} className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">
-                                  {lote}
-                                </span>
-                              ))}
-                              {grupo.lotes.length > 8 ? (
-                                <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">
-                                  +{grupo.lotes.length - 8}
-                                </span>
-                              ) : null}
-                            </div>
-                          </td>
-                          <td className="px-3 py-3 text-right font-black" style={{ color: "var(--text-primary)" }}>{fmt(grupo.qtdLotes)}</td>
-                          <td className="px-3 py-3 text-right font-black" style={{ color: grupo.qtdCx > 0 ? "#DC2626" : "var(--text-secondary)" }}>
-                            {grupo.qtdCx > 0 ? `${fmt(grupo.qtdCx)} cx` : "—"}
-                          </td>
-                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{grupo.destino || "—"}</td>
-                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{grupo.estadoLabel || estadoDesvioLabel(grupo.estado)}</td>
-                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{grupo.setor || "—"}</td>
-                          <td className="px-3 py-3 text-right" style={{ color: "var(--text-secondary)" }}>{grupo.diasDesvio != null ? fmt(grupo.diasDesvio) : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : lotesReprovados.length > 0 ? (
+            {lotesReprovados.length > 0 ? (
               <div className="mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
                 <div className="max-h-[420px] overflow-auto">
                   <table className="w-full min-w-[920px] text-xs">
@@ -1882,23 +1645,29 @@ function WaterfallStepModal({
                       <tr>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Lote</th>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Produto</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Previsto</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Liberado</th>
                         <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Perda cx</th>
-                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Motivo / título</th>
+                        <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Motivo do desvio</th>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Setor</th>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Destino</th>
                         <th className="px-3 py-3 text-left text-[10px] font-black uppercase tracking-wider">Estado</th>
+                        <th className="px-3 py-3 text-right text-[10px] font-black uppercase tracking-wider">Dias em desvio</th>
                       </tr>
                     </thead>
                     <tbody>
                       {lotesReprovados.map((item) => (
-                        <tr key={`${item.serial || "sem-nc"}-${item.lote}`} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+                        <tr key={item.lote} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
                           <td className="px-3 py-3 font-black" style={{ color: "var(--text-primary)" }}>{item.lote}</td>
                           <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-secondary)" }}>{item.produto || item.grupo || "—"}</td>
-                          <td className="px-3 py-3 text-right font-black" style={{ color: "#DC2626" }}>{item.qtdPerdaCx > 0 ? `${fmt(item.qtdPerdaCx)} cx` : "—"}</td>
-                          <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>{item.titulo || item.motivo || "—"}</td>
+                          <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmt(item.qtdPrevistaCx)} cx</td>
+                          <td className="px-3 py-3 text-right font-semibold" style={{ color: "var(--text-secondary)" }}>{fmt(item.qtdLiberadaCx)} cx</td>
+                          <td className="px-3 py-3 text-right font-black" style={{ color: "#DC2626" }}>{fmt(item.qtdPerdaCx)} cx</td>
+                          <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>{item.motivo || "—"}</td>
                           <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.setor || "—"}</td>
                           <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.destino || "—"}</td>
-                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{estadoDesvioLabel(item.estado)}</td>
+                          <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.estado || "—"}</td>
+                          <td className="px-3 py-3 text-right" style={{ color: "var(--text-secondary)" }}>{item.diasDesvio != null ? fmt(item.diasDesvio) : "—"}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1907,18 +1676,9 @@ function WaterfallStepModal({
               </div>
             ) : (
               <p className="mt-4 text-sm" style={{ color: "var(--text-secondary)" }}>
-                Nenhum detalhe de desvio retornado para os lotes reprovados. O impacto da cascata permanece válido pelo snapshot.
+                Nenhum lote com detalhe de desvio disponível para o período.
               </p>
             )}
-
-            <div className="mt-4 rounded-2xl border px-4 py-3" style={{ borderColor: "#FED7AA", background: "#FFF7ED" }}>
-              <p className="text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: "#9A3412" }}>
-                Regra de negócio
-              </p>
-              <p className="mt-1 text-sm font-semibold" style={{ color: "#9A3412" }}>
-                Lotes reprovados/descartados são retirados da disponibilidade e não entram no cálculo de rendimento.
-              </p>
-            </div>
           </div>
         </div>
       </div>
@@ -2291,31 +2051,44 @@ function MonthlyLossesStackedChart({
   simulacaoAtiva: boolean
 }) {
   const width = 1080
-  const height = 266
-  const margin = { top: 34, right: 34, bottom: 58, left: 46 }
+  const height = 286
+  const margin = { top: 42, right: 34, bottom: 62, left: 46 }
   const plotWidth = width - margin.left - margin.right
-  const plotHeight = 160
-  const barWidth = 60
+  const plotHeight = 162
+  const barWidth = 62
+
+  const buildSegments = (item: MonthlyLossesItem) => {
+    if (item.simulado) {
+      const simuladoCx = mensalPerdaCx(item)
+      return simuladoCx > 0
+        ? [{ id: "simulado", label: "Simulado", value: simuladoCx, color: "#DC2626", soft: "#FEE2E2" }]
+        : []
+    }
+
+    return [
+      { id: "atraso", label: "Atraso", value: Math.max(0, Math.round(numero(item.atraso))), color: "#F97316", soft: "#FFEDD5" },
+      { id: "reorg", label: "Reorg.", value: Math.max(0, Math.round(numero(item.reorg))), color: "#2563EB", soft: "#DBEAFE" },
+      { id: "reprovacao", label: "Reprov.", value: Math.max(0, Math.round(numero(item.reprovacao))), color: "#DC2626", soft: "#FEE2E2" },
+    ].filter((segment) => segment.value > 0)
+  }
 
   const pontos = data.map((item) => {
-    const perdaCx = mensalPerdaCx(item)
-    const ganhoCx = mensalGanhoCx(item)
+    const segments = buildSegments(item)
+    const totalCx = segments.reduce((acc, segment) => acc + segment.value, 0)
     const planoRefCx = mensalPlanoRefCx(item)
     const liberadoValidoCx = mensalLiberadoValidoCx(item)
 
     return {
       item,
-      perdaCx,
-      ganhoCx,
+      segments,
+      totalCx,
       planoRefCx,
       liberadoValidoCx,
-      valorGrafico: perdaCx > 0 ? perdaCx : ganhoCx,
-      tipo: perdaCx > 0 ? "perda" : ganhoCx > 0 ? "ganho" : "neutro",
     }
   })
 
-  const maxTotal = Math.max(...pontos.map((ponto) => ponto.valorGrafico), 1)
-  const maxValue = Math.ceil((maxTotal * 1.22) / 1000) * 1000
+  const maxTotal = Math.max(...pontos.map((ponto) => ponto.totalCx), 1)
+  const maxValue = Math.ceil((maxTotal * 1.24) / 1000) * 1000
 
   const y = (value: number) => margin.top + ((maxValue - value) / maxValue) * plotHeight
   const baselineY = y(0)
@@ -2336,9 +2109,8 @@ function MonthlyLossesStackedChart({
             className="text-[12px] font-black uppercase tracking-[0.18em]"
             style={{ color: "var(--text-secondary)" }}
           >
-            Perda mensal vs plano de referência
+            Causas das perdas mensais
           </p>
-
 
           {simulacaoAtiva && (
             <p className="mt-1 text-[10.5px] font-semibold" style={{ color: "#64748B" }}>
@@ -2364,94 +2136,102 @@ function MonthlyLossesStackedChart({
           <rect x="0" y="0" width={width} height={height} rx="16" fill="#FFFFFF" />
 
           {pontos.map((ponto, index) => {
-            const { item, valorGrafico, tipo, planoRefCx, liberadoValidoCx } = ponto
-            const hasValue = valorGrafico > 0
+            const { item, segments, totalCx, planoRefCx, liberadoValidoCx } = ponto
+            const hasValue = totalCx > 0
             const currentX = x(index)
-            const barY = y(valorGrafico)
-            const barHeight = Math.max(0, baselineY - barY)
-            const pctVsPlano = mensalPctVsPlano(valorGrafico, item)
-            const fill = tipo === "ganho" ? "#16A34A" : "#DC2626"
-            const fillSoft = tipo === "ganho" ? "#DCFCE7" : "#FEE2E2"
-            const prefix = tipo === "ganho" ? "+" : "-"
+            let acumulado = 0
+            const pctTotal = mensalPctVsPlano(totalCx, item)
 
             return (
               <g key={item.mes}>
-                {hasValue && (
-                  <rect
-                    x={currentX - barWidth / 2}
-                    y={barY}
-                    width={barWidth}
-                    height={barHeight}
-                    rx={7}
-                    fill={item.simulado ? fillSoft : fill}
-                    stroke={item.simulado ? fill : "none"}
-                    strokeWidth={item.simulado ? 1.6 : 0}
-                    strokeDasharray={item.simulado ? "4 3" : undefined}
-                    opacity={item.simulado ? 0.95 : 0.98}
-                  />
-                )}
+                {segments.map((segment) => {
+                  const bottomValue = acumulado
+                  const topValue = acumulado + segment.value
+                  acumulado = topValue
 
-                {hasValue && barHeight >= 36 && !item.simulado && (
+                  const segmentY = y(topValue)
+                  const segmentBottomY = y(bottomValue)
+                  const segmentHeight = Math.max(0, segmentBottomY - segmentY)
+                  const pctVsPlano = mensalPctVsPlano(segment.value, item)
+                  const smallSegment = segmentHeight < 30
+
+                  return (
+                    <g key={`${item.mes}-${segment.id}`}>
+                      <rect
+                        x={currentX - barWidth / 2}
+                        y={segmentY}
+                        width={barWidth}
+                        height={segmentHeight}
+                        rx={segment.id === segments[segments.length - 1]?.id ? 7 : 2}
+                        fill={item.simulado ? segment.soft : segment.color}
+                        stroke={item.simulado ? segment.color : "none"}
+                        strokeWidth={item.simulado ? 1.6 : 0}
+                        strokeDasharray={item.simulado ? "4 3" : undefined}
+                        opacity={0.98}
+                      />
+
+                      {!smallSegment ? (
+                        <>
+                          <text
+                            x={currentX}
+                            y={segmentY + segmentHeight / 2 - 4}
+                            textAnchor="middle"
+                            fontSize="7.1"
+                            fontWeight="900"
+                            fill={item.simulado ? "#991B1B" : "#FFFFFF"}
+                          >
+                            {fmt(segment.value)} cx
+                          </text>
+                          <text
+                            x={currentX}
+                            y={segmentY + segmentHeight / 2 + 8}
+                            textAnchor="middle"
+                            fontSize="6.3"
+                            fontWeight="800"
+                            fill={item.simulado ? "#991B1B" : "#F8FAFC"}
+                          >
+                            {fmtPct(pctVsPlano)}% ref.
+                          </text>
+                        </>
+                      ) : (
+                        <text
+                          x={currentX + barWidth / 2 + 5}
+                          y={segmentY + Math.max(8, segmentHeight / 2 + 2)}
+                          textAnchor="start"
+                          fontSize="6.8"
+                          fontWeight="800"
+                          fill="#64748B"
+                        >
+                          {segment.label}: {fmt(segment.value)} cx
+                        </text>
+                      )}
+                    </g>
+                  )
+                })}
+
+                {hasValue && (
                   <>
                     <text
                       x={currentX}
-                      y={barY + barHeight / 2 - 3}
-                      textAnchor="middle"
-                      fontSize="7.4"
-                      fontWeight="900"
-                      fill="#FFFFFF"
-                    >
-                      {prefix}{fmt(valorGrafico)} cx
-                    </text>
-                    <text
-                      x={currentX}
-                      y={barY + barHeight / 2 + 9}
-                      textAnchor="middle"
-                      fontSize="6.6"
-                      fontWeight="800"
-                      fill={tipo === "ganho" ? "#ECFDF5" : "#FFF1F2"}
-                    >
-                      {fmtPct(pctVsPlano)}% ref.
-                    </text>
-                  </>
-                )}
-
-                {hasValue && (
-                  <>
-                    <text
-                      x={currentX}
-                      y={Math.max(18, barY - 16)}
+                      y={Math.max(18, y(totalCx) - 18)}
                       textAnchor="middle"
                       fontSize="9.5"
                       fontWeight="900"
-                      fill={tipo === "ganho" ? "#15803D" : "#0F172A"}
+                      fill="#0F172A"
                     >
-                      {prefix}{fmt(valorGrafico)} cx
+                      -{fmt(totalCx)} cx
                     </text>
 
                     <text
                       x={currentX}
-                      y={Math.max(29, barY - 4)}
+                      y={Math.max(30, y(totalCx) - 6)}
                       textAnchor="middle"
                       fontSize="7.1"
                       fontWeight="800"
                       fill="#64748B"
                     >
-                      {`${fmtPct(pctVsPlano)}% da ref.`}
+                      {`${fmtPct(pctTotal)}% da ref.`}
                     </text>
-
-                    {item.simulado && (
-                      <text
-                        x={currentX}
-                        y={Math.max(40, barY + 9)}
-                        textAnchor="middle"
-                        fontSize="6.8"
-                        fontWeight="800"
-                        fill="#64748B"
-                      >
-                        simulado
-                      </text>
-                    )}
                   </>
                 )}
 
@@ -2493,8 +2273,10 @@ function MonthlyLossesStackedChart({
                   {`${item.mes} (${item.baseline || "ref."})
 Plano ref.: ${fmt(planoRefCx)} cx
 Liberado válido: ${fmt(liberadoValidoCx)} cx
-Reprovado descontado: ${fmt(mensalReprovadoCx(item))} cx
-${tipo === "ganho" ? "Ganho vs plano" : "Perda vs plano"}: ${prefix}${fmt(valorGrafico)} cx`}
+Atraso produção: ${fmt(Math.max(0, numero(item.atraso)))} cx
+Reorg.: ${fmt(Math.max(0, numero(item.reorg)))} cx
+Reprovação: ${fmt(Math.max(0, numero(item.reprovacao)))} cx
+Total de perdas classificadas: ${fmt(totalCx)} cx`}
                 </title>
               </g>
             )
@@ -2504,16 +2286,23 @@ ${tipo === "ganho" ? "Ganho vs plano" : "Perda vs plano"}: ${prefix}${fmt(valorG
 
       <div className="mt-1 flex flex-wrap items-center justify-center gap-4">
         <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#DC2626" }} />
+          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#F97316" }} />
           <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
-            Perda vs plano
+            Atraso produção
           </span>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#16A34A" }} />
+          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#2563EB" }} />
           <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
-            Acima do plano
+            Reorg.
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#DC2626" }} />
+          <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
+            Reprovação
           </span>
         </div>
 
@@ -2630,7 +2419,7 @@ function VersionBridgeSection({
           </p>
 
           <p className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-            Somente Reorg. plano abre detalhe
+            Reorg. plano e Reprov. lote abrem detalhe
           </p>
         </div>
 
@@ -2676,7 +2465,7 @@ function VersionBridgeSection({
                     <td className="px-3 py-2.5">
                       <button
                         type="button"
-                        onClick={(step.id === "reorg-plano" || step.id.startsWith("reorganizacao")) ? () => onClickReorganizacao(step) : undefined}
+                        onClick={(step.id === "reorg-plano" || step.id.startsWith("reorganizacao") || step.id === "reprovacao") ? () => onClickReorganizacao(step) : undefined}
                         className="inline-flex items-center gap-2 rounded-xl px-2 py-1 text-left transition hover:bg-slate-50"
                         style={{ color: "var(--text-primary)" }}
                       >
@@ -2762,7 +2551,7 @@ function LossSimulationModal({
       Object.fromEntries(
         futureMonths.map((month) => [
           month.mes,
-          Math.max(0, Math.round(mensalPlanoRefCx(month) * (averageLossPct / 100))),
+          Math.max(0, Math.round((mensalLiberadoValidoCx(month) || mensalPlanoRefCx(month)) * (averageLossPct / 100))),
         ]),
       ),
     )
@@ -2778,15 +2567,16 @@ function LossSimulationModal({
         ? Math.max(0, Math.round(mensalPlanoRefCx(month) * (Number(averagePctInput || 0) / 100)))
         : Math.max(0, Number(customLosses[month.mes] || 0))
 
-    const planoRefCx = mensalPlanoRefCx(month)
+    const planoAtualCx = mensalLiberadoValidoCx(month) || mensalPlanoRefCx(month)
 
     return {
       ...month,
-      v1: planoRefCx,
-      planoRefCx,
+      v1: planoAtualCx,
+      planoRefCx: planoAtualCx,
+      planoAtualCx,
       perdaCx,
       ganhoCx: 0,
-      disponibilidadeProjetadaCx: Math.max(0, planoRefCx - perdaCx),
+      disponibilidadeProjetadaCx: Math.max(0, planoAtualCx - perdaCx),
     }
   })
 
@@ -2794,7 +2584,7 @@ function LossSimulationModal({
   const disponibilidadeSimuladaCx = Math.max(0, disponibilidadeAtualCx - perdaProjetadaTotalCx)
   const atingimentoAtual = orcadoCx > 0 ? (disponibilidadeAtualCx / orcadoCx) * 100 : 0
   const atingimentoSimulado = orcadoCx > 0 ? (disponibilidadeSimuladaCx / orcadoCx) * 100 : 0
-  const maxPlanoMes = Math.max(...projectedLosses.map((month) => mensalPlanoRefCx(month)), 1)
+  const maxPlanoMes = Math.max(...projectedLosses.map((month: any) => Number(month.planoAtualCx || mensalLiberadoValidoCx(month) || mensalPlanoRefCx(month))), 1)
   const maxValue = Math.ceil((maxPlanoMes * 1.12) / 1000) * 1000
   const perdaCustomTotalCx = futureMonths.reduce((acc, month) => acc + Math.max(0, Number(customLosses[month.mes] || 0)), 0)
 
@@ -2910,17 +2700,17 @@ function LossSimulationModal({
             <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
-                  Plano ref. vs. disponibilidade projetada
+                  Plano atual vs. disponibilidade projetada
                 </p>
                 <p className="mt-1 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                  Barras lado a lado: plano de referência vs. disponibilidade projetada após a perda simulada.
+                  Barras lado a lado: plano atual vs. disponibilidade projetada após a perda simulada.
                 </p>
               </div>
 
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#D6DEE9" }} />
-                  <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>Plano ref.</span>
+                  <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>Plano atual</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-[3px] border" style={{ borderColor: "#1F4164", background: "#EEF4FF" }} />
@@ -2935,7 +2725,7 @@ function LossSimulationModal({
 
                 {projectedLosses.map((month, index) => {
                   const currentX = x(index)
-                  const planoRefMes = mensalPlanoRefCx(month)
+                  const planoRefMes = Number((month as any).planoAtualCx || mensalLiberadoValidoCx(month) || mensalPlanoRefCx(month))
                   const planoY = y(planoRefMes)
                   const planoHeight = baselineY - planoY
                   const projetadoY = y(month.disponibilidadeProjetadaCx)
@@ -2986,7 +2776,7 @@ function LossSimulationModal({
                         fontWeight="800"
                         fill="#64748B"
                       >
-                        plano ref.
+                        plano atual
                       </text>
 
                       <text
@@ -3150,7 +2940,7 @@ function LossSimulationModal({
                     </div>
 
                     <p className="mt-3 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                      A simulação aplica esse percentual sobre o plano de cada mês futuro.
+                      A simulação aplica esse percentual sobre o plano atual de cada mês futuro.
                     </p>
                   </div>
                 </div>
@@ -3229,7 +3019,7 @@ function LossSimulationModal({
                               {month.mes}
                             </p>
                             <p className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-                              Plano ref. {fmt(planoRefMes)} cx
+                              Plano atual {fmt(planoRefMes)} cx
                             </p>
                           </div>
 
