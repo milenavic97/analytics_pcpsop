@@ -284,6 +284,7 @@ type LoteReprovadoDetalhe = {
   qtdPrevistaCx: number
   qtdLiberadaCx: number
   qtdPerdaCx: number
+  quantidadeInformada?: boolean
   motivo?: string
   setor?: string
   destino?: string
@@ -296,6 +297,7 @@ function normalizarLoteReprovado(item: any): LoteReprovadoDetalhe | null {
   const lote = String(item?.lote || item?.lote_original || item?.loteOriginal || item?.lote_op || item?.numero_lote || item?.op || "").trim()
   if (!lote) return null
 
+  const quantidadeInformada = [item?.qtdPerdaCx, item?.qtd_perda_cx, item?.caixas, item?.qtd_cx, item?.qtdPrevistaCx, item?.qtd_prevista_cx].some((v) => v != null && Number.isFinite(Number(v)) && Number(v) > 0)
   const perdaCx = firstFiniteNumber(item?.qtdPerdaCx, item?.qtd_perda_cx, item?.caixas, item?.qtd_cx, item?.qtdPrevistaCx, item?.qtd_prevista_cx, 0) || 0
   const previstoCx = firstFiniteNumber(item?.qtdPrevistaCx, item?.qtd_prevista_cx, item?.qtd_cx, item?.caixas, perdaCx, 0) || 0
   const liberadoCx = firstFiniteNumber(item?.qtdLiberadaCx, item?.qtd_liberada_cx, 0) || 0
@@ -313,6 +315,7 @@ function normalizarLoteReprovado(item: any): LoteReprovadoDetalhe | null {
     qtdPrevistaCx: previstoCx,
     qtdLiberadaCx: liberadoCx,
     qtdPerdaCx: perdaCx > 0 ? perdaCx : Math.max(previstoCx - liberadoCx, 0),
+    quantidadeInformada,
     motivo: descricao || undefined,
     setor: item?.setor || item?.desvio_setor || undefined,
     destino: item?.destino || item?.desvio_destino_consolidado || item?.desvio_destino || undefined,
@@ -1710,7 +1713,7 @@ function WaterfallStepModal({
                           <td className="px-3 py-3 font-black whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{item.lote}</td>
                           <td className="px-3 py-3 font-semibold" style={{ color: "var(--text-secondary)" }}>{item.produto || item.grupo || "—"}</td>
                           <td className="max-w-[360px] px-3 py-3 font-semibold leading-relaxed" style={{ color: "var(--text-primary)" }}>{item.descricao || item.motivo || "—"}</td>
-                          <td className="px-3 py-3 text-right font-black whitespace-nowrap" style={{ color: "#DC2626" }}>{fmt(numero(item.qtdPerdaCx || item.caixas))} cx</td>
+                          <td className="px-3 py-3 text-right font-black whitespace-nowrap" style={{ color: "#DC2626" }}>{item.quantidadeInformada && numero(item.qtdPerdaCx || item.caixas) > 0 ? `${fmt(numero(item.qtdPerdaCx || item.caixas))} cx` : "—"}</td>
                           <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.destino || "—"}</td>
                           <td className="px-3 py-3" style={{ color: "var(--text-secondary)" }}>{item.status || item.estado || "—"}</td>
                         </tr>
