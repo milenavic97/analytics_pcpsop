@@ -811,6 +811,23 @@ async function carregarCausasAnuaisReais(ano: number, mesAtual?: number) {
       )
 
       if (json && Array.isArray(json.steps) && json.steps.length >= 2) {
+        try {
+          const resumoMensal = await fetchJsonComTimeout(
+            `${API_BASE}/liberacao-executiva/resumo?ano=${ano}&mes=${mes || mesAtual || new Date().getMonth() + 1}&force=true&_t=${Date.now()}`,
+            30000,
+          )
+
+          if (Array.isArray(resumoMensal?.perdasMensais) && resumoMensal.perdasMensais.length > 0) {
+            return {
+              ...json,
+              perdasMensais: resumoMensal.perdasMensais,
+              debugPerdasMensais: resumoMensal?.debug?.reprovacao_oficial_por_mes_liberacao,
+            }
+          }
+        } catch {
+          // Se o resumo mensal falhar, mantém a cascata anual carregada.
+        }
+
         return json
       }
     } catch {
@@ -886,6 +903,10 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
     return step
   })
 
+  const perdasMensaisBackend = Array.isArray(causasAnuais?.perdasMensais)
+    ? causasAnuais.perdasMensais
+    : null
+
   return {
     ...payload,
     dados: {
@@ -893,6 +914,9 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
       ...(causasAnuais.dados || {}),
     },
     waterfallSteps: steps,
+    perdasMensais: perdasMensaisBackend && perdasMensaisBackend.length > 0
+      ? perdasMensaisBackend
+      : payload.perdasMensais,
   }
 }
 
