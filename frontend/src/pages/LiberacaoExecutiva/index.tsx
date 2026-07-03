@@ -878,10 +878,109 @@ async function carregarLotesReprovadosDesvios(ano: number) {
   }
 }
 
+function normalizarLoteChart(value: any): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase()
+    .replace(/\.0$/, "")
+    .replace(/[^A-Z0-9]/g, "")
+}
+
+function mesLiberacaoFallbackPeloLote(lote: string, anoRef?: number): number | null {
+  const normalizado = normalizarLoteChart(lote)
+  const match = normalizado.match(/^(\d{2})(\d{2})/)
+  if (!match) return null
+
+  const yy = Number(match[1])
+  const mes = Number(match[2])
+  if (!Number.isFinite(mes) || mes < 1 || mes > 12) return null
+
+  if (!anoRef) return mes
+
+  const anoCurto = anoRef % 100
+  if (yy === anoCurto) return mes
+
+  // Lotes de Dezembro do ano anterior podem aparecer na base orçada de janeiro
+  // e serem liberados no ano analisado. Sem mês de liberação explícito no payload,
+  // este é o fallback mais conservador para não esconder a reprovação.
+  if (yy === anoCurto - 1 && mes === 12) return 1
+
+  return null
+}
+
+function caixasLoteReprovadoChart(item: any): number {
+  const candidatos = [
+    item?.qtd_perda_cx,
+    item?.qtdPerdaCx,
+    item?.qtd_cx,
+    item?.caixas,
+    item?.qtd_prevista_cx,
+    item?.qtdPrevistaCx,
+  ]
+
+  for (const candidato of candidatos) {
+    const qtd = Math.abs(Math.round(numero(candidato)))
+    if (qtd > 0) return qtd === 1 ? 600 : qtd
+  }
+
+  const tubetes = Math.abs(Math.round(numero(item?.qtd_tubetes ?? item?.tubetes ?? item?.qtd_planejada)))
+  if (tubetes > 0) {
+    const cx = Math.round(tubetes / 500)
+    return cx === 1 ? 600 : cx
+  }
+
+  return 0
+}
+
+function mapaReprovacaoMensalDoModal(steps: any[], anoRef?: number): Map<string, number> {
+  const mapa = new Map<string, number>()
+  const stepReprovacao = (steps || []).find((step: any) => String(step?.id || "") === "reprovacao")
+  const modal = stepReprovacao?.modal || {}
+  const detalhes = [
+    ...(Array.isArray(modal?.lotesReprovados) ? modal.lotesReprovados : []),
+    ...(Array.isArray(modal?.detalhes_lotes) ? modal.detalhes_lotes : []),
+    ...(Array.isArray(stepReprovacao?.lotesReprovados) ? stepReprovacao.lotesReprovados : []),
+    ...(Array.isArray(stepReprovacao?.detalhes_lotes) ? stepReprovacao.detalhes_lotes : []),
+  ]
+
+  const vistos = new Set<string>()
+
+  detalhes.forEach((item: any) => {
+    const lote = normalizarLoteChart(item?.lote || item?.lote_original)
+    if (!lote || vistos.has(lote)) return
+    vistos.add(lote)
+
+    let mes = Math.round(numero(
+      item?.mes_liberacao ??
+      item?.mesLiberacao ??
+      item?.mes_lib ??
+      item?.mesLib ??
+      item?.mes
+    ))
+
+    if (!Number.isFinite(mes) || mes < 1 || mes > 12) {
+      mes = mesLiberacaoFallbackPeloLote(lote, anoRef) || 0
+    }
+
+    if (!Number.isFinite(mes) || mes < 1 || mes > 12) return
+
+    const caixas = caixasLoteReprovadoChart(item)
+    if (caixas <= 0) return
+
+    const mesLabel = MES_LABELS[mes - 1]
+    mapa.set(mesLabel, Math.round((mapa.get(mesLabel) || 0) + caixas))
+  })
+
+  return mapa
+}
+
 function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
   payload: T,
   causasAnuais: any,
   lotesReprovadosAno?: number | null,
+  anoRef?: number,
 ): T {
   if (!causasAnuais || !Array.isArray(causasAnuais.steps) || causasAnuais.steps.length < 2) {
     return payload
@@ -906,6 +1005,8 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
   const perdasMensaisBackend = Array.isArray(causasAnuais?.perdasMensais)
     ? causasAnuais.perdasMensais
     : null
+
+  const reprovacaoMensalModal = mapaReprovacaoMensalDoModal(steps, anoRef)
 
   // O resumo novo da Liberação Executiva pode trazer apenas a reprovação oficial
   // recalculada por mês de liberação. Não podemos substituir a série inteira,
@@ -938,11 +1039,14 @@ function aplicarCausasAnuais<T extends LiberacaoExecutivaPayload>(
       const oficial = byMes.get(String(baseItem?.mes || '').trim())
       if (!oficial) return baseItem
 
+      const reprovacaoModal = reprovacaoMensalModal.get(String(baseItem?.mes || oficial?.mes || "").trim()) || 0
       const reprovacaoOficial = mensalReprovadoCx(oficial as MonthlyLossesItem)
       const atrasoAlteracoesBase = Math.max(0, Math.round(numero(baseItem?.atraso) + numero(baseItem?.reorg)))
-      const reprovacaoFinal = reprovacaoOficial > 0
-        ? reprovacaoOficial
-        : Math.max(0, Math.round(numero(baseItem?.reprovacao)))
+      const reprovacaoFinal = reprovacaoModal > 0
+        ? reprovacaoModal
+        : reprovacaoOficial > 0
+          ? reprovacaoOficial
+          : Math.max(0, Math.round(numero(baseItem?.reprovacao)))
       const perdaFinal = atrasoAlteracoesBase + reprovacaoFinal
 
       return {
@@ -3551,7 +3655,7 @@ export default function LiberacaoExecutiva() {
           if (temCausaClassificada(causasAnuais)) {
             setStatusCausasAnuais("ok")
             setMensagemCausasAnuais(null)
-            setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais, lotesReprovadosDesvios))
+            setApiData(aplicarCausasAnuais(baseSemRastreamentos, causasAnuais, lotesReprovadosDesvios, ano))
           } else {
             setStatusCausasAnuais("parcial")
             setMensagemCausasAnuais(
@@ -3578,7 +3682,7 @@ export default function LiberacaoExecutiva() {
           )
 
           if (causasAnuais && temCausaClassificada(causasAnuais)) {
-            setApiData(aplicarCausasAnuais(baseCompleta, causasAnuais, lotesReprovadosDesvios))
+            setApiData(aplicarCausasAnuais(baseCompleta, causasAnuais, lotesReprovadosDesvios, ano))
           } else {
             setApiData(semCausasAnuais(baseCompleta))
           }
