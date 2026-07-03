@@ -1633,9 +1633,8 @@ function WaterfallStepModal({
       .map((item: any) => normalizarLoteReprovado(item))
       .filter(Boolean) as LoteReprovadoDetalhe[]
     const totalPerdaDetalheCx = lotesReprovados.reduce((acc, item) => acc + numero(item.qtdPerdaCx || item.caixas), 0)
-    const totalPerdaCx = totalPerdaDetalheCx > 0
-      ? totalPerdaDetalheCx
-      : Math.abs(Number(modalReprovacao.total_caixas ?? modalReprovacao.delta_cx ?? step.value ?? 0))
+    const totalOficialCx = Math.abs(Number(modalReprovacao.total_caixas ?? modalReprovacao.delta_cx ?? step.value ?? 0))
+    const totalPerdaCx = totalOficialCx > 0 ? totalOficialCx : totalPerdaDetalheCx
     const ncsUnicas = new Set(lotesReprovados.map((item) => item.nc).filter(Boolean))
     const qtdLotesReprovados = Math.max(
       lotesReprovados.length,
