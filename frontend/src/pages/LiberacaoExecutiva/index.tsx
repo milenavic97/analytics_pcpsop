@@ -2114,25 +2114,55 @@ function MonthlyLossesStackedChart({
   onOpenSimulator: () => void
   simulacaoAtiva: boolean
 }) {
-  const width = 1080
-  const height = 286
-  const margin = { top: 42, right: 34, bottom: 62, left: 46 }
+  const width = 1120
+  const height = 312
+  const margin = { top: 58, right: 40, bottom: 64, left: 48 }
   const plotWidth = width - margin.left - margin.right
-  const plotHeight = 162
-  const barWidth = 62
+  const plotHeight = 158
+  const barWidth = 54
+
+  const COLORS = {
+    atraso: "#B86B2C", // laranja queimado, menos forte
+    reorg: "#315F86", // azul corporativo
+    reprovacao: "#B94A48", // vermelho suave
+    simulado: "#B94A48",
+    simuladoFill: "#FFF7F7",
+    empty: "#CBD5E1",
+    text: "#0F172A",
+    muted: "#64748B",
+    border: "#E2E8F0",
+  }
 
   const buildSegments = (item: MonthlyLossesItem) => {
     if (item.simulado) {
-      const simuladoCx = mensalPerdaCx(item)
+      const simuladoCx = Math.max(0, Math.round(mensalPerdaCx(item)))
       return simuladoCx > 0
-        ? [{ id: "simulado", label: "Simulado", value: simuladoCx, color: "#DC2626", soft: "#FEE2E2" }]
+        ? [{ id: "simulado", label: "Simulado", value: simuladoCx, color: COLORS.simulado, soft: COLORS.simuladoFill }]
         : []
     }
 
     return [
-      { id: "atraso", label: "Atraso", value: Math.max(0, Math.round(numero(item.atraso))), color: "#F97316", soft: "#FFEDD5" },
-      { id: "reorg", label: "Reorg.", value: Math.max(0, Math.round(numero(item.reorg))), color: "#2563EB", soft: "#DBEAFE" },
-      { id: "reprovacao", label: "Reprov.", value: Math.max(0, Math.round(numero(item.reprovacao))), color: "#DC2626", soft: "#FEE2E2" },
+      {
+        id: "atraso",
+        label: "Atraso produção",
+        value: Math.max(0, Math.round(numero(item.atraso))),
+        color: COLORS.atraso,
+        soft: "#F7E8DA",
+      },
+      {
+        id: "reorg",
+        label: "Reorg.",
+        value: Math.max(0, Math.round(numero(item.reorg))),
+        color: COLORS.reorg,
+        soft: "#E8EEF5",
+      },
+      {
+        id: "reprovacao",
+        label: "Reprovação",
+        value: Math.max(0, Math.round(numero(item.reprovacao))),
+        color: COLORS.reprovacao,
+        soft: "#F5E4E4",
+      },
     ].filter((segment) => segment.value > 0)
   }
 
@@ -2152,7 +2182,7 @@ function MonthlyLossesStackedChart({
   })
 
   const maxTotal = Math.max(...pontos.map((ponto) => ponto.totalCx), 1)
-  const maxValue = Math.ceil((maxTotal * 1.24) / 1000) * 1000
+  const maxValue = Math.max(1000, Math.ceil((maxTotal * 1.36) / 1000) * 1000)
 
   const y = (value: number) => margin.top + ((maxValue - value) / maxValue) * plotHeight
   const baselineY = y(0)
@@ -2177,7 +2207,7 @@ function MonthlyLossesStackedChart({
           </p>
 
           {simulacaoAtiva && (
-            <p className="mt-1 text-[10.5px] font-semibold" style={{ color: "#64748B" }}>
+            <p className="mt-1 text-[10.5px] font-semibold" style={{ color: COLORS.muted }}>
               Simulação aplicada nos meses futuros
             </p>
           )}
@@ -2205,10 +2235,11 @@ function MonthlyLossesStackedChart({
             const currentX = x(index)
             let acumulado = 0
             const pctTotal = mensalPctVsPlano(totalCx, item)
+            const refLabel = item.baseline || (item.mes === "Jan" ? "Jan/V3" : `${item.mes}/V1`)
 
             return (
               <g key={item.mes}>
-                {segments.map((segment) => {
+                {segments.map((segment, segmentIndex) => {
                   const bottomValue = acumulado
                   const topValue = acumulado + segment.value
                   acumulado = topValue
@@ -2217,7 +2248,10 @@ function MonthlyLossesStackedChart({
                   const segmentBottomY = y(bottomValue)
                   const segmentHeight = Math.max(0, segmentBottomY - segmentY)
                   const pctVsPlano = mensalPctVsPlano(segment.value, item)
-                  const smallSegment = segmentHeight < 30
+                  const isTopSegment = segmentIndex === segments.length - 1
+                  const showTwoLineLabel = segmentHeight >= 42 && segment.value >= 500
+                  const showOneLineLabel = !showTwoLineLabel && segmentHeight >= 25 && segment.value >= 700
+                  const isSimulado = segment.id === "simulado"
 
                   return (
                     <g key={`${item.mes}-${segment.id}`}>
@@ -2226,23 +2260,22 @@ function MonthlyLossesStackedChart({
                         y={segmentY}
                         width={barWidth}
                         height={segmentHeight}
-                        rx={segment.id === segments[segments.length - 1]?.id ? 7 : 2}
-                        fill={item.simulado ? segment.soft : segment.color}
-                        stroke={item.simulado ? segment.color : "none"}
-                        strokeWidth={item.simulado ? 1.6 : 0}
-                        strokeDasharray={item.simulado ? "4 3" : undefined}
-                        opacity={0.98}
+                        rx={isTopSegment ? 7 : 3}
+                        fill={isSimulado ? segment.soft : segment.color}
+                        stroke={isSimulado ? segment.color : "none"}
+                        strokeWidth={isSimulado ? 1.8 : 0}
+                        strokeDasharray={isSimulado ? "4 3" : undefined}
                       />
 
-                      {!smallSegment ? (
+                      {showTwoLineLabel && (
                         <>
                           <text
                             x={currentX}
                             y={segmentY + segmentHeight / 2 - 4}
                             textAnchor="middle"
-                            fontSize="7.1"
+                            fontSize="7.7"
                             fontWeight="900"
-                            fill={item.simulado ? "#991B1B" : "#FFFFFF"}
+                            fill={isSimulado ? "#7F1D1D" : "#FFFFFF"}
                           >
                             {fmt(segment.value)} cx
                           </text>
@@ -2250,23 +2283,25 @@ function MonthlyLossesStackedChart({
                             x={currentX}
                             y={segmentY + segmentHeight / 2 + 8}
                             textAnchor="middle"
-                            fontSize="6.3"
+                            fontSize="6.4"
                             fontWeight="800"
-                            fill={item.simulado ? "#991B1B" : "#F8FAFC"}
+                            fill={isSimulado ? "#7F1D1D" : "#F8FAFC"}
                           >
                             {fmtPct(pctVsPlano)}% ref.
                           </text>
                         </>
-                      ) : (
+                      )}
+
+                      {showOneLineLabel && (
                         <text
-                          x={currentX + barWidth / 2 + 5}
-                          y={segmentY + Math.max(8, segmentHeight / 2 + 2)}
-                          textAnchor="start"
-                          fontSize="6.8"
-                          fontWeight="800"
-                          fill="#64748B"
+                          x={currentX}
+                          y={segmentY + segmentHeight / 2 + 3}
+                          textAnchor="middle"
+                          fontSize="7"
+                          fontWeight="900"
+                          fill={isSimulado ? "#7F1D1D" : "#FFFFFF"}
                         >
-                          {segment.label}: {fmt(segment.value)} cx
+                          {fmt(segment.value)} cx
                         </text>
                       )}
                     </g>
@@ -2277,22 +2312,22 @@ function MonthlyLossesStackedChart({
                   <>
                     <text
                       x={currentX}
-                      y={Math.max(18, y(totalCx) - 18)}
+                      y={Math.max(18, y(totalCx) - 20)}
                       textAnchor="middle"
-                      fontSize="9.5"
-                      fontWeight="900"
-                      fill="#0F172A"
+                      fontSize="10.5"
+                      fontWeight="950"
+                      fill={COLORS.text}
                     >
                       -{fmt(totalCx)} cx
                     </text>
 
                     <text
                       x={currentX}
-                      y={Math.max(30, y(totalCx) - 6)}
+                      y={Math.max(31, y(totalCx) - 7)}
                       textAnchor="middle"
-                      fontSize="7.1"
-                      fontWeight="800"
-                      fill="#64748B"
+                      fontSize="7.3"
+                      fontWeight="850"
+                      fill={COLORS.muted}
                     >
                       {`${fmtPct(pctTotal)}% da ref.`}
                     </text>
@@ -2305,36 +2340,36 @@ function MonthlyLossesStackedChart({
                     x2={currentX + barWidth / 2}
                     y1={baselineY}
                     y2={baselineY}
-                    stroke="#CBD5E1"
-                    strokeWidth="2"
+                    stroke={COLORS.empty}
+                    strokeWidth="2.4"
                     strokeLinecap="round"
                   />
                 )}
 
                 <text
                   x={currentX}
-                  y={baselineY + 21}
+                  y={baselineY + 22}
                   textAnchor="middle"
-                  fontSize="9.5"
-                  fontWeight="900"
-                  fill="#0F172A"
+                  fontSize="10"
+                  fontWeight="950"
+                  fill={COLORS.text}
                 >
                   {item.mes}
                 </text>
 
                 <text
                   x={currentX}
-                  y={baselineY + 35}
+                  y={baselineY + 38}
                   textAnchor="middle"
-                  fontSize="6.7"
-                  fontWeight="800"
-                  fill="#64748B"
+                  fontSize="7"
+                  fontWeight="850"
+                  fill={COLORS.muted}
                 >
-                  {item.baseline || (item.mes === "Jan" ? "Jan/V3" : `${item.mes}/V1`)}
+                  {refLabel}
                 </text>
 
                 <title>
-                  {`${item.mes} (${item.baseline || "ref."})
+                  {`${item.mes} (${refLabel})
 Plano ref.: ${fmt(planoRefCx)} cx
 Liberado válido: ${fmt(liberadoValidoCx)} cx
 Atraso produção: ${fmt(Math.max(0, numero(item.atraso)))} cx
@@ -2350,28 +2385,31 @@ Total de perdas classificadas: ${fmt(totalCx)} cx`}
 
       <div className="mt-1 flex flex-wrap items-center justify-center gap-4">
         <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#F97316" }} />
+          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: COLORS.atraso }} />
           <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
             Atraso produção
           </span>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#2563EB" }} />
+          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: COLORS.reorg }} />
           <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
             Reorg.
           </span>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "#DC2626" }} />
+          <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: COLORS.reprovacao }} />
           <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
             Reprovação
           </span>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-[3px] border border-dashed" style={{ borderColor: "#DC2626", background: "#FEE2E2" }} />
+          <span
+            className="h-2.5 w-2.5 rounded-[3px] border border-dashed"
+            style={{ borderColor: COLORS.simulado, background: COLORS.simuladoFill }}
+          />
           <span className="text-[10.5px] font-bold" style={{ color: "var(--text-secondary)" }}>
             Simulado
           </span>
