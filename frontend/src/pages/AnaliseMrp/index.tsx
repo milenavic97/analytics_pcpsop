@@ -478,6 +478,14 @@ const BASES_GESTAO_ESTOQUE: BaseGestaoEstoque[] = [
     obrigatoria: true,
   },
   {
+    id: "compras_fup",
+    titulo: "Follow-up Compras",
+    descricao: "Atualizações da reunião de compras nas abas Detalhes*. A coluna Coluna1 vira comentário FUP.",
+    uso: "Enriquece pedidos em aberto com nova previsão, status e comentário de follow-up.",
+    compartilhada: "Cruza com Compras em Aberto por produto, pedido, item e SC.",
+    obrigatoria: false,
+  },
+  {
     id: "forecast_sop",
     titulo: "Forecast S&OP",
     descricao: "Demanda futura por produto acabado ou material de revenda.",
@@ -890,13 +898,29 @@ type AgingEstoqueItemDetalhe = Omit<AgingEstoqueItem, "linha_tempo_estoque" | "p
   serie_operacional?: BraviSeriePonto[]
   pedidos?: {
     pedido_numero?: string | null
+    pedido_item?: string | null
     sc_numero?: string | null
+    sc_item?: string | null
     quantidade_pendente?: number
     data_prevista_entrega?: string | null
+    data_prevista_entrega_original?: string | null
+    pedido_emissao?: string | null
+    sc_emissao?: string | null
+    nova_previsao_fup?: string | null
+    data_previsao_fup?: string | null
+    comentario_fup?: string | null
+    status_fup?: string | null
+    status_operacional?: string | null
+    em_atraso?: boolean | null
+    dias_atraso?: number | null
     fornecedor?: string | null
     comprador?: string | null
     status_entrega?: string | null
   }[]
+  qtd_pedidos_atrasados?: number | null
+  pedidos_em_atraso?: number | null
+  qtd_pedidos_no_prazo?: number | null
+  qtd_pedidos_abertos_detalhe?: number | null
   forecast_metodo?: "direto" | "bom_explodida" | string
   saldo_quarentena?: number | null
   quarentena?: number | null
@@ -1031,6 +1055,52 @@ function getPedidosAbertos(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | nu
   )
 }
 
+
+
+function parseDateOnlyGestao(value?: string | null) {
+  if (!value) return null
+  const texto = String(value).slice(0, 10)
+  if (!texto || texto === "0000-00-00") return null
+  const data = new Date(`${texto}T00:00:00`)
+  return Number.isNaN(data.getTime()) ? null : data
+}
+
+function pedidoEstaAtrasado(pedido: any) {
+  if (!pedido) return false
+  if ((pedido as any).em_atraso === true) return true
+  const data = parseDateOnlyGestao((pedido as any).data_prevista_entrega_original || (pedido as any).data_prevista_entrega)
+  if (!data) return false
+  const hoje = new Date()
+  const hojeZero = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
+  return data.getTime() < hojeZero.getTime() && Number((pedido as any).quantidade_pendente || 0) > 0
+}
+
+function getPedidosAtrasados(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+  const raw = item as unknown as Record<string, unknown>
+  const direto = toNumberSafe(raw.qtd_pedidos_atrasados ?? raw.pedidos_em_atraso, Number.NaN)
+  if (Number.isFinite(direto)) return Math.max(0, direto)
+
+  const pedidos = Array.isArray((item as AgingEstoqueItemDetalhe).pedidos)
+    ? ((item as AgingEstoqueItemDetalhe).pedidos || [])
+    : []
+
+  return pedidos.reduce((acc, pedido) => (
+    pedidoEstaAtrasado(pedido) ? acc + Number(pedido.quantidade_pendente || 0) : acc
+  ), 0)
+}
+
+function getCoberturaAtualMeses(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+  const raw = item as unknown as Record<string, unknown>
+  return Math.max(0, toNumberSafe(raw.cobertura_meses_atual ?? raw.cobertura_atual_meses ?? raw.cobertura_atual, 0))
+}
+
+function getCoberturaComEntradasMeses(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
+  if (!item) return 0
+  const raw = item as unknown as Record<string, unknown>
+  return Math.max(0, toNumberSafe(raw.cobertura_meses_futura ?? raw.cobertura_com_entradas_meses ?? raw.cobertura_futura_meses, 0))
+}
 
 function getEntradasMesAtualDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
@@ -6599,7 +6669,6 @@ function TimelinePrincipal({
   const consumoAnoAtual = linhaTempoMensal
     .filter((p) => Number(p.ano) === anoAtual)
     .reduce((acc, p) => acc + Number(p.consumo || 0), 0)
-  const pontoPedidoAtual = Number(item?.consumo_durante_lt || 0) || 0
 
   return (
     <div className="card overflow-hidden">
@@ -6610,7 +6679,7 @@ function TimelinePrincipal({
             {item ? `${item.codigo} · ${item.produto || "Item selecionado"}` : "Selecione um item na tabela"}
           </h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            Consumo histórico, demanda MPS/BOM, entradas previstas, estoque disponível e ponto de pedido.
+            Consumo histórico, demanda MPS/BOM, entradas previstas e estoque disponível/projetado.
           </p>
         </div>
 
@@ -6652,14 +6721,13 @@ function TimelinePrincipal({
       ) : (
         <div className="space-y-4 p-5">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
+            <KpiSmall label="Lead time fornecedor" value={`${fmtNumber(item.lead_time_dias, 0)} d`} />
             <KpiSmall label="Saldo atual" value={fmtCompact(item.saldo)} />
-            <KpiSmall label="Empenho lote" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "empenho_lote"))} />
-            <KpiSmall label="Pedidos" value={fmtCompact(item.qtd_pedidos_abertos)} />
-            <KpiSmall label="Estoque + pedidos" value={fmtCompact(item.estoque_mais_pedidos)} />
-            <KpiSmall label="Maior média" value={fmtCompact(item.maior_media)} />
-            <KpiSmall label="Ponto pedido" value={fmtCompact(pontoPedidoAtual)} />
-            <KpiSmall label={`Consumo ${anoAtual}`} value={fmtCompact(consumoAnoAtual)} />
-            <KpiSmall label="Gap" value={fmtCompact(item.gap_volume)} />
+            <KpiSmall label="Empenho" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "empenho_lote"))} />
+            <KpiSmall label="Pedidos abertos" value={fmtCompact(item.qtd_pedidos_abertos)} />
+            <KpiSmall label="Pedidos em atraso" value={fmtCompact(getPedidosAtrasados(item))} />
+            <KpiSmall label="Cobertura atual" value={`${fmtNumber(getCoberturaAtualMeses(item), 1)} m`} />
+            <KpiSmall label="Cobertura c/ entradas" value={`${fmtNumber(getCoberturaComEntradasMeses(item), 1)} m`} />
           </div>
 
           <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
@@ -6740,9 +6808,6 @@ function TimelinePrincipal({
                     <Line yAxisId="estoque" type="monotone" dataKey="demanda" name="Demanda MPS/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls hide={serieOculta("demanda")}>
                       <LabelList dataKey="demanda" content={renderChartLabel} />
                     </Line>
-                    <Line yAxisId="estoque" type="monotone" dataKey="ponto_pedido" name="Ponto de pedido" stroke="#D97706" strokeWidth={2.4} strokeDasharray="3 5" dot={false} connectNulls hide={serieOculta("ponto_pedido")}>
-                      <LabelList dataKey="ponto_pedido" content={renderChartLabel} />
-                    </Line>
                     {/* Insumos não têm leitura operacional por faturamento.
                         Faturamento SD2 fica apenas na visão PA/MR. */}
                   </ComposedChart>
@@ -6755,47 +6820,70 @@ function TimelinePrincipal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
-              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Racional do estoque ideal</p>
-              <p className="mt-2 text-sm" style={{ color: "var(--text-primary)" }}>Estoque ideal = maior entre consumo durante o lead time e pedido mínimo/MOQ.</p>
-              <div className="mt-4 grid grid-cols-3 gap-3">
-                <KpiSmall label="Consumo LT" value={fmtCompact(item.consumo_durante_lt)} />
-                <KpiSmall label="MOQ" value={fmtCompact(item.qtd_minima)} />
-                <KpiSmall label="Ideal" value={fmtCompact(item.estoque_ideal)} />
+          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+            <div className="flex flex-col justify-between gap-2 md:flex-row md:items-start">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Pedidos em aberto</p>
+                <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                  {pedidos.length
+                    ? `${fmtNumber(pedidos.length)} pedido(s) aberto(s) encontrado(s) para este item. ${fmtCompact(getPedidosAtrasados(item))} em atraso.`
+                    : "Nenhum pedido aberto encontrado para este item."}
+                </p>
               </div>
-            </div>
-
-            <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
-              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Pedidos em aberto</p>
-              <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-                {pedidos.length
-                  ? `${fmtNumber(pedidos.length)} pedido(s) aberto(s) encontrado(s) para este item.`
-                  : "Nenhum pedido aberto encontrado para este item."}
-              </p>
-              {pedidos.length > 0 && (
-                <div className="mt-3 max-h-[160px] overflow-auto rounded-xl border" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 text-left uppercase tracking-wide text-white" style={{ background: "#163B63" }}>
-                      <tr>
-                        <th className="px-3 py-2">Pedido/SC</th>
-                        <th className="px-3 py-2 text-right">Qtd.</th>
-                        <th className="px-3 py-2">Entrega</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pedidos.slice(0, 8).map((pedido, idx) => (
-                        <tr key={`${pedido.pedido_numero}-${pedido.sc_numero}-${idx}`} className="border-t" style={{ borderColor: "var(--border)" }}>
-                          <td className="px-3 py-2">{pedido.pedido_numero || pedido.sc_numero || "—"}</td>
-                          <td className="px-3 py-2 text-right font-semibold">{fmtNumber(pedido.quantidade_pendente, 0)}</td>
-                          <td className="px-3 py-2">{fmtDate(pedido.data_prevista_entrega)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              {getPedidosAtrasados(item) > 0 && (
+                <span className="inline-flex rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(220,38,38,0.25)", color: "#B91C1C", background: "rgba(220,38,38,0.08)" }}>
+                  Há pedidos vencidos
+                </span>
               )}
             </div>
+
+            {pedidos.length > 0 && (
+              <div className="mt-4 max-h-[300px] overflow-auto rounded-xl border" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
+                <table className="w-full min-w-[1120px] text-xs">
+                  <thead className="sticky top-0 text-left uppercase tracking-wide text-white" style={{ background: "#163B63" }}>
+                    <tr>
+                      <th className="px-3 py-2">Pedido/SC</th>
+                      <th className="px-3 py-2 text-right">Qtd.</th>
+                      <th className="px-3 py-2">Emissão pedido</th>
+                      <th className="px-3 py-2">Entrega original</th>
+                      <th className="px-3 py-2">Nova previsão FUP</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Comentário FUP</th>
+                      <th className="px-3 py-2">Fornecedor</th>
+                      <th className="px-3 py-2">Comprador</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pedidos.map((pedido, idx) => {
+                      const atrasado = pedidoEstaAtrasado(pedido)
+                      const status = pedido.status_operacional || pedido.status_fup || pedido.status_entrega || (atrasado ? "Atrasado" : "No prazo")
+                      const novaPrevisao = pedido.nova_previsao_fup || pedido.data_previsao_fup
+
+                      return (
+                        <tr key={`${pedido.pedido_numero}-${pedido.sc_numero}-${idx}`} className="border-t align-top" style={{ borderColor: "var(--border)", background: atrasado ? "rgba(254,242,242,0.75)" : "#FFFFFF" }}>
+                          <td className="px-3 py-2 font-semibold" style={{ color: "var(--text-primary)" }}>
+                            {pedido.pedido_numero || pedido.sc_numero || "—"}
+                            {pedido.pedido_item && <span className="ml-1 font-normal" style={{ color: "var(--text-secondary)" }}>/{pedido.pedido_item}</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold">{fmtNumber(pedido.quantidade_pendente, 0)}</td>
+                          <td className="px-3 py-2">{fmtDate(pedido.pedido_emissao || pedido.sc_emissao)}</td>
+                          <td className="px-3 py-2">{fmtDate(pedido.data_prevista_entrega_original || pedido.data_prevista_entrega)}</td>
+                          <td className="px-3 py-2 font-semibold" style={{ color: novaPrevisao ? "#166534" : "var(--text-secondary)" }}>{novaPrevisao ? fmtDate(novaPrevisao) : "—"}</td>
+                          <td className="px-3 py-2">
+                            <span className="inline-flex rounded-full px-2 py-1 text-[11px] font-bold" style={{ background: atrasado ? "rgba(220,38,38,0.10)" : "rgba(22,163,74,0.10)", color: atrasado ? "#B91C1C" : "#15803D" }}>
+                              {status}
+                            </span>
+                          </td>
+                          <td className="max-w-[320px] px-3 py-2" style={{ color: "var(--text-secondary)" }}>{pedido.comentario_fup || "—"}</td>
+                          <td className="max-w-[220px] px-3 py-2" style={{ color: "var(--text-secondary)" }}>{pedido.fornecedor || "—"}</td>
+                          <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{pedido.comprador || "—"}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
