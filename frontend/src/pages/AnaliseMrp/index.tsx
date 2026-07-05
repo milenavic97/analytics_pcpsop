@@ -3712,7 +3712,7 @@ function getProximosMesesDashboard(qtdMeses = 6) {
   return meses
 }
 
-function getForecastSeisMesesDashboard(item: AgingEstoqueItem | null | undefined) {
+function getForecastSeisMesesDashboard(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   const raw = (item || {}) as any
   const hoje = new Date()
   const anoAtual = hoje.getFullYear()
