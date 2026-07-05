@@ -7164,7 +7164,6 @@ export default function AgingEstoquePage() {
     setActiveFilter(null)
     setResumo(null)
     setItensResp(null)
-    setMostrarSaudeLinhas(false)
   }
 
   const abrirGestaoPeloDashboard = (escopo: EscopoEstoque = "todos") => {
