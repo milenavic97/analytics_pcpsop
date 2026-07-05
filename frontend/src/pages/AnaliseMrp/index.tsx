@@ -6057,13 +6057,10 @@ function BraviSeriePanel({
     return pontos
   }, [serieOriginal, itemSelecionado, resumo.estoque_atual, granularidade])
   const tituloSerie = itemSelecionado
-    ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}${loading ? " · atualizando série" : ""}`
+    ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}${loading ? " · atualizando" : ""}`
     : loading
-      ? "Visão geral PA / MR · carregando consolidado..."
-      : "Visão geral PA / MR"
-  const descricaoSerie = itemSelecionado
-    ? "Ao clicar no item, a tela mostra uma visão rápida pela linha da tabela e carrega a série real em segundo plano com cache local de 12 horas. Para voltar ao consolidado, clique em Ver todo."
-    : "Consolidado mensal de todos os PA/MR. O primeiro carregamento pode demorar, mas depois fica salvo em cache local por 12 horas."
+      ? "Linha do tempo PA / MR · carregando..."
+      : "Linha do tempo PA / MR"
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
@@ -6084,13 +6081,10 @@ function BraviSeriePanel({
 
   return (
     <div className="card overflow-hidden">
-      <div className="flex flex-col justify-between gap-3 border-b px-5 py-4 lg:flex-row lg:items-start" style={{ borderColor: "var(--border)" }}>
+      <div className="flex flex-col justify-between gap-3 border-b px-5 py-4 lg:flex-row lg:items-center" style={{ borderColor: "var(--border)" }}>
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Acompanhamento PA / MR</p>
+          <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Linha do tempo</p>
           <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{tituloSerie}</h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            {descricaoSerie}
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -6104,30 +6098,6 @@ function BraviSeriePanel({
               Ver todo
             </button>
           )}
-          {([
-            ["mensal", "Mensal"],
-            ["semanal", "Semanal"],
-            ["diaria", "Diária"],
-          ] as [GranularidadeSerie, string][]).map(([key, label]) => {
-            const disabled = key !== "mensal"
-            return (
-              <button
-                key={key}
-                type="button"
-                disabled={disabled}
-                onClick={() => !disabled && setGranularidade(key)}
-                title={disabled ? "Nesta visão PA/MR, o gráfico fica mensal para manter performance e troca rápida de item." : undefined}
-                className="rounded-xl border px-3 py-2 text-sm font-bold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
-                style={{
-                  borderColor: granularidade === key ? "#163B63" : "var(--border)",
-                  background: granularidade === key ? "rgba(22,59,99,0.08)" : "#FFFFFF",
-                  color: granularidade === key ? "#163B63" : "var(--text-primary)",
-                }}
-              >
-                {label}
-              </button>
-            )
-          })}
           {loading && (
             <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
               <RefreshCw size={13} className="animate-spin" /> Atualizando
@@ -6136,32 +6106,9 @@ function BraviSeriePanel({
         </div>
       </div>
 
-      <div className="space-y-4 p-5">
-
-
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-          <KpiSmall label={itemSelecionado ? "Item selecionado" : "Itens PA/MR"} value={itemSelecionado ? "1" : fmtNumber(data?.total_itens_produtos || data?.total_itens_bravi || 0)} />
-          <KpiSmall label="Estoque atual" value={fmtCompact(resumo.estoque_atual)} />
-          <KpiSmall label="Pedidos" value={fmtCompact(resumo.pedidos_abertos)} />
-          <KpiSmall label="Fat. 2026 qtd" value={fmtCompact(resumo.faturamento_ytd_qtd)} />
-          <KpiSmall label="Fat. 2026 R$" value={fmtCurrency(Number(resumo.faturamento_ytd_valor || 0), 0)} />
-          <KpiSmall label="Críticos" value={fmtNumber(resumo.criticos || 0)} />
-        </div>
-
+      <div className="p-5">
         <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
-          <div className="mb-1 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
-              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Histórico a partir de Jun/25, forecast futuro e entradas previstas por MPS/compras.
-              </p>
-            </div>
-            <span className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(124,58,237,0.28)", color: "#6D28D9", background: "rgba(124,58,237,0.08)" }}>
-              {loading ? (itemSelecionado ? "Atualizando série" : "Carregando visão geral") : itemSelecionado ? "Item selecionado" : "Visão geral"}
-            </span>
-          </div>
-
-          <div className="h-[500px]">
+          <div className="h-[430px]">
             {serie.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={serie} margin={{ top: 30, right: 26, left: 0, bottom: 34 }}>
@@ -6176,23 +6123,15 @@ function BraviSeriePanel({
                   />
                   <YAxis
                     yAxisId="estoque"
-                    orientation="left"
-                    tick={{ fontSize: 11, fill: "#64748B" }}
-                    width={80}
+                    hide
                     domain={[0, eixoMaxComum]}
                     allowDataOverflow={false}
-                    tickFormatter={(value) => fmtNumber(Number(value), 0)}
-                    label={{ value: "Estoque + entradas", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
                   />
                   <YAxis
                     yAxisId="fluxo"
-                    orientation="right"
-                    tick={{ fontSize: 11, fill: "#64748B" }}
-                    width={80}
+                    hide
                     domain={[0, eixoMaxComum]}
                     allowDataOverflow={false}
-                    tickFormatter={(value) => fmtNumber(Number(value), 0)}
-                    label={{ value: "Faturamento / forecast", angle: 90, position: "insideRight", style: { fill: "#64748B", fontSize: 11 } }}
                   />
                   <YAxis yAxisId="valor" hide />
                   <Tooltip content={<BraviSerieTooltip />} />
@@ -6322,13 +6261,8 @@ function FiltrosEstoquePanel({
     "ATENCAO",
     "SAUDAVEL",
     "EXCESSO",
-    "DESCONTINUADO_COM_SALDO",
   ]
 
-  const tipoNegocioOptions = ["TODOS", ...(opcoes?.tipo_negocio || [])]
-  const statusPortfolioOptions = ["TODOS", ...(opcoes?.status_portfolio || [])]
-  const braviOptions = ["TODOS", "Sim", "Não"]
-  const classificacaoOptions = ["TODOS", "MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS"]
   const statusPlanoOptions: ("TODOS" | StatusPlanoMes)[] = ["TODOS", "SEM_MOVIMENTO", "SEM_PREVISAO", "OK", "ATENCAO", "ALERTA", "ACIMA_PREVISAO"]
 
   const selectClass = "h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
@@ -6364,43 +6298,26 @@ function FiltrosEstoquePanel({
       </div>
 
       <div
-        className="grid grid-cols-1 items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(300px,2.1fr)_minmax(120px,0.8fr)_minmax(150px,0.9fr)_minmax(150px,0.9fr)_minmax(150px,0.9fr)_minmax(100px,0.7fr)_minmax(140px,0.85fr)]"
+        className="grid grid-cols-1 items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(320px,2fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(160px,1fr)]"
         style={{ borderColor: "var(--border)" }}
       >
         <label>
           <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Código ou produto</span>
-          <div className="flex gap-2">
-            <input
-              value={buscaDraft}
-              onChange={(e) => setBuscaDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") aplicarBuscaRapida()
-              }}
-              placeholder="Buscar código, nome, família, segmento..."
-              className="h-10 min-w-0 flex-1 rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            />
-            <button
-              type="button"
-              onClick={aplicarBuscaRapida}
-              className="h-10 rounded-xl border px-3 text-sm font-bold transition hover:bg-slate-50"
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            >
-              Buscar
-            </button>
-          </div>
-        </label>
-
-        <label>
-          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Linha</span>
-          <select
-            value={filtro?.tipo_negocio || "TODOS"}
-            onChange={(e) => onChange("tipo_negocio", e.target.value === "TODOS" ? undefined : e.target.value)}
-            className={selectClass}
+          <input
+            value={buscaDraft}
+            onChange={(e) => {
+              const valor = e.target.value
+              setBuscaDraft(valor)
+              if (!valor.trim()) onChange("busca", undefined)
+            }}
+            onBlur={aplicarBuscaRapida}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") aplicarBuscaRapida()
+            }}
+            placeholder="Buscar código, nome ou produto..."
+            className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
             style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-          >
-            {tipoNegocioOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todas" : opcao}</option>)}
-          </select>
+          />
         </label>
 
         <label>
@@ -6428,42 +6345,16 @@ function FiltrosEstoquePanel({
         </label>
 
         <label>
-          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Status portfólio</span>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Descontinuado?</span>
           <select
-            value={filtro?.status_portfolio || "TODOS"}
-            onChange={(e) => onChange("status_portfolio", e.target.value === "TODOS" ? undefined : e.target.value)}
+            value={filtro?.descontinuado || "TODOS"}
+            onChange={(e) => onChange("descontinuado", e.target.value === "TODOS" ? undefined : e.target.value)}
             className={selectClass}
             style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
           >
-            {statusPortfolioOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : opcao}</option>)}
-          </select>
-        </label>
-
-        <label>
-          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Bravi</span>
-          <select
-            value={filtro?.transferencia_bravi || "TODOS"}
-            onChange={(e) => onChange("transferencia_bravi", e.target.value === "TODOS" ? undefined : e.target.value)}
-            className={selectClass}
-            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-          >
-            {braviOptions.map((opcao) => <option key={opcao} value={opcao}>{opcao === "TODOS" ? "Todos" : opcao}</option>)}
-          </select>
-        </label>
-
-        <label>
-          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Classificação</span>
-          <select
-            value={filtro?.classificacao_cadastro || "TODOS"}
-            onChange={(e) => onChange("classificacao_cadastro", e.target.value === "TODOS" ? undefined : e.target.value)}
-            className={selectClass}
-            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-          >
-            {classificacaoOptions.map((opcao) => (
-              <option key={opcao} value={opcao}>
-                {opcao === "TODOS" ? "Todos" : opcao === "MAPEADOS" ? "Mapeados" : opcao === "NAO_CLASSIFICADOS" ? "Não classificados" : opcao}
-              </option>
-            ))}
+            <option value="TODOS">Todos</option>
+            <option value="SIM">Sim</option>
+            <option value="NAO">Não</option>
           </select>
         </label>
       </div>
@@ -7204,7 +7095,6 @@ export default function AgingEstoquePage() {
   const [tableSearchDraft, setTableSearchDraft] = useState("")
   const [columnSelectorOpen, setColumnSelectorOpen] = useState(false)
   const [colunasVisiveisPorEscopo, setColunasVisiveisPorEscopo] = useState<Partial<Record<EscopoEstoque, string[]>>>({})
-  const [mostrarSaudeLinhas, setMostrarSaudeLinhas] = useState(false)
   const [exportingCsv, setExportingCsv] = useState(false)
 
   const carregarAtualizacoesBases = async () => {
@@ -8698,9 +8588,11 @@ export default function AgingEstoquePage() {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Visão da gestão de estoque</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>{escopoTitulo}</h2>
-            <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              {ESCOPO_ESTOQUE_OPTIONS.find((option) => option.key === escopoEstoque)?.helper || "Alterne o escopo para separar a lógica comercial da lógica produtiva."}
-            </p>
+            {escopoEstoque !== "produtos" && (
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                {ESCOPO_ESTOQUE_OPTIONS.find((option) => option.key === escopoEstoque)?.helper || "Alterne o escopo para separar a lógica comercial da lógica produtiva."}
+              </p>
+            )}
           </div>
 
           <div className="flex w-full flex-col gap-2 sm:max-w-[520px] sm:flex-row sm:items-end sm:justify-end">
@@ -8724,31 +8616,17 @@ export default function AgingEstoquePage() {
               </select>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setMostrarSaudeLinhas((current) => !current)}
-              className="h-10 rounded-xl border px-3 text-sm font-bold transition hover:bg-slate-50"
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: mostrarSaudeLinhas ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
-            >
-              {mostrarSaudeLinhas ? "Ocultar saúde" : "Mostrar saúde"}
-            </button>
           </div>
         </div>
       </div>
 
 
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <KpiCard
           label="Itens"
           value={fmtNumber(resumo?.resumo?.total_itens || 0)}
-          helper={`${escopoTitulo} · Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`}
-          details={[
-            { label: "Ativos/outros", value: fmtNumber(totalAtivosOutros), tone: "success" },
-            ...(totalDescontinuadoSaldo > 0 ? [{ label: "Desc. c/ saldo", value: fmtNumber(totalDescontinuadoSaldo), tone: "danger" as const }] : []),
-            ...(totalBravi > 0 ? [{ label: "Bravi", value: fmtNumber(totalBravi), tone: "blue" as const }] : []),
-            ...(qtdAClassificar ? [{ label: "A classificar", value: fmtNumber(qtdAClassificar), tone: "warning" as const }] : []),
-          ]}
+          helper={`Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`}
           icon={<Boxes size={20} />}
           onClick={() => aplicarFiltro(null)}
           active={!activeFilter}
@@ -8756,7 +8634,7 @@ export default function AgingEstoquePage() {
         <KpiCard
           label="Ruptura"
           value={fmtNumber(resumo?.resumo?.ruptura || 0)}
-          helper={escopoEstoque === "produtos" ? "Sem estoque disponível" : "Saldo zerado com consumo"}
+          helper="Sem estoque disponível"
           icon={<AlertTriangle size={20} />}
           tone="danger"
           onClick={() => aplicarFiltro({ label: "Ruptura", status: "RUPTURA" })}
@@ -8765,11 +8643,11 @@ export default function AgingEstoquePage() {
         <KpiCard
           label="Críticos"
           value={fmtNumber(resumo?.resumo?.critico || 0)}
-          helper={escopoEstoque === "produtos" ? "Disponibilidade abaixo do necessário" : "Abaixo do ideal/LT"}
+          helper="Abaixo da necessidade"
           icon={<ArrowDownRight size={20} />}
           tone="warning"
-          onClick={() => aplicarFiltro({ label: "Críticos", semaforo: "VERMELHO" })}
-          active={isFiltroAtivo(activeFilter, { semaforo: "VERMELHO" }) && !activeFilter?.tipo_negocio}
+          onClick={() => aplicarFiltro({ label: "Críticos", status: "CRITICO" })}
+          active={isFiltroAtivo(activeFilter, { status: "CRITICO" }) && !activeFilter?.tipo_negocio}
         />
         <KpiCard
           label="Excesso"
@@ -8780,139 +8658,14 @@ export default function AgingEstoquePage() {
           onClick={() => aplicarFiltro({ label: "Excesso", status: "EXCESSO" })}
           active={isFiltroAtivo(activeFilter, { status: "EXCESSO" }) && !activeFilter?.tipo_negocio}
         />
-        {mostrarCardsPortfolio ? (
-          <>
-            <KpiCard
-              label="Descont. c/ saldo"
-              value={fmtNumber(resumo?.resumo?.descontinuado_com_saldo || 0)}
-              helper="portfólio descontinuado"
-              icon={<PackageSearch size={20} />}
-              tone="danger"
-              onClick={() => aplicarFiltro({ label: "Descontinuados com saldo", status: "DESCONTINUADO_COM_SALDO" })}
-              active={isFiltroAtivo(activeFilter, { status: "DESCONTINUADO_COM_SALDO" })}
-            />
-            <KpiCard
-              label="Bravi"
-              value={fmtNumber(resumo?.resumo?.transferencia_bravi || 0)}
-              helper="itens em transferência"
-              icon={<ShoppingCart size={20} />}
-              tone="blue"
-              onClick={() => aplicarFiltro({ label: "Bravi", transferencia_bravi: "Sim" })}
-              active={isFiltroAtivo(activeFilter, { transferencia_bravi: "Sim" })}
-            />
-          </>
-        ) : (
-          <>
-            <KpiCard
-              label="Pedidos abertos"
-              value={fmtCompact(resumo?.resumo?.pedidos_total || 0)}
-              helper="volume em compras abertas"
-              icon={<ShoppingCart size={20} />}
-              tone="blue"
-            />
-          </>
-        )}
+        <KpiCard
+          label="Pedidos abertos"
+          value={fmtCompact(resumo?.resumo?.pedidos_total || 0)}
+          helper="volume em compras abertas"
+          icon={<ShoppingCart size={20} />}
+          tone="blue"
+        />
       </div>
-
-      {mostrarSaudeLinhas && (
-        <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        {negociosClassificados.map((negocio) => (
-                <div
-                  key={negocio.tipo_negocio}
-                  className="rounded-2xl border p-4 text-left"
-                  style={{ borderColor: "var(--border)", background: "#FFFFFF" }}
-                >
-                  <div className="min-h-[104px]">
-                    <button
-                      type="button"
-                      className="text-left"
-                      onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
-                    >
-                      <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>"Saúde da linha"</p>
-                      <h3 className="mt-1 text-lg font-bold hover:underline" style={{ color: "var(--text-primary)" }}>{negocio.tipo_negocio}</h3>
-                    </button>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
-                        className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
-                        style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}
-                      >
-                        {fmtNumber(negocio.itens)} SKUs
-                      </button>
-                      <span
-                        className="rounded-full px-2.5 py-1 text-xs font-bold"
-                        style={{ background: "rgba(22,163,74,0.08)", color: "#15803D" }}
-                      >
-                        Ativos/outros: {fmtNumber(Math.max(0, negocio.itens - negocio.descontinuado_com_saldo - negocio.transferencia_bravi))}
-                      </span>
-                      {negocio.descontinuado_com_saldo > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => aplicarFiltro({ label: `Descontinuados · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "DESCONTINUADO_COM_SALDO" })}
-                          className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
-                          style={{ background: "rgba(185,28,28,0.10)", color: "#991B1B" }}
-                        >
-                          Desc. c/ saldo: {fmtNumber(negocio.descontinuado_com_saldo)}
-                        </button>
-                      )}
-                      {negocio.transferencia_bravi > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => aplicarFiltro({ label: `Bravi · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, transferencia_bravi: "Sim" })}
-                          className="rounded-full px-2.5 py-1 text-xs font-bold transition hover:brightness-95"
-                          style={{ background: "rgba(124,58,237,0.10)", color: "#6D28D9" }}
-                        >
-                          Bravi: {fmtNumber(negocio.transferencia_bravi)}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <KpiSmall
-                      label="Críticos"
-                      value={fmtNumber(negocio.criticos)}
-                      onClick={() => aplicarFiltro({ label: `Críticos · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, semaforo: "VERMELHO" })}
-                      active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, semaforo: "VERMELHO" })}
-                    />
-                    <KpiSmall
-                      label="Excesso"
-                      value={fmtNumber(negocio.excesso)}
-                      onClick={() => aplicarFiltro({ label: `Excesso · ${negocio.tipo_negocio}`, tipo_negocio: negocio.tipo_negocio, status: "EXCESSO" })}
-                      active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio, status: "EXCESSO" })}
-                    />
-                    <KpiSmall
-                      label="Saldo"
-                      value={fmtCompact(negocio.saldo_total)}
-                      onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
-                      active={isFiltroAtivo(activeFilter, { tipo_negocio: negocio.tipo_negocio }) && !activeFilter?.status}
-                    />
-                    <KpiSmall
-                      label="Cob. futura"
-                      value={`${fmtNumber(negocio.cobertura_futura_media_dias, 0)} d`}
-                      onClick={() => aplicarFiltro({ label: negocio.tipo_negocio, tipo_negocio: negocio.tipo_negocio })}
-                    />
-                  </div>
-                </div>
-              ))}
-      </div>
-
-        {negocioAClassificar && negocioAClassificar.itens > 0 && (
-          <button
-            type="button"
-            onClick={() => aplicarFiltro({ label: "Itens a classificar", classificacao_cadastro: "NAO_CLASSIFICADOS" })}
-            className="inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition hover:bg-slate-50"
-            style={{ borderColor: "var(--border)", color: "var(--text-primary)", background: activeFilter?.classificacao_cadastro === "NAO_CLASSIFICADOS" ? "rgba(22,59,99,0.06)" : "#FFFFFF" }}
-              >
-            <PackageSearch size={16} />
-            {fmtNumber(negocioAClassificar.itens)} itens a classificar
-          </button>
-        )}
-        </div>
-      )}
-
       <FiltrosEstoquePanel
         filtro={activeFilter}
         opcoes={opcoesFiltros}
@@ -8922,20 +8675,12 @@ export default function AgingEstoquePage() {
       />
 
 
-      <BraviSeriePanel
-        active={mostrarCardsPortfolio && escopoEstoque === "produtos"}
-        refreshTick={refreshTick}
-        selectedItem={selected}
-        loadingSelected={false}
-        onClearSelected={() => setSelected(null)}
-      />
-
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
             <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-              {isTabelaProdutos ? `${escopoTitulo} por disponibilidade e faturamento` : `${escopoTitulo} por cobertura e estoque ideal`}
+              {isTabelaProdutos ? "Gestão operacional: disponibilidade e faturamento" : `${escopoTitulo} por cobertura e estoque ideal`}
             </h2>
           </div>
           <div className="flex items-center gap-3">
@@ -9127,6 +8872,14 @@ export default function AgingEstoquePage() {
           </div>
         </div>
       </div>
+
+      <BraviSeriePanel
+        active={mostrarCardsPortfolio && escopoEstoque === "produtos"}
+        refreshTick={refreshTick}
+        selectedItem={selected}
+        loadingSelected={false}
+        onClearSelected={() => setSelected(null)}
+      />
 
       <BasesModal
         open={basesModalOpen}
