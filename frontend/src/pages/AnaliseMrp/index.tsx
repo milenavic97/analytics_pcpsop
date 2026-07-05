@@ -6293,8 +6293,6 @@ function FiltrosEstoquePanel({
     "ATENCAO",
     "SAUDAVEL",
     "EXCESSO",
-    "SEM_GIRO",
-    "SEM_CONSUMO",
     "DESCONTINUADO_COM_SALDO",
   ]
 
@@ -8281,7 +8279,7 @@ export default function AgingEstoquePage() {
 
 
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           <KpiCard
             label="Itens"
             value={fmtNumber(resumo?.resumo?.total_itens || 0)}
@@ -8315,15 +8313,6 @@ export default function AgingEstoquePage() {
             tone="blue"
             onClick={() => aplicarFiltro({ label: "Excesso", status: "EXCESSO" })}
             active={isFiltroAtivo(activeFilter, { status: "EXCESSO" }) && !activeFilter?.tipo_negocio}
-          />
-          <KpiCard
-            label="Sem consumo"
-            value={fmtNumber(resumo?.resumo?.sem_giro || 0)}
-            helper="sem consumo histórico relevante"
-            icon={<PackageSearch size={20} />}
-            tone="default"
-            onClick={() => aplicarFiltro({ label: "Sem consumo", status: "SEM_GIRO" })}
-            active={isFiltroAtivo(activeFilter, { status: "SEM_GIRO" })}
           />
           <KpiCard
             label="Pedidos abertos"
@@ -8424,8 +8413,6 @@ export default function AgingEstoquePage() {
                 <option value="ATENCAO">Atenção</option>
                 <option value="SAUDAVEL">Saudável</option>
                 <option value="EXCESSO">Excesso</option>
-                <option value="SEM_GIRO">Sem consumo</option>
-                <option value="SEM_CONSUMO">Sem consumo</option>
               </select>
             </label>
 
@@ -8811,15 +8798,6 @@ export default function AgingEstoquePage() {
           </>
         ) : (
           <>
-            <KpiCard
-              label="Sem consumo"
-              value={fmtNumber(resumo?.resumo?.sem_giro || 0)}
-              helper="sem consumo histórico relevante"
-              icon={<PackageSearch size={20} />}
-              tone="default"
-              onClick={() => aplicarFiltro({ label: "Sem consumo", status: "SEM_GIRO" })}
-              active={isFiltroAtivo(activeFilter, { status: "SEM_GIRO" })}
-            />
             <KpiCard
               label="Pedidos abertos"
               value={fmtCompact(resumo?.resumo?.pedidos_total || 0)}
