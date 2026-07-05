@@ -2088,19 +2088,24 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   }
 
   // Demanda/forecast: só faz sentido do mês atual para frente.
-  // Se não houver forecast/BOM para o item, a série fica null e não aparece como zero falso.
-  for (const p of item.forecast || []) {
+  // Fonte visual robusta: usa a série mensal montada pelo próprio front, que já
+  // tenta forecast_futuro, forecast, linha_tempo_estoque e, no mês atual,
+  // cai para demanda_mes_atual/previsao_mes_atual. Isso evita o caso em que a
+  // tabela classifica o item como crítico por Previsão mês, mas o gráfico não
+  // desenha a curva verde porque o detalhe veio sem item.forecast preenchido.
+  for (const p of getForecastSeisMesesDashboard(item)) {
     const ano = Number(p.ano || 0)
     const mes = Number(p.mes || 0)
     if (!ano || !mes) continue
     const key = monthKey(ano, mes)
     const keyDate = new Date(ano, mes - 1, 1)
     if (key < chaveAtual || keyDate < inicio || keyDate > fim) continue
-    const demanda = Number(p.forecast || 0)
+    const demanda = Number(p.valor || 0)
     if (demanda <= 0) continue
     const ponto = ensure(ano, mes)
-    ponto.demanda = Number(ponto.demanda || 0) + demanda
-    ponto.forecast = Number(ponto.forecast || 0) + demanda
+    // Não soma duas vezes se o backend já mandou a mesma demanda em outra série.
+    ponto.demanda = Math.max(Number(ponto.demanda || 0), demanda)
+    ponto.forecast = Math.max(Number(ponto.forecast || 0), demanda)
   }
 
   // Entradas previstas: pedidos abertos vencidos continuam sendo entradas esperadas.
@@ -5410,7 +5415,13 @@ function renderChartLabel(props: any) {
 
   const hasBarBox = typeof width === "number" && typeof height === "number"
   const isSaldo = dataKey === "saldo_grafico"
-  const isAtual = isSaldo && payload?.tipo_saldo_grafico === "atual"
+  const hoje = new Date()
+  const periodoAtual = monthLabel(hoje.getFullYear(), hoje.getMonth() + 1)
+  const isAtual = isSaldo && (
+    payload?.tipo_saldo_grafico === "atual"
+    || payload?.periodo === periodoAtual
+    || payload?.key === monthKey(hoje.getFullYear(), hoje.getMonth() + 1)
+  )
   const isNegative = n < 0
 
   if (hasBarBox) {
@@ -5427,9 +5438,9 @@ function renderChartLabel(props: any) {
         dominantBaseline={inside ? "middle" : "auto"}
         fontSize={10}
         fontWeight={800}
-        fill={isNegative ? "#991B1B" : isAtual && inside ? "#FFFFFF" : "#334155"}
-        stroke={isAtual && inside ? "rgba(15,23,42,0.28)" : "none"}
-        strokeWidth={isAtual && inside ? 2 : 0}
+        fill={isNegative ? "#991B1B" : isAtual ? "#FFFFFF" : "#334155"}
+        stroke={isAtual ? "rgba(15,23,42,0.32)" : "none"}
+        strokeWidth={isAtual ? 2 : 0}
         paintOrder="stroke"
       >
         {fmtCompact(n)}
@@ -7464,8 +7475,47 @@ export default function AgingEstoquePage() {
     return opcoes.slice(0, 800)
   }, [dashboardItensPorEscopo, escopoEstoque, itens])
 
-  const aplicarBuscaTabela = () => {
-    atualizarFiltroCampo("busca", tableSearchDraft.trim() || undefined)
+  const codigoBuscaEstoquePorLabel = useMemo(() => {
+    const mapa = new Map<string, string>()
+
+    const basesAutocomplete = [
+      ...((dashboardItensPorEscopo[escopoEstoque]?.itens || []) as AgingEstoqueItem[]),
+      ...((itens || []) as AgingEstoqueItem[]),
+    ]
+
+    basesAutocomplete.forEach((item) => {
+      const raw = item as any
+      const codigo = String(raw.codigo || raw.cod_produto || raw.sku || "").trim()
+      const descricao = String(raw.produto || raw.descricao || raw.desc_produto || "").trim()
+      const label = [codigo, descricao].filter(Boolean).join(" · ")
+
+      if (!label || !codigo) return
+
+      mapa.set(label, codigo)
+    })
+
+    return mapa
+  }, [dashboardItensPorEscopo, escopoEstoque, itens])
+
+  const normalizarBuscaAutocompleteEstoque = (valor: string) => {
+    const texto = String(valor || "").trim()
+    if (!texto) return ""
+
+    const codigoExato = codigoBuscaEstoquePorLabel.get(texto)
+    if (codigoExato) return codigoExato
+
+    // Se o datalist devolver algo como "04782 · TUBETE VIDRO...",
+    // o filtro precisa ir para o backend só como código. O backend não consegue
+    // casar a frase completa com a coluna descrição/código.
+    const matchCodigoInicial = texto.match(/^([0-9]{1,12})\s*(?:[·\-–—]|$)/)
+    if (matchCodigoInicial?.[1]) return matchCodigoInicial[1].padStart(5, "0")
+
+    return texto
+  }
+
+  const aplicarBuscaTabela = (valor?: string) => {
+    const buscaNormalizada = normalizarBuscaAutocompleteEstoque(valor ?? tableSearchDraft)
+    atualizarFiltroCampo("busca", buscaNormalizada || undefined)
   }
 
   const aplicarFiltro = (filtro: FiltroTabelaEstoque | null) => {
@@ -8266,16 +8316,37 @@ export default function AgingEstoquePage() {
           <div className="flex flex-wrap items-end gap-2 border-t pt-4" style={{ borderColor: "var(--border)" }}>
             <label className="min-w-[300px] flex-[1.6]">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Código ou produto</span>
-              <div className="flex gap-2">
+              <div className="relative">
                 <input
                   value={tableSearchDraft}
                   list={autocompleteBuscaEstoqueId}
-                  onChange={(e) => setTableSearchDraft(e.target.value)}
+                  onChange={(e) => {
+                    const valor = e.target.value
+                    setTableSearchDraft(valor)
+
+                    // Selecionou uma opção do autocomplete: aplica na hora.
+                    // Se limpar o campo, também limpa o filtro na hora.
+                    if (codigoBuscaEstoquePorLabel.has(valor.trim())) {
+                      aplicarBuscaTabela(valor)
+                    } else if (!valor.trim()) {
+                      atualizarFiltroCampo("busca", undefined)
+                    }
+                  }}
+                  onBlur={() => {
+                    const valor = tableSearchDraft.trim()
+                    const buscaAtual = String(activeFilter?.busca || "").trim()
+                    if (valor && normalizarBuscaAutocompleteEstoque(valor) !== buscaAtual) {
+                      aplicarBuscaTabela(valor)
+                    }
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") aplicarBuscaTabela()
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      aplicarBuscaTabela()
+                    }
                   }}
                   placeholder="Digite ou selecione código/produto..."
-                  className="h-10 min-w-0 flex-1 rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+                  className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
                   style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
                 />
                 <datalist id={autocompleteBuscaEstoqueId}>
@@ -8283,14 +8354,6 @@ export default function AgingEstoquePage() {
                     <option key={opcao} value={opcao} />
                   ))}
                 </datalist>
-                <button
-                  type="button"
-                  onClick={aplicarBuscaTabela}
-                  className="h-10 shrink-0 rounded-xl border px-3 text-sm font-bold transition hover:bg-slate-50"
-                  style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-                >
-                  Buscar
-                </button>
               </div>
             </label>
 
