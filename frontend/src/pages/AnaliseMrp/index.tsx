@@ -2088,11 +2088,10 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   }
 
   // Demanda/forecast: só faz sentido do mês atual para frente.
-  // Fonte visual robusta: usa a série mensal montada pelo próprio front, que já
-  // tenta forecast_futuro, forecast, linha_tempo_estoque e, no mês atual,
-  // cai para demanda_mes_atual/previsao_mes_atual. Isso evita o caso em que a
-  // tabela classifica o item como crítico por Previsão mês, mas o gráfico não
-  // desenha a curva verde porque o detalhe veio sem item.forecast preenchido.
+  // Fonte visual oficial: usa SOMENTE a série de forecast/demanda enviada pelo backend
+  // (forecast_futuro, forecast, linha_tempo_estoque ou comparativo_mensal).
+  // Não usa demanda_mes_atual/previsao_mes_atual como fallback para não desenhar
+  // uma curva artificial diferente da fonte oficial.
   for (const p of getForecastSeisMesesDashboard(item)) {
     const ano = Number(p.ano || 0)
     const mes = Number(p.mes || 0)
@@ -3764,18 +3763,9 @@ function getForecastSeisMesesDashboard(item: AgingEstoqueItem | AgingEstoqueItem
     }
   }
 
-  const demandaAtual = Math.max(
-    getNum((item || {}) as AgingEstoqueItem, "demanda_mes_atual"),
-    getNum((item || {}) as AgingEstoqueItem, "previsao_mes_atual"),
-    getNum((item || {}) as AgingEstoqueItem, "demanda_bom_mes_atual"),
-    getNum((item || {}) as AgingEstoqueItem, "demanda_direta_mes_atual"),
-  )
-
-  if (demandaAtual > 0) {
-    const atual = valoresPorMes.get(keyAtual) || { ano: anoAtual, mes: mesAtual, valor: 0 }
-    if (atual.valor <= 0) atual.valor = demandaAtual
-    valoresPorMes.set(keyAtual, atual)
-  }
+  // Importante: não completar mês atual com demanda_mes_atual/previsao_mes_atual.
+  // Se a curva verde não aparecer para um item com previsão, o ajuste correto é
+  // no backend: o detalhe do item precisa enviar esse forecast na série mensal.
 
   const keysComDados = Array.from(valoresPorMes.keys()).sort()
   const ultimoKey = keysComDados.length ? keysComDados[keysComDados.length - 1] : monthKey(new Date(anoAtual, mesAtual - 1 + 6, 1).getFullYear(), new Date(anoAtual, mesAtual - 1 + 6, 1).getMonth() + 1)
@@ -5455,6 +5445,53 @@ function renderChartLabel(props: any) {
   )
 }
 
+
+function renderSaldoGraficoLabel(props: any) {
+  const { x, y, width, height, value, payload } = props
+  const n = Number(value || 0)
+  if (!Number.isFinite(n) || n === 0 || x == null || y == null) return null
+
+  const hasBarBox = typeof width === "number" && typeof height === "number"
+  const isNegative = n < 0
+  const isAtual = payload?.tipo_saldo_grafico === "atual"
+    || payload?.saldo_projetado === null
+    || payload?.saldo_projetado === undefined
+
+  if (hasBarBox) {
+    const cx = Number(x) + Number(width) / 2
+    const barHeight = Math.abs(Number(height || 0))
+
+    // Para saldo atual, o rótulo precisa ficar dentro da barra azul escura e em branco.
+    // Para projeção cinza, mantém dentro quando houver espaço e usa texto escuro.
+    const inside = isAtual || barHeight >= 24
+    const cy = inside ? Number(y) + Number(height) / 2 : Number(y) - 7
+
+    return (
+      <text
+        x={cx}
+        y={cy}
+        textAnchor="middle"
+        dominantBaseline={inside ? "middle" : "auto"}
+        fontSize={10}
+        fontWeight={900}
+        fill={isNegative ? "#991B1B" : isAtual ? "#FFFFFF" : "#334155"}
+        stroke={isAtual ? "rgba(15,23,42,0.45)" : "none"}
+        strokeWidth={isAtual ? 2.4 : 0}
+        paintOrder="stroke"
+        pointerEvents="none"
+      >
+        {fmtCompact(n)}
+      </text>
+    )
+  }
+
+  return (
+    <text x={x} y={Number(y) - 8} textAnchor="middle" fontSize={10} fontWeight={900} fill={isAtual ? "#FFFFFF" : "#334155"} pointerEvents="none">
+      {fmtCompact(n)}
+    </text>
+  )
+}
+
 function renderChartLabelAberto(props: any) {
   const { x, y, width, height, value } = props
   const n = Number(value || 0)
@@ -6884,7 +6921,7 @@ function TimelinePrincipal({
                           />
                         )
                       })}
-                      <LabelList dataKey="saldo_grafico" content={(props: any) => renderChartLabel({ ...props, dataKey: "saldo_grafico" })} />
+                      <LabelList dataKey="saldo_grafico" content={renderSaldoGraficoLabel} />
                     </Bar>
                     <Bar
                       yAxisId="estoque"
@@ -6901,10 +6938,10 @@ function TimelinePrincipal({
                       <LabelList dataKey="entradas_previstas" content={renderChartLabel} />
                     </Bar>
 
-                    <Line yAxisId="estoque" type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls hide={serieOculta("consumo")}>
+                    <Line yAxisId="estoque" type="monotone" dataKey="consumo" name="Consumo histórico" stroke="#DC2626" strokeWidth={3} dot={{ r: 3 }} connectNulls={false} hide={serieOculta("consumo")}>
                       <LabelList dataKey="consumo" content={renderChartLabel} />
                     </Line>
-                    <Line yAxisId="estoque" type="monotone" dataKey="demanda" name="Demanda MPS/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls hide={serieOculta("demanda")}>
+                    <Line yAxisId="estoque" type="monotone" dataKey="demanda" name="Demanda MPS/BOM" stroke="#16A34A" strokeWidth={3} strokeDasharray="6 4" dot={{ r: 3 }} connectNulls={false} hide={serieOculta("demanda")}>
                       <LabelList dataKey="demanda" content={renderChartLabel} />
                     </Line>
                     {/* Insumos não têm leitura operacional por faturamento.
