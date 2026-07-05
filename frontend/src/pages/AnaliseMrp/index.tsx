@@ -1075,6 +1075,36 @@ function pedidoEstaAtrasado(pedido: any) {
   return data.getTime() < hojeZero.getTime() && Number((pedido as any).quantidade_pendente || 0) > 0
 }
 
+function dataEntradaGraficoPedido(pedido: any) {
+  if (!pedido) return null
+
+  const hoje = new Date()
+  const hojeZero = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
+
+  const novaPrevisao = parseDateOnlyGestao(
+    (pedido as any).nova_previsao_fup
+    || (pedido as any).data_previsao_fup
+    || (pedido as any).nova_data_previsao_fup,
+  )
+
+  const original = parseDateOnlyGestao(
+    (pedido as any).data_prevista_entrega_original
+    || (pedido as any).data_prevista_entrega,
+  )
+
+  let dataOperacional = novaPrevisao || original
+  if (!dataOperacional) return null
+
+  // Pedido aberto vencido continua sendo entrada esperada: ele não pode sumir
+  // do gráfico só porque a data original ficou em mês fechado. Enquanto não
+  // houver nova previsão FUP, projeta no mês atual para a cobertura futura.
+  if (dataOperacional.getTime() < hojeZero.getTime()) {
+    dataOperacional = hojeZero
+  }
+
+  return dataOperacional
+}
+
 function getPedidosAtrasados(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
   if (!item) return 0
   const raw = item as unknown as Record<string, unknown>
@@ -2071,12 +2101,13 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
     ponto.forecast = Number(ponto.forecast || 0) + demanda
   }
 
-  // Entradas previstas: só aparecem do mês atual para frente e apenas quando houver pedido.
+  // Entradas previstas: pedidos abertos vencidos continuam sendo entradas esperadas.
+  // Se houver nova previsão FUP, usa a nova previsão. Se não houver, projeta no
+  // mês atual para que o estoque projetado e a cobertura futura considerem esse
+  // volume em trânsito/atrasado.
   for (const pedido of item.pedidos || []) {
-    const raw = pedido.data_prevista_entrega
-    if (!raw) continue
-    const d = new Date(String(raw).slice(0, 10) + "T00:00:00")
-    if (Number.isNaN(d.getTime()) || d < inicio || d > fim) continue
+    const d = dataEntradaGraficoPedido(pedido)
+    if (!d || Number.isNaN(d.getTime()) || d < inicio || d > fim) continue
     const ano = d.getFullYear()
     const mes = d.getMonth() + 1
     const key = monthKey(ano, mes)
@@ -2088,12 +2119,18 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
     ponto.entradas_detalhe = Array.isArray(ponto.entradas_detalhe) ? ponto.entradas_detalhe : []
     ponto.entradas_detalhe.push({
       quantidade: qtd,
-      data_prevista_entrega: pedido.data_prevista_entrega,
+      data_prevista_entrega: d.toISOString().slice(0, 10),
+      data_prevista_entrega_original: pedido.data_prevista_entrega_original || pedido.data_prevista_entrega,
+      nova_previsao_fup: pedido.nova_previsao_fup || pedido.data_previsao_fup,
+      data_entrada_grafico: d.toISOString().slice(0, 10),
       pedido_numero: pedido.pedido_numero,
       sc_numero: pedido.sc_numero,
       fornecedor: pedido.fornecedor,
       comprador: pedido.comprador,
       status_entrega: pedido.status_entrega,
+      status_operacional: pedido.status_operacional,
+      em_atraso: pedidoEstaAtrasado(pedido),
+      comentario_fup: pedido.comentario_fup,
     })
   }
 
@@ -6779,9 +6816,9 @@ function TimelinePrincipal({
                         return (
                           <Cell
                             key={`saldo-${idx}`}
-                            fill={negativo ? "rgba(248, 113, 113, 0.28)" : "rgba(22, 59, 99, 0.22)"}
+                            fill={negativo ? "rgba(248, 113, 113, 0.28)" : "#163B63"}
                             stroke={negativo ? "#FCA5A5" : "#163B63"}
-                            strokeOpacity={negativo ? 1 : 0.45}
+                            strokeOpacity={negativo ? 1 : 1}
                           />
                         )
                       })}
