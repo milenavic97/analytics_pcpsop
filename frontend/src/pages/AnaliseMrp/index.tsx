@@ -1080,6 +1080,7 @@ function dataEntradaGraficoPedido(pedido: any) {
 
   const hoje = new Date()
   const hojeZero = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
+  const inicioMesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
 
   const novaPrevisao = parseDateOnlyGestao(
     (pedido as any).nova_previsao_fup
@@ -1092,17 +1093,16 @@ function dataEntradaGraficoPedido(pedido: any) {
     || (pedido as any).data_prevista_entrega,
   )
 
-  let dataOperacional = novaPrevisao || original
-  if (!dataOperacional) return null
+  if (novaPrevisao) return novaPrevisao
+  if (!original) return null
 
   // Pedido aberto vencido continua sendo entrada esperada: ele não pode sumir
-  // do gráfico só porque a data original ficou em mês fechado. Enquanto não
-  // houver nova previsão FUP, projeta no mês atual para a cobertura futura.
-  if (dataOperacional.getTime() < hojeZero.getTime()) {
-    dataOperacional = hojeZero
-  }
+  // do gráfico só porque a data original ficou em mês fechado. Sem nova previsão
+  // FUP, ele entra no BUCKET do mês atual, mas a tabela/tooltip preservam a
+  // data original. Assim não aparece uma data falsa tipo 04/07.
+  if (original.getTime() < hojeZero.getTime()) return inicioMesAtual
 
-  return dataOperacional
+  return original
 }
 
 function getPedidosAtrasados(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -2039,6 +2039,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         estoque_quarentena: null,
         quarentena: null,
         saldo_grafico: null,
+        tipo_saldo_grafico: null,
         ponto_pedido: null,
         saldo_projetado: null,
         estoque_projetado: null,
@@ -2062,6 +2063,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   pontoAtual.estoque_quarentena = getAnyNumber(item as Record<string, unknown>, "saldo_quarentena") || getAnyNumber(item as Record<string, unknown>, "quarentena")
   pontoAtual.quarentena = pontoAtual.estoque_quarentena
   pontoAtual.saldo_grafico = estoqueAtualReal
+  pontoAtual.tipo_saldo_grafico = "atual"
   pontoAtual.ponto_pedido = Number(item.consumo_durante_lt || 0) || null
 
   // Saldo é uma foto atual. No gráfico mensal, ele só deve aparecer do mês atual para frente.
@@ -2119,10 +2121,17 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
     ponto.entradas_detalhe = Array.isArray(ponto.entradas_detalhe) ? ponto.entradas_detalhe : []
     ponto.entradas_detalhe.push({
       quantidade: qtd,
-      data_prevista_entrega: d.toISOString().slice(0, 10),
+      // data exibida deve ser a original ou a nova previsão FUP.
+      // A data_entrada_grafico é apenas o bucket/projeção.
+      data_prevista_entrega: pedido.nova_previsao_fup || pedido.data_previsao_fup || pedido.data_prevista_entrega_original || pedido.data_prevista_entrega,
       data_prevista_entrega_original: pedido.data_prevista_entrega_original || pedido.data_prevista_entrega,
       nova_previsao_fup: pedido.nova_previsao_fup || pedido.data_previsao_fup,
       data_entrada_grafico: d.toISOString().slice(0, 10),
+      origem_data_entrada_grafico: pedido.nova_previsao_fup || pedido.data_previsao_fup
+        ? "nova_previsao_fup"
+        : pedidoEstaAtrasado(pedido)
+          ? "mes_atual_pedido_atrasado_sem_fup"
+          : "data_prevista_entrega",
       pedido_numero: pedido.pedido_numero,
       sc_numero: pedido.sc_numero,
       fornecedor: pedido.fornecedor,
@@ -2183,6 +2192,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         // já vir com a entrada do mês embutida silenciosamente.
         p.saldo_projetado = Math.max(0, saldoProjetado)
         p.saldo_grafico = Math.max(0, saldoProjetado)
+        p.tipo_saldo_grafico = "projetado"
         // Só agora atualiza o acumulador — vira a abertura do mês seguinte.
         saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - demanda
       } else if (key === chaveAtual) {
@@ -2194,6 +2204,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
         // seguinte (ex: Ago parte do saldo líquido de Jul, não do saldo de hoje).
         p.saldo_projetado = null
         p.saldo_grafico = p.saldo_grafico ?? estoqueAtualReal
+        p.tipo_saldo_grafico = "atual"
         saldoProjetado = saldoProjetado + Number(p.entradas_previstas || 0) - demanda
       } else {
         p.ponto_pedido = (p.ponto_pedido ?? Number(item.consumo_durante_lt || 0)) || null
@@ -5393,26 +5404,30 @@ function ChartBox({ title, subtitle, children }: { title: string; subtitle?: str
 
 
 function renderChartLabel(props: any) {
-  const { x, y, width, height, value } = props
+  const { x, y, width, height, value, dataKey, payload } = props
   const n = Number(value || 0)
   if (!Number.isFinite(n) || n === 0 || x == null || y == null) return null
 
   const hasBarBox = typeof width === "number" && typeof height === "number"
+  const isSaldo = dataKey === "saldo_grafico"
+  const isAtual = isSaldo && payload?.tipo_saldo_grafico === "atual"
+  const isNegative = n < 0
 
   if (hasBarBox) {
     const cx = Number(x) + Number(width) / 2
-    const cy = Number(y) + Number(height) / 2
-    const isNegative = n < 0
+    const barHeight = Math.abs(Number(height || 0))
+    const inside = barHeight >= 22
+    const cy = inside ? Number(y) + Number(height) / 2 : Number(y) - 7
 
     return (
       <text
         x={cx}
         y={cy}
         textAnchor="middle"
-        dominantBaseline="middle"
+        dominantBaseline={inside ? "middle" : "auto"}
         fontSize={10}
-        fontWeight={700}
-        fill={isNegative ? "#991B1B" : "#334155"}
+        fontWeight={800}
+        fill={isNegative ? "#991B1B" : isAtual && inside ? "#FFFFFF" : "#334155"}
       >
         {fmtCompact(n)}
       </text>
@@ -5420,7 +5435,7 @@ function renderChartLabel(props: any) {
   }
 
   return (
-    <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={700} fill="#334155">
+    <text x={x} y={y - 8} textAnchor="middle" fontSize={10} fontWeight={800} fill={isNegative ? "#991B1B" : "#334155"}>
       {fmtCompact(n)}
     </text>
   )
@@ -5510,7 +5525,23 @@ function LinhaTempoTooltip({ active, payload, label }: any) {
                   <span style={{ color: "var(--text-secondary)" }}>{pedido.pedido_numero || pedido.sc_numero || "Pedido sem número"}</span>
                   <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(pedido.quantidade, 0)}</span>
                 </div>
-                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Entrega: {fmtDate(pedido.data_prevista_entrega)}</p>
+                {(() => {
+                  const nova = pedido.nova_previsao_fup || pedido.data_previsao_fup
+                  const original = pedido.data_prevista_entrega_original || pedido.data_prevista_entrega
+                  const atrasoSemFup = pedido.em_atraso && !nova
+                  return (
+                    <>
+                      {nova ? (
+                        <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Nova previsão FUP: {fmtDate(nova)}</p>
+                      ) : (
+                        <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Entrega original: {fmtDate(original)}</p>
+                      )}
+                      {atrasoSemFup && (
+                        <p className="mt-0.5 font-semibold" style={{ color: "#B45309" }}>Sem nova data FUP; considerado no mês atual para projeção.</p>
+                      )}
+                    </>
+                  )
+                })()}
                 {pedido.fornecedor && <p className="mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>Fornecedor: {pedido.fornecedor}</p>}
               </div>
             ))}
@@ -5574,7 +5605,23 @@ function BraviSerieTooltip({ active, payload, label }: any) {
                   <span style={{ color: "var(--text-secondary)" }}>{pedido.pedido_numero || pedido.sc_numero || "Pedido sem número"}</span>
                   <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(Number(pedido.quantidade || pedido.quantidade_pendente || 0), 0)}</span>
                 </div>
-                <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Entrega: {fmtDate(pedido.data_prevista_entrega)}</p>
+                {(() => {
+                  const nova = pedido.nova_previsao_fup || pedido.data_previsao_fup
+                  const original = pedido.data_prevista_entrega_original || pedido.data_prevista_entrega
+                  const atrasoSemFup = pedido.em_atraso && !nova
+                  return (
+                    <>
+                      {nova ? (
+                        <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Nova previsão FUP: {fmtDate(nova)}</p>
+                      ) : (
+                        <p className="mt-1" style={{ color: "var(--text-secondary)" }}>Entrega original: {fmtDate(original)}</p>
+                      )}
+                      {atrasoSemFup && (
+                        <p className="mt-0.5 font-semibold" style={{ color: "#B45309" }}>Sem nova data FUP; considerado no mês atual para projeção.</p>
+                      )}
+                    </>
+                  )
+                })()}
                 {pedido.fornecedor && <p className="mt-0.5 truncate" style={{ color: "var(--text-secondary)" }}>Fornecedor: {pedido.fornecedor}</p>}
               </div>
             ))}
@@ -6805,20 +6852,25 @@ function TimelinePrincipal({
                     <Bar
                       yAxisId="estoque"
                       dataKey="saldo_grafico"
-                      name="Saldo disponível/projetado"
+                      name="Saldo atual / projetado"
                       stackId="estoque"
+                      fill="#CBD5E1"
+                      stroke="#94A3B8"
+                      strokeDasharray="4 3"
                       radius={[6, 6, 0, 0]}
                       hide={serieOculta("saldo_grafico")}
                     >
                       {linhaTempo.map((entry, idx) => {
                         const saldo = Number(entry?.saldo_grafico || 0)
                         const negativo = saldo < 0
+                        const atual = entry?.tipo_saldo_grafico === "atual"
                         return (
                           <Cell
                             key={`saldo-${idx}`}
-                            fill={negativo ? "rgba(248, 113, 113, 0.28)" : "#163B63"}
-                            stroke={negativo ? "#FCA5A5" : "#163B63"}
-                            strokeOpacity={negativo ? 1 : 1}
+                            fill={negativo ? "rgba(248, 113, 113, 0.28)" : atual ? "#163B63" : "rgba(148, 163, 184, 0.28)"}
+                            stroke={negativo ? "#FCA5A5" : atual ? "#163B63" : "#94A3B8"}
+                            strokeDasharray={negativo || atual ? undefined : "4 3"}
+                            strokeOpacity={1}
                           />
                         )
                       })}
