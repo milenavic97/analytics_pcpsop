@@ -2204,7 +2204,11 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
     }
   }
 
-  let saldoProjetado = estoqueAtualReal
+  // A projeção futura parte do que existe fisicamente para atendimento futuro:
+  // saldo disponível + quarentena 98. A quarentena fica visualmente separada no
+  // mês atual, mas precisa entrar no saldo de abertura dos meses futuros para a
+  // curva não subestimar a cobertura operacional.
+  let saldoProjetado = estoqueAtualReal + getQuarentenaAtualReal(item)
 
   return Array.from(mapa.values())
     .sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes))
@@ -6926,6 +6930,20 @@ function TimelinePrincipal({
                         )
                       })}
                       <LabelList dataKey="saldo_grafico" content={renderSaldoGraficoLabel} />
+                    </Bar>
+                    <Bar
+                      yAxisId="estoque"
+                      dataKey="estoque_quarentena"
+                      name="Quarentena 98"
+                      stackId="estoque"
+                      fill="#E0E7FF"
+                      fillOpacity={0.82}
+                      stroke="#4F46E5"
+                      strokeDasharray="4 3"
+                      radius={[6, 6, 0, 0]}
+                      hide={serieOculta("estoque_quarentena")}
+                    >
+                      <LabelList dataKey="estoque_quarentena" content={renderChartLabel} />
                     </Bar>
                     <Bar
                       yAxisId="estoque"
