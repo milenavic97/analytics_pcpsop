@@ -1,10 +1,5 @@
-import { useState } from "react"
 import { NavLink, useLocation } from "react-router-dom"
-import {
-  BarChart3,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react"
+import { BarChart3 } from "lucide-react"
 import { clsx } from "clsx"
 
 import { APP_PAGES } from "@/config/pages"
@@ -15,8 +10,11 @@ type Props = {
 }
 
 export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
-  const [collapsed, setCollapsed] = useState(false)
   const { pathname } = useLocation()
+
+  // Sidebar travada no modo compacto.
+  // Não existe mais botão/estado de expansão, para manter o layout executivo sempre limpo.
+  const collapsed = true
 
   // Mostra todas as páginas, sem filtro por permissão por enquanto
   const pages = APP_PAGES
@@ -36,85 +34,25 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
         style={{
-          width: collapsed ? 64 : 256,
+          width: 64,
+          minWidth: 64,
+          maxWidth: 64,
           background: "var(--bg-sidebar)",
           color: "var(--text-sidebar)",
           borderRight: "1px solid rgba(255,255,255,0.08)",
         }}
       >
         <div
-          className={clsx(
-            "flex h-[66px] items-center border-b",
-            collapsed ? "justify-center px-0" : "justify-between px-4"
-          )}
+          className="flex h-[66px] items-center justify-center border-b px-0"
           style={{ borderColor: "rgba(255,255,255,0.10)" }}
         >
-          <div
-            className={clsx(
-              "flex items-center",
-              collapsed ? "justify-center" : "gap-3"
-            )}
-          >
-            <BarChart3
-              size={24}
-              style={{ color: "var(--text-sidebar-active)" }}
-            />
-
-            {!collapsed && (
-              <div className="leading-tight">
-                <p
-                  className="text-[17px] font-bold leading-tight"
-                  style={{ color: "var(--text-sidebar-active)" }}
-                >
-                  PCP - Analytics
-                </p>
-
-                <p
-                  className="mt-0.5 text-[11px]"
-                  style={{ color: "var(--text-sidebar)" }}
-                >
-                  Dashboard Operacional
-                </p>
-              </div>
-            )}
-          </div>
-
-          {!collapsed && (
-            <button
-              onClick={() => setCollapsed(true)}
-              className="flex h-8 w-8 items-center justify-center rounded-lg transition hover:bg-white/10"
-              style={{ color: "var(--text-sidebar)" }}
-              aria-label="Recolher menu"
-            >
-              <ChevronLeft size={18} />
-            </button>
-          )}
+          <BarChart3
+            size={24}
+            style={{ color: "var(--text-sidebar-active)" }}
+          />
         </div>
 
-        <nav
-          className={clsx(
-            "flex flex-1 flex-col gap-1 px-2 py-3",
-            collapsed && "items-center"
-          )}
-        >
-          {collapsed && (
-            <button
-              onClick={() => setCollapsed(false)}
-              className="group relative flex h-11 w-11 items-center justify-center rounded-lg transition hover:bg-white/10"
-              style={{ color: "var(--text-sidebar)" }}
-              aria-label="Expandir menu"
-            >
-              <ChevronRight size={19} />
-
-              <div
-                className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-lg border border-white/10 px-2 py-1.5 text-xs text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                style={{ background: "var(--bg-sidebar-active)" }}
-              >
-                Expandir menu
-              </div>
-            </button>
-          )}
-
+        <nav className="flex flex-1 flex-col items-center gap-1 px-2 py-3">
           {pages.map(({ id, label, path, icon: Icon }) => {
             const active =
               path === "/overview"
@@ -125,16 +63,11 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
               <NavLink
                 key={id}
                 to={path}
-                title={collapsed ? label : undefined}
+                title={label}
                 onClick={() => {
                   if (window.innerWidth < 768) onCloseMobile?.()
                 }}
-                className={clsx(
-                  "group relative flex items-center rounded-lg text-sm font-medium transition-all duration-200",
-                  collapsed
-                    ? "h-11 w-11 justify-center"
-                    : "h-12 gap-3 px-3"
-                )}
+                className="group relative flex h-11 w-11 items-center justify-center rounded-lg text-sm font-medium transition-all duration-200"
                 style={{
                   background: active
                     ? "rgba(255,255,255,0.14)"
@@ -158,16 +91,12 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
               >
                 <Icon size={20} className="flex-shrink-0" />
 
-                {!collapsed && <span className="truncate">{label}</span>}
-
-                {collapsed && (
-                  <div
-                    className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-lg border border-white/10 px-2 py-1.5 text-xs text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-                    style={{ background: "var(--bg-sidebar-active)" }}
-                  >
-                    {label}
-                  </div>
-                )}
+                <div
+                  className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-lg border border-white/10 px-2 py-1.5 text-xs text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+                  style={{ background: "var(--bg-sidebar-active)" }}
+                >
+                  {label}
+                </div>
               </NavLink>
             )
           })}
