@@ -487,6 +487,14 @@ const BASES_GESTAO_ESTOQUE: BaseGestaoEstoque[] = [
     obrigatoria: true,
   },
   {
+    id: "benzotop_liberacao",
+    titulo: "Liberação Benzotop",
+    descricao: "Planilha Capacidade x Forecast Benzotop com mês de liberação e produção dia.",
+    uso: "Alimenta as entradas previstas do PA 52749 · BENZOTOP - T.FRUTTI 30G.",
+    compartilhada: "Regra específica para o Benzotop 30G; não duplica em outros códigos.",
+    obrigatoria: false,
+  },
+  {
     id: "bom_estrutura",
     titulo: "Estrutura / BOM",
     descricao: "Relação produto pai x componente x quantidade necessária.",
@@ -6414,7 +6422,7 @@ function BasesModal({
             <div>
               <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Racional das bases</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Posição de estoque é a base principal. Forecast S&OP + BOM geram demanda de insumos. Lead Time e MOQ completam a política de estoque; custo unitário completa o aging do Excel.
+                Posição de estoque é a base principal. Forecast S&OP + BOM geram demanda de insumos. Liberação Benzotop alimenta as entradas previstas do PA 52749. Lead Time, MOQ e custo completam a análise.
               </p>
             </div>
             <button
