@@ -7427,6 +7427,7 @@ export default function AgingEstoquePage() {
     getAgingResumoDireto({
       escopo: escopoEstoque,
       classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+      force_refresh: refreshTick ? true : undefined,
       _t: refreshTick ? refreshTick : undefined,
     })
       .then((res) => {
@@ -7466,6 +7467,7 @@ export default function AgingEstoquePage() {
         semaforo: activeFilter?.semaforo,
         status_plano: activeFilter?.status_plano,
         alerta_previsao: activeFilter?.alerta_previsao,
+        force_refresh: refreshTick ? true : undefined,
         _t: refreshTick ? refreshTick : undefined,
       })
       .then((res) => {
