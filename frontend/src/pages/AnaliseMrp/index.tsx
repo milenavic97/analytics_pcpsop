@@ -75,13 +75,6 @@ const ESCOPO_TITULO: Record<EscopoEstoque, string> = {
   todos: "Todos os materiais",
 }
 
-const ESCOPO_DESCRICAO: Record<EscopoEstoque, string> = {
-  produtos: "Visão de estoque para venda, faturamento, transferência Bravi e itens de portfólio.",
-  insumos: "Visão de estoque para produção, consumo histórico, cobertura, lead time, MOQ e demanda via BOM.",
-  todos: "Visão consolidada com produtos e insumos para conferência da base.",
-}
-
-
 function classificacaoPadraoPorEscopo(escopo: EscopoEstoque): string {
   // Para PA/MR precisamos mostrar todos os produtos do cadastro/dimensão,
   // inclusive linhas sintéticas da d_produtos que não aparecem no Aging.
@@ -6876,7 +6869,7 @@ function TimelinePrincipal({
           <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{granularidadeTimeline === "mensal" ? "Evolução mensal" : granularidadeTimeline === "semanal" ? "Evolução semanal" : "Evolução diária"}</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Evolução mensal</p>
               </div>
               {loading && (
                 <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
@@ -7795,7 +7788,6 @@ export default function AgingEstoquePage() {
   const totalBravi = Number(resumo?.resumo?.transferencia_bravi || 0)
   const totalAtivosOutros = Math.max(0, totalItensResumo - totalDescontinuadoSaldo - totalBravi - qtdAClassificar)
   const escopoTitulo = ESCOPO_TITULO[escopoEstoque]
-  const escopoDescricao = ESCOPO_DESCRICAO[escopoEstoque]
   const mostrarCardsPortfolio = escopoEstoque !== "insumos"
   useEffect(() => {
     salvarUltimoEstadoGestaoEstoque({
@@ -8655,7 +8647,6 @@ export default function AgingEstoquePage() {
         <div>
           <p className="text-[10px] font-medium uppercase tracking-widest mb-1" style={{ color: "var(--text-secondary)" }}>Suprimentos · Estoque</p>
           <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Gestão de Estoque</h1>
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{escopoDescricao}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
