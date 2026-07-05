@@ -1960,6 +1960,30 @@ function getAnyNumber(item: Record<string, unknown> | null | undefined, key: str
   return Number(item?.[key] || 0)
 }
 
+function getDemandaRestanteMesAtualGrafico(item: Record<string, unknown> | null | undefined, demandaOriginal: number) {
+  const restanteBackend = [
+    "demanda_restante_mes_atual",
+    "demanda_mes_atual_restante",
+    "demanda_restante_mes_atual_cobertura",
+  ]
+    .map((key) => Number(item?.[key] ?? NaN))
+    .find((valor) => Number.isFinite(valor) && valor >= 0)
+
+  if (restanteBackend !== undefined) {
+    return Math.max(0, restanteBackend)
+  }
+
+  const consumoMesAtual = [
+    "demanda_atendida_mes_atual",
+    "consumo_mes_atual",
+    "consumo_mes_atual_descontado_cobertura",
+  ]
+    .map((key) => Number(item?.[key] ?? NaN))
+    .find((valor) => Number.isFinite(valor) && valor > 0)
+
+  return Math.max(0, Number(demandaOriginal || 0) - Number(consumoMesAtual || 0))
+}
+
 function getSaldoOrigemLabel(item: Record<string, unknown> | null | undefined) {
   const origem = String(item?.["saldo_origem"] || item?.["origem_linha_estoque"] || "").toLowerCase()
 
@@ -2099,10 +2123,18 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
     const key = monthKey(ano, mes)
     const keyDate = new Date(ano, mes - 1, 1)
     if (key < chaveAtual || keyDate < inicio || keyDate > fim) continue
-    const demanda = Number(p.valor || 0)
-    if (demanda <= 0) continue
+    const demandaOriginal = Number(p.valor || 0)
+    if (demandaOriginal <= 0) continue
+    const demanda = key === chaveAtual
+      ? getDemandaRestanteMesAtualGrafico(item as unknown as Record<string, unknown>, demandaOriginal)
+      : demandaOriginal
+    if (demanda <= 0 && key !== chaveAtual) continue
     const ponto = ensure(ano, mes)
-    // Não soma duas vezes se o backend já mandou a mesma demanda em outra série.
+    // No mês atual, a linha verde mostra a demanda ainda a atender
+    // (forecast oficial - consumo já realizado). Meses futuros seguem com forecast cheio.
+    ponto.demanda_original = demandaOriginal
+    ponto.consumo_mes_atual = key === chaveAtual ? getAnyNumber(item as unknown as Record<string, unknown>, "consumo_mes_atual") : null
+    ponto.demanda_restante = key === chaveAtual ? demanda : null
     ponto.demanda = Math.max(Number(ponto.demanda || 0), demanda)
     ponto.forecast = Math.max(Number(ponto.forecast || 0), demanda)
   }
@@ -6780,12 +6812,7 @@ function TimelinePrincipal({
   // enquanto historico_consumo vem correto. Para o gráfico operacional,
   // a fonte mais confiável do consumo mensal é sempre historico_consumo.
   const linhaTempoMensal = buildLinhaTempoFallback(item, horizonteFuturo)
-  const [granularidadeTimeline, setGranularidadeTimeline] = useState<GranularidadeSerie>("mensal")
-  const linhaTempo = granularidadeTimeline === "diaria"
-    ? buildLinhaTempoDiaria(item)
-    : granularidadeTimeline === "semanal"
-      ? buildLinhaTempoSemanal(item)
-      : linhaTempoMensal
+  const linhaTempo = linhaTempoMensal
   const pedidos = item?.pedidos || []
   const [seriesOcultas, setSeriesOcultas] = useState<Set<string>>(new Set())
   const toggleSerie = (dataKey?: string) => {
@@ -6814,20 +6841,6 @@ function TimelinePrincipal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {item && <StatusBadge status={item.status_estoque || item.status} />}
-          <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
-            Visão
-            <select
-              value={granularidadeTimeline}
-              onChange={(event) => setGranularidadeTimeline(event.target.value as GranularidadeSerie)}
-              className="h-10 rounded-xl border bg-white px-3 text-sm font-semibold normal-case tracking-normal"
-              style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            >
-              <option value="mensal">Mensal</option>
-              <option value="semanal">Semanal</option>
-              <option value="diaria">Diária</option>
-            </select>
-          </label>
           <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
             Horizonte futuro
             <select
@@ -8220,7 +8233,6 @@ export default function AgingEstoquePage() {
           <div>
             <p className="text-[10px] font-medium uppercase tracking-widest mb-1" style={{ color: "var(--text-secondary)" }}>Suprimentos · Estoque</p>
             <h1 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Gestão de Estoque</h1>
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Visão de estoque para produção, consumo histórico, cobertura e demanda via BOM.</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -8302,8 +8314,8 @@ export default function AgingEstoquePage() {
             helper="Abaixo da necessidade"
             icon={<ArrowDownRight size={20} />}
             tone="warning"
-            onClick={() => aplicarFiltro({ label: "Críticos", semaforo: "VERMELHO" })}
-            active={isFiltroAtivo(activeFilter, { semaforo: "VERMELHO" }) && !activeFilter?.tipo_negocio}
+            onClick={() => aplicarFiltro({ label: "Críticos", status: "CRITICO" })}
+            active={isFiltroAtivo(activeFilter, { status: "CRITICO" }) && !activeFilter?.tipo_negocio}
           />
           <KpiCard
             label="Excesso"
@@ -8383,21 +8395,6 @@ export default function AgingEstoquePage() {
               </div>
             </label>
 
-            <label className="min-w-[145px] flex-1">
-              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status visual</span>
-              <select
-                value={activeFilter?.semaforo || "TODOS"}
-                onChange={(e) => atualizarFiltroCampo("semaforo", e.target.value === "TODOS" ? undefined : e.target.value as SemaforoEstoque)}
-                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
-                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-              >
-                <option value="TODOS">Todos</option>
-                <option value="VERMELHO">Crítico</option>
-                <option value="AMARELO">Atenção</option>
-                <option value="VERDE">Ok</option>
-                <option value="CINZA">Sem referência</option>
-              </select>
-            </label>
 
             <label className="min-w-[145px] flex-1">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status estoque</span>
@@ -8456,9 +8453,6 @@ export default function AgingEstoquePage() {
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Base analítica</p>
               <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>Gestão operacional: consumo do mês vs previsão</h2>
-              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Acompanhe o desvio do plano do mês. Use o filtro “Status plano” para ver itens sem previsão, em alerta ou acima da previsão.
-              </p>
             </div>
 
             <div className="flex items-center gap-3">
