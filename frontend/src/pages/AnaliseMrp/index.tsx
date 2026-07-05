@@ -5428,6 +5428,9 @@ function renderChartLabel(props: any) {
         fontSize={10}
         fontWeight={800}
         fill={isNegative ? "#991B1B" : isAtual && inside ? "#FFFFFF" : "#334155"}
+        stroke={isAtual && inside ? "rgba(15,23,42,0.28)" : "none"}
+        strokeWidth={isAtual && inside ? 2 : 0}
+        paintOrder="stroke"
       >
         {fmtCompact(n)}
       </text>
@@ -6068,8 +6071,8 @@ function BraviSeriePanel({
           <KpiSmall label="Críticos" value={fmtNumber(resumo.criticos || 0)} />
         </div>
 
-        <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
-          <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "#FFFFFF" }}>
+          <div className="mb-1 flex items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Série PA / MR</p>
               <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -6762,9 +6765,6 @@ function TimelinePrincipal({
           <h2 className="mt-1 text-lg font-bold" style={{ color: "var(--text-primary)" }}>
             {item ? `${item.codigo} · ${item.produto || "Item selecionado"}` : "Selecione um item na tabela"}
           </h2>
-          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            Consumo histórico, demanda MPS/BOM, entradas previstas e estoque disponível/projetado.
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -6818,9 +6818,6 @@ function TimelinePrincipal({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>{granularidadeTimeline === "mensal" ? "Evolução mensal" : granularidadeTimeline === "semanal" ? "Evolução semanal" : "Evolução diária"}</p>
-                <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                  Na visão mensal, a demanda vem do MPS V1 / L1 + L2 explodido via BOM. Na visão semanal/diária, o foco é acompanhar o saldo disponível do insumo.
-                </p>
               </div>
               {loading && (
                 <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
@@ -6829,19 +6826,21 @@ function TimelinePrincipal({
               )}
             </div>
 
-            <div className="h-[380px]">
+            <div className="h-[430px]">
               {linhaTempo.length ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={linhaTempo} margin={{ top: 24, right: 16, left: 0, bottom: 50 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                    <XAxis dataKey="periodo" angle={-35} textAnchor="end" height={68} interval={0} tick={{ fontSize: 10, fill: "#64748B" }} />
-                    <YAxis
-                      yAxisId="estoque"
-                      orientation="left"
-                      tick={{ fontSize: 11, fill: "#64748B" }}
-                      width={78}
-                      label={{ value: "Quantidade / saldo", angle: -90, position: "insideLeft", style: { fill: "#64748B", fontSize: 11 } }}
+                  <ComposedChart data={linhaTempo} margin={{ top: 32, right: 8, left: 0, bottom: 42 }}>
+                    <XAxis
+                      dataKey="periodo"
+                      angle={-35}
+                      textAnchor="end"
+                      height={58}
+                      interval={0}
+                      tick={{ fontSize: 10, fill: "#64748B" }}
+                      axisLine={{ stroke: "#CBD5E1" }}
+                      tickLine={false}
                     />
+                    <YAxis yAxisId="estoque" hide width={0} />
                     <YAxis yAxisId="valor" hide />
                     <Tooltip content={<LinhaTempoTooltip />} />
                     <Legend
@@ -6874,7 +6873,7 @@ function TimelinePrincipal({
                           />
                         )
                       })}
-                      <LabelList dataKey="saldo_grafico" content={renderChartLabel} />
+                      <LabelList dataKey="saldo_grafico" content={(props: any) => renderChartLabel({ ...props, dataKey: "saldo_grafico" })} />
                     </Bar>
                     <Bar
                       yAxisId="estoque"
@@ -7435,6 +7434,39 @@ export default function AgingEstoquePage() {
 
   const itens = itensResp?.itens || []
   const totalPages = Math.max(1, itensResp?.total_pages || 1)
+
+  const autocompleteBuscaEstoqueId = useMemo(
+    () => `autocomplete-busca-estoque-${Math.random().toString(36).slice(2)}`,
+    []
+  )
+
+  const opcoesBuscaEstoque = useMemo(() => {
+    const vistos = new Set<string>()
+    const opcoes: string[] = []
+
+    const basesAutocomplete = [
+      ...((dashboardItensPorEscopo[escopoEstoque]?.itens || []) as AgingEstoqueItem[]),
+      ...((itens || []) as AgingEstoqueItem[]),
+    ]
+
+    basesAutocomplete.forEach((item) => {
+      const raw = item as any
+      const codigo = String(raw.codigo || raw.cod_produto || raw.sku || "").trim()
+      const descricao = String(raw.produto || raw.descricao || raw.desc_produto || "").trim()
+      const label = [codigo, descricao].filter(Boolean).join(" · ")
+
+      if (!label || vistos.has(label)) return
+
+      vistos.add(label)
+      opcoes.push(label)
+    })
+
+    return opcoes.slice(0, 800)
+  }, [dashboardItensPorEscopo, escopoEstoque, itens])
+
+  const aplicarBuscaTabela = () => {
+    atualizarFiltroCampo("busca", tableSearchDraft.trim() || undefined)
+  }
 
   const aplicarFiltro = (filtro: FiltroTabelaEstoque | null) => {
     setPage(1)
@@ -8231,24 +8263,30 @@ export default function AgingEstoquePage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 items-end gap-3 border-t pt-4 md:grid-cols-4" style={{ borderColor: "var(--border)" }}>
-            <label className="md:col-span-2">
+          <div className="flex flex-wrap items-end gap-2 border-t pt-4" style={{ borderColor: "var(--border)" }}>
+            <label className="min-w-[300px] flex-[1.6]">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Código ou produto</span>
               <div className="flex gap-2">
                 <input
                   value={tableSearchDraft}
+                  list={autocompleteBuscaEstoqueId}
                   onChange={(e) => setTableSearchDraft(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") atualizarFiltroCampo("busca", tableSearchDraft.trim() || undefined)
+                    if (e.key === "Enter") aplicarBuscaTabela()
                   }}
-                  placeholder="Buscar código, nome, família, segmento..."
+                  placeholder="Digite ou selecione código/produto..."
                   className="h-10 min-w-0 flex-1 rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
                   style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
                 />
+                <datalist id={autocompleteBuscaEstoqueId}>
+                  {opcoesBuscaEstoque.map((opcao) => (
+                    <option key={opcao} value={opcao} />
+                  ))}
+                </datalist>
                 <button
                   type="button"
-                  onClick={() => atualizarFiltroCampo("busca", tableSearchDraft.trim() || undefined)}
-                  className="h-10 rounded-xl border px-3 text-sm font-bold transition hover:bg-slate-50"
+                  onClick={aplicarBuscaTabela}
+                  className="h-10 shrink-0 rounded-xl border px-3 text-sm font-bold transition hover:bg-slate-50"
                   style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
                 >
                   Buscar
@@ -8256,7 +8294,7 @@ export default function AgingEstoquePage() {
               </div>
             </label>
 
-            <label>
+            <label className="min-w-[145px] flex-1">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status visual</span>
               <select
                 value={activeFilter?.semaforo || "TODOS"}
@@ -8272,7 +8310,7 @@ export default function AgingEstoquePage() {
               </select>
             </label>
 
-            <label>
+            <label className="min-w-[145px] flex-1">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status estoque</span>
               <select
                 value={activeFilter?.status || "TODOS"}
@@ -8291,7 +8329,7 @@ export default function AgingEstoquePage() {
               </select>
             </label>
 
-            <label>
+            <label className="min-w-[145px] flex-1">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status plano</span>
               <select
                 value={activeFilter?.status_plano || "TODOS"}
@@ -8310,7 +8348,7 @@ export default function AgingEstoquePage() {
               </select>
             </label>
 
-            <label>
+            <label className="min-w-[145px] flex-1">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Descontinuado?</span>
               <select
                 value={activeFilter?.descontinuado || "TODOS"}
