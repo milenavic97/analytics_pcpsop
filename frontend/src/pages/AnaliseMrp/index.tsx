@@ -466,8 +466,8 @@ const BASES_GESTAO_ESTOQUE: BaseGestaoEstoque[] = [
   {
     id: "compras_abertas",
     titulo: "Compras em Aberto",
-    descricao: "Pedidos e solicitações pendentes do Protheus.",
-    uso: "Soma entradas futuras, estoque + pedidos e menor data prevista de entrega.",
+    descricao: "Entradas previstas e documentos operacionais pendentes.",
+    uso: "Soma entradas futuras, estoque + entradas e menor data prevista de entrega.",
     compartilhada: "Também atualiza a página de Ordens.",
     obrigatoria: true,
   },
@@ -475,7 +475,7 @@ const BASES_GESTAO_ESTOQUE: BaseGestaoEstoque[] = [
     id: "compras_fup",
     titulo: "Follow-up Compras",
     descricao: "Atualizações da reunião de compras nas abas Detalhes*. A coluna Coluna1 vira comentário FUP.",
-    uso: "Enriquece pedidos em aberto com nova previsão, status e comentário de follow-up.",
+    uso: "Enriquece entradas em aberto com nova previsão, status e comentário de follow-up.",
     compartilhada: "Cruza com Compras em Aberto por produto, pedido, item e SC.",
     obrigatoria: false,
   },
@@ -589,8 +589,8 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; 
   { key: "saldo_quarentena", label: "Quarentena 98", group: "estoque" },
   { key: "saldo_sb8_bruto", label: "Saldo bruto SB8", group: "estoque" },
   { key: "empenho_lote", label: "Empenho lote", group: "estoque" },
-  { key: "qtd_pedidos_abertos", label: "Pedido compra", group: "estoque" },
-  { key: "estoque_mais_pedidos", label: "Estoque + entradas", group: "estoque" },
+  { key: "qtd_pedidos_abertos", label: "Entradas previstas", group: "estoque" },
+  { key: "estoque_mais_pedidos", label: "Estoque + quar. + entradas", group: "estoque" },
   { key: "maior_media", label: "Maior média 3/6/9", group: "politica" },
   { key: "lead_time_dias", label: "Lead time", kind: "days", group: "politica" },
   { key: "qtd_minima", label: "MOQ / qtd. mínima", group: "politica" },
@@ -606,8 +606,8 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; 
   { key: "previsto_vs_consumido_pct", label: "Consumo vs previsão", kind: "percent", digits: 0, group: "risco" },
   { key: "custo_unitario", label: "Custo unitário", kind: "currency", digits: 4, group: "financeiro" },
   { key: "estoque_atual_valor", label: "Estoque R$", kind: "currency", group: "financeiro" },
-  { key: "pedidos_abertos_valor", label: "Pedidos R$", kind: "currency", group: "financeiro" },
-  { key: "estoque_mais_pedidos_valor", label: "Estoque + entradas R$", kind: "currency", group: "financeiro" },
+  { key: "pedidos_abertos_valor", label: "Entradas R$", kind: "currency", group: "financeiro" },
+  { key: "estoque_mais_pedidos_valor", label: "Estoque + quar. + entradas R$", kind: "currency", group: "financeiro" },
   { key: "maior_media_valor", label: "Média R$", kind: "currency", group: "financeiro" },
   { key: "estoque_ideal_valor", label: "Ideal R$", kind: "currency", group: "financeiro" },
 ]
@@ -638,8 +638,8 @@ const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "ce
   { key: "unid", label: "UM", align: "center", width: "w-[70px]", tooltip: "Unidade de medida cadastrada para o item." },
   { key: "saldo", label: "Estoque atual", align: "right", width: "w-[120px]", tooltip: "Saldo atual disponível do item. Para insumos, vem da posição de estoque/Aging; para PA/MR/PPS/PV, vem da SB8 conforme regra da tela." },
   { key: "saldo_quarentena", label: "Quarentena 98", align: "right", width: "w-[120px]", tooltip: "Volume no armazém 98/quarentena. Aparece separado para visibilidade e também entra na coluna Estoque + entradas + quarentena." },
-  { key: "qtd_pedidos_abertos", label: "Entradas/PC", align: "right", width: "w-[110px]", tooltip: "Pedidos de compra/entradas em aberto considerados como volume em trânsito para a cobertura operacional." },
-  { key: "estoque_mais_pedidos", label: "Estoque + entr. + quar.", align: "right", width: "w-[150px]", tooltip: "Soma operacional: estoque atual + entradas/PC em aberto + quarentena 98. É a base usada para a cobertura futura de insumos/comprados." },
+  { key: "qtd_pedidos_abertos", label: "Entradas", align: "right", width: "w-[110px]", tooltip: "Entradas previstas em aberto. Para PA produzido, representa liberações/produção prevista; para MR/PPS/comprados, representa pedidos ou entradas operacionais." },
+  { key: "estoque_mais_pedidos", label: "Estoque + quar. + entr.", align: "right", width: "w-[155px]", tooltip: "Soma operacional: estoque atual + quarentena 98 + entradas previstas em aberto. É a base usada para a cobertura futura." },
   { key: "consumo_mes_atual", label: "Consumo mês", align: "right", width: "w-[120px]", tooltip: "Consumo realizado no mês atual. Para insumos/PI/MP/ME/MI vem da coluna M_MM_AAAA da posição de estoque/Aging. Para PA/MR/PPS/PV representa venda/faturamento do mês pela SD2." },
   { key: "demanda_mes_atual", label: "Previsão mês", align: "right", width: "w-[120px]", tooltip: "Previsão/demanda do mês atual. Para PA/MR/PPS/PV vem do forecast S&OP; para insumos vem da demanda explodida pelo MPS/BOM." },
   { key: "previsto_vs_consumido_pct", label: "Consumo vs previsão", align: "right", width: "w-[145px]", tooltip: "Consumo/venda do mês dividido pela previsão do mês. Cores: até 75% ok; 75%-85% atenção; 85%-100% alerta; acima de 100% ou consumo sem previsão em vermelho." },
@@ -658,8 +658,8 @@ const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "ce
   { key: "empenho_lote", label: "Empenho lote", align: "right", width: "w-[120px]", tooltip: "Quantidade empenhada no lote, quando disponível na SB8." },
   { key: "custo_unitario", label: "Custo unitário", align: "right", width: "w-[120px]", tooltip: "Custo unitário do item, vindo da base de custo unitário." },
   { key: "estoque_atual_valor", label: "Estoque R$", align: "right", width: "w-[120px]", tooltip: "Valor financeiro do estoque atual: estoque atual x custo unitário." },
-  { key: "pedidos_abertos_valor", label: "Pedidos R$", align: "right", width: "w-[120px]", tooltip: "Valor financeiro das entradas/PC em aberto: entradas x custo unitário." },
-  { key: "estoque_mais_pedidos_valor", label: "Estoque + entradas R$", align: "right", width: "w-[150px]", tooltip: "Valor financeiro de estoque atual + entradas/PC + quarentena: base operacional x custo unitário." },
+  { key: "pedidos_abertos_valor", label: "Entradas R$", align: "right", width: "w-[120px]", tooltip: "Valor financeiro das entradas previstas em aberto: entradas x custo unitário." },
+  { key: "estoque_mais_pedidos_valor", label: "Estoque + quar. + entr. R$", align: "right", width: "w-[160px]", tooltip: "Valor financeiro de estoque atual + quarentena 98 + entradas previstas: base operacional x custo unitário." },
 ]
 
 const COLUNAS_PADRAO_INSUMOS = [
@@ -1098,7 +1098,7 @@ function dataEntradaGraficoPedido(pedido: any) {
   if (novaPrevisao) return novaPrevisao
   if (!original) return null
 
-  // Pedido aberto vencido continua sendo entrada esperada: ele não pode sumir
+  // Entrada prevista vencida continua sendo entrada esperada: ele não pode sumir
   // do gráfico só porque a data original ficou em mês fechado. Sem nova previsão
   // FUP, ele entra no BUCKET do mês atual, mas a tabela/tooltip preservam a
   // data original. Assim não aparece uma data falsa tipo 04/07.
@@ -2141,7 +2141,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
     ponto.forecast = Math.max(Number(ponto.forecast || 0), demanda)
   }
 
-  // Entradas previstas: pedidos abertos vencidos continuam sendo entradas esperadas.
+  // Entradas previstas: entradas previstas vencidas continuam sendo entradas esperadas.
   // Se houver nova previsão FUP, usa a nova previsão. Se não houver, projeta no
   // mês atual para que o estoque projetado e a cobertura futura considerem esse
   // volume em trânsito/atrasado.
@@ -4000,7 +4000,7 @@ function getEntradasProximosMesesDashboard(item: AgingEstoqueItem | null | undef
 
   // Prioridade: séries mensais já calculadas pelo backend com data prevista.
   // Não usar qtd_pedidos_abertos agregado como fallback no mês atual, porque isso
-  // joga pedidos de agosto/dezembro dentro de junho e distorce a validação.
+  // joga entradas de agosto/dezembro dentro de junho e distorce a validação.
   if (Array.isArray(raw.entradas_previstas_serie)) {
     aplicarPontos(raw.entradas_previstas_serie)
   } else if (Array.isArray(raw.pedidos_futuros_por_mes)) {
@@ -5611,7 +5611,7 @@ function LinhaTempoTooltip({ active, payload, label }: any) {
             {entradas.slice(0, 5).map((pedido: any, idx: number) => (
               <div key={`${pedido.pedido_numero}-${pedido.sc_numero}-${idx}`} className="rounded-xl bg-slate-50 p-2">
                 <div className="flex justify-between gap-3">
-                  <span style={{ color: "var(--text-secondary)" }}>{pedido.pedido_numero || pedido.sc_numero || "Pedido sem número"}</span>
+                  <span style={{ color: "var(--text-secondary)" }}>{pedido.pedido_numero || pedido.sc_numero || "Entrada sem número"}</span>
                   <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(pedido.quantidade, 0)}</span>
                 </div>
                 {(() => {
@@ -5691,7 +5691,7 @@ function BraviSerieTooltip({ active, payload, label }: any) {
             {pedidos.slice(0, 5).map((pedido: any, idx: number) => (
               <div key={`${pedido.pedido_numero}-${pedido.sc_numero}-${idx}`} className="rounded-xl bg-slate-50 p-2">
                 <div className="flex justify-between gap-3">
-                  <span style={{ color: "var(--text-secondary)" }}>{pedido.pedido_numero || pedido.sc_numero || "Pedido sem número"}</span>
+                  <span style={{ color: "var(--text-secondary)" }}>{pedido.pedido_numero || pedido.sc_numero || "Entrada sem número"}</span>
                   <span className="font-bold" style={{ color: "var(--text-primary)" }}>{fmtNumber(Number(pedido.quantidade || pedido.quantidade_pendente || 0), 0)}</span>
                 </div>
                 {(() => {
@@ -6111,7 +6111,7 @@ function BraviSeriePanel({
         }
       : {}
 
-  // Mesmo quando o backend da série retorna resumo, estoque/pedidos do item selecionado
+  // Mesmo quando o backend da série retorna resumo, estoque/entradas do item selecionado
   // precisam seguir a linha da tabela para não mostrar saldo bruto/série incorreta.
   const resumo = itemSelecionado
     ? {
@@ -6720,8 +6720,8 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
               <KpiSmall label="Saldo bruto SB8" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "saldo_sb8_bruto"))} />
               <KpiSmall label="Empenho lote" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "empenho_lote"))} />
               <KpiSmall label="Origem saldo" value={getSaldoOrigemLabel(item as unknown as Record<string, unknown>)} />
-              <KpiSmall label="Pedidos" value={fmtCompact(item.qtd_pedidos_abertos)} />
-              <KpiSmall label="Estoque + pedidos" value={fmtCompact(item.estoque_mais_pedidos)} />
+              <KpiSmall label="Entradas" value={fmtCompact(item.qtd_pedidos_abertos)} />
+              <KpiSmall label="Estoque + entradas" value={fmtCompact(item.estoque_mais_pedidos)} />
               <KpiSmall label="Cobertura futura" value={`${fmtNumber(item.cobertura_futura_dias, 0)} d`} />
               <KpiSmall label="Maior média" value={fmtCompact(item.maior_media)} />
               <KpiSmall label="Lead time" value={`${fmtNumber(item.lead_time_dias, 0)} d`} />
@@ -6787,7 +6787,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                 </div>
               </ChartBox>
 
-              <ChartBox title="Linha do tempo do item" subtitle="Consumo histórico, demanda via forecast/BOM, estoque atual, estoque com pedidos e saldo projetado simplificado.">
+              <ChartBox title="Linha do tempo do item" subtitle="Consumo histórico, demanda via forecast/BOM, estoque atual, estoque com entradas e saldo projetado simplificado.">
                 <div className="h-[340px]">
                   {linhaTempoEstoque.length ? (
                     <ResponsiveContainer width="100%" height="100%">
@@ -6804,7 +6804,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                         <Line type="monotone" dataKey="demanda" name="Demanda forecast/BOM" stroke="#16A34A" strokeWidth={2.5} strokeDasharray="6 4" dot={{ r: 2 }} connectNulls />
                         <Line type="monotone" dataKey="entradas_previstas" name="Entradas previstas" stroke="#F59E0B" strokeWidth={2} strokeDasharray="3 4" dot={{ r: 2 }} connectNulls />
                         <Line type="monotone" dataKey="estoque_atual" name="Estoque atual" stroke="#163B63" strokeWidth={2.5} dot={false} connectNulls />
-                        <Line type="monotone" dataKey="estoque_mais_pedidos" name="Estoque + pedidos" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls />
+                        <Line type="monotone" dataKey="estoque_mais_pedidos" name="Estoque + entradas" stroke="#2563EB" strokeWidth={2.5} dot={false} connectNulls />
                         <Line type="monotone" dataKey="saldo_projetado" name="Saldo projetado" stroke="#7C3AED" strokeWidth={2.5} dot={{ r: 2 }} connectNulls />
                       </ComposedChart>
                     </ResponsiveContainer>
@@ -6826,7 +6826,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
             </div>
 
             <div className="mt-6 card p-4">
-              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Pedidos em aberto</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Entradas previstas</p>
               {!pedidos.length ? (
                 <p className="mt-3 text-sm" style={{ color: "var(--text-secondary)" }}>Nenhum pedido aberto encontrado para este item.</p>
               ) : (
@@ -6834,7 +6834,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
                   <table className="w-full text-sm">
                     <thead className="text-left text-xs uppercase tracking-wide text-white" style={{ background: "#163B63" }}>
                       <tr>
-                        <th className="px-3 py-2">Pedido/SC</th>
+                        <th className="px-3 py-2">Documento/Origem</th>
                         <th className="px-3 py-2 text-right">Qtd.</th>
                         <th className="px-3 py-2">Entrega</th>
                         <th className="px-3 py-2">Fornecedor</th>
@@ -6932,8 +6932,8 @@ function TimelinePrincipal({
             <KpiSmall label="Lead time fornecedor" value={`${fmtNumber(item.lead_time_dias, 0)} d`} />
             <KpiSmall label="Saldo atual" value={fmtCompact(item.saldo)} />
             <KpiSmall label="Empenho" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "empenho_lote"))} />
-            <KpiSmall label="Pedidos abertos" value={fmtCompact(item.qtd_pedidos_abertos)} />
-            <KpiSmall label="Pedidos em atraso" value={fmtCompact(getPedidosAtrasados(item))} />
+            <KpiSmall label="Entradas previstas" value={fmtCompact(item.qtd_pedidos_abertos)} />
+            <KpiSmall label="Entradas em atraso" value={fmtCompact(getPedidosAtrasados(item))} />
             <KpiSmall label="Cobertura atual" value={`${fmtNumber(getCoberturaAtualMeses(item), 1)} m`} />
             <KpiSmall label="Cobertura c/ entradas" value={`${fmtNumber(getCoberturaComEntradasMeses(item), 1)} m`} />
           </div>
@@ -7049,16 +7049,16 @@ function TimelinePrincipal({
           <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
             <div className="flex flex-col justify-between gap-2 md:flex-row md:items-start">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Pedidos em aberto</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Entradas previstas</p>
                 <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
                   {pedidos.length
-                    ? `${fmtNumber(pedidos.length)} pedido(s) aberto(s) encontrado(s) para este item. ${fmtCompact(getPedidosAtrasados(item))} em atraso.`
+                    ? `${fmtNumber(pedidos.length)} entrada(s) prevista(s) encontrado(s) para este item. ${fmtCompact(getPedidosAtrasados(item))} em atraso.`
                     : "Nenhum pedido aberto encontrado para este item."}
                 </p>
               </div>
               {getPedidosAtrasados(item) > 0 && (
                 <span className="inline-flex rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: "rgba(220,38,38,0.25)", color: "#B91C1C", background: "rgba(220,38,38,0.08)" }}>
-                  Há pedidos vencidos
+                  Há entradas previstas vencidas
                 </span>
               )}
             </div>
@@ -7068,7 +7068,7 @@ function TimelinePrincipal({
                 <table className="w-full min-w-[1120px] text-xs">
                   <thead className="sticky top-0 text-left uppercase tracking-wide text-white" style={{ background: "#163B63" }}>
                     <tr>
-                      <th className="px-3 py-2">Pedido/SC</th>
+                      <th className="px-3 py-2">Documento/Origem</th>
                       <th className="px-3 py-2 text-right">Qtd.</th>
                       <th className="px-3 py-2">Emissão pedido</th>
                       <th className="px-3 py-2">Entrega original</th>
@@ -8429,7 +8429,7 @@ export default function AgingEstoquePage() {
             active={isFiltroAtivo(activeFilter, { status: "EXCESSO" }) && !activeFilter?.tipo_negocio}
           />
           <KpiCard
-            label="Pedidos abertos"
+            label="Entradas previstas"
             value={fmtCompact(resumo?.resumo?.pedidos_total || 0)}
             helper="volume em compras abertas"
             icon={<ShoppingCart size={20} />}
@@ -8859,7 +8859,7 @@ export default function AgingEstoquePage() {
           active={isFiltroAtivo(activeFilter, { status: "EXCESSO" }) && !activeFilter?.tipo_negocio}
         />
         <KpiCard
-          label="Pedidos abertos"
+          label="Entradas previstas"
           value={fmtCompact(resumo?.resumo?.pedidos_total || 0)}
           helper="volume em compras abertas"
           icon={<ShoppingCart size={20} />}
