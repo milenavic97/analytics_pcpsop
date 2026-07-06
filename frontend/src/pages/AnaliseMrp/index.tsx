@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import {
   AlertTriangle,
@@ -5773,6 +5773,101 @@ function mesclarSerieBackendComFallback(serieBackend: any[], serieFallback: any[
   return Array.from(mapa.values()).sort((a, b) => String(seriePontoKey(a)).localeCompare(String(seriePontoKey(b))))
 }
 
+function getEntradaPrevistaPonto(ponto: any) {
+  return Math.max(
+    0,
+    Number(ponto?.entradas_previstas || 0),
+    Number(ponto?.qtd_entradas_previstas || 0),
+    Number(ponto?.entradas || 0),
+    Number(ponto?.pedidos || 0),
+  )
+}
+
+function serieTemEntradasPrevistas(serie?: any[] | null) {
+  return Array.isArray(serie) && serie.some((ponto) => getEntradaPrevistaPonto(ponto) > 0)
+}
+
+function mesclarDetalhesSerie(base: any[] | undefined, extra: any[] | undefined) {
+  const lista: any[] = []
+  const vistos = new Set<string>()
+
+  for (const item of [...(base || []), ...(extra || [])]) {
+    if (!item) continue
+    const chave = JSON.stringify([
+      item.data_prevista_entrega || item.data_entrada_grafico || item.data || "",
+      item.pedido_numero || item.pedido || "",
+      item.sc_numero || item.sc || "",
+      item.quantidade || item.qtd || item.entradas_previstas || 0,
+    ])
+    if (vistos.has(chave)) continue
+    vistos.add(chave)
+    lista.push(item)
+  }
+
+  return lista
+}
+
+function mesclarPontoPreservandoEntradas(principal: any, apoio: any) {
+  if (!apoio) return principal
+  const entradaPrincipal = getEntradaPrevistaPonto(principal)
+  const entradaApoio = getEntradaPrevistaPonto(apoio)
+
+  if (entradaApoio <= 0 || entradaPrincipal > 0) {
+    return principal
+  }
+
+  const mesclado: any = {
+    ...principal,
+    entradas_previstas: entradaApoio,
+    qtd_entradas_previstas: principal?.qtd_entradas_previstas ?? apoio?.qtd_entradas_previstas,
+    fonte_entradas_previstas: principal?.fonte_entradas_previstas ?? apoio?.fonte_entradas_previstas,
+    label_entradas_previstas: principal?.label_entradas_previstas ?? apoio?.label_entradas_previstas,
+  }
+
+  const detalhes = mesclarDetalhesSerie(
+    principal?.pedidos_detalhe || principal?.entradas_detalhe,
+    apoio?.pedidos_detalhe || apoio?.entradas_detalhe,
+  )
+
+  if (detalhes.length) {
+    mesclado.pedidos_detalhe = detalhes
+    mesclado.entradas_detalhe = detalhes
+  }
+
+  return mesclado
+}
+
+function mesclarSeriePreservandoEntradas(seriePrincipal: any[], ...seriesApoio: any[][]) {
+  const mapa = new Map<string, any>()
+
+  for (const ponto of seriePrincipal || []) {
+    const key = seriePontoKey(ponto)
+    if (!key) continue
+    mapa.set(key, { ...ponto })
+  }
+
+  for (const serie of seriesApoio || []) {
+    for (const ponto of serie || []) {
+      const key = seriePontoKey(ponto)
+      if (!key) continue
+      const atual = mapa.get(key)
+      if (!atual) {
+        mapa.set(key, { ...ponto })
+        continue
+      }
+      mapa.set(key, mesclarPontoPreservandoEntradas(atual, ponto))
+    }
+  }
+
+  return Array.from(mapa.values()).sort((a, b) => String(seriePontoKey(a)).localeCompare(String(seriePontoKey(b))))
+}
+
+function isItemBenzotopLiberacao(item: any, codigo?: string) {
+  const codigoNormalizado = String(codigo || item?.codigo || "").trim()
+  const texto = `${item?.produto || ""} ${item?.descricao || ""} ${item?.segmento || ""}`.toUpperCase()
+  return codigoNormalizado === "52749" || texto.includes("BENZOTOP")
+}
+
 
 function BraviSeriePanel({
   active,
@@ -5792,6 +5887,7 @@ function BraviSeriePanel({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [seriesOcultas, setSeriesOcultas] = useState<Set<string>>(new Set())
+  const ultimaSerieItemComEntradasRef = useRef<Map<string, BraviSeriePonto[]>>(new Map())
 
   const codigoSelecionado = selectedItem?.codigo || ""
   const itemSelecionado = selectedItem?.codigo ? selectedItem : null
@@ -5813,34 +5909,101 @@ function BraviSeriePanel({
       let mounted = true
       const itemNormalizado = normalizarCoberturaPaMrItem(itemSelecionado)
       const serieLocal = buildSerieOperacionalItemSelecionado(itemNormalizado)
+      const serieComEntradasEmMemoria = codigoEsperado ? ultimaSerieItemComEntradasRef.current.get(codigoEsperado) || [] : []
+      const serieLocalEstavel = mesclarSeriePreservandoEntradas(serieLocal, serieComEntradasEmMemoria)
       const statusItem = String((itemNormalizado as any).status || (itemNormalizado as any).status_estoque || "").toUpperCase()
+      const itemEhBenzotop = isItemBenzotopLiberacao(itemNormalizado, codigoEsperado)
 
-      const fallbackItem: BraviSerieResponse = {
+      const montarPayloadItem = (
+        base: Partial<BraviSerieResponse>,
+        serieFinal: BraviSeriePonto[],
+        modoFront: string,
+      ): BraviSerieResponse => ({
+        ...(base as BraviSerieResponse),
         granularidade: "mensal",
         total_itens_produtos: 1,
         total_itens_bravi: 1,
         codigos_produtos: codigoEsperado ? [codigoEsperado] : [],
         codigos_bravi: codigoEsperado ? [codigoEsperado] : [],
         item: {
+          ...((base as BraviSerieResponse).item || {}),
           codigo: codigoEsperado,
-          produto: String((itemNormalizado as any).produto || (itemNormalizado as any).descricao || "Item selecionado"),
-          tipo: String((itemNormalizado as any).tipo || ""),
+          produto: String((itemNormalizado as any).produto || (itemNormalizado as any).descricao || (base as BraviSerieResponse).item?.produto || "Item selecionado"),
+          tipo: String((itemNormalizado as any).tipo || (base as BraviSerieResponse).item?.tipo || ""),
         },
         resumo: {
+          ...((base as BraviSerieResponse).resumo || {}),
           estoque_atual: getEstoqueAtualReal(itemNormalizado),
           pedidos_abertos: getPedidosAbertos(itemNormalizado),
-          faturamento_ytd_qtd: Number((itemNormalizado as any).faturamento_ytd_qtd || 0),
-          faturamento_ytd_valor: Number((itemNormalizado as any).faturamento_ytd_valor || 0),
-          criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : 0,
+          faturamento_ytd_qtd: Number(((base as BraviSerieResponse).resumo?.faturamento_ytd_qtd ?? (itemNormalizado as any).faturamento_ytd_qtd) || 0),
+          faturamento_ytd_valor: Number(((base as BraviSerieResponse).resumo?.faturamento_ytd_valor ?? (itemNormalizado as any).faturamento_ytd_valor) || 0),
+          criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : Number((base as BraviSerieResponse).resumo?.criticos || 0),
         },
-        serie: serieLocal,
-        debug: { modo: "item_pa_mr_fallback_tabela_v32" },
-        backend_versao: "front_v32_fallback",
-      }
+        serie: serieFinal,
+        debug: { ...((base as BraviSerieResponse).debug || {}), modo_front: modoFront },
+      })
 
-      setData(fallbackItem)
+      const fallbackItem = montarPayloadItem(
+        {
+          serie: serieLocalEstavel,
+          debug: { modo: "item_pa_mr_fallback_tabela_v35_preserva_entradas" },
+          backend_versao: "front_v35_fallback",
+        },
+        serieLocalEstavel,
+        "item_pa_mr_fallback_tabela_v35_preserva_entradas",
+      )
+
+      // Não deixa a barra laranja do 52749 sumir enquanto uma nova chamada ainda está chegando.
+      // O problema era: ao trocar de aba/zoom/filtro, o efeito montava o fallback da tabela
+      // antes da resposta real, e esse fallback às vezes vinha sem a série de entradas Benzotop.
+      setData((prev) => {
+        const codigoPrev = String(prev?.item?.codigo || prev?.codigos_produtos?.[0] || prev?.codigos_bravi?.[0] || "")
+        if (
+          codigoPrev === codigoEsperado &&
+          serieTemEntradasPrevistas(prev?.serie) &&
+          !serieTemEntradasPrevistas(fallbackItem.serie)
+        ) {
+          return prev
+        }
+        return fallbackItem
+      })
       setError("")
       setLoading(true)
+
+      const salvarSerieEstavel = (serieFinal: BraviSeriePonto[]) => {
+        if (codigoEsperado && serieTemEntradasPrevistas(serieFinal)) {
+          ultimaSerieItemComEntradasRef.current.set(codigoEsperado, serieFinal)
+        }
+      }
+
+      salvarSerieEstavel(serieLocalEstavel)
+
+      const aplicarSerieDetalheBenzotop = (serieBase: BraviSeriePonto[], basePayload: Partial<BraviSerieResponse>) => {
+        if (!itemEhBenzotop || !codigoEsperado) return
+
+        getAgingEstoqueItemComCache(codigoEsperado, 12)
+          .then((detalhe) => {
+            if (!mounted) return
+            const serieDetalhe = buildSerieOperacionalItemSelecionado(normalizarCoberturaPaMrItem(detalhe as AgingEstoqueItemDetalhe))
+            const serieComDetalhe = mesclarSeriePreservandoEntradas(serieBase, serieDetalhe, serieComEntradasEmMemoria)
+            if (!serieTemEntradasPrevistas(serieComDetalhe)) return
+
+            salvarSerieEstavel(serieComDetalhe)
+            setData((prev) => {
+              const codigoPrev = String(prev?.item?.codigo || prev?.codigos_produtos?.[0] || prev?.codigos_bravi?.[0] || "")
+              if (codigoPrev && codigoPrev !== codigoEsperado) return prev
+              return montarPayloadItem(
+                { ...(prev || basePayload), serie: serieComDetalhe, debug: { ...((prev || basePayload) as BraviSerieResponse)?.debug, fonte_entradas_front: "aging_estoque_item_52749" } },
+                serieComDetalhe,
+                "item_pa_mr_benzotop_detalhe_preservado_v35",
+              )
+            })
+          })
+          .catch((err: unknown) => {
+            if (!mounted) return
+            console.warn("Não foi possível carregar detalhe Benzotop para preservar entradas previstas", err)
+          })
+      }
 
       getBraviSerie("mensal", codigoEsperado)
         .then((res) => {
@@ -5851,43 +6014,45 @@ function BraviSeriePanel({
 
           const serieBackend = Array.isArray(res?.serie) ? res.serie : []
 
-          // Se por algum motivo o backend não devolver pontos, mantém o fallback da tabela
-          // para não deixar o gráfico vazio.
+          // Se por algum motivo o backend não devolver pontos, mantém o fallback/cache da tabela
+          // para não deixar o gráfico vazio nem perder entradas Benzotop já carregadas.
           if (serieBackend.length === 0) {
-            setData(fallbackItem)
+            setData((prev) => {
+              const codigoPrev = String(prev?.item?.codigo || prev?.codigos_produtos?.[0] || prev?.codigos_bravi?.[0] || "")
+              if (codigoPrev === codigoEsperado && serieTemEntradasPrevistas(prev?.serie)) return prev
+              return fallbackItem
+            })
+            aplicarSerieDetalheBenzotop(fallbackItem.serie, fallbackItem)
             return
           }
 
-          setData({
-            ...res,
-            granularidade: "mensal",
-            total_itens_produtos: 1,
-            total_itens_bravi: 1,
-            codigos_produtos: codigoEsperado ? [codigoEsperado] : [],
-            codigos_bravi: codigoEsperado ? [codigoEsperado] : [],
-            item: {
-              ...(res.item || {}),
-              codigo: codigoEsperado,
-              produto: String((itemNormalizado as any).produto || (itemNormalizado as any).descricao || res.item?.produto || "Item selecionado"),
-              tipo: String((itemNormalizado as any).tipo || res.item?.tipo || ""),
+          const serieMescladaBackendFallback = mesclarSerieBackendComFallback(serieBackend, serieLocalEstavel)
+          const serieFinal = mesclarSeriePreservandoEntradas(serieMescladaBackendFallback, serieComEntradasEmMemoria, serieLocalEstavel)
+          salvarSerieEstavel(serieFinal)
+
+          const payloadFinal = montarPayloadItem(
+            {
+              ...res,
+              serie: serieFinal,
+              debug: { ...(res.debug || {}), modo_front: "item_pa_mr_backend_cache_v35_preserva_entradas" },
             },
-            resumo: {
-              ...(res.resumo || {}),
-              estoque_atual: getEstoqueAtualReal(itemNormalizado),
-              pedidos_abertos: getPedidosAbertos(itemNormalizado),
-              faturamento_ytd_qtd: Number((res.resumo?.faturamento_ytd_qtd ?? (itemNormalizado as any).faturamento_ytd_qtd) || 0),
-              faturamento_ytd_valor: Number((res.resumo?.faturamento_ytd_valor ?? (itemNormalizado as any).faturamento_ytd_valor) || 0),
-              criticos: ["RUPTURA", "CRITICO"].includes(statusItem) ? 1 : Number(res.resumo?.criticos || 0),
-            },
-            serie: serieBackend,
-            debug: { ...(res.debug || {}), modo_front: "item_pa_mr_backend_cache_v34_status_estoque_atual_v71" },
-          })
+            serieFinal,
+            "item_pa_mr_backend_cache_v35_preserva_entradas",
+          )
+
+          setData(payloadFinal)
+          aplicarSerieDetalheBenzotop(serieFinal, payloadFinal)
         })
         .catch((err: unknown) => {
           if (!mounted) return
-          console.warn("Não foi possível carregar série real do item PA/MR; mantendo fallback da tabela", err)
+          console.warn("Não foi possível carregar série real do item PA/MR; mantendo fallback/cache da tabela", err)
           setError("")
-          setData(fallbackItem)
+          setData((prev) => {
+            const codigoPrev = String(prev?.item?.codigo || prev?.codigos_produtos?.[0] || prev?.codigos_bravi?.[0] || "")
+            if (codigoPrev === codigoEsperado && serieTemEntradasPrevistas(prev?.serie)) return prev
+            return fallbackItem
+          })
+          aplicarSerieDetalheBenzotop(fallbackItem.serie, fallbackItem)
         })
         .finally(() => {
           if (mounted) setLoading(false)
