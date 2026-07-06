@@ -5863,9 +5863,12 @@ function mesclarSeriePreservandoEntradas(seriePrincipal: any[], ...seriesApoio: 
 }
 
 function isItemBenzotopLiberacao(item: any, codigo?: string) {
+  // Regra validada com PCP: a planilha específica CAPACIDADE X FORECAST BENZOTOP
+  // alimenta somente o PA 52749 · BENZOTOP - T.FRUTTI 30G.
+  // Outros itens Benzotop continuam seguindo a regra normal de PA/MR, sem herdar
+  // a liberação do 52749 nem preservar barras laranja por descrição/segmento.
   const codigoNormalizado = String(codigo || item?.codigo || "").trim()
-  const texto = `${item?.produto || ""} ${item?.descricao || ""} ${item?.segmento || ""}`.toUpperCase()
-  return codigoNormalizado === "52749" || texto.includes("BENZOTOP")
+  return codigoNormalizado === "52749"
 }
 
 
