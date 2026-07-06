@@ -42,6 +42,7 @@ import {
 } from "@/services/api"
 
 const PAGE_SIZE = 10
+const DASHBOARD_PAGE_SIZE = 500
 const EXPORT_PAGE_SIZE = 5000
 
 const API_BASE = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
@@ -230,7 +231,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
 }
 
 // Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v78.
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v90_backend_m_06_2026"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v92_filtro_rapido_sem_dashboard_bg"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -7187,7 +7188,7 @@ export default function AgingEstoquePage() {
         {
           escopo,
           page: 1,
-          page_size: 5000,
+          page_size: DASHBOARD_PAGE_SIZE,
           sort_direction: "desc",
           classificacao_cadastro: classificacao,
         }
@@ -7361,12 +7362,23 @@ export default function AgingEstoquePage() {
   useEffect(() => {
     let mounted = true
 
+    // Performance v22: a aba Gestão não pode disparar o dashboard pesado em segundo plano.
+    // O filtro da reunião precisa buscar somente a tabela paginada; o dashboard só carrega
+    // quando a usuária abre a aba Dashboard.
+    if (visaoEstoque !== "dashboard") {
+      setLoadingDashboard(false)
+      setLoadingDashboardItens(false)
+      return () => { mounted = false }
+    }
+
     const escopoPrincipal: EscopoEstoque = "produtos"
     const escoposSecundarios: EscopoEstoque[] = ["todos", "insumos"]
     const escoposDashboard: EscopoEstoque[] = [escopoPrincipal, ...escoposSecundarios]
 
-    const forceRefreshDashboard = refreshTick > 0
-    const cacheBustDashboard = forceRefreshDashboard ? `${refreshTick}-${Date.now()}` : undefined
+    // Mesmo após upload/Atualizar, o front limpa o cache local antes de incrementar refreshTick.
+    // Não enviamos force_refresh no dashboard para evitar rebuild pesado em cascata no backend.
+    const forceRefreshDashboard = false
+    const cacheBustDashboard = refreshTick ? `${refreshTick}` : undefined
 
     const paramsResumoDashboard = (escopo: EscopoEstoque) => ({
       escopo,
@@ -7383,7 +7395,7 @@ export default function AgingEstoquePage() {
     const paramsItensDashboard = (escopo: EscopoEstoque) => ({
       escopo,
       page: 1,
-      page_size: 5000,
+      page_size: DASHBOARD_PAGE_SIZE,
       sort_direction: "desc",
       classificacao_cadastro: classificacaoPadraoPorEscopo(escopo),
       force_refresh: forceRefreshDashboard || undefined,
@@ -7393,7 +7405,7 @@ export default function AgingEstoquePage() {
     const paramsItensCache = (escopo: EscopoEstoque) => ({
       escopo,
       page: 1,
-      page_size: 5000,
+      page_size: DASHBOARD_PAGE_SIZE,
       sort_direction: "desc",
       classificacao_cadastro: classificacaoPadraoPorEscopo(escopo),
     })
@@ -7501,7 +7513,7 @@ export default function AgingEstoquePage() {
     void carregarDashboardProgressivo()
 
     return () => { mounted = false }
-  }, [refreshTick, cacheVersion])
+  }, [refreshTick, visaoEstoque])
 
   useEffect(() => {
     let mounted = true
@@ -7510,7 +7522,7 @@ export default function AgingEstoquePage() {
     getAgingResumoDireto({
       escopo: escopoEstoque,
       classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
-      force_refresh: refreshTick ? true : undefined,
+      force_refresh: undefined,
       _t: refreshTick ? refreshTick : undefined,
     })
       .then((res) => {
@@ -7550,7 +7562,7 @@ export default function AgingEstoquePage() {
         semaforo: activeFilter?.semaforo,
         status_plano: activeFilter?.status_plano,
         alerta_previsao: activeFilter?.alerta_previsao,
-        force_refresh: refreshTick ? true : undefined,
+        force_refresh: undefined,
         _t: refreshTick ? refreshTick : undefined,
       })
       .then((res) => {
@@ -7748,6 +7760,19 @@ export default function AgingEstoquePage() {
       return (aValue - bValue) * direction
     })
   }, [itens, sortKey, sortDirection, activeFilter?.semaforo, escopoEstoque])
+
+  // Performance v22: quando a usuária filtra PA/MR, não carregamos a série geral pesada.
+  // Assim que a tabela responder, selecionamos o primeiro item visível para a linha do tempo
+  // buscar somente /produtos/serie?codigo=SKU. Isso evita travar reunião ao pesquisar Benzotop/One Step.
+  useEffect(() => {
+    if (escopoEstoque !== "produtos") return
+    if (!activeFilter?.busca) return
+    if (selected?.codigo) return
+    if (loadingItens) return
+    const primeiro = itensOrdenados[0]
+    if (!primeiro?.codigo) return
+    setSelected(normalizarCoberturaPaMrItem(primeiro) as AgingEstoqueItemDetalhe)
+  }, [escopoEstoque, activeFilter?.busca, selected?.codigo, loadingItens, itensOrdenados])
 
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
   const negociosClassificados = useMemo(
@@ -9049,7 +9074,7 @@ export default function AgingEstoquePage() {
       </div>
 
       <BraviSeriePanel
-        active={mostrarCardsPortfolio && escopoEstoque === "produtos"}
+        active={mostrarCardsPortfolio && escopoEstoque === "produtos" && (!activeFilter?.busca || Boolean(selected?.codigo))}
         refreshTick={refreshTick}
         selectedItem={selected}
         loadingSelected={false}
