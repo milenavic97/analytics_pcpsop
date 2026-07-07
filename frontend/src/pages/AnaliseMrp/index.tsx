@@ -249,7 +249,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
 }
 
 // V97: muda o prefixo para descartar cache local antigo com Histórico 6M zerado.
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v97_historico_sd2_restaurado"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v98_timeline_entradas_historico"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -2032,6 +2032,177 @@ function monthLabel(ano: number, mes: number) {
   return `${nomes[mes - 1] || String(mes).padStart(2, "0")}/${String(ano).slice(-2)}`
 }
 
+
+function extrairAnoMesPontoGestao(ponto: any): { ano: number; mes: number } | null {
+  const anoDireto = Number(ponto?.ano || 0)
+  const mesDireto = Number(ponto?.mes || 0)
+  if (anoDireto > 0 && mesDireto > 0) return { ano: anoDireto, mes: mesDireto }
+
+  const candidatos = [
+    ponto?.data_prevista_entrega,
+    ponto?.data_previsao_necessidade,
+    ponto?.data_entrega,
+    ponto?.data_recebimento,
+    ponto?.data_inicio,
+    ponto?.periodo_completo,
+    ponto?.data,
+  ]
+
+  for (const valor of candidatos) {
+    if (!valor) continue
+    const texto = String(valor).slice(0, 10)
+    if (!texto || texto === "0000-00-00") continue
+    const data = new Date(`${texto}T00:00:00`)
+    if (!Number.isNaN(data.getTime())) return { ano: data.getFullYear(), mes: data.getMonth() + 1 }
+  }
+
+  const periodo = String(ponto?.periodo || ponto?.label || "").trim()
+  const matchMesAno = periodo.match(/(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[\/\-\s]+(\d{2,4})/i)
+  if (matchMesAno) {
+    const nomes = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
+    const mes = nomes.indexOf(matchMesAno[1].toLowerCase().slice(0, 3)) + 1
+    const anoRaw = Number(matchMesAno[2])
+    const ano = anoRaw < 100 ? 2000 + anoRaw : anoRaw
+    if (ano > 0 && mes > 0) return { ano, mes }
+  }
+
+  return null
+}
+
+function primeiroNumeroGestao(ponto: any, campos: string[]) {
+  for (const campo of campos) {
+    const valor = toNumberSafe(ponto?.[campo], Number.NaN)
+    if (Number.isFinite(valor) && valor !== 0) return valor
+  }
+  return 0
+}
+
+function getHistoricoConsumoOperacionalItem(item: AgingEstoqueItemDetalhe | null | undefined): { ano: number; mes: number; periodo: string; consumo: number }[] {
+  if (!item) return []
+  const raw = item as unknown as Record<string, any>
+  const mapa = new Map<string, { ano: number; mes: number; periodo: string; consumo: number }>()
+
+  const aplicarSerie = (serie: any, campos: string[]) => {
+    if (!Array.isArray(serie)) return
+    for (const ponto of serie) {
+      const info = extrairAnoMesPontoGestao(ponto)
+      if (!info) continue
+      const consumo = primeiroNumeroGestao(ponto, campos)
+      if (!Number.isFinite(consumo) || consumo <= 0) continue
+      const key = monthKey(info.ano, info.mes)
+      const atual = mapa.get(key) || { ano: info.ano, mes: info.mes, periodo: monthLabel(info.ano, info.mes), consumo: 0 }
+      atual.consumo += consumo
+      mapa.set(key, atual)
+    }
+  }
+
+  // Ordem intencional: primeiro a série oficial do detalhe; se ela vier vazia,
+  // aproveitamos as mesmas séries que alimentam o mini gráfico/tabela do dashboard.
+  aplicarSerie(raw.historico_consumo, ["consumo", "quantidade", "qtd", "faturamento_qtd"])
+  if (mapa.size === 0) aplicarSerie(raw.historico_6m, ["consumo", "faturamento_qtd", "quantidade", "qtd"])
+  if (mapa.size === 0) aplicarSerie(raw.linha_tempo_estoque, ["consumo", "faturamento_qtd", "quantidade", "qtd"])
+  if (mapa.size === 0) aplicarSerie(raw.serie_operacional, ["consumo", "faturamento_qtd", "quantidade", "qtd"])
+  if (mapa.size === 0) aplicarSerie(raw.faturamento_sd2, ["faturamento_qtd", "consumo", "quantidade", "qtd"])
+  if (mapa.size === 0) aplicarSerie(raw.comparativo_mensal, ["consumo", "faturamento_qtd", "quantidade", "qtd"])
+
+  return Array.from(mapa.values()).sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes))
+}
+
+function getPedidosOperacionaisItem(item: AgingEstoqueItemDetalhe | AgingEstoqueItem | null | undefined): any[] {
+  if (!item) return []
+  const raw = item as unknown as Record<string, any>
+  const pedidos: any[] = []
+  const vistos = new Set<string>()
+
+  const adicionar = (entrada: any, origem = "RELPC", dataFallback?: string | null, periodoFallback?: { ano: number; mes: number } | null) => {
+    if (!entrada) return
+
+    const quantidade = Math.max(
+      0,
+      primeiroNumeroGestao(entrada, [
+        "quantidade_pendente",
+        "quantidade_pc",
+        "quantidade",
+        "qtd",
+        "entradas_previstas",
+        "qtd_entradas_previstas",
+        "entradas",
+        "pedidos",
+      ])
+    )
+    if (quantidade <= 0) return
+
+    let dataPrevista =
+      entrada?.nova_previsao_fup ||
+      entrada?.data_previsao_fup ||
+      entrada?.data_prevista_entrega ||
+      entrada?.data_previsao_necessidade ||
+      entrada?.data_entrega ||
+      entrada?.data_recebimento ||
+      dataFallback ||
+      null
+
+    if (!dataPrevista && periodoFallback?.ano && periodoFallback?.mes) {
+      dataPrevista = `${periodoFallback.ano}-${String(periodoFallback.mes).padStart(2, "0")}-01`
+    }
+
+    const pedidoNumero = entrada?.pedido_numero ?? entrada?.pedido ?? entrada?.pc_numero ?? null
+    const scNumero = entrada?.sc_numero ?? entrada?.solicitacao_compra ?? entrada?.sc ?? null
+    const chave = JSON.stringify([String(dataPrevista || ""), String(pedidoNumero || ""), String(scNumero || ""), quantidade])
+    if (vistos.has(chave)) return
+    vistos.add(chave)
+
+    pedidos.push({
+      ...entrada,
+      pedido_numero: pedidoNumero ? String(pedidoNumero) : (origem === "serie_mensal" ? "Previsão mensal" : entrada?.pedido_numero ?? null),
+      sc_numero: scNumero ? String(scNumero) : entrada?.sc_numero ?? null,
+      quantidade_pendente: quantidade,
+      data_prevista_entrega: dataPrevista ? String(dataPrevista) : null,
+      data_prevista_entrega_original: entrada?.data_prevista_entrega_original || entrada?.data_prevista_entrega || dataPrevista || null,
+      fornecedor: entrada?.fornecedor ?? entrada?.razao_social_fornecedor ?? entrada?.nome_fornecedor ?? null,
+      origem_entrada: origem,
+    })
+  }
+
+  const adicionarLista = (lista: any, origem = "RELPC", dataFallback?: string | null, periodoFallback?: { ano: number; mes: number } | null) => {
+    if (!Array.isArray(lista)) return
+    for (const entrada of lista) adicionar(entrada, origem, dataFallback, periodoFallback)
+  }
+
+  adicionarLista(raw.pedidos, "RELPC")
+  adicionarLista(raw.pedidos_detalhe, "RELPC")
+  adicionarLista(raw.entradas_detalhe, "RELPC")
+  adicionarLista(raw.entradas_previstas_detalhe, "RELPC")
+
+  const series = [
+    raw.entradas_previstas_serie,
+    raw.pedidos_futuros_por_mes,
+    raw.entradas_previstas_periodo,
+    raw.linha_tempo_estoque,
+    raw.serie_operacional,
+  ]
+
+  for (const serie of series) {
+    if (!Array.isArray(serie)) continue
+    for (const ponto of serie) {
+      const periodo = extrairAnoMesPontoGestao(ponto)
+      const dataFallback =
+        ponto?.data_prevista_entrega ||
+        ponto?.data_previsao_necessidade ||
+        ponto?.data_entrega ||
+        ponto?.data_inicio ||
+        (periodo ? `${periodo.ano}-${String(periodo.mes).padStart(2, "0")}-01` : null)
+
+      adicionarLista(ponto?.pedidos_detalhe, "RELPC", dataFallback, periodo)
+      adicionarLista(ponto?.entradas_detalhe, "RELPC", dataFallback, periodo)
+      adicionarLista(ponto?.pedidos, "RELPC", dataFallback, periodo)
+      adicionar(ponto, "serie_mensal", dataFallback, periodo)
+    }
+  }
+
+  return pedidos.sort((a, b) => String(a.data_prevista_entrega || "9999-12-31").localeCompare(String(b.data_prevista_entrega || "9999-12-31")))
+}
+
 function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonteFuturo: number) {
   if (!item) return []
 
@@ -2101,7 +2272,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   // não o mês atual — então se o backend mandasse alguma linha de historico_consumo pra
   // um mês futuro (mesmo com consumo 0), ela entrava e desenhava uma linha reta em zero
   // até dezembro. Agora exige explicitamente que o mês seja anterior ao mês atual.
-  for (const p of item.historico_consumo || []) {
+  for (const p of getHistoricoConsumoOperacionalItem(item)) {
     const ano = Number(p.ano || 0)
     const mes = Number(p.mes || 0)
     if (!ano || !mes) continue
@@ -2145,7 +2316,7 @@ function buildLinhaTempoFallback(item: AgingEstoqueItemDetalhe | null, horizonte
   // Se houver nova previsão FUP, usa a nova previsão. Se não houver, projeta no
   // mês atual para que o estoque projetado e a cobertura futura considerem esse
   // volume em trânsito/atrasado.
-  for (const pedido of item.pedidos || []) {
+  for (const pedido of getPedidosOperacionaisItem(item)) {
     const d = dataEntradaGraficoPedido(pedido)
     if (!d || Number.isNaN(d.getTime()) || d < inicio || d > fim) continue
     const ano = d.getFullYear()
@@ -6686,7 +6857,7 @@ function ItemDrawer({ item, loading, onClose }: { item: AgingEstoqueItemDetalhe 
 
   const sb8Diario = item?.historico_sb8_diario || []
   const linhaTempoEstoque = item?.linha_tempo_estoque || []
-  const pedidos = item?.pedidos || []
+  const pedidos = getPedidosOperacionaisItem(item)
   const forecastMetodo =
     String(item?.forecast_metodo || "").includes("direto")
       ? "Forecast direto do código"
@@ -6880,7 +7051,7 @@ function TimelinePrincipal({
   // a fonte mais confiável do consumo mensal é sempre historico_consumo.
   const linhaTempoMensal = buildLinhaTempoFallback(item, horizonteFuturo)
   const linhaTempo = linhaTempoMensal
-  const pedidos = item?.pedidos || []
+  const pedidos = getPedidosOperacionaisItem(item)
   const [seriesOcultas, setSeriesOcultas] = useState<Set<string>>(new Set())
   const toggleSerie = (dataKey?: string) => {
     if (!dataKey) return
