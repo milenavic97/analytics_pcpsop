@@ -69,13 +69,19 @@ function formatarDataHoraAtualizacao(value?: string | null) {
 
   if (Number.isNaN(data.getTime())) return null
 
+  const opcoesDataHoraBase = {
+    timeZone: "America/Sao_Paulo",
+  } as const
+
   const dataFmt = new Intl.DateTimeFormat("pt-BR", {
+    ...opcoesDataHoraBase,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   }).format(data)
 
   const horaFmt = new Intl.DateTimeFormat("pt-BR", {
+    ...opcoesDataHoraBase,
     hour: "2-digit",
     minute: "2-digit",
   }).format(data)
@@ -197,9 +203,9 @@ function limparCachesOperacionaisLocais() {
       .filter(deveRemover)
       .forEach((key) => window.localStorage.removeItem(key))
 
-    Object.keys(window.sessionStorage)
-      .filter(deveRemover)
-      .forEach((key) => window.sessionStorage.removeItem(key))
+    // Não limpamos sessionStorage aqui: a v71 usa um cache de sessão
+    // versionado e validado pelo backend para voltar rápido à Overview.
+    // Caches antigos persistentes continuam sendo removidos do localStorage.
 
     if ("caches" in window) {
       window.caches
@@ -215,9 +221,41 @@ function limparCachesOperacionaisLocais() {
 let overviewPageMemoryCache: OverviewPageSnapshot | null = null
 let overviewLocalStorageLimpo = false
 const OVERVIEW_MEMORY_CACHE_MAX_AGE_MS = 15 * 60 * 1000
+const OVERVIEW_SESSION_CACHE_KEY = "dfl-ovw-page-session-v72-tz-br"
+const OVERVIEW_SESSION_CACHE_MAX_AGE_MS = 30 * 60 * 1000
 
 function limparCacheMemoriaOverview() {
   overviewPageMemoryCache = null
+}
+
+function readOverviewSessionCache(): OverviewPageSnapshot | null {
+  try {
+    if (typeof window === "undefined") return null
+    const raw = window.sessionStorage.getItem(OVERVIEW_SESSION_CACHE_KEY)
+    if (!raw) return null
+
+    const snapshot = JSON.parse(raw) as OverviewPageSnapshot
+    if (!isOverviewSnapshotCompleto(snapshot)) return null
+
+    const idade = Date.now() - Number(snapshot.savedAt || 0)
+    if (idade > OVERVIEW_SESSION_CACHE_MAX_AGE_MS) {
+      window.sessionStorage.removeItem(OVERVIEW_SESSION_CACHE_KEY)
+      return null
+    }
+
+    return snapshot
+  } catch {
+    return null
+  }
+}
+
+function writeOverviewSessionCache(snapshot: OverviewPageSnapshot) {
+  try {
+    if (typeof window === "undefined") return
+    window.sessionStorage.setItem(OVERVIEW_SESSION_CACHE_KEY, JSON.stringify(snapshot))
+  } catch {
+    // sessionStorage é acelerador validado por versão; se falhar, não bloqueia.
+  }
 }
 
 function limparCachesOperacionaisLocaisUmaVez() {
@@ -243,11 +281,14 @@ function readOverviewPageCache(): OverviewPageSnapshot | null {
 }
 
 function writeOverviewPageCache(snapshot: Omit<OverviewPageSnapshot, "savedAt">) {
-  // Cache só em memória do app: rápido ao navegar e seguro entre computadores.
+  // Cache em memória do app: rápido ao navegar sem recarregar.
+  // Cache em sessionStorage: rápido mesmo se o roteamento fizer reload da página,
+  // mas só será aplicado depois de validar a versão oficial no backend.
   overviewPageMemoryCache = {
     ...snapshot,
     savedAt: Date.now(),
   }
+  writeOverviewSessionCache(overviewPageMemoryCache)
 }
 
 
@@ -496,6 +537,24 @@ export function OverviewPage() {
     window.setTimeout(() => setCarregarDetalhes(true), 150)
   }
 
+  function aplicarSnapshotSessao(snapshot: OverviewPageSnapshot) {
+    setVersaoCarregada(snapshot.version)
+    setCacheAtualizadoEmCarregado(snapshot.cacheAtualizadoEm ?? null)
+    setOrcadoLib(snapshot.orcadoLib)
+    setOrcadoFat(snapshot.orcadoFat)
+    setProjFat(snapshot.projFat)
+    setProjLib(snapshot.projLib)
+    setEstoqueJan(Number(snapshot.estoqueJan || 0))
+    setPrevistoHoje(Number(snapshot.previstoHoje || 0))
+    setRealMtd(Number(snapshot.realMtd || 0))
+    setDetalhePrevistoHoje(snapshot.detalhePrevistoHoje || [])
+    setDisponibilidadeMensal(snapshot.disponibilidadeMensal ?? null)
+    setUltimaAtualizacao(snapshot.ultimaAtualizacao ?? null)
+    setMtdCxPrevisto(Number(snapshot.mtdCxPrevisto || 0))
+    setMtdCxLiberado(Number(snapshot.mtdCxLiberado || 0))
+    setCarregarDetalhes(true)
+  }
+
   useEffect(() => {
     let alive = true
     let intervalId: number | null = null
@@ -518,8 +577,7 @@ export function OverviewPage() {
         const telaAtualCompleta = Boolean(orcadoLib && orcadoFat && projFat && projLib)
 
         // Se a versão e o timestamp do snapshot são os mesmos que já estão na tela,
-        // não refaz nenhuma chamada pesada. Como cache local foi desativado, a referência
-        // de completude agora é o próprio estado da tela, não localStorage.
+        // não refaz nenhuma chamada pesada.
         if (
           !precisaRecalcular &&
           versaoCarregada === versao.versao_base &&
@@ -531,6 +589,20 @@ export function OverviewPage() {
               if (alive) setCarregarDetalhes(true)
             }, 500)
           }
+          return
+        }
+
+        // Se a página sofreu reload ao trocar de rota, recupera o snapshot da aba
+        // SOMENTE depois de validar versão/timestamp contra o backend.
+        // Assim volta rápido sem mostrar dado antigo de outro upload/base.
+        const cacheSessao = readOverviewSessionCache()
+        if (
+          !precisaRecalcular &&
+          isOverviewSnapshotCompleto(cacheSessao) &&
+          cacheSessao.version === versao.versao_base &&
+          (cacheSessao.cacheAtualizadoEm ?? null) === cacheAtualizadoEmBackend
+        ) {
+          aplicarSnapshotSessao(cacheSessao)
           return
         }
 
