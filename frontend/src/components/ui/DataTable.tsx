@@ -3,6 +3,7 @@ import { Trash2, Pencil, Plus, ChevronLeft, ChevronRight } from "lucide-react"
 
 interface DataTableProps {
   colunas:       string[]
+  colunasLabels?: Record<string, string>
   dados:         Record<string, unknown>[]
   total:         number
   page:          number
@@ -26,7 +27,7 @@ function formatarValor(val: unknown): string {
 }
 
 export function DataTable({
-  colunas, dados, total, page, loading,
+  colunas, colunasLabels, dados, total, page, loading,
   onPageChange, onDelete, onEdit, onAdd,
 }: DataTableProps) {
   const [selecionados, setSelecionados] = useState<Set<number>>(new Set())
@@ -122,7 +123,7 @@ export function DataTable({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {c}
+                  {colunasLabels?.[c] ?? c}
                 </th>
               ))}
               <th style={{ width: 60, padding: "11px 16px" }} />

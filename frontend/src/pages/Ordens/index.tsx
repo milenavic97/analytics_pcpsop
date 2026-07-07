@@ -1,0 +1,3964 @@
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import {
+  CheckCircle2, XCircle, AlertTriangle, Clock,
+  ChevronDown, ChevronUp, RefreshCw,
+  CalendarDays, PackageCheck, PackageX, ClipboardList,
+  X, Pencil, Save, Download, Plus, Filter, AlertOctagon, ShoppingCart, Upload, Trash2, Database, UploadCloud,
+} from "lucide-react"
+import {
+  getOpsMeses,
+  atualizarRegistro,
+  getAjustesComprasOps,
+  salvarAjusteCompraOP,
+  uploadBase,
+  buscarUltimaAtualizacao,
+  excluirProgramacaoOpsMes,
+  type AjusteCompraOP,
+  type OPResult,
+  type ResumoViabilidade,
+  type StatusOP,
+} from "@/services/api"
+
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+type CompraAberta = {
+  produto_codigo?: string
+  produto_descricao?: string
+  quantidade_pendente?: number
+  quantidade_pendente_original?: number
+  quantidade_pendente_restante?: number
+  quantidade_utilizada?: number
+  data_prevista_entrega?: string | null
+  pedido_numero?: string | null
+  sc_numero?: string | null
+  razao_social_fornecedor?: string | null
+  comprador_nome?: string | null
+  entrega_status?: string | null
+}
+
+type StatusCompra = "sem_compra" | "no_prazo" | "nao_abre" | "risco" | "nao_cobre" | "parcial" | "atrasado"
+
+type Gargalo = {
+  codigo_comp: string
+  descricao: string
+  tp: string
+  unidade: string
+  necessario: number
+  saldo_chegou: number
+  saldo_chegou_98: number
+  faltante: number
+  status: "falta" | "quarentena"
+}
+
+type MaterialCriticoOPResumo = {
+  op_id: string
+  fifo_posicao: number | null
+  tipo_fifo?: string | null
+  lote?: string | null
+  produto?: string | null
+  codigo_produto?: string | null
+  linha?: string | null
+  status_op?: StatusOP | string | null
+  data_lavagem_emb?: string | null
+  data_inicio_fabricacao?: string | null
+  data_fim?: string | null
+  necessario: number
+  estoque_disponivel: number
+  saldo_98: number
+  compras_abertas: number
+  menor_data_entrega: string | null
+  faltante: number
+  status_material: "falta" | "quarentena"
+}
+
+type MaterialCriticoResumo = {
+  codigo_comp: string
+  descricao: string
+  tp: string
+  unidade: string
+  qtd_ops_impactadas: number
+  necessario_total: number
+  estoque_disponivel: number
+  saldo_98: number
+  compras_abertas: number
+  sc_pc: string[]
+  menor_data_entrega: string | null
+  faltante_total: number
+  status: "falta" | "quarentena"
+  ops_impactadas: MaterialCriticoOPResumo[]
+}
+
+type OPEditavel = OPResult & {
+  id?: string
+  mes_ref?: string
+  anotacao?: string
+  resumo_faltas?: string
+  tempo_horas?: number | null
+  un_h?: number | null
+  observacoes?: string | null
+  data_lavagem_emb?: string | null
+  data_lavagem_pesagem?: string | null
+  data_inicio_fabricacao?: string | null
+  data_termino?: string | null
+  fifo_posicao?: number | null
+  gargalo?: Gargalo | null
+  quantidade_programada?: number | null
+  quantidade_teorica?: number | null
+  qtd_teorica_abertura?: number | null
+  quantidade_calculo?: number | null
+  usa_lote_teorico?: boolean | null
+  lote_teorico_encontrado?: boolean | null
+  linha_lote_teorico?: string | null
+  letra_lote_teorico?: string | null
+  observacao_lote_teorico?: string | null
+}
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
+
+import { getAuthHeaders } from "../../lib/authHeaders"
+
+const API_URL_ORDENS =
+  (import.meta as unknown as { env: Record<string, string> }).env
+    .VITE_API_URL || "https://dfl-sop-api.fly.dev"
+
+const TABLE_HEADER_BG = "var(--bg-sidebar)"
+const GRID_COLOR = "#E2E8F0"
+const PRODUTO_COL_MIN = 80
+const PRODUTO_COL_MAX = 600
+const PRODUTO_COL_DEFAULT = 160
+const GARGALO_COL_MIN = 120
+const GARGALO_COL_MAX = 900
+const GARGALO_COL_DEFAULT = 300
+
+const LINHA_LABEL: Record<string, string> = {
+  ENVASE_L1: "Envase L1",
+  ENVASE_L2: "Envase L2",
+  EMBALAGEM: "Embalagem",
+}
+
+const STATUS_CONFIG: Record<StatusOP, {
+  label: string; bg: string; border: string; text: string
+  icon: React.ElementType; dot: string
+}> = {
+  aberta:     { label: "OP Aberta",  bg: "#EFF6FF", border: "#BFDBFE", text: "#1D4ED8", icon: Clock,         dot: "#3B82F6" },
+  ok:         { label: "OK",         bg: "#F0FDF4", border: "#BBF7D0", text: "#166534", icon: CheckCircle2,  dot: "#16A34A" },
+  quarentena: { label: "Quarentena", bg: "#FFFBEB", border: "#FDE68A", text: "#92400E", icon: AlertTriangle, dot: "#F59E0B" },
+  falta:      { label: "Falta Mat.", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B", icon: XCircle,       dot: "#DC2626" },
+  sem_bom:    { label: "Sem BOM",    bg: "#F5F3FF", border: "#DDD6FE", text: "#5B21B6", icon: AlertTriangle, dot: "#7C3AED" },
+}
+
+type BaseOperacionalOrdensId = "programacao_ops" | "bom_estrutura" | "lotes_teoricos" | "estoque_saldo" | "compras_abertas"
+
+const BASES_OPERACIONAIS_ORDENS: Array<{
+  id: BaseOperacionalOrdensId
+  titulo: string
+  descricao: string
+  botao: string
+  accept: string
+}> = [
+  {
+    id: "programacao_ops",
+    titulo: "Programação mensal",
+    descricao: "Atualiza as OPs exibidas e o mês de referência da análise.",
+    botao: "Subir programação",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+  {
+    id: "bom_estrutura",
+    titulo: "Estrutura/BOM",
+    descricao: "Substitui a estrutura usada para calcular os componentes necessários.",
+    botao: "Subir estrutura",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+  {
+    id: "lotes_teoricos",
+    titulo: "Lotes teóricos",
+    descricao: "Atualiza a quantidade teórica usada para abertura de PI no Protheus.",
+    botao: "Subir lotes",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+  {
+    id: "estoque_saldo",
+    titulo: "Estoque de insumos",
+    descricao: "Atualiza o saldo SB8 usado na análise de material das OPs e em outras telas.",
+    botao: "Subir estoque",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+  {
+    id: "compras_abertas",
+    titulo: "Compras em aberto",
+    descricao: "Atualiza pedidos/SCs usados como entradas futuras na viabilidade e em outras análises.",
+    botao: "Subir compras",
+    accept: ".xlsx,.xls,.xlsm",
+  },
+]
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmt(n: number | null | undefined) {
+  const v = Number(n ?? 0)
+  if (!isFinite(v)) return "—"
+  return new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v)
+}
+
+function mesLabel(mesRef: string): string {
+  if (!mesRef) return ""
+  const [ano, mes] = mesRef.split("-").map(Number)
+  return new Date(ano, mes - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+}
+
+function fmtData(iso: string | null | undefined) {
+  if (!iso) return "—"
+  const [ano, mes, dia] = iso.split("-").map(Number)
+  return new Date(ano, mes - 1, dia).toLocaleDateString("pt-BR")
+}
+
+function getComprasAbertas(comp: unknown): CompraAberta[] {
+  const compras = (comp as { compras_abertas?: CompraAberta[] })?.compras_abertas
+  return Array.isArray(compras) ? compras : []
+}
+
+function getQtdComprasPendente(comp: unknown): number {
+  return toNumber((comp as { qtd_compras_pendente?: number })?.qtd_compras_pendente)
+}
+
+function getQtdCompraTotal(c: CompraAberta): number {
+  const original = toNumber(c.quantidade_pendente_original)
+  if (original > 0) return original
+
+  const utilizada = toNumber(c.quantidade_utilizada)
+  const restante = toNumber(c.quantidade_pendente_restante)
+  if (utilizada > 0 || restante > 0) return utilizada + restante
+
+  return toNumber(c.quantidade_pendente)
+}
+
+function getQtdComprasTotal(comp: unknown): number {
+  const c = comp as {
+    qtd_compras_total_aberto?: number
+    qtd_compras_total?: number
+    compras_total_aberto?: number
+    compras_abertas_total?: number
+  }
+
+  // Backend v8/v9: total aberto no ERP para o código, sem consumir/duplicar por OP.
+  const totalAberto =
+    toNumber(c.qtd_compras_total_aberto) ||
+    toNumber(c.compras_total_aberto) ||
+    toNumber(c.compras_abertas_total) ||
+    toNumber(c.qtd_compras_total)
+
+  if (totalAberto > 0) return totalAberto
+
+  return getComprasAbertas(comp).reduce((acc, c) => acc + getQtdCompraTotal(c), 0)
+}
+
+function getQtdCompraUsada(comp: unknown): number {
+  const compras = getComprasAbertas(comp)
+  const usada = compras.reduce((acc, c) => acc + toNumber(c.quantidade_utilizada), 0)
+  if (usada > 0) return usada
+
+  return getQtdComprasPendente(comp)
+}
+
+function getMenorDataEntregaCompra(comp: unknown): string | null {
+  const direto = (comp as { menor_data_entrega_compra?: string | null })?.menor_data_entrega_compra
+  if (direto) return direto
+
+  const compras = getComprasAbertas(comp)
+  const datas = compras
+    .map(c => c.data_prevista_entrega)
+    .filter(Boolean) as string[]
+
+  return datas.length > 0 ? datas.sort()[0] : null
+}
+
+function getStatusCompra(comp: unknown): StatusCompra {
+  const raw = String((comp as { status_compra?: string })?.status_compra || "sem_compra")
+  if (["no_prazo", "nao_abre", "parcial", "atrasado", "risco", "nao_cobre", "sem_compra"].includes(raw)) return raw as StatusCompra
+  return "sem_compra"
+}
+
+function compraStatusConfig(status: StatusCompra) {
+  if (status === "no_prazo") {
+    return { label: "Sim", bg: "#F0FDF4", border: "#BBF7D0", text: "#166534" }
+  }
+
+  if (status === "nao_abre" || status === "atrasado") {
+    return { label: "Não abre", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" }
+  }
+
+  if (status === "nao_cobre") {
+    return { label: "Não cobre", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" }
+  }
+
+  if (status === "risco") {
+    return { label: "Sem data", bg: "#FFFBEB", border: "#FDE68A", text: "#92400E" }
+  }
+
+  if (status === "parcial") {
+    return { label: "Não abre", bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" }
+  }
+
+  return { label: "Sem compra", bg: "#F8FAFC", border: "#CBD5E1", text: "#64748B" }
+}
+
+function getCompraTotalOP(comp: unknown): number {
+  const direto = toNumber((comp as { compra_total?: number })?.compra_total)
+  if (direto > 0) return direto
+  return getQtdCompraUsada(comp)
+}
+
+function getDataPrevistaFinalCompra(comp: unknown): string | null {
+  const direto = (comp as { data_prevista_final?: string | null })?.data_prevista_final
+  if (direto) return direto
+  return getDataCoberturaCompra(comp) || getMenorDataEntregaCompra(comp)
+}
+
+function getQtdEntregaAteLimite(comp: unknown): number {
+  const direto = toNumber((comp as { qtd_entrega_ate_limite?: number })?.qtd_entrega_ate_limite)
+  if (direto > 0) return direto
+  return getQtdCompraAteInicio(comp)
+}
+
+function getDataEntregaParcial(comp: unknown): string | null {
+  const direto = (comp as { data_entrega_parcial?: string | null })?.data_entrega_parcial
+  return direto || null
+}
+
+function getDataLimiteCompra(comp: unknown): string | null {
+  const direto = (comp as { data_limite_compra?: string | null })?.data_limite_compra
+  return direto || null
+}
+
+function getAbreOP(comp: unknown): boolean {
+  const direto = (comp as { abre_op?: boolean })?.abre_op
+  if (typeof direto === "boolean") return direto
+  return Boolean((comp as { abre_no_prazo?: boolean })?.abre_no_prazo)
+}
+
+function getCobreOPLabel(comp: unknown): string {
+  if (getStatusCompra(comp) === "sem_compra") return "—"
+  return getAbreOP(comp) ? "Sim" : "Não"
+}
+
+function getPrimeiraEntregaCompra(comp: unknown): string | null {
+  const compras = getComprasAbertas(comp)
+  const datas = compras
+    .map(c => c.data_prevista_entrega)
+    .filter(Boolean) as string[]
+
+  return datas.length > 0 ? datas.sort()[0] : null
+}
+
+function getCompraKey(op: OPEditavel, comp: unknown, index: number) {
+  const c = comp as { codigo_comp?: string }
+  const opKey = op.id || `${op.lote}-${op.codigo}`
+  return `${opKey}|${c.codigo_comp || index}`
+}
+
+function parseInputNumber(value: string) {
+  const texto = String(value ?? "").trim()
+  if (texto === "") return 0
+
+  const n = Number(texto.replace(",", "."))
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
+function parseInputDate(value: string) {
+  const v = String(value || "").trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ""
+}
+
+function isDataAteLimite(dataEntrega: string | null | undefined, dataLimite: string | null | undefined) {
+  if (!dataEntrega || !dataLimite) return false
+  return String(dataEntrega).slice(0, 10) <= String(dataLimite).slice(0, 10)
+}
+
+function calcularDataLimiteCompra(dataInicioFabricacao: string | null | undefined, leadtimeDias: number) {
+  if (!dataInicioFabricacao) return null
+
+  const raw = String(dataInicioFabricacao).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
+
+  const [ano, mes, dia] = raw.split("-").map(Number)
+  const dt = new Date(ano, mes - 1, dia)
+  dt.setDate(dt.getDate() - Math.max(0, leadtimeDias || 0))
+
+  const y = dt.getFullYear()
+  const m = String(dt.getMonth() + 1).padStart(2, "0")
+  const d = String(dt.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+function getPedidoLabel(c: CompraAberta | null | undefined) {
+  if (!c) return "—"
+  if (c.pedido_numero && c.sc_numero) return `${c.pedido_numero} / SC ${c.sc_numero}`
+  return c.pedido_numero || c.sc_numero || "—"
+}
+
+function getCompraPedidoKey(op: OPEditavel, comp: unknown, compra: CompraAberta | null | undefined, compIndex: number, compraIndex: number) {
+  const c = comp as { codigo_comp?: string }
+  const opKey = op.id || `${op.lote}-${op.codigo}`
+  const pedido = compra?.pedido_numero || compra?.sc_numero || `sem-pedido-${compraIndex}`
+  return `${opKey}|${c.codigo_comp || compIndex}|${pedido}`
+}
+
+function getQtdCompraAteInicio(comp: unknown): number {
+  return toNumber((comp as { qtd_compra_ate_inicio?: number })?.qtd_compra_ate_inicio)
+}
+
+function getQtdCompraAposInicio(comp: unknown): number {
+  return toNumber((comp as { qtd_compra_apos_inicio?: number })?.qtd_compra_apos_inicio)
+}
+
+function getFaltanteNaDataOP(comp: unknown): number {
+  return toNumber((comp as { faltante_na_data_op?: number })?.faltante_na_data_op)
+}
+
+function getDataCoberturaCompra(comp: unknown): string | null {
+  const direto = (comp as { data_cobertura_compra?: string | null })?.data_cobertura_compra
+  return direto || null
+}
+
+function tooltipStatusCompra(
+  comp: unknown,
+  dataLimiteFallback?: string | null,
+  leadtimeDias?: number
+) {
+  const status = getStatusCompra(comp)
+  const dataLimite =
+    getDataLimiteCompra(comp) ||
+    dataLimiteFallback ||
+    null
+
+  const entregaAteLimite = getQtdEntregaAteLimite(comp)
+  const dataParcial = getDataEntregaParcial(comp)
+  const dataFinal = getDataPrevistaFinalCompra(comp)
+  const compraTotal = getCompraTotalOP(comp)
+
+  if (status === "sem_compra") {
+    return "Não existe compra usada para cobrir esta necessidade."
+  }
+
+  return [
+    `Status: ${compraStatusConfig(status).label}`,
+    `Abre OP? ${getCobreOPLabel(comp)}`,
+    `Qtd. usada na OP pelas compras: ${fmt(compraTotal)}`,
+    `Data limite da entrega: ${fmtData(dataLimite)}`,
+    `Qtd. oficial até prazo: ${fmt(entregaAteLimite)}`,
+    `Primeiro pedido usado: ${fmtData(dataParcial)}`,
+    `Data de cobertura/final: ${fmtData(dataFinal)}`,
+    leadtimeDias != null
+      ? `Lead time considerado: ${leadtimeDias} dia${leadtimeDias !== 1 ? "s" : ""}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
+}
+
+function resumoPedidos(compras: CompraAberta[]) {
+  const ids = compras
+    .map(c => c.pedido_numero || c.sc_numero)
+    .filter(Boolean) as string[]
+
+  if (ids.length === 0) return "—"
+  if (ids.length === 1) return ids[0]
+  return `${ids[0]} +${ids.length - 1}`
+}
+
+function tooltipCompras(compras: CompraAberta[]) {
+  if (!compras.length) return ""
+
+  return compras.map(c => {
+    const pedido = c.pedido_numero || "—"
+    const sc = c.sc_numero || "—"
+    const qtdTotal = fmt(getQtdCompraTotal(c))
+    const qtdUsada = fmt(c.quantidade_utilizada ?? c.quantidade_pendente)
+    const restante = fmt(c.quantidade_pendente_restante)
+    const entrega = fmtData(c.data_prevista_entrega)
+    const fornecedor = c.razao_social_fornecedor || "—"
+    const comprador = c.comprador_nome || "—"
+
+    return `Pedido: ${pedido} | SC: ${sc}
+Qtd. total da compra: ${qtdTotal}
+Qtd. usada nesta OP: ${qtdUsada}
+Restante após esta OP: ${restante}
+Entrega prevista: ${entrega}
+Fornecedor: ${fornecedor}
+Comprador: ${comprador}`
+  }).join("\n\n")
+}
+
+function tipoProduto(linha: string) {
+  return linha === "EMBALAGEM" ? "PA" : "PI"
+}
+
+function getQtdTeoricaOP(op: OPEditavel | OPResult): number {
+  const opAny = op as OPEditavel
+  const qtdTeorica = toNumber(
+    opAny.quantidade_teorica
+      ?? opAny.qtd_teorica_abertura
+      ?? opAny.quantidade_calculo
+      ?? opAny.quantidade
+  )
+
+  return qtdTeorica > 0 ? qtdTeorica : toNumber(opAny.quantidade)
+}
+
+function usaLoteTeoricoOP(op: OPEditavel | OPResult): boolean {
+  const opAny = op as OPEditavel
+  return Boolean(opAny.usa_lote_teorico || opAny.lote_teorico_encontrado)
+}
+
+function normalizarTexto(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+}
+
+function isTubete(item: Partial<Gargalo> | Record<string, unknown> | null | undefined) {
+  if (!item) return false
+  const codigo = normalizarTexto((item as Record<string, unknown>).codigo_comp)
+  const descricao = normalizarTexto((item as Record<string, unknown>).descricao)
+  const tp = normalizarTexto((item as Record<string, unknown>).tp)
+  return codigo.includes("tubet") || descricao.includes("tubet") || tp.includes("tubet")
+}
+
+function isTipoNaoGargalante(tp: unknown) {
+  const tipo = normalizarTexto(tp).toUpperCase()
+  // MC passou a travar OP. PI continua fora da criticidade visual.
+  return tipo === "PI"
+}
+
+function isComponenteGargalante(item: Partial<Gargalo> | Record<string, unknown> | null | undefined) {
+  if (!item) return false
+  const comp = item as Record<string, unknown>
+  return !isTubete(comp) && !isTipoNaoGargalante(comp.tp)
+}
+
+function statusComponenteVisual(comp: Record<string, unknown>): StatusOP {
+  if (!isComponenteGargalante(comp)) return "ok"
+
+  const status = String(comp.status || "ok") as StatusOP
+  const saldo98 = toNumber(comp.saldo_98 ?? comp.saldo_disponivel_98 ?? comp.saldo_chegou_98)
+  const faltanteFisico = toNumber(comp.faltante)
+
+  // Quarentena/CQ precisa continuar aparecendo na tabela inferior.
+  // Mesmo quando não há falta depois de compras, ainda existe dependência de liberação do arm. 98.
+  // Por isso a quarentena tem prioridade sobre a regra de "compra no prazo".
+  if (status === "quarentena" || (saldo98 > 0 && faltanteFisico > 0 && status !== "ok")) {
+    return "quarentena"
+  }
+
+  // Backend v8/v9: quando a compra cobre no prazo, não deve aparecer como material travando.
+  // Mantém compatibilidade mesmo se o front receber status antigo = falta.
+  const statusOperacional = String(comp.status_operacional || "")
+  const statusCompra = String(comp.status_compra || "")
+  // Usa a mesma fonte de verdade das colunas "Abre OP?"/"Status compra" (prioriza abre_op,
+  // só cai pro campo legado abre_no_prazo se abre_op não existir). Ler abre_no_prazo direto
+  // aqui fazia essa badge divergir das outras quando o backend manda os dois campos e eles
+  // não estão sincronizados (ex.: abre_op=false mais atualizado, abre_no_prazo=true legado).
+  const abreNoPrazo = getAbreOP(comp)
+  const temFaltanteAposCompras =
+    Object.prototype.hasOwnProperty.call(comp, "faltante_apos_compras") ||
+    Object.prototype.hasOwnProperty.call(comp, "faltante_pos_compra") ||
+    Object.prototype.hasOwnProperty.call(comp, "faltante_na_data_op")
+  const faltanteAposCompras = toNumber(comp.faltante_apos_compras ?? comp.faltante_pos_compra ?? comp.faltante_na_data_op)
+
+  // status_compra pode dizer explicitamente que a compra não resolve no prazo (nao_abre,
+  // atrasado, parcial, nao_cobre). Nesse caso, "faltante_apos_compras <= 0" (que só olha
+  // quantidade total comprada, sem considerar a data de entrega) não pode sobrescrever esse
+  // sinal — senão um material que só chega depois do prazo aparece como "ok" só porque a
+  // quantidade compra cobre o necessário.
+  const naoAbreExplicito =
+    !abreNoPrazo && ["nao_abre", "atrasado", "parcial", "nao_cobre"].includes(statusCompra)
+
+  if (naoAbreExplicito) return "falta"
+
+  if (
+    statusOperacional === "compra_no_prazo" ||
+    statusCompra === "no_prazo" ||
+    abreNoPrazo ||
+    (temFaltanteAposCompras && faltanteAposCompras <= 0)
+  ) {
+    return "ok"
+  }
+
+  return STATUS_CONFIG[status] ? status : "ok"
+}
+
+function toNumber(value: unknown) {
+  const n = Number(value ?? 0)
+  return isFinite(n) ? n : 0
+}
+
+function alertaToGargalo(comp: Record<string, unknown>): Gargalo {
+  const necessario = toNumber(comp.necessario)
+  const saldoChegou = toNumber(comp.saldo_chegou ?? comp.saldo_20 ?? comp.saldo_01 ?? comp.saldo_atual)
+  const saldo98 = toNumber(comp.saldo_chegou_98 ?? comp.saldo_98 ?? comp.saldo_disponivel_98)
+  const faltante = toNumber(comp.faltante ?? Math.max(0, necessario - saldoChegou))
+  const statusVisual = statusComponenteVisual(comp)
+
+  return {
+    codigo_comp: String(comp.codigo_comp ?? ""),
+    descricao: String(comp.descricao ?? comp.codigo_comp ?? ""),
+    tp: String(comp.tp ?? ""),
+    unidade: String(comp.unidade ?? ""),
+    necessario,
+    saldo_chegou: saldoChegou,
+    saldo_chegou_98: saldo98,
+    faltante,
+    status: statusVisual === "quarentena" ? "quarentena" : "falta",
+  }
+}
+
+function getStatusOperacionalOP(op: OPEditavel): StatusOP {
+  if (op.status === "aberta" || op.status === "sem_bom") return op.status
+
+  const detalhes = Array.isArray(op.detalhes) ? op.detalhes : []
+  const alertas = Array.isArray(op.alertas) ? op.alertas : []
+
+  // O backend pode mandar a OP como "falta" por compatibilidade, mas o detalhe do
+  // componente mostrar que o material existe no armazém 98. Nessa tela, o que manda
+  // para a classificação visual da OP é o status operacional dos componentes.
+  const componentes = [...detalhes, ...alertas]
+    .filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
+
+  let temFaltaReal = false
+  let temQuarentena = false
+
+  for (const comp of componentes) {
+    const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+
+    if (status === "falta") temFaltaReal = true
+    if (status === "quarentena") temQuarentena = true
+  }
+
+  if (temFaltaReal) return "falta"
+  if (temQuarentena) return "quarentena"
+
+  if (op.status === "falta" || op.status === "quarentena") return "ok"
+  return op.status || "ok"
+}
+
+function sanitizarOP(op: OPEditavel): OPEditavel {
+  const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
+
+  // Mantém componentes visíveis nos detalhes.
+  // MC agora pode gerar gargalo/status de falta; PI continua fora da criticidade visual.
+  const alertasVisiveis = alertasOriginais.filter(comp => !isTubete(comp as unknown as Record<string, unknown>))
+  const alertasGargalantes = alertasVisiveis.filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
+  const alertasCriticos = alertasGargalantes.filter(comp => {
+    const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+    return status === "falta" || status === "quarentena"
+  })
+
+  const status = getStatusOperacionalOP({ ...op, alertas: alertasVisiveis } as OPEditavel)
+
+  let gargalo: Gargalo | null = null
+  if (status === "falta" || status === "quarentena") {
+    const prioridade = status === "falta" ? "falta" : "quarentena"
+    const alertaPrincipal =
+      alertasCriticos.find(comp => statusComponenteVisual(comp as unknown as Record<string, unknown>) === prioridade) ||
+      alertasCriticos[0]
+
+    gargalo = alertaPrincipal
+      ? alertaToGargalo(alertaPrincipal as unknown as Record<string, unknown>)
+      : op.gargalo && isComponenteGargalante(op.gargalo)
+        ? { ...op.gargalo, status: prioridade }
+        : null
+  }
+
+  return { ...op, status, alertas: alertasVisiveis, gargalo }
+}
+
+
+function getGargalosOP(op: OPEditavel): Gargalo[] {
+  const gargalos: Gargalo[] = []
+
+  if (op.gargalo && isComponenteGargalante(op.gargalo)) {
+    gargalos.push(op.gargalo)
+  }
+
+  const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
+  const alertasCriticosMP = alertasOriginais
+    .filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
+    .filter(comp => {
+      const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+      return status === "falta" || status === "quarentena"
+    })
+
+  for (const comp of alertasCriticosMP) {
+    gargalos.push(alertaToGargalo(comp as unknown as Record<string, unknown>))
+  }
+
+  const vistos = new Set<string>()
+  return gargalos.filter(g => {
+    const key = `${g.codigo_comp || ""}|${normalizarTexto(g.descricao)}|${g.status}`
+    if (vistos.has(key)) return false
+    vistos.add(key)
+    return true
+  })
+}
+
+function getEstoqueDisponivelResumo(comp: Record<string, unknown>): number {
+  const tp = normalizarTexto(comp.tp).toUpperCase()
+
+  if (tp === "MC") {
+    return toNumber(comp.saldo_20 ?? comp.saldo_disponivel ?? comp.saldo_chegou)
+  }
+
+  if (tp === "PI") {
+    return toNumber(comp.saldo_02 ?? comp.saldo_disponivel ?? comp.saldo_chegou)
+  }
+
+  return toNumber(comp.saldo_01 ?? comp.saldo_disponivel ?? comp.saldo_chegou ?? comp.saldo_atual)
+}
+
+function formatarIdsResumo(ids: string[]): string {
+  const unicos = Array.from(new Set(ids.map(id => String(id || "").trim()).filter(Boolean)))
+
+  if (unicos.length === 0) return "—"
+  if (unicos.length <= 2) return unicos.join(", ")
+
+  return `${unicos.slice(0, 2).join(", ")} +${unicos.length - 2}`
+}
+
+function montarResumoMateriaisCriticos(opsBase: OPEditavel[]): MaterialCriticoResumo[] {
+  type LinhaResumoInterna = MaterialCriticoResumo & {
+    opsSet: Set<string>
+    idsSet: Set<string>
+  }
+
+  const mapa = new Map<string, LinhaResumoInterna>()
+
+  for (const op of opsBase) {
+    const alertas = Array.isArray(op.alertas) ? op.alertas : []
+    const opKey = String(op.id || `${op.lote || ""}-${op.codigo || ""}-${op.fifo_posicao || ""}`)
+
+    for (const item of alertas) {
+      const comp = item as unknown as Record<string, unknown>
+
+      if (!isComponenteGargalante(comp)) continue
+
+      const statusVisual = statusComponenteVisual(comp)
+
+      if (statusVisual !== "falta" && statusVisual !== "quarentena") continue
+
+      const codigo = String(comp.codigo_comp || "").trim()
+      if (!codigo) continue
+
+      const descricao = String(comp.descricao || comp.descricao_comp || codigo)
+      const tp = String(comp.tp || "").trim().toUpperCase()
+      const unidade = String(comp.unidade || "").trim()
+      const chave = codigo
+      const faltanteItem = getFaltanteParaSimulacao(comp) || toNumber(comp.faltante)
+      const estoqueDisponivelItem = getEstoqueDisponivelResumo(comp)
+      const saldo98Item = toNumber(comp.saldo_98 ?? comp.saldo_disponivel_98 ?? comp.saldo_chegou_98)
+      const qtdCompraUsada = getQtdCompraUsada(comp)
+      const qtdCompraTotalAberto = getQtdComprasTotal(comp)
+      const qtdCompraTotal = qtdCompraTotalAberto > 0 ? qtdCompraTotalAberto : qtdCompraUsada
+      const menorData = getMenorDataEntregaCompra(comp)
+
+      if (!mapa.has(chave)) {
+        mapa.set(chave, {
+          codigo_comp: codigo,
+          descricao,
+          tp,
+          unidade,
+          qtd_ops_impactadas: 0,
+          necessario_total: 0,
+          estoque_disponivel: 0,
+          saldo_98: 0,
+          compras_abertas: 0,
+          sc_pc: [],
+          menor_data_entrega: null,
+          faltante_total: 0,
+          status: statusVisual,
+          ops_impactadas: [],
+          opsSet: new Set<string>(),
+          idsSet: new Set<string>(),
+        })
+      }
+
+      const linha = mapa.get(chave)!
+      linha.opsSet.add(opKey)
+      linha.qtd_ops_impactadas = linha.opsSet.size
+      linha.necessario_total += toNumber(comp.necessario)
+      linha.faltante_total += faltanteItem
+      linha.estoque_disponivel = Math.max(linha.estoque_disponivel, estoqueDisponivelItem)
+      linha.saldo_98 = Math.max(linha.saldo_98, saldo98Item)
+      // Total aberto do ERP não deve somar por OP, senão duplica.
+      // Se vier só compra usada/alocada, mantém soma como fallback.
+      if (qtdCompraTotalAberto > 0) {
+        linha.compras_abertas = Math.max(linha.compras_abertas, qtdCompraTotalAberto)
+      } else {
+        linha.compras_abertas += qtdCompraTotal
+      }
+
+      if (menorData && (!linha.menor_data_entrega || menorData < linha.menor_data_entrega)) {
+        linha.menor_data_entrega = menorData
+      }
+
+      for (const compra of getComprasAbertas(comp)) {
+        const id = compra.pedido_numero || compra.sc_numero
+        if (id) linha.idsSet.add(String(id))
+      }
+
+      linha.ops_impactadas.push({
+        op_id: opKey,
+        fifo_posicao: op.fifo_posicao ?? null,
+        tipo_fifo: (op as any).tipo_fifo ?? tipoProduto(op.linha),
+        lote: op.lote,
+        produto: op.produto || op.codigo,
+        codigo_produto: op.codigo,
+        linha: op.linha,
+        status_op: op.status,
+        data_lavagem_emb: op.data_lavagem_emb,
+        data_inicio_fabricacao: op.data_inicio_fabricacao,
+        data_fim: op.data_fim,
+        necessario: Number(toNumber(comp.necessario).toFixed(4)),
+        estoque_disponivel: Number(estoqueDisponivelItem.toFixed(4)),
+        saldo_98: Number(saldo98Item.toFixed(4)),
+        compras_abertas: Number(qtdCompraTotal.toFixed(4)),
+        menor_data_entrega: menorData,
+        faltante: Number(faltanteItem.toFixed(4)),
+        status_material: statusVisual,
+      })
+
+      if (statusVisual === "falta") {
+        linha.status = "falta"
+      }
+    }
+  }
+
+  return Array.from(mapa.values())
+    .map(({ opsSet, idsSet, ...linha }) => ({
+      ...linha,
+      qtd_ops_impactadas: opsSet.size,
+      sc_pc: Array.from(idsSet),
+      ops_impactadas: linha.ops_impactadas.sort((a, b) => {
+        const tipoA = a.tipo_fifo === "PA" ? 0 : 1
+        const tipoB = b.tipo_fifo === "PA" ? 0 : 1
+        if (tipoA !== tipoB) return tipoA - tipoB
+
+        const fifoA = Number(a.fifo_posicao ?? 999999)
+        const fifoB = Number(b.fifo_posicao ?? 999999)
+        if (fifoA !== fifoB) return fifoA - fifoB
+
+        return String(a.lote || "").localeCompare(String(b.lote || ""))
+      }),
+      necessario_total: Number(linha.necessario_total.toFixed(4)),
+      estoque_disponivel: Number(linha.estoque_disponivel.toFixed(4)),
+      saldo_98: Number(linha.saldo_98.toFixed(4)),
+      compras_abertas: Number(linha.compras_abertas.toFixed(4)),
+      faltante_total: Number(linha.faltante_total.toFixed(4)),
+    }))
+    .sort((a, b) => {
+      const statusA = a.status === "falta" ? 0 : 1
+      const statusB = b.status === "falta" ? 0 : 1
+      if (statusA !== statusB) return statusA - statusB
+
+      if (b.qtd_ops_impactadas !== a.qtd_ops_impactadas) {
+        return b.qtd_ops_impactadas - a.qtd_ops_impactadas
+      }
+
+      return b.faltante_total - a.faltante_total
+    })
+}
+
+function getEstoqueAtualizadoEm(dados: ResumoViabilidade | null): string | null {
+  if (!dados) return null
+
+  const d = dados as unknown as Record<string, unknown>
+
+  const direto = [
+    d.estoque_atualizado_em,
+    d.ultima_atualizacao_estoque,
+    d.ultima_atualizacao_sb8,
+    d.updated_at_estoque,
+    d.processado_em_estoque,
+  ].find(Boolean)
+
+  if (direto) return String(direto)
+
+  const dataRef = d.data_ref_estoque || d.data_estoque || d.estoque_data_ref
+  if (dataRef) return String(dataRef)
+
+  return null
+}
+
+function getProgramacaoAtualizadaEm(dados: ResumoViabilidade | null): string | null {
+  if (!dados) return null
+
+  const d = dados as unknown as Record<string, unknown>
+
+  const direto = [
+    d.programacao_atualizada_em,
+    d.ultima_atualizacao_programacao,
+    d.data_programacao,
+    d.programacao_ops_atualizada_em,
+    d.updated_at_programacao,
+    d.processado_em_programacao,
+  ].find(Boolean)
+
+  if (direto) return String(direto)
+
+  return null
+}
+
+function fmtDataHora(value: string | null | undefined) {
+  if (!value) return null
+
+  const raw = String(value).trim()
+
+  // Quando vier algo já formatado no padrão brasileiro, troca a vírgula por "às".
+  // Ex.: "03/06/2026, 12:58" -> "03/06/2026 às 12:58"
+  const dataHoraBr = raw.match(/^(\d{2}\/\d{2}\/\d{4})(?:,|\s+às\s+|\s+as\s+|\s+)(\d{2}:\d{2})(?::\d{2})?/)
+  if (dataHoraBr) {
+    return `${dataHoraBr[1]} às ${dataHoraBr[2]}`
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return fmtData(raw)
+  }
+
+  const dt = new Date(raw)
+
+  if (!Number.isNaN(dt.getTime())) {
+    const hasTime = /T|\d{2}:\d{2}/.test(raw)
+    const dataFormatada = dt.toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    })
+
+    if (!hasTime) {
+      return dataFormatada
+    }
+
+    const horaFormatada = dt.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+
+    return `${dataFormatada} às ${horaFormatada}`
+  }
+
+  return raw.replace(/\s*,\s*(\d{1,2}:\d{2})(?::\d{2})?/, " às $1")
+}
+
+function ordenarESequenciarOps(lista: OPEditavel[]) {
+  const ordenadas = [...lista]
+    .map((op, originalIndex) => ({ op, originalIndex }))
+    .sort((a, b) => {
+      // Sequência visual combinada: primeiro PA, depois PI.
+      // Dentro de cada grupo, o FIFO deve seguir a data de início de fabricação,
+      // usando a posição original do backend apenas como desempate.
+      const tipoA = tipoProduto(a.op.linha) === "PA" ? 0 : 1
+      const tipoB = tipoProduto(b.op.linha) === "PA" ? 0 : 1
+      if (tipoA !== tipoB) return tipoA - tipoB
+
+      const dataA = a.op.data_inicio_fabricacao || a.op.data_fim || "9999-12-31"
+      const dataB = b.op.data_inicio_fabricacao || b.op.data_fim || "9999-12-31"
+      if (dataA !== dataB) return dataA.localeCompare(dataB)
+
+      const fifoA = a.op.fifo_posicao ?? Number.MAX_SAFE_INTEGER
+      const fifoB = b.op.fifo_posicao ?? Number.MAX_SAFE_INTEGER
+      if (fifoA !== fifoB) return fifoA - fifoB
+
+      return a.originalIndex - b.originalIndex
+    })
+    .map(({ op }) => op)
+
+  let seqPA = 0
+  let seqPI = 0
+  return ordenadas.map(op => {
+    const tipo = tipoProduto(op.linha)
+    const fifo_posicao = tipo === "PA" ? ++seqPA : ++seqPI
+    return { ...op, fifo_posicao }
+  })
+}
+
+function getFaltanteParaSimulacao(comp: unknown): number {
+  return (
+    getFaltanteNaDataOP(comp) ||
+    toNumber((comp as { faltante_pos_compra?: number })?.faltante_pos_compra) ||
+    toNumber((comp as { faltante?: number })?.faltante) ||
+    0
+  )
+}
+
+function getSaldoChegouNaOP(comp: unknown): number {
+  const c = comp as Record<string, unknown>
+  const saldoChegou = toNumber(c.saldo_chegou)
+  if (saldoChegou !== 0) return saldoChegou
+
+  const saldo20 = toNumber(c.saldo_20)
+  if (saldo20 !== 0) return saldo20
+
+  const saldoAtualFIFO = toNumber(c.saldo_atual_fifo)
+  if (saldoAtualFIFO !== 0) return saldoAtualFIFO
+
+  const saldoAntesOP = toNumber(c.saldo_antes_op)
+  if (saldoAntesOP !== 0) return saldoAntesOP
+
+  return toNumber(c.saldo_01 ?? c.saldo_atual)
+}
+
+function getSaldoRestanteNaOP(comp: unknown): number {
+  const c = comp as Record<string, unknown>
+  const direto = c.saldo_restante ?? c.saldo_apos_op ?? c.saldo_pos_op
+  if (direto !== undefined && direto !== null) return toNumber(direto)
+
+  const necessario = toNumber(c.necessario)
+  return getSaldoChegouNaOP(comp) - necessario
+}
+
+function isComponenteCobertoPorNegociacao(
+  op: OPEditavel,
+  comp: unknown,
+  compIndex: number,
+  ajustesCompra: Record<string, number>,
+  ajustesCompraData: Record<string, string>,
+  leadtimeCompraDias: number
+) {
+  const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
+  const faltanteNaDataOP = getFaltanteParaSimulacao(comp)
+
+  if (faltanteNaDataOP <= 0) return false
+
+  const comprasComp = getComprasAbertas(comp)
+  const linhasCompra = comprasComp.length > 0 ? comprasComp : [null]
+
+  const qtdNegociadaValidaTotal = linhasCompra.reduce((acc, compra, compraIndex) => {
+    const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
+    const qtd = ajustesCompra[key] ?? 0
+    const dataNegociada = ajustesCompraData[key]
+    return acc + (qtd > 0 && isDataAteLimite(dataNegociada, dataLimite) ? qtd : 0)
+  }, 0)
+
+  return qtdNegociadaValidaTotal + 0.0001 >= faltanteNaDataOP
+}
+
+function aplicarSimulacaoComprasNaOP(
+  op: OPEditavel,
+  ajustesCompra: Record<string, number>,
+  ajustesCompraData: Record<string, string>,
+  leadtimeCompraDias: number
+): OPEditavel {
+  const detalhesOriginais = Array.isArray(op.detalhes) ? op.detalhes : []
+  const codigosCobertos = new Set<string>()
+
+  const detalhes = detalhesOriginais.map((comp, index) => {
+    const compRecord = comp as unknown as Record<string, unknown>
+    const codigoComp = String(compRecord.codigo_comp || "")
+
+    if (isComponenteCobertoPorNegociacao(op, comp, index, ajustesCompra, ajustesCompraData, leadtimeCompraDias)) {
+      codigosCobertos.add(codigoComp)
+      return {
+        ...comp,
+        status: "ok" as const,
+        faltante: 0,
+        faltante_na_data_op: 0,
+        faltante_pos_compra: 0,
+        abre_op: true,
+        abre_no_prazo: true,
+        status_compra: "no_prazo" as const,
+      }
+    }
+
+    return comp
+  })
+
+  if (codigosCobertos.size === 0) {
+    const status = getStatusOperacionalOP({ ...op, detalhes } as OPEditavel)
+    return {
+      ...op,
+      detalhes,
+      status,
+      gargalo: status === "falta" || status === "quarentena" ? op.gargalo : null,
+    }
+  }
+
+  const alertasOriginais = Array.isArray(op.alertas) ? op.alertas : []
+  const alertas = alertasOriginais.filter((comp) => {
+    const codigo = String((comp as unknown as Record<string, unknown>).codigo_comp || "")
+    return !codigosCobertos.has(codigo)
+  })
+
+  const opAtualizada = { ...op, alertas, detalhes } as OPEditavel
+  const status = getStatusOperacionalOP(opAtualizada)
+
+  const alertasCriticos = alertas
+    .filter(comp => isComponenteGargalante(comp as unknown as Record<string, unknown>))
+    .filter(comp => {
+      const statusComp = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+      return statusComp === "falta" || statusComp === "quarentena"
+    })
+
+  let gargalo: Gargalo | null = null
+
+  if (status === "falta" || status === "quarentena") {
+    const prioridade = status === "falta" ? "falta" : "quarentena"
+    const alertaPrincipal =
+      alertasCriticos.find(a => statusComponenteVisual(a as unknown as Record<string, unknown>) === prioridade) ||
+      alertasCriticos[0]
+
+    gargalo = alertaPrincipal
+      ? alertaToGargalo(alertaPrincipal as unknown as Record<string, unknown>)
+      : op.gargalo && isComponenteGargalante(op.gargalo)
+        ? { ...op.gargalo, status: prioridade }
+        : null
+  }
+
+  return {
+    ...op,
+    status,
+    alertas,
+    detalhes,
+    gargalo,
+  }
+}
+
+const ORDENS_VIABILIDADE_CACHE_PREFIX = "pcp_ordens_viabilidade_cache_v82_auto"
+const ORDENS_VIABILIDADE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const ORDENS_CACHE_VERSAO_PREFIX = "pcp_ordens_cache_versao_v82"
+const ORDENS_AUTO_REFRESH_MS = 15000
+
+type CacheOrdensViabilidade = {
+  savedAt: number
+  mesRef: string
+  leadtimeCompraDias: number
+  payload: ResumoViabilidade
+}
+
+function _leadtimeNormalizado(leadtimeCompraDias: number) {
+  return Math.max(
+    0,
+    Number.isFinite(Number(leadtimeCompraDias)) ? Number(leadtimeCompraDias) : 0
+  )
+}
+
+function _cacheKeyOrdensViabilidade(mesRef: string, leadtimeCompraDias: number) {
+  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+  return `${ORDENS_VIABILIDADE_CACHE_PREFIX}:${mesRef}:leadtime-${leadtime}`
+}
+
+function _cacheVersaoKeyOrdens(mesRef: string, leadtimeCompraDias: number) {
+  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+  return `${ORDENS_CACHE_VERSAO_PREFIX}:${mesRef}:leadtime-${leadtime}`
+}
+
+function lerVersaoCacheOrdens(mesRef: string, leadtimeCompraDias: number): string | null {
+  try {
+    if (typeof window === "undefined") return null
+    return window.localStorage.getItem(_cacheVersaoKeyOrdens(mesRef, leadtimeCompraDias))
+  } catch {
+    return null
+  }
+}
+
+function salvarVersaoCacheOrdens(mesRef: string, leadtimeCompraDias: number, versao: string | null | undefined) {
+  try {
+    if (typeof window === "undefined" || !versao) return
+    window.localStorage.setItem(_cacheVersaoKeyOrdens(mesRef, leadtimeCompraDias), versao)
+  } catch {
+    // Não bloqueia a tela se o storage estiver indisponível.
+  }
+}
+
+function limparCacheOrdensLocal() {
+  try {
+    if (typeof window === "undefined") return
+
+    const keysToRemove: string[] = []
+
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i)
+      if (!key) continue
+
+      if (
+        key.startsWith(ORDENS_VIABILIDADE_CACHE_PREFIX) ||
+        key.startsWith(ORDENS_CACHE_VERSAO_PREFIX) ||
+        key.includes("/ops/viabilidade") ||
+        key.includes("/ops/resumo") ||
+        key.includes("dfl-api-cache")
+      ) {
+        keysToRemove.push(key)
+      }
+    }
+
+    keysToRemove.forEach((key) => window.localStorage.removeItem(key))
+  } catch {
+    // Não bloqueia a tela se o navegador impedir acesso ao storage.
+  }
+}
+
+function lerCacheOrdensViabilidade(
+  mesRef: string,
+  leadtimeCompraDias: number
+): ResumoViabilidade | null {
+  try {
+    if (typeof window === "undefined") return null
+
+    const key = _cacheKeyOrdensViabilidade(mesRef, leadtimeCompraDias)
+    const raw = window.localStorage.getItem(key)
+
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as CacheOrdensViabilidade
+    const savedAt = Number(parsed.savedAt || 0)
+    const expirado = !savedAt || (Date.now() - savedAt) > ORDENS_VIABILIDADE_CACHE_TTL_MS
+
+    if (expirado || !parsed.payload) {
+      window.localStorage.removeItem(key)
+      return null
+    }
+
+    return parsed.payload
+  } catch {
+    return null
+  }
+}
+
+function salvarCacheOrdensViabilidade(
+  mesRef: string,
+  leadtimeCompraDias: number,
+  payload: ResumoViabilidade
+) {
+  try {
+    if (typeof window === "undefined") return
+
+    const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+    const key = _cacheKeyOrdensViabilidade(mesRef, leadtime)
+    const value: CacheOrdensViabilidade = {
+      savedAt: Date.now(),
+      mesRef,
+      leadtimeCompraDias: leadtime,
+      payload,
+    }
+
+    window.localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Se o storage estiver cheio/bloqueado, a tela continua funcionando sem cache.
+  }
+}
+
+type OpsCacheVersaoBackend = {
+  cache_disponivel?: boolean
+  versao_base?: string | null
+  atualizado_em?: string | null
+  ultima_atualizacao?: string | null
+  chave?: string | null
+}
+
+async function getOpsCacheVersaoBackend(
+  mesRef: string,
+  leadtimeCompraDias: number
+): Promise<string | null> {
+  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+  const query = new URLSearchParams()
+  query.set("mes_ref", mesRef)
+  query.set("leadtime_compra_dias", String(leadtime))
+  query.set("_ts", String(Date.now()))
+
+  const authHeaders = await getAuthHeaders()
+  const res = await fetch(`${API_URL_ORDENS}/ops/cache/versao?${query.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      ...authHeaders,
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  })
+
+  const payload = await res.json().catch(() => ({} as OpsCacheVersaoBackend))
+
+  if (!res.ok) {
+    return null
+  }
+
+  const versao = payload as OpsCacheVersaoBackend
+
+  if (versao.cache_disponivel === false) {
+    return null
+  }
+
+  return (
+    versao.versao_base ||
+    versao.atualizado_em ||
+    versao.ultima_atualizacao ||
+    versao.chave ||
+    null
+  )
+}
+
+async function getOpsViabilidadeComLeadtime(
+  mesRef: string,
+  leadtimeCompraDias: number,
+  forceRefresh = false
+): Promise<ResumoViabilidade> {
+  const leadtime = _leadtimeNormalizado(leadtimeCompraDias)
+
+  if (!forceRefresh) {
+    const cached = lerCacheOrdensViabilidade(mesRef, leadtime)
+
+    if (cached) {
+      return cached
+    }
+  } else {
+    limparCacheOrdensLocal()
+  }
+
+  const query = new URLSearchParams()
+  query.set("mes_ref", mesRef)
+  query.set("leadtime_compra_dias", String(leadtime))
+  query.set("_ts", String(Date.now()))
+
+  // Carregamento otimizado e seguro:
+  // - na abertura normal, tenta primeiro o snapshot pronto do backend (/ops/cache);
+  // - se não existir ou falhar, cai no cálculo original (/ops/viabilidade);
+  // - em forceRefresh, mantém o comportamento original para não quebrar upload/atualizar.
+  if (!forceRefresh) {
+    try {
+      const authHeadersCache = await getAuthHeaders()
+      const resCache = await fetch(`${API_URL_ORDENS}/ops/cache?${query.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          ...authHeadersCache,
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      })
+
+      const payloadCache = await resCache.json().catch(() => ({ detail: resCache.statusText }))
+
+      if (resCache.ok) {
+        const maybePayload = (payloadCache as { payload?: ResumoViabilidade }).payload
+
+        if (maybePayload && Array.isArray(maybePayload.ops)) {
+          salvarCacheOrdensViabilidade(mesRef, leadtime, maybePayload)
+          return maybePayload
+        }
+
+        if (Array.isArray((payloadCache as ResumoViabilidade).ops)) {
+          const resumoDireto = payloadCache as ResumoViabilidade
+          salvarCacheOrdensViabilidade(mesRef, leadtime, resumoDireto)
+          return resumoDireto
+        }
+      } else {
+        console.warn("Cache de Ordens indisponível, usando cálculo original:", payloadCache)
+      }
+    } catch (e) {
+      console.warn("Falha ao buscar cache de Ordens, usando cálculo original:", e)
+    }
+  }
+
+  const authHeadersViab = await getAuthHeaders()
+  const res = await fetch(`${API_URL_ORDENS}/ops/viabilidade?${query.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      ...authHeadersViab,
+      Accept: "application/json",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  })
+
+  const payload = await res.json().catch(() => ({ detail: res.statusText }))
+
+  if (!res.ok) {
+    throw new Error(
+      (payload as { detail?: string }).detail ||
+        `Erro ${res.status} ao carregar viabilidade das OPs.`
+    )
+  }
+
+  const resumo = payload as ResumoViabilidade
+  salvarCacheOrdensViabilidade(mesRef, leadtime, resumo)
+
+  return resumo
+}
+
+// ─── Hook: resize de coluna ───────────────────────────────────────────────────
+
+function useResizableColumn(defaultWidth: number, minWidth: number, maxWidth: number) {
+  const [width, setWidth] = useState(defaultWidth)
+  const isResizing = useRef(false)
+  const startX = useRef(0)
+  const startWidth = useRef(defaultWidth)
+  const [resizing, setResizing] = useState(false)
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    isResizing.current = true
+    startX.current = e.clientX
+    startWidth.current = width
+    setResizing(true)
+  }, [width])
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!isResizing.current) return
+      const delta = e.clientX - startX.current
+      const next = Math.min(maxWidth, Math.max(minWidth, startWidth.current + delta))
+      setWidth(next)
+    }
+    function onMouseUp() {
+      if (!isResizing.current) return
+      isResizing.current = false
+      setResizing(false)
+    }
+    window.addEventListener("mousemove", onMouseMove)
+    window.addEventListener("mouseup", onMouseUp)
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove)
+      window.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [minWidth, maxWidth])
+
+  return { width, handleResizeMouseDown, isResizing: resizing }
+}
+
+function useProdutoColResize(defaultWidth = PRODUTO_COL_DEFAULT) {
+  const resize = useResizableColumn(defaultWidth, PRODUTO_COL_MIN, PRODUTO_COL_MAX)
+  return { produtoColWidth: resize.width, handleResizeMouseDown: resize.handleResizeMouseDown, isResizing: resize.isResizing }
+}
+
+function useGargaloColResize(defaultWidth = GARGALO_COL_DEFAULT) {
+  const resize = useResizableColumn(defaultWidth, GARGALO_COL_MIN, GARGALO_COL_MAX)
+  return { gargaloColWidth: resize.width, handleGargaloResizeMouseDown: resize.handleResizeMouseDown, isGargaloResizing: resize.isResizing }
+}
+
+// ─── Componentes base ─────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: StatusOP }) {
+  const cfg = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.ok
+  const Icon = cfg.icon
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap"
+      style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.text }}>
+      <Icon size={10} />
+      {cfg.label}
+    </span>
+  )
+}
+
+function GargaloTags({ gargalos }: { gargalos: Gargalo[] }) {
+  if (!gargalos.length) {
+    return <span className="text-xs" style={{ color: "var(--text-secondary)" }}>—</span>
+  }
+
+  const labels = gargalos.map(g => `${g.descricao}${g.codigo_comp ? ` (${g.codigo_comp})` : ""}`)
+  const tooltipText = labels.join("\n")
+  const primeiro = gargalos[0]
+  const primeiroLabel = labels[0]
+  const qtdRestante = Math.max(0, gargalos.length - 1)
+  const isFalta = primeiro.status === "falta"
+
+  return (
+    <Tooltip text={tooltipText}>
+      <div className="flex w-full max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap">
+        <span
+          className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase leading-none"
+          style={{
+            background: isFalta ? "#FEF2F2" : "#FFFBEB",
+            border: `1px solid ${isFalta ? "#FECACA" : "#FDE68A"}`,
+            color: isFalta ? "#B91C1C" : "#92400E",
+          }}
+        >
+          <AlertOctagon size={10} className="shrink-0" />
+          <span className="min-w-0 truncate">{primeiroLabel}</span>
+        </span>
+
+        {qtdRestante > 0 && (
+          <span
+            className="inline-flex shrink-0 items-center rounded-full px-2 py-1 text-[10px] font-bold leading-none"
+            style={{
+              background: "#F8FAFC",
+              border: "1px solid #CBD5E1",
+              color: "#475569",
+            }}
+          >
+            +{qtdRestante}
+          </span>
+        )}
+      </div>
+    </Tooltip>
+  )
+}
+
+function Tooltip({ text, children }: { text: string; children: React.ReactNode }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="relative min-w-0 max-w-full"
+      onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      {children}
+      {show && text && (
+        <div className="absolute z-50 bottom-full left-0 mb-2 rounded-lg px-3 py-2 text-xs shadow-xl pointer-events-none"
+          style={{ background: "var(--bg-sidebar)", color: "#fff", maxWidth: 420, whiteSpace: "pre-line" }}>
+          {text}
+          <div className="absolute top-full left-4 w-0 h-0"
+            style={{ borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "5px solid var(--bg-sidebar)" }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── MultiSelect ─────────────────────────────────────────────────────────────
+
+type SelectOption = { value: string; label: string }
+
+function MultiSelect({
+  label,
+  values,
+  options,
+  placeholder,
+  onChange,
+}: {
+  label: string
+  values: string[]
+  options: SelectOption[]
+  placeholder: string
+  onChange: (values: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+
+  const filteredOptions = options.filter(opt => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return `${opt.label} ${opt.value}`.toLowerCase().includes(q)
+  })
+  const allValues = options.map(opt => opt.value)
+  const allSelected = allValues.length > 0 && allValues.every(v => values.includes(v))
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  function toggleValue(v: string) {
+    if (values.includes(v)) {
+      onChange(values.filter(x => x !== v))
+    } else {
+      onChange([...values, v])
+    }
+  }
+
+  function selectAll() {
+    onChange(allValues)
+    setSearch("")
+  }
+
+  function clearAll() {
+    onChange([])
+    setSearch("")
+  }
+
+  // Texto do botão
+  const buttonLabel = values.length === 0
+    ? placeholder
+    : values.length === 1
+    ? (options.find(o => o.value === values[0])?.label ?? values[0])
+    : `${values.length} selecionados`
+
+  return (
+    <div ref={wrapperRef} className="relative flex flex-col gap-1.5 min-w-0">
+      <label className="card-label">{label}</label>
+
+      <button
+        type="button"
+        onClick={() => { setOpen(prev => !prev); setSearch("") }}
+        className="flex h-11 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-sm outline-none transition-colors"
+        style={{
+          background: "var(--bg-secondary)",
+          borderColor: open ? "var(--bg-sidebar)" : values.length > 0 ? "var(--bg-sidebar)" : "var(--border)",
+          color: values.length > 0 ? "var(--text-primary)" : "#94A3B8",
+          boxShadow: open ? "0 0 0 3px rgba(27,58,92,0.10)" : undefined,
+        }}
+      >
+        <span className="truncate font-medium">{buttonLabel}</span>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {values.length > 0 && (
+            <span
+              onClick={e => { e.stopPropagation(); clearAll() }}
+              className="flex items-center justify-center w-4 h-4 rounded-full hover:opacity-70 transition-opacity"
+              style={{ background: "var(--bg-sidebar)", color: "#fff", fontSize: 10, cursor: "pointer" }}
+            >
+              ×
+            </span>
+          )}
+          <ChevronDown size={16} className="transition-transform"
+            style={{ color: "var(--text-secondary)", transform: open ? "rotate(180deg)" : undefined }} />
+        </div>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border shadow-xl"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
+          <div className="p-2" style={{ borderBottom: "1px solid var(--border)" }}>
+            <input
+              autoFocus
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Pesquisar..."
+              className="h-9 w-full rounded-lg border px-3 text-sm outline-none"
+              style={{ background: "var(--bg-primary)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+            />
+          </div>
+
+          <div className="max-h-56 overflow-y-auto p-1">
+            <div className="mb-1 flex gap-1 px-1">
+              <button
+                type="button"
+                onClick={allSelected ? clearAll : selectAll}
+                className="flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-semibold transition-colors hover:bg-slate-100"
+                style={{ color: allSelected ? "#DC2626" : "var(--bg-sidebar)" }}
+              >
+                {allSelected ? <X size={12} /> : <CheckCircle2 size={12} />}
+                {allSelected ? "Desmarcar todos" : "Selecionar todos"}
+              </button>
+
+              {values.length > 0 && !allSelected && (
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="flex items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-semibold transition-colors hover:bg-slate-100"
+                  style={{ color: "#DC2626" }}
+                >
+                  <X size={12} /> Limpar
+                </button>
+              )}
+            </div>
+
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-3 text-sm" style={{ color: "var(--text-secondary)" }}>
+                Nenhuma opção encontrada.
+              </div>
+            ) : filteredOptions.map(opt => {
+              const active = values.includes(opt.value)
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => toggleValue(opt.value)}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-slate-100"
+                  style={{ color: active ? "var(--bg-sidebar)" : "var(--text-primary)" }}
+                >
+                  {/* Checkbox visual */}
+                  <div className="flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-all"
+                    style={{
+                      background: active ? "var(--bg-sidebar)" : "transparent",
+                      borderColor: active ? "var(--bg-sidebar)" : "var(--border)",
+                    }}>
+                    {active && (
+                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                        <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </div>
+                  <span className="truncate">{opt.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── SearchableSelect (só para Mês — seleção única) ───────────────────────────
+
+function SearchableSelect({
+  label, value, options, placeholder, onChange,
+}: {
+  label: string; value: string; options: SelectOption[]; placeholder: string; onChange: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const selected = options.find(opt => opt.value === value)
+
+  const filteredOptions = options.filter(opt => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return `${opt.label} ${opt.value}`.toLowerCase().includes(q)
+  })
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  return (
+    <div ref={wrapperRef} className="relative flex flex-col gap-1.5 min-w-0">
+      <label className="card-label">{label}</label>
+      <button type="button" onClick={() => { setOpen(prev => !prev); setSearch("") }}
+        className="flex h-11 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-sm outline-none transition-colors"
+        style={{
+          background: "var(--bg-secondary)",
+          borderColor: open ? "var(--bg-sidebar)" : "var(--border)",
+          color: selected ? "var(--text-primary)" : "#94A3B8",
+          boxShadow: open ? "0 0 0 3px rgba(27,58,92,0.10)" : undefined,
+        }}>
+        <span className="truncate">{selected?.label || placeholder}</span>
+        <ChevronDown size={16} className="flex-shrink-0 transition-transform"
+          style={{ color: "var(--text-secondary)", transform: open ? "rotate(180deg)" : undefined }} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border shadow-xl"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
+          <div className="p-2" style={{ borderBottom: "1px solid var(--border)" }}>
+            <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Pesquisar..." className="h-9 w-full rounded-lg border px-3 text-sm outline-none"
+              style={{ background: "var(--bg-primary)", borderColor: "var(--border)", color: "var(--text-primary)" }} />
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1">
+            {filteredOptions.map(opt => {
+              const active = opt.value === value
+              return (
+                <button key={opt.value} type="button"
+                  onClick={() => { onChange(opt.value); setSearch(""); setOpen(false) }}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-slate-100"
+                  style={{ color: active ? "var(--bg-sidebar)" : "var(--text-primary)" }}>
+                  <span className="truncate">{opt.label}</span>
+                  {active && <CheckCircle2 size={14} className="flex-shrink-0" />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Filtros ──────────────────────────────────────────────────────────────────
+
+function FilterPanel({
+  meses, mesSel, linhasSel, statusesSel, tiposSel, lotesSel, codigosSel, produtosSel,
+  loteOptions, codigoOptions, produtoOptions, tipoOptions,
+  onMes, onLinhas, onStatuses, onTipos, onLotes, onCodigos, onProdutos,
+}: {
+  meses: string[]; mesSel: string
+  linhasSel: string[]; statusesSel: string[]; tiposSel: string[]
+  lotesSel: string[]; codigosSel: string[]; produtosSel: string[]
+  loteOptions: SelectOption[]; codigoOptions: SelectOption[]
+  produtoOptions: SelectOption[]; tipoOptions: SelectOption[]
+  onMes: (v: string) => void
+  onLinhas: (v: string[]) => void; onStatuses: (v: string[]) => void
+  onTipos: (v: string[]) => void; onLotes: (v: string[]) => void
+  onCodigos: (v: string[]) => void; onProdutos: (v: string[]) => void
+}) {
+  const mesOptions = meses.map(m => ({ value: m, label: mesLabel(m) }))
+  const linhaOptions: SelectOption[] = [
+    { value: "ENVASE_L1", label: "Envase L1" },
+    { value: "ENVASE_L2", label: "Envase L2" },
+    { value: "EMBALAGEM", label: "Embalagem" },
+  ]
+  const statusOptions: SelectOption[] = [
+    { value: "aberta",     label: "OP Aberta" },
+    { value: "ok",         label: "OK" },
+    { value: "quarentena", label: "Quarentena" },
+    { value: "falta",      label: "Falta Material" },
+    { value: "sem_bom",    label: "Sem BOM" },
+  ]
+
+  return (
+    <div className="card p-4 md:p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <Filter size={14} style={{ color: "var(--text-secondary)" }} />
+        <span className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>Filtros</span>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
+        <SearchableSelect label="Mês" value={mesSel} options={mesOptions} placeholder="Nenhum disponível" onChange={onMes} />
+        <MultiSelect label="Linha"   values={linhasSel}   options={linhaOptions}   placeholder="Todas as linhas"   onChange={onLinhas} />
+        <MultiSelect label="Status"  values={statusesSel} options={statusOptions}  placeholder="Todos os status"   onChange={onStatuses} />
+        <MultiSelect label="Tipo"    values={tiposSel}    options={tipoOptions}    placeholder="Todos os tipos"    onChange={onTipos} />
+        <MultiSelect label="Lote"    values={lotesSel}    options={loteOptions}    placeholder="Todos os lotes"    onChange={onLotes} />
+        <MultiSelect label="Código"  values={codigosSel}  options={codigoOptions}  placeholder="Todos os códigos"  onChange={onCodigos} />
+        <MultiSelect label="Produto" values={produtosSel} options={produtoOptions} placeholder="Todos os produtos" onChange={onProdutos} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Célula da tabela ─────────────────────────────────────────────────────────
+
+function Td({ children, className = "", style = {}, onClick }: {
+  children: React.ReactNode; className?: string; style?: React.CSSProperties; onClick?: () => void
+}) {
+  return (
+    <td className={`px-3 py-2.5 text-sm border-b ${className}`}
+      style={{ borderColor: GRID_COLOR, ...style }} onClick={onClick}>
+      {children}
+    </td>
+  )
+}
+
+// ─── Card de Gargalo ──────────────────────────────────────────────────────────
+
+function GargaloCard({ gargalo, fifo_posicao }: { gargalo: Gargalo; fifo_posicao?: number | null }) {
+  const isFalta = gargalo.status === "falta"
+  const pctUsado = gargalo.necessario > 0
+    ? Math.min(100, Math.round(((gargalo.necessario - gargalo.faltante) / gargalo.necessario) * 100))
+    : 0
+
+  return (
+    <div className="rounded-xl p-4"
+      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+      <div className="flex items-start gap-3">
+        <AlertOctagon size={16} className="flex-shrink-0 mt-0.5" style={{ color: isFalta ? "#DC2626" : "#F59E0B" }} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-xs font-bold uppercase tracking-wider" style={{ color: isFalta ? "#991B1B" : "#92400E" }}>
+              Gargalo da OP{fifo_posicao ? ` · posição ${fifo_posicao}` : ""}
+            </span>
+            <span className="text-xs font-mono px-1.5 py-0.5 rounded"
+              style={{ background: isFalta ? "#FECACA" : "#FDE68A", color: isFalta ? "#7F1D1D" : "#78350F" }}>
+              {gargalo.codigo_comp}
+            </span>
+          </div>
+          <p className="text-sm font-semibold mb-3" style={{ color: isFalta ? "#7F1D1D" : "#78350F" }}>{gargalo.descricao}</p>
+          <div className="mb-3">
+            <div className="flex justify-between text-xs mb-1" style={{ color: isFalta ? "#991B1B" : "#92400E" }}>
+              <span>Saldo que chegou nesta OP</span>
+              <span className="font-semibold">{pctUsado}% do necessário</span>
+            </div>
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: "#E5E7EB" }}>
+              <div className="h-full rounded-full" style={{ width: `${pctUsado}%`, background: isFalta ? "#DC2626" : "#F59E0B" }} />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            {[
+              { label: "Necessário", value: gargalo.necessario, color: isFalta ? "#7F1D1D" : "#78350F" },
+              { label: `Chegou${gargalo.saldo_chegou_98 > 0 ? " (arm. 01)" : ""}`, value: gargalo.saldo_chegou, color: gargalo.saldo_chegou > 0 ? "#16A34A" : "#DC2626" },
+              { label: "Faltante", value: gargalo.faltante, color: isFalta ? "#DC2626" : "#F59E0B" },
+            ].map(k => (
+              <div key={k.label} className="rounded-lg px-3 py-2" style={{ background: "var(--bg-primary)", border: "1px solid var(--border)" }}>
+                <p className="font-medium mb-0.5" style={{ color: isFalta ? "#991B1B" : "#92400E", opacity: 0.7 }}>{k.label}</p>
+                <p className="font-bold" style={{ color: k.color }}>
+                  {fmt(k.value)} <span style={{ fontWeight: 400, opacity: 0.7 }}>{gargalo.unidade}</span>
+                </p>
+              </div>
+            ))}
+          </div>
+          {gargalo.saldo_chegou_98 > 0 && (
+            <p className="mt-2 text-xs" style={{ color: "#92400E" }}>
+              + {fmt(gargalo.saldo_chegou_98)} {gargalo.unidade} em quarentena (arm. 98) —
+              {gargalo.status === "quarentena" ? " cobre com liberação do CQ" : " insuficiente mesmo com quarentena"}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal de edição ──────────────────────────────────────────────────────────
+
+function EditModal({ op, onClose, onSaved, isNova = false }: {
+  op: OPEditavel; onClose: () => void
+  onSaved: (atualizado: Partial<OPEditavel>) => void; isNova?: boolean
+}) {
+  const [form, setForm] = useState({
+    lote: op.lote || "", produto: op.produto || "", codigo: op.codigo || "",
+    linha: op.linha || "", op_numero: op.op_numero || "",
+    quantidade: String(op.quantidade || ""), tempo_horas: String(op.tempo_horas || ""),
+    un_h: String(op.un_h || ""), observacoes: op.observacoes || "",
+    data_lavagem_emb: op.data_lavagem_emb || "", data_lavagem_pesagem: op.data_lavagem_pesagem || "",
+    data_inicio_fabricacao: op.data_inicio_fabricacao || "", data_fim: op.data_fim || "",
+    data_termino: op.data_termino || "", anotacao: op.anotacao || "",
+  })
+  const [saving, setSaving] = useState(false)
+  const [erro, setErro] = useState("")
+
+  async function handleSave() {
+    setSaving(true); setErro("")
+    try {
+      const payload: Record<string, unknown> = {
+        lote: form.lote, produto: form.produto, codigo: form.codigo, linha: form.linha,
+        op_numero: form.op_numero || null,
+        quantidade: parseFloat(form.quantidade.replace(",", ".")) || 0,
+        tempo_horas: form.tempo_horas ? parseFloat(form.tempo_horas.replace(",", ".")) : null,
+        un_h: form.un_h ? parseFloat(form.un_h.replace(",", ".")) : null,
+        observacoes: form.observacoes || null,
+        data_lavagem_emb: form.data_lavagem_emb || null,
+        data_lavagem_pesagem: form.data_lavagem_pesagem || null,
+        data_inicio_fabricacao: form.data_inicio_fabricacao || null,
+        data_fim: form.data_fim || null,
+        data_termino: form.data_termino || null,
+        anotacao: form.anotacao || null,
+      }
+      if (isNova) {
+        const { inserirRegistro } = await import("@/services/api")
+        await inserirRegistro("programacao_ops", { ...payload, mes_ref: op.mes_ref || "2026-00" })
+      } else {
+        if (!op.id) { setErro("ID da OP não encontrado."); setSaving(false); return }
+        await atualizarRegistro("programacao_ops", op.id, payload)
+      }
+      onSaved({ ...payload, linha: form.linha as OPResult["linha"] } as Partial<OPEditavel>)
+      onClose()
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : "Erro ao salvar")
+    } finally { setSaving(false) }
+  }
+
+  const inp = "rounded-lg border px-3 py-2 text-sm outline-none w-full"
+  const s = { background: "var(--bg-primary)", borderColor: "var(--border)", color: "var(--text-primary)" }
+  const isEnvase = form.linha !== "EMBALAGEM"
+
+  return (
+    <div className="fixed inset-0 z-[999] flex items-end md:items-center justify-center p-0 md:p-4"
+      style={{ background: "rgba(15,23,42,0.55)" }} onClick={onClose}>
+      <div className="w-full md:max-w-2xl rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden"
+        style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", maxHeight: "92vh" }}
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4" style={{ background: "var(--bg-sidebar)" }}>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider mb-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>{isNova ? "Nova OP" : "Editar OP"}</p>
+            <h3 className="text-base font-bold text-white">{isNova ? "Adicionar Ordem de Produção" : `${op.lote} · ${op.produto || op.codigo}`}</h3>
+          </div>
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full"
+            style={{ background: "rgba(255,255,255,0.12)", color: "#fff" }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-5 space-y-5" style={{ maxHeight: "calc(92vh - 140px)" }}>
+          <div>
+            <p className="card-label mb-3">Identificação</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5"><label className="card-label">Lote</label><input className={inp} style={s} value={form.lote} onChange={e => setForm(f => ({ ...f, lote: e.target.value }))} /></div>
+              <div className="flex flex-col gap-1.5"><label className="card-label">Código</label><input className={inp} style={s} value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} /></div>
+            </div>
+            <div className="flex flex-col gap-1.5 mt-3"><label className="card-label">Produto</label><input className={inp} style={s} value={form.produto} onChange={e => setForm(f => ({ ...f, produto: e.target.value }))} /></div>
+          </div>
+          <div>
+            <p className="card-label mb-3">Produção</p>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="flex flex-col gap-1.5"><label className="card-label">Linha</label>
+                <select className={inp} style={s} value={form.linha} onChange={e => setForm(f => ({ ...f, linha: e.target.value }))}>
+                  <option value="ENVASE_L1">Envase L1</option><option value="ENVASE_L2">Envase L2</option><option value="EMBALAGEM">Embalagem</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5"><label className="card-label">Nº OP</label><input className={inp} style={s} value={form.op_numero} placeholder="Ex: 90311" onChange={e => setForm(f => ({ ...f, op_numero: e.target.value }))} /></div>
+              <div className="flex flex-col gap-1.5"><label className="card-label">Quantidade</label><input type="number" className={inp} style={s} value={form.quantidade} onChange={e => setForm(f => ({ ...f, quantidade: e.target.value }))} /></div>
+              <div className="flex flex-col gap-1.5"><label className="card-label">Tempo (h)</label><input type="number" className={inp} style={s} value={form.tempo_horas} onChange={e => setForm(f => ({ ...f, tempo_horas: e.target.value }))} /></div>
+            </div>
+          </div>
+          <div>
+            <p className="card-label mb-3">Datas</p>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              {isEnvase && (<>
+                <div className="flex flex-col gap-1.5"><label className="card-label">Lav. Êmb e Lacre</label><input type="date" className={inp} style={s} value={form.data_lavagem_emb || ""} onChange={e => setForm(f => ({ ...f, data_lavagem_emb: e.target.value }))} /></div>
+                <div className="flex flex-col gap-1.5"><label className="card-label">Lav. e Pesagem</label><input type="date" className={inp} style={s} value={form.data_lavagem_pesagem || ""} onChange={e => setForm(f => ({ ...f, data_lavagem_pesagem: e.target.value }))} /></div>
+              </>)}
+              <div className="flex flex-col gap-1.5"><label className="card-label">Início Fabricação</label><input type="date" className={inp} style={s} value={form.data_inicio_fabricacao || ""} onChange={e => setForm(f => ({ ...f, data_inicio_fabricacao: e.target.value }))} /></div>
+              <div className="flex flex-col gap-1.5"><label className="card-label">Data Fim</label><input type="date" className={inp} style={s} value={form.data_fim || ""} onChange={e => setForm(f => ({ ...f, data_fim: e.target.value }))} /></div>
+              {isEnvase && <div className="flex flex-col gap-1.5"><label className="card-label">Término Real</label><input type="date" className={inp} style={s} value={form.data_termino || ""} onChange={e => setForm(f => ({ ...f, data_termino: e.target.value }))} /></div>}
+            </div>
+          </div>
+          <div>
+            <p className="card-label mb-3">Observações</p>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5"><label className="card-label">Observação da planilha</label><input className={inp} style={s} value={form.observacoes} onChange={e => setForm(f => ({ ...f, observacoes: e.target.value }))} /></div>
+              <div className="flex flex-col gap-1.5"><label className="card-label">Anotação interna</label><textarea className={inp} style={{ ...s, resize: "vertical", minHeight: 72 }} value={form.anotacao} placeholder="Anotações sobre esta OP..." onChange={e => setForm(f => ({ ...f, anotacao: e.target.value }))} /></div>
+            </div>
+          </div>
+          {erro && <p className="text-sm" style={{ color: "#DC2626" }}>{erro}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-3 px-5 py-4" style={{ borderTop: "1px solid var(--border)" }}>
+          <button onClick={onClose} disabled={saving} className="rounded-xl border px-4 py-2 text-sm font-semibold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>Cancelar</button>
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ background: "var(--bg-sidebar)", opacity: saving ? 0.7 : 1 }}>
+            {isNova ? <><Plus size={14} /> {saving ? "Adicionando..." : "Adicionar"}</> : <><Save size={14} /> {saving ? "Salvando..." : "Salvar"}</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal dos cards ──────────────────────────────────────────────────────────
+
+type ModalTipo = "total" | "abertas" | "faltam" | "com_material" | "sem_material" | null
+
+function CardModal({ tipo, ops, onClose }: { tipo: ModalTipo; ops: OPEditavel[]; onClose: () => void }) {
+  if (!tipo) return null
+
+  const LINHAS = ["ENVASE_L1", "ENVASE_L2", "EMBALAGEM"]
+
+  function filtrar(linha: string) {
+    const l = ops.filter(op => op.linha === linha)
+    if (tipo === "total")        return l
+    if (tipo === "abertas")      return l.filter(op => op.status === "aberta")
+    if (tipo === "faltam")       return l.filter(op => op.status !== "aberta")
+    if (tipo === "com_material") return l.filter(op => op.status === "ok")
+    if (tipo === "sem_material") return l.filter(op => op.status === "falta" || op.status === "quarentena")
+    return []
+  }
+
+  function contarStatus(lista: OPEditavel[]) {
+    return {
+      falta: lista.filter(op => op.status === "falta").length,
+      quarentena: lista.filter(op => op.status === "quarentena").length,
+    }
+  }
+
+  const TITULO: Record<NonNullable<ModalTipo>, string> = {
+    total: "Total de OPs do mês",
+    abertas: "OPs abertas no Protheus",
+    faltam: "OPs que faltam abrir",
+    com_material: "OPs com material disponível",
+    sem_material: "OPs sem material ou dependentes de CQ",
+  }
+
+  const SUBTITULO: Partial<Record<NonNullable<ModalTipo>, string>> = {
+    sem_material: "Separado entre falta real e itens que têm saldo em quarentena 98 aguardando liberação do CQ.",
+  }
+
+  const mat: Record<string, { descricao: string; falta: number; quarentena: number }> = {}
+
+  if (tipo === "sem_material") {
+    ops.filter(op => op.status === "falta" || op.status === "quarentena").forEach(op => {
+      const alertas = Array.isArray(op.alertas) ? op.alertas : []
+
+      alertas
+        .filter(a => isComponenteGargalante(a as unknown as Record<string, unknown>))
+        .forEach(comp => {
+          const status = statusComponenteVisual(comp as unknown as Record<string, unknown>)
+          if (status !== "falta" && status !== "quarentena") return
+
+          const codigo = String(comp.codigo_comp || "").trim()
+          if (!codigo) return
+
+          if (!mat[codigo]) {
+            mat[codigo] = {
+              descricao: comp.descricao || comp.codigo_comp,
+              falta: 0,
+              quarentena: 0,
+            }
+          }
+
+          if (status === "falta") mat[codigo].falta += 1
+          if (status === "quarentena") mat[codigo].quarentena += 1
+        })
+    })
+  }
+
+  const topMat = Object.entries(mat)
+    .sort((a, b) => (b[1].falta + b[1].quarentena) - (a[1].falta + a[1].quarentena))
+    .slice(0, 8)
+
+  return (
+    <div
+      className="fixed inset-0 z-[998] flex items-end md:items-center justify-center p-0 md:p-4"
+      style={{ background: "rgba(15,23,42,0.5)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full md:max-w-lg rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden"
+        style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", maxHeight: "85vh" }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <p className="card-label mb-0.5">Detalhamento</p>
+            <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>{TITULO[tipo]}</h3>
+            {SUBTITULO[tipo] && (
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{SUBTITULO[tipo]}</p>
+            )}
+          </div>
+          <button onClick={onClose} className="btn-ghost p-2"><X size={18} /></button>
+        </div>
+
+        <div className="overflow-y-auto p-5 space-y-4" style={{ maxHeight: "calc(85vh - 80px)" }}>
+          {LINHAS.map(linha => {
+            const opsL = filtrar(linha)
+            const total = ops.filter(op => op.linha === linha).length
+            const pct = total > 0 ? Math.round((opsL.length / total) * 100) : 0
+            const contagem = contarStatus(opsL)
+            const corBarra =
+              tipo === "com_material" ? "#16A34A" :
+              tipo === "sem_material" ? (contagem.falta > 0 ? "#DC2626" : "#F59E0B") :
+              tipo === "abertas" ? "#2563EB" :
+              "#6B7280"
+
+            return (
+              <div key={linha} className="rounded-xl p-4" style={{ background: "var(--bg-primary)", border: "1px solid var(--border)" }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{LINHA_LABEL[linha]}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{opsL.length}</span>
+                    {tipo !== "total" && <span className="text-xs" style={{ color: "var(--text-secondary)" }}>de {total} · {pct}%</span>}
+                  </div>
+                </div>
+
+                {tipo === "sem_material" && opsL.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {contagem.falta > 0 && (
+                      <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ color: "#DC2626", borderColor: "#FECACA", background: "#FEF2F2" }}>
+                        {contagem.falta} Falta Mat.
+                      </span>
+                    )}
+                    {contagem.quarentena > 0 && (
+                      <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ color: "#92400E", borderColor: "#FDE68A", background: "#FFFBEB" }}>
+                        {contagem.quarentena} Quarentena/CQ
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {tipo !== "total" && total > 0 && (
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: corBarra }} />
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {tipo === "sem_material" && topMat.length > 0 && (
+            <div>
+              <p className="card-label mb-3">Materiais com falta ou quarentena</p>
+              <div className="space-y-2">
+                {topMat.map(([codigo, info]) => {
+                  const total = info.falta + info.quarentena
+                  const somenteQuarentena = info.falta === 0 && info.quarentena > 0
+                  return (
+                    <div
+                      key={codigo}
+                      className="rounded-lg px-3 py-2"
+                      style={{
+                        background: somenteQuarentena ? "#FFFBEB" : "#FEF2F2",
+                        border: `1px solid ${somenteQuarentena ? "#FDE68A" : "#FECACA"}`,
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-mono" style={{ color: somenteQuarentena ? "#92400E" : "#991B1B" }}>{codigo}</p>
+                          <p className="text-xs truncate" style={{ color: somenteQuarentena ? "#78350F" : "#7F1D1D" }}>{info.descricao}</p>
+                        </div>
+                        <span className="text-xs font-bold ml-3 flex-shrink-0" style={{ color: somenteQuarentena ? "#92400E" : "#DC2626" }}>
+                          {total} OP{total !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {info.falta > 0 && (
+                          <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ color: "#DC2626", borderColor: "#FECACA", background: "#FFF" }}>
+                            {info.falta} Falta Mat.
+                          </span>
+                        )}
+                        {info.quarentena > 0 && (
+                          <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold" style={{ color: "#92400E", borderColor: "#FDE68A", background: "#FFF" }}>
+                            {info.quarentena} Quarentena/CQ
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Cards de resumo ──────────────────────────────────────────────────────────
+
+function SummaryCard({ label, value, sub, color, Icon, onClick }: {
+  label: string; value: number | string; sub?: string; color: string; Icon: React.ElementType; onClick?: () => void
+}) {
+  return (
+    <button onClick={onClick} className="card flex flex-col gap-3 p-4 text-left w-full hover:shadow-md transition-all" style={{ cursor: onClick ? "pointer" : "default" }}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="card-label leading-5">{label}</span>
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: color + "18" }}>
+          <Icon size={17} style={{ color }} />
+        </div>
+      </div>
+      <div>
+        <p className="text-2xl font-bold" style={{ color }}>{value}</p>
+        {sub && <p className="mt-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>{sub}</p>}
+      </div>
+      {onClick && <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>Clique para detalhes</p>}
+    </button>
+  )
+}
+
+// ─── Linha da tabela ──────────────────────────────────────────────────────────
+
+function OPRow({ op, selecionado, onSelect, onEdit, produtoColWidth, gargaloColWidth, ajustesCompra, ajustesCompraData, leadtimeCompraDias, salvandoNegociacao, onSalvarNegociacao, onAjusteCompraChange, onAjusteCompraDataChange }: {
+  op: OPEditavel; selecionado: boolean
+  onSelect: (id: string, val: boolean) => void
+  onEdit: (op: OPEditavel) => void
+  produtoColWidth: number
+  gargaloColWidth: number
+  ajustesCompra: Record<string, number>
+  ajustesCompraData: Record<string, string>
+  leadtimeCompraDias: number
+  salvandoNegociacao: boolean
+  onSalvarNegociacao: (op: OPEditavel) => void
+  onAjusteCompraChange: (key: string, value: number) => void
+  onAjusteCompraDataChange: (key: string, value: string) => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  const cfg = STATUS_CONFIG[op.status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.aberta
+  const tipo = tipoProduto(op.linha)
+  const qtdTeorica = getQtdTeoricaOP(op)
+  const usaLoteTeorico = usaLoteTeoricoOP(op)
+  const rowId = op.id || `${op.lote}-${op.codigo}`
+  const podeExpandir = op.status !== "aberta" || !!op.anotacao || !!op.observacoes
+  const detalhesVisiveis = Array.isArray(op.detalhes)
+    ? op.detalhes.filter(comp => !isTubete(comp as unknown as Record<string, unknown>))
+    : []
+
+  const rowBg = selecionado ? "rgba(27,58,92,0.10)" : aberto ? cfg.bg + "33" : undefined
+  const gargalos = getGargalosOP(op)
+  const gargaloLabel = gargalos.length
+    ? gargalos.map(g => `${g.descricao}${g.codigo_comp ? ` (${g.codigo_comp})` : ""} · chegou ${fmt(g.saldo_chegou)} / necessário ${fmt(g.necessario)} ${g.unidade}`).join(" | ")
+    : undefined
+
+  return (
+    <>
+      <tr style={{ background: rowBg }} className="hover:bg-slate-50 transition-colors cursor-pointer"
+        onClick={() => podeExpandir && setAberto(!aberto)}>
+        <td className="pl-3 py-2.5 w-8 border-b" style={{ borderColor: GRID_COLOR }} onClick={e => e.stopPropagation()}>
+          <input type="checkbox" checked={selecionado} onChange={e => onSelect(rowId, e.target.checked)}
+            style={{ accentColor: "var(--bg-sidebar)" }} className="rounded" />
+        </td>
+        <td className="px-2 py-2.5 w-5 border-b" style={{ borderColor: GRID_COLOR }}>
+          <div className="w-2 h-2 rounded-full" style={{ background: cfg.dot }} />
+        </td>
+        <td className="px-2 py-2.5 w-8 border-b text-center" style={{ borderColor: GRID_COLOR }}>
+          {op.fifo_posicao != null ? (
+            <span className="text-[10px] font-mono font-bold"
+              style={{ color: op.status === "ok" ? "#16A34A" : op.status === "falta" ? "#DC2626" : "var(--text-secondary)" }}>
+              {op.fifo_posicao}
+            </span>
+          ) : <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>—</span>}
+        </td>
+        <Td className="w-28 font-semibold" style={{ color: "var(--text-primary)" }}>{op.lote}</Td>
+        <Td style={{ width: produtoColWidth, minWidth: produtoColWidth, maxWidth: produtoColWidth, color: "var(--text-primary)" }}>
+          <Tooltip text={op.produto || op.codigo}>
+            <span className="block truncate text-sm">{op.produto || op.codigo}</span>
+          </Tooltip>
+        </Td>
+        <Td style={{ width: gargaloColWidth, minWidth: gargaloColWidth, maxWidth: gargaloColWidth }}>
+          <GargaloTags gargalos={gargalos} />
+        </Td>
+        <Td className="hidden md:table-cell w-20 font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{op.codigo}</Td>
+        <Td className="hidden md:table-cell w-24" style={{ color: "var(--text-primary)" }}>{LINHA_LABEL[op.linha] || op.linha}</Td>
+        <Td className="hidden md:table-cell w-14">
+          <span className="inline-block rounded px-1.5 py-0.5 text-xs font-bold font-mono"
+            style={{ background: tipo === "PA" ? "#F5F3FF" : "#EFF6FF", color: tipo === "PA" ? "#5B21B6" : "#1D4ED8" }}>
+            {tipo}
+          </span>
+        </Td>
+        <Td className="hidden lg:table-cell w-24 font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{op.op_numero || "—"}</Td>
+        <Td className="hidden lg:table-cell w-24 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(op.quantidade)}</Td>
+        <Td className="hidden lg:table-cell w-28 font-semibold" style={{ color: usaLoteTeorico ? "#7C2D12" : "var(--text-secondary)" }}>
+          <Tooltip text={usaLoteTeorico ? "Quantidade teórica usada para cálculo de materiais e abertura da OP no Protheus" : "Sem lote teórico cadastrado: cálculo usa a própria QTD programada"}>
+            <span className="inline-flex items-center gap-1">
+              {fmt(qtdTeorica)}
+              {usaLoteTeorico && <span className="rounded px-1 py-0.5 text-[9px] font-bold" style={{ background: "#FFEDD5", color: "#9A3412" }}>TEÓR.</span>}
+            </span>
+          </Tooltip>
+        </Td>
+        <Td className="hidden xl:table-cell w-28 text-xs" style={{ color: "var(--text-secondary)" }}>{fmtData(op.data_lavagem_emb)}</Td>
+        <Td className="hidden xl:table-cell w-28 text-xs" style={{ color: "var(--text-secondary)" }}>{fmtData(op.data_inicio_fabricacao)}</Td>
+        <Td className="hidden lg:table-cell w-24 text-xs" style={{ color: "var(--text-secondary)" }}>{fmtData(op.data_fim)}</Td>
+        <Td className="w-36">
+          <Tooltip text={gargaloLabel || ""}><StatusBadge status={op.status} /></Tooltip>
+        </Td>
+        <td className="pr-3 py-2.5 w-16 border-b" style={{ borderColor: GRID_COLOR }}>
+          <div className="flex items-center justify-end gap-1">
+            {selecionado && (
+              <button onClick={e => { e.stopPropagation(); onEdit(op) }}
+                className="flex items-center justify-center h-7 w-7 rounded-lg transition-colors"
+                style={{ background: "var(--bg-sidebar)", color: "#fff" }} title="Editar OP">
+                <Pencil size={13} />
+              </button>
+            )}
+            {podeExpandir && (
+              <div style={{ color: "var(--text-secondary)" }}>
+                {aberto ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+
+      {aberto && (
+        <tr>
+          <td colSpan={17} className="px-4 pb-4 pt-1">
+            <div className="rounded-xl p-4 space-y-4" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+              {usaLoteTeorico && (
+                <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E" }}>
+                  <strong>Cálculo com lote teórico:</strong> QTD programada {fmt(op.quantidade)} · QTD teórica para abertura {fmt(qtdTeorica)}
+                  {(op as OPEditavel).letra_lote_teorico ? ` · letra ${(op as OPEditavel).letra_lote_teorico}` : ""}
+                  {(op as OPEditavel).linha_lote_teorico ? ` · linha ${(op as OPEditavel).linha_lote_teorico}` : ""}
+                </div>
+              )}
+              {((op as OPEditavel).observacoes || (op as OPEditavel).anotacao) && (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {op.observacoes && <div className="rounded-lg px-3 py-2.5" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}><p className="card-label mb-1">Observação</p><p className="text-sm" style={{ color: "var(--text-primary)" }}>{op.observacoes}</p></div>}
+                  {op.anotacao && <div className="rounded-lg px-3 py-2.5" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}><p className="card-label mb-1">Anotação interna</p><p className="text-sm" style={{ color: "var(--text-primary)" }}>{op.anotacao}</p></div>}
+                </div>
+              )}
+              {op.linha !== "EMBALAGEM" && (
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4 text-xs">
+                  {[
+                    { label: "Lav. Êmb e Lacre", val: op.data_lavagem_emb },
+                    { label: "Lav. e Pesagem", val: op.data_lavagem_pesagem },
+                    { label: "Início Fabricação", val: op.data_inicio_fabricacao },
+                    { label: "Término Real", val: op.data_termino },
+                  ].map(({ label, val }) => (
+                    <div key={label} className="rounded-lg px-3 py-2" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                      <p className="card-label mb-0.5">{label}</p>
+                      <p style={{ color: "var(--text-primary)", fontWeight: 600 }}>{fmtData(val)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {detalhesVisiveis.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="card-label">Componentes necessários</p>
+                      <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
+                        As quantidades negociadas são simulações operacionais com Compras e podem ser salvas para permanecer após atualizar a página.
+                      </p>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); onSalvarNegociacao(op) }}
+                      disabled={salvandoNegociacao}
+                      className="flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold text-white"
+                      style={{ background: salvandoNegociacao ? "#94A3B8" : "var(--bg-sidebar)", cursor: salvandoNegociacao ? "not-allowed" : "pointer" }}
+                    >
+                      <Save size={13} />
+                      {salvandoNegociacao ? "Salvando..." : "Salvar negociação"}
+                    </button>
+                  </div>
+                  <div
+                    className="overflow-auto rounded-xl"
+                    style={{
+                      maxHeight: 420,
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-secondary)",
+                      position: "relative",
+                    }}
+                  >
+                    <table className="w-full text-xs min-w-[1900px]">
+                      <thead
+                        style={{
+                          position: "sticky",
+                          top: 0,
+                          zIndex: 30,
+                          background: "var(--bg-secondary)",
+                        }}
+                      >
+                        <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                          {[
+                            "Código",
+                            "Descrição",
+                            "TP",
+                            "Necessário",
+                            "Saldo 20",
+                            "Saldo na OP",
+                            "Saldo Restante",
+                            "Saldo 98",
+                            "Pedido/SC",
+                            "Compra total pedido",
+                            "Qtd. usada OP",
+                            "Entrega pedido",
+                            "Qtd. oficial até prazo",
+                            "Qtd. negociada",
+                            "Data negociada",
+                            "Abre OP?",
+                            "Status compra",
+                            "Comprador",
+                            "Status",
+                          ].map(h => (
+                            <th
+                              key={h}
+                              className="py-2 pr-4 text-left font-semibold uppercase tracking-wider"
+                              style={{
+                                color: "var(--text-secondary)",
+                                fontSize: 10,
+                                position: "sticky",
+                                top: 0,
+                                zIndex: 31,
+                                background: "var(--bg-secondary)",
+                                boxShadow: "0 1px 0 var(--border)",
+                              }}
+                            >
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detalhesVisiveis.flatMap((comp, i) => {
+                          const compRecord = comp as unknown as Record<string, unknown>
+                          const compStatusVisual = statusComponenteVisual(compRecord)
+                          const compCfg = STATUS_CONFIG[compStatusVisual] || STATUS_CONFIG.ok
+                          const saldoChegouNaOP = getSaldoChegouNaOP(comp)
+                          const saldoRestante = getSaldoRestanteNaOP(comp)
+                          const tpComponente = String(compRecord.tp || "").trim().toUpperCase()
+                          const saldo20Display = toNumber(compRecord.saldo_20)
+                          const componenteGargalante = isComponenteGargalante(compRecord)
+                          const comprasComp = getComprasAbertas(comp)
+                          const dataLimite = getDataLimiteCompra(comp) || calcularDataLimiteCompra(op.data_inicio_fabricacao, leadtimeCompraDias)
+                          const faltanteNaDataOP =
+                            getFaltanteNaDataOP(comp) ||
+                            toNumber((comp as { faltante_pos_compra?: number })?.faltante_pos_compra) ||
+                            toNumber((comp as { faltante?: number })?.faltante) ||
+                            0
+                          const statusCompra = getStatusCompra(comp)
+                          const compraCfg = compraStatusConfig(statusCompra)
+                          const compradorDefault = comprasComp.find(c => c.comprador_nome)?.comprador_nome || "—"
+                          const linhasCompra = comprasComp.length > 0 ? comprasComp : [null]
+
+                          const qtdNegociadaValidaTotal = linhasCompra.reduce((acc, compra, compraIndex) => {
+                            const key = getCompraPedidoKey(op, comp, compra, i, compraIndex)
+                            const qtd = ajustesCompra[key] ?? 0
+                            const dataNegociada = ajustesCompraData[key]
+                            return acc + (qtd > 0 && isDataAteLimite(dataNegociada, dataLimite) ? qtd : 0)
+                          }, 0)
+
+                          const abreOPOficial = getAbreOP(comp)
+                          const abreOPSimulado = abreOPOficial || (faltanteNaDataOP > 0 && (qtdNegociadaValidaTotal + 0.0001) >= faltanteNaDataOP)
+
+                          return linhasCompra.map((compra, compraIndex) => {
+                            const compraKey = getCompraPedidoKey(op, comp, compra, i, compraIndex)
+                            const qtdNegociada = ajustesCompra[compraKey] ?? 0
+                            const dataNegociada = ajustesCompraData[compraKey] || ""
+                            const compraTotalPedido = compra ? getQtdCompraTotal(compra) : 0
+                            const qtdUsadaOP = compra ? toNumber(compra.quantidade_utilizada ?? compra.quantidade_pendente) : 0
+                            const entregaPedido = compra?.data_prevista_entrega || null
+                            const qtdOficialAtePrazo = compra && isDataAteLimite(entregaPedido, dataLimite) ? qtdUsadaOP : 0
+                            const pedidoLabel = getPedidoLabel(compra)
+                            const comprador = compra?.comprador_nome || compradorDefault
+                            const comprasTooltip = compra ? tooltipCompras([compra]) : tooltipStatusCompra(comp, dataLimite, leadtimeCompraDias)
+                            const statusCompraTooltip = [
+                              tooltipStatusCompra(comp, dataLimite, leadtimeCompraDias),
+                              `Pedido/SC: ${pedidoLabel}`,
+                              `Compra total do pedido: ${fmt(compraTotalPedido)}`,
+                              `Qtd. usada nesta OP: ${fmt(qtdUsadaOP)}`,
+                              `Entrega do pedido: ${fmtData(entregaPedido)}`,
+                              `Data limite considerada: ${fmtData(dataLimite)} (início fabricação - ${leadtimeCompraDias} dia${leadtimeCompraDias !== 1 ? "s" : ""})`,
+                              `Qtd. oficial até prazo neste pedido: ${fmt(qtdOficialAtePrazo)}`,
+                              `Qtd. negociada manual: ${fmt(qtdNegociada)}`,
+                              `Data negociada: ${fmtData(dataNegociada)}`,
+                              `Negociação conta no prazo? ${qtdNegociada > 0 && isDataAteLimite(dataNegociada, dataLimite) ? "Sim" : "Não"}`,
+                              `Abre OP com negociação? ${abreOPSimulado ? "Sim" : "Não"}`,
+                            ].join("\n")
+
+                            return (
+                              <tr key={`comp-${i}-compra-${compraIndex}`} style={{ borderBottom: "1px solid var(--border)", background: compStatusVisual !== "ok" ? compCfg.bg + "55" : undefined }}>
+                                <td className="py-2 pr-4 font-mono" style={{ color: "var(--text-secondary)" }}>{comp.codigo_comp}</td>
+                                <td className="py-2 pr-4" style={{ color: "var(--text-primary)", minWidth: 180 }}>{comp.descricao}</td>
+                                <td className="py-2 pr-4"><span className="rounded px-1.5 py-0.5 font-mono font-bold" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)", fontSize: 10 }}>{comp.tp}</span></td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: "var(--text-primary)" }}>{fmt(comp.necessario)}</td>
+                                <td
+                                  className="py-2 pr-4 font-semibold"
+                                  style={{ color: tpComponente === "MC" ? (saldo20Display >= comp.necessario ? "#16A34A" : saldo20Display > 0 ? "#F59E0B" : "#DC2626") : "var(--text-secondary)" }}
+                                  title={tpComponente === "MC" ? "Saldo do MC vindo da Posição de Estoque / base de consumo. Na operação, o MC pertence ao armazém 20." : undefined}
+                                >
+                                  {tpComponente === "MC" ? fmt(saldo20Display) : "—"}
+                                </td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: saldoChegouNaOP >= comp.necessario ? "#16A34A" : saldoChegouNaOP > 0 ? "#F59E0B" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }} title="Saldo disponível no momento desta OP, já considerando o consumo das OPs anteriores na sequência. Para MC, vem da Posição de Estoque como saldo_20.">{fmt(saldoChegouNaOP)}</td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: saldoRestante >= 0 ? "#16A34A" : componenteGargalante ? "#DC2626" : "var(--text-secondary)" }}>{fmt(saldoRestante)}</td>
+                                <td className="py-2 pr-4" style={{ color: comp.saldo_98 > 0 ? "#F59E0B" : "var(--text-secondary)", fontWeight: comp.saldo_98 > 0 ? 600 : 400 }}
+                                  title={comp.saldo_98 > 0 ? "Em quarentena — aguardando liberação do CQ" : undefined}>
+                                  {comp.saldo_98 > 0 ? `Quarentena: ${fmt(comp.saldo_98)}` : "—"}
+                                </td>
+                                <td className="py-2 pr-4 font-mono" style={{ color: compra ? "var(--text-primary)" : "var(--text-secondary)", minWidth: 95 }}>
+                                  {compra ? (
+                                    <Tooltip text={comprasTooltip}>
+                                      <span className="underline decoration-dotted underline-offset-2">{pedidoLabel}</span>
+                                    </Tooltip>
+                                  ) : "—"}
+                                </td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: compraTotalPedido > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
+                                  {compraTotalPedido > 0 ? fmt(compraTotalPedido) : "—"}
+                                </td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: qtdUsadaOP > 0 ? "#1D4ED8" : "var(--text-secondary)" }}>
+                                  {qtdUsadaOP > 0 ? fmt(qtdUsadaOP) : "—"}
+                                </td>
+                                <td className="py-2 pr-4" style={{ color: entregaPedido ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                                  {fmtData(entregaPedido)}
+                                </td>
+                                <td className="py-2 pr-4 font-semibold" style={{ color: qtdOficialAtePrazo > 0 ? "#16A34A" : "var(--text-secondary)" }}>
+                                  {compra ? fmt(qtdOficialAtePrazo) : "—"}
+                                </td>
+                                <td className="py-2 pr-4" onClick={e => e.stopPropagation()}>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={Object.prototype.hasOwnProperty.call(ajustesCompra, compraKey) ? String(qtdNegociada) : ""}
+                                    placeholder="0"
+                                    onChange={e => onAjusteCompraChange(compraKey, parseInputNumber(e.target.value))}
+                                    className="h-8 w-24 rounded-lg border px-2 text-xs font-semibold outline-none"
+                                    style={{
+                                      background: qtdNegociada > 0 ? "#FFFBEB" : "var(--bg-secondary)",
+                                      borderColor: qtdNegociada > 0 ? "#FDE68A" : "var(--border)",
+                                      color: qtdNegociada > 0 ? "#92400E" : "var(--text-primary)",
+                                    }}
+                                    title="Quantidade negociada manualmente com Compras/fornecedor para antecipação deste pedido."
+                                  />
+                                </td>
+                                <td className="py-2 pr-4" onClick={e => e.stopPropagation()}>
+                                  <input
+                                    type="date"
+                                    value={dataNegociada}
+                                    onChange={e => onAjusteCompraDataChange(compraKey, e.target.value)}
+                                    className="h-8 w-32 rounded-lg border px-2 text-xs font-semibold outline-none"
+                                    style={{
+                                      background: dataNegociada ? "#FFFBEB" : "var(--bg-secondary)",
+                                      borderColor: dataNegociada ? "#FDE68A" : "var(--border)",
+                                      color: dataNegociada ? "#92400E" : "var(--text-primary)",
+                                    }}
+                                    title="Data combinada manualmente com Compras/fornecedor. Só conta se for até a data limite do lead time."
+                                  />
+                                </td>
+                                <td className="py-2 pr-4">
+                                  <Tooltip text={statusCompraTooltip}>
+                                    <span
+                                      className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+                                      style={{
+                                        background: abreOPSimulado ? "#F0FDF4" : compraTotalPedido > 0 || qtdNegociada > 0 ? "#FEF2F2" : "#F8FAFC",
+                                        border: `1px solid ${abreOPSimulado ? "#BBF7D0" : compraTotalPedido > 0 || qtdNegociada > 0 ? "#FECACA" : "#CBD5E1"}`,
+                                        color: abreOPSimulado ? "#166534" : compraTotalPedido > 0 || qtdNegociada > 0 ? "#991B1B" : "#64748B",
+                                      }}
+                                    >
+                                      {compraTotalPedido > 0 || qtdNegociada > 0 ? (abreOPSimulado ? "Sim" : "Não") : "—"}
+                                    </span>
+                                  </Tooltip>
+                                </td>
+                                <td className="py-2 pr-4">
+                                  <Tooltip text={statusCompraTooltip}>
+                                    <span
+                                      className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+                                      style={{
+                                        background: abreOPSimulado ? "#F0FDF4" : compraCfg.bg,
+                                        border: `1px solid ${abreOPSimulado ? "#BBF7D0" : compraCfg.border}`,
+                                        color: abreOPSimulado ? "#166534" : compraCfg.text,
+                                      }}
+                                    >
+                                      {abreOPSimulado ? "OK" : compraCfg.label}
+                                    </span>
+                                  </Tooltip>
+                                </td>
+                                <td className="py-2 pr-4" style={{ color: compra ? "var(--text-primary)" : "var(--text-secondary)", minWidth: 100 }}>
+                                  {comprador}
+                                </td>
+                                <td className="py-2"><StatusBadge status={compStatusVisual} /></td>
+                              </tr>
+                            )
+                          })
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+// ─── Tabela ───────────────────────────────────────────────────────────────────
+
+function OPTable({ ops, selecionados, onSelect, onSelectAll, onEdit, ajustesCompra, ajustesCompraData, leadtimeCompraDias, salvandoNegociacaoOpId, onSalvarNegociacao, onAjusteCompraChange, onAjusteCompraDataChange }: {
+  ops: OPEditavel[]; selecionados: Set<string>
+  onSelect: (id: string, val: boolean) => void
+  onSelectAll: (val: boolean) => void
+  onEdit: (op: OPEditavel) => void
+  ajustesCompra: Record<string, number>
+  ajustesCompraData: Record<string, string>
+  leadtimeCompraDias: number
+  salvandoNegociacaoOpId: string | null
+  onSalvarNegociacao: (op: OPEditavel) => void
+  onAjusteCompraChange: (key: string, value: number) => void
+  onAjusteCompraDataChange: (key: string, value: string) => void
+}) {
+  const todosSelect = ops.length > 0 && ops.every(op => selecionados.has(op.id || `${op.lote}-${op.codigo}`))
+  const { produtoColWidth, handleResizeMouseDown, isResizing } = useProdutoColResize()
+  const { gargaloColWidth, handleGargaloResizeMouseDown, isGargaloResizing } = useGargaloColResize()
+  const isAnyResizing = isResizing || isGargaloResizing
+
+  const thCls = "px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
+  const thStyle = { color: "rgba(255,255,255,0.85)" }
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", cursor: isAnyResizing ? "col-resize" : undefined }}>
+      <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
+        <table className="w-full border-separate border-spacing-0" style={{ minWidth: Math.max(1220, produtoColWidth + gargaloColWidth + 1000) }}>
+          <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
+            <tr style={{ background: TABLE_HEADER_BG }}>
+              <th className="pl-3 py-3 w-8">
+                <input type="checkbox" checked={todosSelect} onChange={e => onSelectAll(e.target.checked)} style={{ accentColor: "#fff" }} className="rounded" />
+              </th>
+              <th className="w-5 py-3" />
+              <th className="px-2 py-3 w-8 text-center text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.65)" }} title="Posição na fila FIFO">#</th>
+              <th className={`${thCls} w-28`} style={thStyle}>Lote</th>
+              <th className={thCls} style={{ ...thStyle, width: produtoColWidth, minWidth: produtoColWidth, maxWidth: produtoColWidth, position: "relative", userSelect: "none" }}>
+                Produto
+                <span onMouseDown={handleResizeMouseDown} title="Arraste para redimensionar"
+                  style={{ position: "absolute", right: 0, top: "20%", height: "60%", width: 6, cursor: "col-resize", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2, background: isResizing ? "rgba(255,255,255,0.5)" : "transparent", transition: "background 0.15s" }}
+                  onMouseEnter={e => { if (!isResizing) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.3)" }}
+                  onMouseLeave={e => { if (!isResizing) (e.currentTarget as HTMLElement).style.background = "transparent" }}>
+                  <svg width="6" height="14" viewBox="0 0 6 14" fill="none">
+                    <line x1="2" y1="0" x2="2" y2="14" stroke="rgba(255,255,255,0.6)" strokeWidth="1" />
+                    <line x1="4" y1="0" x2="4" y2="14" stroke="rgba(255,255,255,0.6)" strokeWidth="1" />
+                  </svg>
+                </span>
+              </th>
+              <th className={thCls} style={{ ...thStyle, width: gargaloColWidth, minWidth: gargaloColWidth, maxWidth: gargaloColWidth, position: "relative", userSelect: "none" }}>
+                Gargalo
+                <span onMouseDown={handleGargaloResizeMouseDown} title="Arraste para redimensionar"
+                  style={{ position: "absolute", right: 0, top: "20%", height: "60%", width: 6, cursor: "col-resize", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2, background: isGargaloResizing ? "rgba(255,255,255,0.5)" : "transparent", transition: "background 0.15s" }}
+                  onMouseEnter={e => { if (!isGargaloResizing) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.3)" }}
+                  onMouseLeave={e => { if (!isGargaloResizing) (e.currentTarget as HTMLElement).style.background = "transparent" }}>
+                  <svg width="6" height="14" viewBox="0 0 6 14" fill="none">
+                    <line x1="2" y1="0" x2="2" y2="14" stroke="rgba(255,255,255,0.6)" strokeWidth="1" />
+                    <line x1="4" y1="0" x2="4" y2="14" stroke="rgba(255,255,255,0.6)" strokeWidth="1" />
+                  </svg>
+                </span>
+              </th>
+              <th className={`${thCls} hidden md:table-cell w-20`} style={thStyle}>Código</th>
+              <th className={`${thCls} hidden md:table-cell w-24`} style={thStyle}>Linha</th>
+              <th className={`${thCls} hidden md:table-cell w-14`} style={thStyle}>Tipo</th>
+              <th className={`${thCls} hidden lg:table-cell w-24`} style={thStyle}>OP</th>
+              <th className={`${thCls} hidden lg:table-cell w-24`} style={thStyle}>Qtd.</th>
+              <th className={`${thCls} hidden lg:table-cell w-28`} style={thStyle}>Qtd. Teórica</th>
+              <th className={`${thCls} hidden xl:table-cell w-28`} style={thStyle}>Lav. Êmb</th>
+              <th className={`${thCls} hidden xl:table-cell w-28`} style={thStyle}>Início Fab.</th>
+              <th className={`${thCls} hidden lg:table-cell w-24`} style={thStyle}>Data Fim</th>
+              <th className={`${thCls} w-36`} style={thStyle}>Status</th>
+              <th className="w-16 py-3 pr-3" />
+            </tr>
+          </thead>
+          <tbody style={{ background: "var(--bg-secondary)" }}>
+            {ops.map((op, i) => (
+              <OPRow key={op.id || `${op.lote}-${op.codigo}-${i}`} op={op}
+                selecionado={selecionados.has(op.id || `${op.lote}-${op.codigo}`)}
+                onSelect={onSelect} onEdit={onEdit}
+                produtoColWidth={produtoColWidth}
+                gargaloColWidth={gargaloColWidth}
+                ajustesCompra={ajustesCompra}
+                ajustesCompraData={ajustesCompraData}
+                leadtimeCompraDias={leadtimeCompraDias}
+                salvandoNegociacao={salvandoNegociacaoOpId === (op.id || `${op.lote}-${op.codigo}`)}
+                onSalvarNegociacao={onSalvarNegociacao}
+                onAjusteCompraChange={onAjusteCompraChange}
+                onAjusteCompraDataChange={onAjusteCompraDataChange} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function MateriaisCriticosResumoTable({
+  materiais,
+  totalOps,
+  mesRef,
+}: {
+  materiais: MaterialCriticoResumo[]
+  totalOps: number
+  mesRef: string
+}) {
+  const [selecionadosResumo, setSelecionadosResumo] = useState<Set<string>>(new Set())
+  const [materialAberto, setMaterialAberto] = useState<string | null>(null)
+
+  const totalMateriais = materiais.length
+  const totalOpsImpactadas = materiais.reduce((acc, m) => acc + m.qtd_ops_impactadas, 0)
+  const totalFaltante = materiais.reduce((acc, m) => acc + m.faltante_total, 0)
+  const todosSelecionados = totalMateriais > 0 && materiais.every(m => selecionadosResumo.has(m.codigo_comp))
+  const materiaisSelecionados = materiais.filter(m => selecionadosResumo.has(m.codigo_comp))
+
+  useEffect(() => {
+    setSelecionadosResumo(prev => {
+      const codigosValidos = new Set(materiais.map(m => m.codigo_comp))
+      const next = new Set(Array.from(prev).filter(codigo => codigosValidos.has(codigo)))
+      return next
+    })
+
+    setMaterialAberto(prev => {
+      if (!prev) return prev
+      return materiais.some(m => m.codigo_comp === prev) ? prev : null
+    })
+  }, [materiais])
+
+  function handleSelecionarMaterial(codigo: string, checked: boolean) {
+    setSelecionadosResumo(prev => {
+      const next = new Set(prev)
+      checked ? next.add(codigo) : next.delete(codigo)
+      return next
+    })
+  }
+
+  function handleSelecionarTodos(checked: boolean) {
+    setSelecionadosResumo(checked ? new Set(materiais.map(m => m.codigo_comp)) : new Set())
+  }
+
+  function handleExportarSelecionados() {
+    if (materiaisSelecionados.length === 0) return
+    exportarMateriaisCriticos(materiaisSelecionados, mesRef)
+  }
+
+  if (totalMateriais === 0) {
+    return (
+      <div className="rounded-2xl border p-5" style={{ background: "#F0FDF4", borderColor: "#BBF7D0" }}>
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: "#DCFCE7", color: "#166534" }}>
+            <CheckCircle2 size={18} />
+          </div>
+          <div>
+            <p className="text-sm font-bold" style={{ color: "#166534" }}>Nenhum material travando ou em quarentena nas OPs filtradas</p>
+            <p className="mt-1 text-xs" style={{ color: "#15803D" }}>
+              Considerando os filtros atuais, não há componentes gargalantes com falta real nem dependência de quarentena/CQ.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
+      <div className="flex flex-col gap-3 border-b px-5 py-4 xl:flex-row xl:items-center xl:justify-between" style={{ borderColor: "var(--border)" }}>
+        <div>
+          <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Materiais travando abertura das OPs</p>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+            Resumo por componente considerando as {totalOps} OP{totalOps !== 1 ? "s" : ""} filtrada{totalOps !== 1 ? "s" : ""}. Clique em um material para ver quais OPs ele está travando.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <button
+            type="button"
+            onClick={handleExportarSelecionados}
+            disabled={materiaisSelecionados.length === 0}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}
+          >
+            <Download size={14} />
+            Exportar selecionados ({materiaisSelecionados.length})
+          </button>
+
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl border px-3 py-2" style={{ background: "#F8FAFC", borderColor: "#E2E8F0" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#64748B" }}>Itens</p>
+              <p className="text-sm font-bold" style={{ color: "#0F172A" }}>{totalMateriais}</p>
+            </div>
+            <div className="rounded-xl border px-3 py-2" style={{ background: "#FFF7ED", borderColor: "#FED7AA" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#9A3412" }}>Qtd. OPs</p>
+              <p className="text-sm font-bold" style={{ color: "#C2410C" }}>{totalOpsImpactadas}</p>
+            </div>
+            <div className="rounded-xl border px-3 py-2" style={{ background: "#FEF2F2", borderColor: "#FECACA" }}>
+              <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#991B1B" }}>Faltante</p>
+              <p className="text-sm font-bold" style={{ color: "#DC2626" }}>{fmt(totalFaltante)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-auto">
+        <table className="w-full border-separate border-spacing-0" style={{ minWidth: 1260 }}>
+          <thead>
+            <tr style={{ background: TABLE_HEADER_BG }}>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)", width: 42 }}>
+                <input
+                  type="checkbox"
+                  checked={todosSelecionados}
+                  onChange={e => handleSelecionarTodos(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+              </th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Código</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Descrição</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>TP</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Qtd. OPs impactadas</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Necessário total</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Estoque disponível</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Saldo 98</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Compras abertas</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>SC / PC</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Menor entrega</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Faltante total</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.85)" }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {materiais.map((m, idx) => {
+              const idsLabel = formatarIdsResumo(m.sc_pc)
+              const idsTooltip = m.sc_pc.length > 0 ? m.sc_pc.join("\n") : ""
+              const unidade = m.unidade ? ` ${m.unidade}` : ""
+              const isAberto = materialAberto === m.codigo_comp
+              const isSelecionado = selecionadosResumo.has(m.codigo_comp)
+
+              return (
+                <>
+                  <tr
+                    key={`${m.codigo_comp}-${idx}`}
+                    className="cursor-pointer border-b transition hover:bg-slate-50"
+                    onClick={() => setMaterialAberto(isAberto ? null : m.codigo_comp)}
+                    style={{ background: isAberto ? "#F8FAFC" : idx % 2 === 0 ? "var(--bg-secondary)" : "var(--bg-primary)" }}
+                  >
+                    <td className="px-4 py-3 align-top text-xs" style={{ borderBottom: "1px solid var(--border)" }} onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={isSelecionado}
+                        onChange={e => handleSelecionarMaterial(m.codigo_comp, e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs font-mono font-bold" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
+                      <div className="flex items-center gap-2">
+                        {isAberto ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        {m.codigo_comp}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
+                      <div className="max-w-[260px] truncate" title={m.descricao}>{m.descricao}</div>
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs font-bold" style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{m.tp || "—"}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs font-bold" style={{ color: "#C2410C", borderBottom: "1px solid var(--border)" }}>{m.qtd_ops_impactadas}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.necessario_total)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.estoque_disponivel)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs" style={{ color: m.saldo_98 > 0 ? "#92400E" : "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.saldo_98)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs" style={{ color: m.compras_abertas > 0 ? "#1D4ED8" : "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{fmt(m.compras_abertas)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
+                      {idsTooltip ? (
+                        <Tooltip text={idsTooltip}>
+                          <span className="inline-flex max-w-[150px] truncate rounded-full border px-2 py-1 text-[11px] font-semibold" style={{ background: "#EFF6FF", borderColor: "#BFDBFE", color: "#1D4ED8" }}>
+                            {idsLabel}
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        <span style={{ color: "var(--text-secondary)" }}>—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>{fmtData(m.menor_data_entrega)}</td>
+                    <td className="px-4 py-3 align-top text-right text-xs font-bold" style={{ color: m.status === "falta" ? "#DC2626" : "#92400E", borderBottom: "1px solid var(--border)" }}>{fmt(m.faltante_total)}{unidade}</td>
+                    <td className="px-4 py-3 align-top text-xs" style={{ borderBottom: "1px solid var(--border)" }}>
+                      <StatusBadge status={m.status} />
+                    </td>
+                  </tr>
+
+                  {isAberto && (
+                    <tr key={`${m.codigo_comp}-${idx}-detalhe`}>
+                      <td colSpan={13} className="p-0" style={{ background: "#F8FAFC", borderBottom: "1px solid var(--border)" }}>
+                        <div className="px-5 py-4">
+                          <div className="mb-3 flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wide" style={{ color: "#334155" }}>OPs impactadas por este material</p>
+                              <p className="mt-1 text-[11px]" style={{ color: "#64748B" }}>
+                                Lista para bater com a tabela principal. A ordem segue a mesma sequência # da tela.
+                              </p>
+                            </div>
+                            <span className="rounded-full border px-3 py-1 text-[11px] font-bold" style={{ background: "#FFF7ED", borderColor: "#FED7AA", color: "#C2410C" }}>
+                              {m.ops_impactadas.length} OP{m.ops_impactadas.length !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+
+                          <div className="overflow-auto rounded-xl border" style={{ borderColor: "#E2E8F0", background: "#FFFFFF" }}>
+                            <table className="w-full border-separate border-spacing-0" style={{ minWidth: 980 }}>
+                              <thead>
+                                <tr style={{ background: "#F1F5F9" }}>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>#</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Lote</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Produto</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Linha</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Lav. Êmb</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Início Fab.</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Necessário</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Estoque na OP</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Saldo 98</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Compras</th>
+                                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Faltante</th>
+                                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider" style={{ color: "#475569" }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {m.ops_impactadas.map((opImpactada, opIdx) => (
+                                  <tr key={`${m.codigo_comp}-${opImpactada.op_id}-${opIdx}`} style={{ background: opIdx % 2 === 0 ? "#FFFFFF" : "#F8FAFC" }}>
+                                    <td className="px-3 py-2 text-xs font-bold" style={{ color: "#334155", borderTop: "1px solid #E2E8F0" }}>{opImpactada.fifo_posicao ?? "—"}</td>
+                                    <td className="px-3 py-2 text-xs font-mono font-bold" style={{ color: "#0F172A", borderTop: "1px solid #E2E8F0" }}>{opImpactada.lote || "—"}</td>
+                                    <td className="px-3 py-2 text-xs" style={{ color: "#0F172A", borderTop: "1px solid #E2E8F0" }}>
+                                      <div className="max-w-[240px] truncate" title={opImpactada.produto || ""}>{opImpactada.produto || "—"}</div>
+                                    </td>
+                                    <td className="px-3 py-2 text-xs" style={{ color: "#475569", borderTop: "1px solid #E2E8F0" }}>{LINHA_LABEL[String(opImpactada.linha || "")] || opImpactada.linha || "—"}</td>
+                                    <td className="px-3 py-2 text-xs" style={{ color: "#475569", borderTop: "1px solid #E2E8F0" }}>{fmtData(opImpactada.data_lavagem_emb)}</td>
+                                    <td className="px-3 py-2 text-xs" style={{ color: "#475569", borderTop: "1px solid #E2E8F0" }}>{fmtData(opImpactada.data_inicio_fabricacao)}</td>
+                                    <td className="px-3 py-2 text-right text-xs" style={{ color: "#0F172A", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.necessario)}{unidade}</td>
+                                    <td className="px-3 py-2 text-right text-xs" style={{ color: "#0F172A", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.estoque_disponivel)}{unidade}</td>
+                                    <td className="px-3 py-2 text-right text-xs" style={{ color: opImpactada.saldo_98 > 0 ? "#92400E" : "#64748B", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.saldo_98)}{unidade}</td>
+                                    <td className="px-3 py-2 text-right text-xs" style={{ color: opImpactada.compras_abertas > 0 ? "#1D4ED8" : "#64748B", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.compras_abertas)}{unidade}</td>
+                                    <td className="px-3 py-2 text-right text-xs font-bold" style={{ color: opImpactada.status_material === "falta" ? "#DC2626" : "#92400E", borderTop: "1px solid #E2E8F0" }}>{fmt(opImpactada.faltante)}{unidade}</td>
+                                    <td className="px-3 py-2 text-xs" style={{ borderTop: "1px solid #E2E8F0" }}>
+                                      <StatusBadge status={opImpactada.status_material} />
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ─── Export Excel ─────────────────────────────────────────────────────────────
+
+function exportarMateriaisCriticos(materiais: MaterialCriticoResumo[], mesRef: string) {
+  const headers = [
+    "Código",
+    "Descrição",
+    "TP",
+    "Unidade",
+    "Qtd. OPs impactadas",
+    "Necessário total",
+    "Estoque disponível",
+    "Saldo 98",
+    "Compras abertas",
+    "SC / PC",
+    "Menor entrega",
+    "Faltante total",
+    "Status",
+    "OPs impactadas",
+  ]
+
+  const rows = materiais.map(m => [
+    m.codigo_comp,
+    m.descricao,
+    m.tp,
+    m.unidade,
+    m.qtd_ops_impactadas,
+    m.necessario_total,
+    m.estoque_disponivel,
+    m.saldo_98,
+    m.compras_abertas,
+    m.sc_pc.join(", "),
+    fmtData(m.menor_data_entrega),
+    m.faltante_total,
+    m.status === "falta" ? "Falta" : "Quarentena",
+    m.ops_impactadas
+      .map(op => `#${op.fifo_posicao ?? ""} ${op.lote || ""} - ${op.produto || ""} (${LINHA_LABEL[String(op.linha || "")] || op.linha || ""})`)
+      .join(" | "),
+  ])
+
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(";"))
+    .join("\n")
+
+  const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `materiais_criticos_ops_${mesRef || "export"}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportarExcel(ops: OPEditavel[], mesRef: string) {
+  const headers = ["#FIFO", "Lote", "Produto", "Código", "Linha", "Tipo", "OP", "Qtd.", "Qtd. Teórica", "Usa Lote Teórico", "Lav. Êmb", "Início Fab.", "Data Fim", "Status", "Gargalo", "Observação", "Anotação"]
+  const rows = ops.map(op => [
+    op.fifo_posicao ?? "", op.lote, op.produto || op.codigo, op.codigo,
+    LINHA_LABEL[op.linha] || op.linha, tipoProduto(op.linha), op.op_numero || "", op.quantidade,
+    getQtdTeoricaOP(op), usaLoteTeoricoOP(op) ? "Sim" : "Não",
+    fmtData(op.data_lavagem_emb), fmtData(op.data_inicio_fabricacao), fmtData(op.data_fim),
+    STATUS_CONFIG[op.status]?.label || op.status,
+    getGargalosOP(op).map(g => `${g.descricao}${g.codigo_comp ? ` (${g.codigo_comp})` : ""} (chegou ${g.saldo_chegou} / necessário ${g.necessario} ${g.unidade})`).join(" | "),
+    op.observacoes || "", op.anotacao || "",
+  ])
+  const csvContent = [headers, ...rows].map(row => row.map(cell => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(";")).join("\n")
+  const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a"); a.href = url; a.download = `ops_${mesRef || "export"}.csv`; a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ─── Página principal ─────────────────────────────────────────────────────────
+
+export function OrdensPage() {
+  const [meses, setMeses]                   = useState<string[]>([])
+  const [mesSel, setMesSel]                 = useState<string>("")
+  const [linhasSel, setLinhasSel]           = useState<string[]>([])
+  const [statusesSel, setStatusesSel]       = useState<string[]>([])
+  const [tiposSel, setTiposSel]             = useState<string[]>([])
+  const [lotesSel, setLotesSel]             = useState<string[]>([])
+  const [codigosSel, setCodigosSel]         = useState<string[]>([])
+  const [produtosSel, setProdutosSel]       = useState<string[]>([])
+  const [ops, setOps]                       = useState<OPEditavel[]>([])
+  const [dados, setDados]                   = useState<ResumoViabilidade | null>(null)
+  const [loading, setLoading]               = useState(false)
+  const [erro, setErro]                     = useState("")
+  const [modalCard, setModalCard]           = useState<ModalTipo>(null)
+  const [opEditando, setOpEditando]         = useState<OPEditavel | null>(null)
+  const [selecionados, setSelecionados]     = useState<Set<string>>(new Set())
+  const [novaOpModal, setNovaOpModal]       = useState(false)
+  const [leadtimeCompraDias, setLeadtimeCompraDias] = useState(2)
+  const [ajustesCompra, setAjustesCompra] = useState<Record<string, number>>({})
+  const [ajustesCompraData, setAjustesCompraData] = useState<Record<string, string>>({})
+  const [salvandoNegociacaoOpId, setSalvandoNegociacaoOpId] = useState<string | null>(null)
+  const [salvandoLeadtime, setSalvandoLeadtime] = useState(false)
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  const [arquivosBases, setArquivosBases] = useState<Partial<Record<BaseOperacionalOrdensId, File | null>>>({})
+  const [uploadingBase, setUploadingBase] = useState<BaseOperacionalOrdensId | null>(null)
+  const [atualizacoesBases, setAtualizacoesBases] = useState<Partial<Record<BaseOperacionalOrdensId, string | null>>>({})
+  const [modalBasesAberto, setModalBasesAberto] = useState(false)
+  const [confirmarExclusaoMes, setConfirmarExclusaoMes] = useState<string | null>(null)
+  const [excluindoMes, setExcluindoMes] = useState(false)
+  const ultimaVersaoCacheRef = useRef<string | null>(null)
+  const autoRefreshOrdensRef = useRef(false)
+
+  function mostrarToast(type: "success" | "error", message: string) {
+    setToast({ type, message })
+    window.setTimeout(() => setToast(null), type === "error" ? 7000 : 4500)
+  }
+
+  async function carregarAtualizacoesBases() {
+    const pares = await Promise.all(
+      BASES_OPERACIONAIS_ORDENS.map(async (base) => {
+        try {
+          const resp = await buscarUltimaAtualizacao(base.id)
+          return [base.id, resp.ultima_atualizacao || null] as const
+        } catch (e) {
+          console.warn(`Não foi possível buscar atualização de ${base.id}`, e)
+          return [base.id, null] as const
+        }
+      })
+    )
+
+    setAtualizacoesBases(Object.fromEntries(pares) as Partial<Record<BaseOperacionalOrdensId, string | null>>)
+  }
+
+  async function handleUploadBaseOperacional(baseId: BaseOperacionalOrdensId, arquivoSelecionado?: File) {
+    const arquivoBase = arquivoSelecionado || arquivosBases[baseId]
+
+    if (!arquivoBase) {
+      mostrarToast("error", "Selecione um arquivo antes de enviar.")
+      return
+    }
+
+    setUploadingBase(baseId)
+    setErro("")
+
+    try {
+      const resp = await uploadBase(baseId, arquivoBase)
+      const erros = Array.isArray(resp.erros) ? resp.erros.filter(Boolean) : []
+
+      if (erros.length > 0) {
+        mostrarToast("error", erros.slice(0, 2).join(" | "))
+        return
+      }
+
+      const base = BASES_OPERACIONAIS_ORDENS.find(b => b.id === baseId)
+
+      setArquivosBases(prev => ({ ...prev, [baseId]: null }))
+      ultimaVersaoCacheRef.current = null
+      setUploadingBase(null)
+
+      mostrarToast(
+        "success",
+        `${base?.titulo || "Base"} enviada com sucesso (${resp.total_inserido ?? 0} registros). Atualizando a tela em segundo plano.`
+      )
+
+      // Não deixa o botão preso enquanto a tela recalcula OPs.
+      // O upload já terminou; atualização de status e recálculo visual rodam depois.
+      void (async () => {
+        try {
+          limparCacheOrdensLocal()
+
+          const resMeses = await getOpsMeses().catch(() => null)
+          let mesParaBuscar = mesSel
+
+          if (resMeses?.meses?.length) {
+            setMeses(resMeses.meses)
+
+            if (baseId === "programacao_ops") {
+              mesParaBuscar = resMeses.meses[0]
+              setMesSel(mesParaBuscar)
+            }
+          }
+
+          await carregarAtualizacoesBases()
+
+          if (mesParaBuscar) {
+            await buscar(mesParaBuscar, true)
+          }
+        } catch (e) {
+          console.warn("Upload concluído, mas não foi possível atualizar a tela automaticamente.", e)
+        }
+      })()
+    } catch (e: unknown) {
+      mostrarToast("error", e instanceof Error ? e.message : "Erro ao subir arquivo.")
+    } finally {
+      setUploadingBase(null)
+    }
+  }
+
+
+  async function handleExcluirProgramacaoMes() {
+    if (!confirmarExclusaoMes) return
+
+    const mesExcluido = confirmarExclusaoMes
+    setExcluindoMes(true)
+    setErro("")
+
+    try {
+      const resp = await excluirProgramacaoOpsMes(mesExcluido)
+
+      setConfirmarExclusaoMes(null)
+      setExcluindoMes(false)
+      limparCacheOrdensLocal()
+      setSelecionados(new Set())
+      setOps([])
+      setDados(null)
+
+      mostrarToast(
+        "success",
+        resp.total_excluido > 0
+          ? `Programação de ${mesLabel(mesExcluido)} excluída (${resp.total_excluido} OPs). Agora você pode subir a nova versão.`
+          : `Não havia programação cadastrada para ${mesLabel(mesExcluido)}.`
+      )
+
+      // Não mantém o modal travado enquanto busca meses/status novamente.
+      void (async () => {
+        try {
+          const resMeses = await getOpsMeses().catch(() => null)
+          const mesesDisponiveis = resMeses?.meses || []
+          setMeses(mesesDisponiveis)
+
+          if (mesesDisponiveis.length > 0) {
+            setMesSel(mesesDisponiveis[0])
+          } else {
+            setMesSel("")
+          }
+
+          await carregarAtualizacoesBases()
+        } catch (e) {
+          console.warn("Exclusão concluída, mas não foi possível atualizar status automaticamente.", e)
+        }
+      })()
+    } catch (e: unknown) {
+      mostrarToast("error", e instanceof Error ? e.message : "Erro ao excluir programação do mês.")
+      setExcluindoMes(false)
+    }
+  }
+
+  useEffect(() => {
+    async function inicializar() {
+      try {
+        const [resMeses, ajustesSalvos] = await Promise.all([
+          getOpsMeses(),
+          getAjustesComprasOps().catch(() => [] as AjusteCompraOP[]),
+        ])
+
+        const configLeadtime = ajustesSalvos.find(a =>
+          String(a.op_id) === "__CONFIG__" &&
+          String(a.codigo_comp) === "leadtime_compra_dias"
+        )
+
+        if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
+          setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
+        }
+
+        setMeses(resMeses.meses)
+        if (resMeses.meses.length > 0) setMesSel(resMeses.meses[0])
+        await carregarAtualizacoesBases()
+      } catch (e) {
+        console.warn("Não foi possível inicializar OPs", e)
+      }
+    }
+
+    inicializar()
+  }, [])
+
+  useEffect(() => { if (mesSel) buscar() }, [mesSel])
+
+  const buscar = async (mesRefOverride?: string, forceRefresh = false) => {
+    const mesBusca = mesRefOverride || mesSel
+    if (!mesBusca) return
+    setLoading(true); setErro(""); setSelecionados(new Set())
+    try {
+      const res = await getOpsViabilidadeComLeadtime(mesBusca, leadtimeCompraDias, forceRefresh)
+      setDados(res)
+      const opsTratadas = ordenarESequenciarOps(
+        res.ops.map((op, i) => sanitizarOP({ ...op, id: (op as OPEditavel).id || `op-${i}` } as OPEditavel))
+      )
+      setOps(opsTratadas)
+      await carregarAjustesSalvos(opsTratadas)
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : "Erro ao carregar OPs")
+    } finally { setLoading(false) }
+  }
+
+  useEffect(() => {
+    if (!mesSel) return
+
+    let cancelado = false
+
+    async function verificarAtualizacaoAutomatica(mostrarAviso = false) {
+      if (!mesSel || autoRefreshOrdensRef.current) return
+
+      const versaoBackend = await getOpsCacheVersaoBackend(mesSel, leadtimeCompraDias)
+      if (!versaoBackend || cancelado) return
+
+      const versaoLocal = lerVersaoCacheOrdens(mesSel, leadtimeCompraDias)
+      const versaoRef = ultimaVersaoCacheRef.current
+      const primeiraChecagem = !versaoRef
+      const mudou = Boolean(
+        (versaoRef && versaoRef !== versaoBackend) ||
+        (versaoLocal && versaoLocal !== versaoBackend)
+      )
+
+      ultimaVersaoCacheRef.current = versaoBackend
+      salvarVersaoCacheOrdens(mesSel, leadtimeCompraDias, versaoBackend)
+
+      // Primeira checagem também sincroniza a tela com o backend se ela já
+      // apareceu a partir de um cache local antigo.
+      const precisaSincronizarPrimeiraVez = primeiraChecagem && ops.length > 0
+
+      if (!mudou && !precisaSincronizarPrimeiraVez) {
+        return
+      }
+
+      autoRefreshOrdensRef.current = true
+
+      try {
+        const key = _cacheKeyOrdensViabilidade(mesSel, leadtimeCompraDias)
+        window.localStorage.removeItem(key)
+
+        await buscar(mesSel, false)
+
+        if (!primeiraChecagem || mostrarAviso) {
+          mostrarToast("success", "Ordens atualizadas automaticamente.")
+        }
+      } catch (e) {
+        console.warn("Não foi possível atualizar Ordens automaticamente.", e)
+      } finally {
+        autoRefreshOrdensRef.current = false
+      }
+    }
+
+    void verificarAtualizacaoAutomatica(false)
+
+    const intervalId = window.setInterval(() => {
+      void verificarAtualizacaoAutomatica(true)
+    }, ORDENS_AUTO_REFRESH_MS)
+
+    function atualizarAoVoltarParaAba() {
+      if (document.visibilityState === "visible") {
+        void verificarAtualizacaoAutomatica(true)
+      }
+    }
+
+    document.addEventListener("visibilitychange", atualizarAoVoltarParaAba)
+    window.addEventListener("focus", atualizarAoVoltarParaAba)
+
+    return () => {
+      cancelado = true
+      window.clearInterval(intervalId)
+      document.removeEventListener("visibilitychange", atualizarAoVoltarParaAba)
+      window.removeEventListener("focus", atualizarAoVoltarParaAba)
+    }
+  }, [mesSel, leadtimeCompraDias, ops.length])
+
+  async function carregarAjustesSalvos(opsBase: OPEditavel[]) {
+    try {
+      const ajustes = await getAjustesComprasOps()
+      const nextQtd: Record<string, number> = {}
+      const nextData: Record<string, string> = {}
+
+      const configLeadtime = ajustes.find(a =>
+        String(a.op_id) === "__CONFIG__" &&
+        String(a.codigo_comp) === "leadtime_compra_dias"
+      )
+
+      if (configLeadtime && Number.isFinite(Number(configLeadtime.qtd_negociada))) {
+        setLeadtimeCompraDias(Math.max(0, Number(configLeadtime.qtd_negociada)))
+      }
+
+      for (const ajuste of ajustes) {
+        if (String(ajuste.op_id) === "__CONFIG__") continue
+        const op = opsBase.find(o =>
+          String(o.id || `${o.lote}-${o.codigo}`) === String(ajuste.op_id) ||
+          (ajuste.lote && o.lote === ajuste.lote && ajuste.codigo_op && o.codigo === ajuste.codigo_op)
+        )
+        if (!op) continue
+
+        const detalhes = Array.isArray(op.detalhes) ? op.detalhes : []
+        for (let compIndex = 0; compIndex < detalhes.length; compIndex++) {
+          const comp = detalhes[compIndex]
+          const codigoComp = String((comp as unknown as Record<string, unknown>).codigo_comp || "")
+          if (codigoComp !== ajuste.codigo_comp) continue
+
+          const compras = getComprasAbertas(comp)
+          const linhasCompra = compras.length > 0 ? compras : [null]
+          for (let compraIndex = 0; compraIndex < linhasCompra.length; compraIndex++) {
+            const compra = linhasCompra[compraIndex]
+            const mesmoPedido = String(compra?.pedido_numero || "") === String(ajuste.pedido_numero || "")
+            const mesmaSC = String(compra?.sc_numero || "") === String(ajuste.sc_numero || "")
+            const semPedido = !compra && !ajuste.pedido_numero && !ajuste.sc_numero
+
+            if ((mesmoPedido && mesmaSC) || semPedido) {
+              const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
+              if (Number.isFinite(Number(ajuste.qtd_negociada))) nextQtd[key] = toNumber(ajuste.qtd_negociada)
+              if (ajuste.data_negociada) nextData[key] = String(ajuste.data_negociada).slice(0, 10)
+            }
+          }
+        }
+      }
+
+      setAjustesCompra(nextQtd)
+      setAjustesCompraData(nextData)
+    } catch (e) {
+      console.warn("Não foi possível carregar ajustes de compras", e)
+    }
+  }
+
+  const opsComAjustes = useMemo(() => {
+    return ordenarESequenciarOps(
+      ops.map(op => aplicarSimulacaoComprasNaOP(op, ajustesCompra, ajustesCompraData, leadtimeCompraDias))
+    )
+  }, [ops, ajustesCompra, ajustesCompraData, leadtimeCompraDias])
+
+  const totalMes    = opsComAjustes.length
+  const abertas     = opsComAjustes.filter(op => op.status === "aberta").length
+  const faltamAbrir = opsComAjustes.filter(op => op.status !== "aberta").length
+  const comMaterial = opsComAjustes.filter(op => op.status === "ok").length
+  const faltaMaterial = opsComAjustes.filter(op => op.status === "falta").length
+  const quarentenaMaterial = opsComAjustes.filter(op => op.status === "quarentena").length
+  const semMaterial = faltaMaterial + quarentenaMaterial
+  const pctAbertas  = totalMes > 0 ? Math.round((abertas / totalMes) * 100) : 0
+  const estoqueAtualizadoEm = fmtDataHora(getEstoqueAtualizadoEm(dados))
+  const programacaoAtualizadaEm = fmtDataHora(getProgramacaoAtualizadaEm(dados))
+
+  function uniqueOptions(values: Array<string | null | undefined>): SelectOption[] {
+    return Array.from(new Set(values.map(v => String(v || "").trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }))
+      .map(v => ({ value: v, label: v }))
+  }
+
+  const tipoOptions    = useMemo(() => uniqueOptions(opsComAjustes.map(op => tipoProduto(op.linha))), [opsComAjustes])
+  const loteOptions    = useMemo(() => uniqueOptions(opsComAjustes.map(op => op.lote)), [opsComAjustes])
+  const codigoOptions  = useMemo(() => uniqueOptions(opsComAjustes.map(op => op.codigo)), [opsComAjustes])
+  const produtoOptions = useMemo(() => uniqueOptions(opsComAjustes.map(op => op.produto || op.codigo)), [opsComAjustes])
+
+  const opsFiltradas = opsComAjustes.filter(op => {
+    if (linhasSel.length > 0 && !linhasSel.includes(op.linha)) return false
+    if (statusesSel.length > 0 && !statusesSel.includes(op.status)) return false
+    if (tiposSel.length > 0 && !tiposSel.includes(tipoProduto(op.linha))) return false
+    if (lotesSel.length > 0 && !lotesSel.includes(op.lote)) return false
+    if (codigosSel.length > 0 && !codigosSel.includes(op.codigo)) return false
+    if (produtosSel.length > 0 && !produtosSel.includes(op.produto || op.codigo)) return false
+    return true
+  })
+
+  const materiaisCriticosResumo = montarResumoMateriaisCriticos(opsFiltradas)
+
+  function handleSelect(id: string, val: boolean) {
+    setSelecionados(prev => { const n = new Set(prev); val ? n.add(id) : n.delete(id); return n })
+  }
+
+  function handleSelectAll(val: boolean) {
+    setSelecionados(val ? new Set(opsFiltradas.map(op => op.id || `${op.lote}-${op.codigo}`)) : new Set())
+  }
+
+  function handleAjusteCompraChange(key: string, value: number) {
+    setAjustesCompra(prev => {
+      const next = { ...prev }
+
+      // Importante: 0 é um valor válido.
+      // Antes, quando value era 0, a chave era removida do estado e o valor antigo salvo voltava após F5.
+      if (Number.isFinite(Number(value)) && Number(value) >= 0) next[key] = Number(value)
+      else delete next[key]
+
+      return next
+    })
+  }
+
+  function handleAjusteCompraDataChange(key: string, value: string) {
+    const data = parseInputDate(value)
+    setAjustesCompraData(prev => {
+      const next = { ...prev }
+      if (data) next[key] = data
+      else delete next[key]
+      return next
+    })
+  }
+
+  async function handleSalvarNegociacao(op: OPEditavel) {
+    const opId = String(op.id || `${op.lote}-${op.codigo}`)
+    setSalvandoNegociacaoOpId(opId)
+
+    try {
+      const payloads: AjusteCompraOP[] = []
+      const detalhes = Array.isArray(op.detalhes) ? op.detalhes : []
+
+      detalhes.forEach((comp, compIndex) => {
+        const compRecord = comp as unknown as Record<string, unknown>
+        const codigoComp = String(compRecord.codigo_comp || "")
+        if (!codigoComp) return
+
+        const compras = getComprasAbertas(comp)
+        const linhasCompra = compras.length > 0 ? compras : [null]
+
+        linhasCompra.forEach((compra, compraIndex) => {
+          const key = getCompraPedidoKey(op, comp, compra, compIndex, compraIndex)
+          const qtd = ajustesCompra[key] ?? 0
+          const data = ajustesCompraData[key] || ""
+
+          // Importante: qtd = 0 precisa ser salva para limpar uma negociação anterior.
+          // Só ignoramos quando não há quantidade editada e também não há data negociada.
+          if (!data && !Object.prototype.hasOwnProperty.call(ajustesCompra, key)) return
+
+          payloads.push({
+            op_id: opId,
+            lote: op.lote || null,
+            codigo_op: op.codigo || null,
+            codigo_comp: codigoComp,
+            pedido_numero: compra?.pedido_numero || null,
+            sc_numero: compra?.sc_numero || null,
+            qtd_negociada: qtd,
+            data_negociada: data,
+            observacao: null,
+          })
+        })
+      })
+
+
+      await Promise.all(payloads.map(payload => salvarAjusteCompraOP(payload)))
+      mostrarToast("success", "Negociação salva com sucesso.")
+    } catch (e: unknown) {
+      mostrarToast("error", e instanceof Error ? e.message : "Erro ao salvar negociação")
+    } finally {
+      setSalvandoNegociacaoOpId(null)
+    }
+  }
+
+  async function handleSalvarLeadtimeCompra() {
+    setSalvandoLeadtime(true)
+
+    try {
+      await salvarAjusteCompraOP({
+        op_id: "__CONFIG__",
+        lote: "CONFIG",
+        codigo_op: "CONFIG",
+        codigo_comp: "leadtime_compra_dias",
+        pedido_numero: "LEADTIME_COMPRA",
+        sc_numero: null,
+        qtd_negociada: Math.max(0, Number(leadtimeCompraDias || 0)),
+        data_negociada: null,
+        observacao: "Configuração global da quantidade de dias antes da fabricação em que a entrega de compras deve ser considerada.",
+      })
+
+      mostrarToast("success", "Configuração de compras salva para todos.")
+      buscar(undefined, true)
+    } catch (e: unknown) {
+      mostrarToast("error", e instanceof Error ? e.message : "Erro ao salvar configuração de compras")
+    } finally {
+      setSalvandoLeadtime(false)
+    }
+  }
+
+  function handleSaved(atualizado: Partial<OPEditavel>) {
+    setOps(prev => ordenarESequenciarOps(prev.map(op =>
+      op.id === opEditando?.id ? sanitizarOP({ ...op, ...atualizado } as OPEditavel) : op
+    )))
+  }
+
+  return (
+    <div className="min-h-screen space-y-5 p-3 md:space-y-6 md:p-6">
+      {toast && (
+        <div
+          className="fixed right-5 top-5 z-[9999] flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-2xl backdrop-blur-md"
+          style={{
+            background: toast.type === "success" ? "rgba(22,163,74,0.96)" : "rgba(220,38,38,0.96)",
+            borderColor: toast.type === "success" ? "rgba(187,247,208,0.5)" : "rgba(254,202,202,0.5)",
+            color: "#fff",
+          }}
+        >
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
+            {toast.type === "success" ? "✓" : "!"}
+          </span>
+          <span>{toast.message}</span>
+        </div>
+      )}
+      <div className="fade-in flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-widest" style={{ color: "var(--text-secondary)" }}>Planejamento · Ordens de Produção</p>
+          <h1 className="mb-1 text-xl font-bold md:text-2xl" style={{ color: "var(--text-primary)" }}>Verificação de OPs</h1>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Confira quais OPs sem emissão têm material disponível para abertura no Protheus.</p>
+
+          {dados && !loading && (
+            <div
+              className="mt-3 inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium"
+              style={{
+                background: "var(--bg-secondary)",
+                borderColor: "var(--border)",
+                color: "var(--text-secondary)",
+              }}
+              title="Data/hora da última carga da programação mensal de OPs considerada nesta análise."
+            >
+              <CalendarDays size={14} />
+              <span>
+                Programação atualizada em: {programacaoAtualizadaEm || "não disponível"}
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {selecionados.size > 0 && <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{selecionados.size} selecionada{selecionados.size !== 1 ? "s" : ""}</span>}
+          {selecionados.size > 0 && (
+            <button onClick={() => exportarExcel(opsFiltradas.filter(op => selecionados.has(op.id || `${op.lote}-${op.codigo}`)), mesSel)}
+              className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold"
+              style={{ background: "#F0FDF4", borderColor: "#BBF7D0", color: "#166534" }}>
+              <Download size={14} /> Exportar ({selecionados.size})
+            </button>
+          )}
+          <button onClick={() => exportarExcel(opsFiltradas, mesSel)} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold" style={{ cursor: "pointer" }}>
+            <Download size={14} /> Exportar tudo
+          </button>
+          <button onClick={() => setNovaOpModal(true)} className="flex h-10 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-white" style={{ background: "var(--bg-sidebar)" }}>
+            <Plus size={14} /> Nova OP
+          </button>
+          <button onClick={() => buscar(undefined, true)} disabled={loading || !mesSel} className="flex h-10 items-center gap-2 rounded-xl border px-4 text-xs font-semibold" style={{ cursor: loading ? "not-allowed" : "pointer" }}>
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Atualizar
+          </button>
+          <button
+            type="button"
+            onClick={() => setModalBasesAberto(true)}
+            className="flex h-10 items-center gap-2 rounded-xl px-4 text-xs font-semibold text-white"
+            style={{ background: "var(--bg-sidebar)", cursor: "pointer" }}
+            title="Atualizar bases usadas nesta análise"
+          >
+            <Database size={15} />
+            Bases
+          </button>
+        </div>
+      </div>
+
+      <FilterPanel
+        meses={meses} mesSel={mesSel}
+        linhasSel={linhasSel} statusesSel={statusesSel} tiposSel={tiposSel}
+        lotesSel={lotesSel} codigosSel={codigosSel} produtosSel={produtosSel}
+        loteOptions={loteOptions} codigoOptions={codigoOptions}
+        produtoOptions={produtoOptions} tipoOptions={tipoOptions}
+        onMes={setMesSel} onLinhas={setLinhasSel} onStatuses={setStatusesSel}
+        onTipos={setTiposSel} onLotes={setLotesSel} onCodigos={setCodigosSel} onProdutos={setProdutosSel}
+      />
+
+      {dados && !loading && (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 fade-in">
+            <SummaryCard label="Total do mês"  value={totalMes}    sub="OPs programadas"              color="#6B7280" Icon={CalendarDays}  onClick={() => setModalCard("total")} />
+            <SummaryCard label="OPs abertas"   value={abertas}     sub={`de ${totalMes} · ${pctAbertas}%`} color="#2563EB" Icon={ClipboardList} onClick={() => setModalCard("abertas")} />
+            <SummaryCard label="Faltam abrir"  value={faltamAbrir} sub="sem OP emitida"               color="#F59E0B" Icon={Clock}         onClick={() => setModalCard("faltam")} />
+            <SummaryCard label="Com material"  value={comMaterial} sub="prontas para abrir"           color="#16A34A" Icon={PackageCheck}  onClick={() => setModalCard("com_material")} />
+            <SummaryCard
+              label="Sem material"
+              value={semMaterial}
+              sub={`${faltaMaterial} falta · ${quarentenaMaterial} quarentena`}
+              color={faltaMaterial > 0 ? "#DC2626" : "#F59E0B"}
+              Icon={PackageX}
+              onClick={() => setModalCard("sem_material")}
+            />
+          </div>
+
+          <div className="fade-in rounded-xl border px-4 py-2 text-xs"
+            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+            Análise considerando o estoque de insumos atualizado em {estoqueAtualizadoEm || "snapshot mais recente disponível"}. Compras oficiais só contam para abertura se a data de entrega for até {leadtimeCompraDias} dia{leadtimeCompraDias !== 1 ? "s" : ""} antes da data de fabricação da OP.
+          </div>
+
+
+          <div
+            className="fade-in flex w-full flex-col gap-3 rounded-xl border px-4 py-3 text-xs sm:w-fit sm:flex-row sm:items-center"
+            style={{
+              background: "var(--bg-secondary)",
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
+            title="A data de entrega oficial de compras só conta para abertura se for menor ou igual à data de fabricação da OP menos este número de dias."
+          >
+            <div className="flex items-center gap-2">
+              <div
+                className="flex h-8 w-8 items-center justify-center rounded-lg"
+                style={{ background: "#EFF6FF", color: "#2563EB" }}
+              >
+                <ShoppingCart size={15} />
+              </div>
+              <span className="font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                Data de entrega de compras considerada:
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span>até</span>
+              <input
+                type="number"
+                min={0}
+                max={30}
+                value={leadtimeCompraDias}
+                onChange={e => setLeadtimeCompraDias(Math.max(0, Number(e.target.value || 0)))}
+                className="h-8 w-16 rounded-lg border px-2 text-center text-xs font-bold outline-none"
+                style={{
+                  background: "#EFF6FF",
+                  borderColor: "#BFDBFE",
+                  color: "#1D4ED8",
+                }}
+              />
+              <span>
+                dia{leadtimeCompraDias !== 1 ? "s" : ""} antes da data de fabricação da OP
+              </span>
+              <button
+                type="button"
+                onClick={handleSalvarLeadtimeCompra}
+                disabled={salvandoLeadtime}
+                className="ml-1 flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-60"
+                style={{ background: "var(--bg-sidebar)", cursor: salvandoLeadtime ? "not-allowed" : "pointer" }}
+                title="Salvar esta configuração para todos os usuários"
+              >
+                <Save size={13} />
+                {salvandoLeadtime ? "Salvando..." : "Salvar prazo"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {loading && (
+        <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>
+          <RefreshCw size={24} className="animate-spin mx-auto mb-3" style={{ opacity: 0.4 }} />
+          Verificando estoque e BOM...
+        </div>
+      )}
+
+      {!loading && erro && (
+        <div className="card p-6 text-sm fade-in" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#991B1B" }}>
+          <XCircle size={16} className="inline mr-2" />{erro}
+        </div>
+      )}
+
+      {!loading && !erro && opsFiltradas.length > 0 && (
+        <div className="fade-in space-y-2">
+          <p className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+            {opsFiltradas.length} OP{opsFiltradas.length !== 1 ? "s" : ""} encontrada{opsFiltradas.length !== 1 ? "s" : ""}
+          </p>
+          <OPTable
+            ops={opsFiltradas}
+            selecionados={selecionados}
+            onSelect={handleSelect}
+            onSelectAll={handleSelectAll}
+            onEdit={setOpEditando}
+            ajustesCompra={ajustesCompra}
+            ajustesCompraData={ajustesCompraData}
+            leadtimeCompraDias={leadtimeCompraDias}
+            salvandoNegociacaoOpId={salvandoNegociacaoOpId}
+            onSalvarNegociacao={handleSalvarNegociacao}
+            onAjusteCompraChange={handleAjusteCompraChange}
+            onAjusteCompraDataChange={handleAjusteCompraDataChange}
+          />
+
+          <MateriaisCriticosResumoTable
+            materiais={materiaisCriticosResumo}
+            totalOps={opsFiltradas.length}
+            mesRef={mesSel}
+          />
+        </div>
+      )}
+
+      {!loading && !erro && dados && opsFiltradas.length === 0 && (
+        <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>Nenhuma OP encontrada para os filtros selecionados.</div>
+      )}
+
+      {!loading && !erro && !dados && !mesSel && (
+        <div className="card p-10 text-center text-sm fade-in" style={{ color: "var(--text-secondary)" }}>Nenhuma programação carregada. Faça o upload da planilha de OPs na aba Dados.</div>
+      )}
+
+      {modalBasesAberto && (
+        <div
+          className="fixed inset-0 z-[997] flex items-center justify-center bg-black/35 px-4 py-6 backdrop-blur-[2px]"
+          onClick={() => setModalBasesAberto(false)}
+        >
+          <div
+            className="flex max-h-[92vh] w-[min(96vw,1440px)] flex-col overflow-hidden rounded-3xl border bg-white shadow-2xl"
+            style={{ borderColor: "var(--border)" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b px-6 py-5" style={{ borderColor: "var(--border)" }}>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Bases da análise</p>
+                <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>Ordens de Produção</h2>
+                <p className="mt-1 max-w-3xl text-sm" style={{ color: "var(--text-secondary)" }}>
+                  Use este painel para atualizar somente as bases necessárias para a análise de viabilidade. Bases compartilhadas atualizam automaticamente as outras páginas que usam a mesma tabela.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalBasesAberto(false)}
+                className="rounded-xl p-2 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto px-6 py-5">
+              <div className="mb-4 flex flex-col justify-between gap-3 rounded-2xl border p-4 md:flex-row md:items-center" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+                <div>
+                  <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Racional das bases</p>
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Programação mensal é a base principal. Estrutura/BOM, lotes teóricos, estoque de insumos e compras em aberto completam o cálculo de viabilidade das OPs.
+                  </p>
+                  <p className="mt-1 text-[11px] font-semibold" style={{ color: "#1D4ED8" }}>
+                    Estoque e compras são compartilhados com outras páginas da ferramenta.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={carregarAtualizacoesBases}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition hover:bg-white"
+                  style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                >
+                  <RefreshCw size={14} />
+                  Atualizar status
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+                {BASES_OPERACIONAIS_ORDENS.map((base) => {
+                  const enviando = uploadingBase === base.id
+                  const atualizadoEm = fmtDataHora(atualizacoesBases[base.id] || null)
+                  const inputId = `upload-ordens-${base.id}`
+
+                  const usoNaTela: Record<BaseOperacionalOrdensId, { texto: string; compartilhada?: string }> = {
+                    programacao_ops: {
+                      texto: "Define as OPs exibidas, o mês de referência e as datas de fabricação usadas na análise.",
+                    },
+                    bom_estrutura: {
+                      texto: "Explode cada produto pai nos componentes necessários para calcular a necessidade de material.",
+                      compartilhada: "Também atualiza a Gestão de Estoque.",
+                    },
+                    lotes_teoricos: {
+                      texto: "Substitui a quantidade da programação pela quantidade teórica exigida na abertura da OP, quando aplicável.",
+                    },
+                    estoque_saldo: {
+                      texto: "Alimenta o saldo disponível de insumos usado para validar falta de material e quarentena.",
+                      compartilhada: "Também pode alimentar outras análises.",
+                    },
+                    compras_abertas: {
+                      texto: "Soma entradas futuras dentro do prazo considerado para avaliar se a OP poderá ser aberta.",
+                      compartilhada: "Também atualiza a Gestão de Estoque.",
+                    },
+                  }
+
+                  const uso = usoNaTela[base.id]
+
+                  return (
+                    <div
+                      key={base.id}
+                      className="flex min-h-[330px] flex-col rounded-2xl border p-4"
+                      style={{ borderColor: "var(--border)", background: "#FFFFFF" }}
+                    >
+                      <div className="flex min-h-[82px] items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{base.titulo}</h3>
+                            <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: "rgba(220,38,38,0.08)", color: "#B91C1C" }}>Obrigatória</span>
+                          </div>
+                          <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>{base.descricao}</p>
+                        </div>
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl" style={{ background: "rgba(37,99,235,0.08)", color: "#1D4ED8" }}>
+                          <Database size={17} />
+                        </div>
+                      </div>
+
+                      <div className="mt-3 min-h-[116px] rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-primary)" }}>
+                        <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Uso na tela</p>
+                        <p className="mt-1 text-xs" style={{ color: "var(--text-primary)" }}>{uso.texto}</p>
+                        {uso.compartilhada && <p className="mt-2 text-[11px] font-semibold" style={{ color: "#1D4ED8" }}>{uso.compartilhada}</p>}
+                      </div>
+
+                      <div className="mt-auto pt-4">
+                        <div className="mb-4 flex min-h-[34px] items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                          <CheckCircle2 size={14} className={atualizadoEm ? "text-emerald-600" : "text-slate-400"} />
+                          <span>
+                            {atualizadoEm
+                              ? `Atualizado em ${atualizadoEm}`
+                              : "Ainda sem carga registrada"}
+                          </span>
+                        </div>
+
+                        <input
+                          id={inputId}
+                          type="file"
+                          className="hidden"
+                          accept={base.accept}
+                          disabled={uploadingBase !== null}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            e.target.value = ""
+                            if (file) handleUploadBaseOperacional(base.id, file)
+                          }}
+                        />
+                        <label
+                          htmlFor={inputId}
+                          className={`inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white transition ${uploadingBase !== null ? "pointer-events-none opacity-60" : "hover:brightness-95"}`}
+                          style={{ background: "#163B63" }}
+                        >
+                          {enviando ? <RefreshCw size={16} className="animate-spin" /> : <UploadCloud size={16} />}
+                          {enviando ? "Enviando..." : "Subir arquivo"}
+                        </label>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="mt-4 rounded-2xl border px-4 py-4" style={{ background: "#FEF2F2", borderColor: "#FECACA" }}>
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-bold" style={{ color: "#991B1B" }}>Excluir programação do mês selecionado</p>
+                    <p className="mt-1 text-xs leading-5" style={{ color: "#7F1D1D" }}>
+                      Use quando a programação de <strong>{mesSel ? mesLabel(mesSel) : "um mês"}</strong> foi carregada errada ou mudou totalmente. Isso apaga apenas as OPs do mês selecionado; BOM, estoque, compras e lotes teóricos continuam mantidos.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => mesSel && setConfirmarExclusaoMes(mesSel)}
+                    disabled={!mesSel || excluindoMes}
+                    className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-white disabled:opacity-50"
+                    style={{ background: "#DC2626", cursor: !mesSel || excluindoMes ? "not-allowed" : "pointer" }}
+                  >
+                    <Trash2 size={16} />
+                    Excluir {mesSel ? mesLabel(mesSel) : "mês"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border px-4 py-3 text-xs leading-5" style={{ background: "#FFFBEB", borderColor: "#FDE68A", color: "#92400E" }}>
+                Essas atualizações substituem bases usadas no cálculo de viabilidade. Após o upload, a tela recalcula automaticamente as OPs do mês selecionado. Estoque e compras também podem impactar outras páginas da ferramenta.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {confirmarExclusaoMes && (
+        <div
+          className="fixed inset-0 z-[999] flex items-center justify-center p-4"
+          style={{ background: "rgba(15,23,42,0.55)" }}
+          onClick={() => !excluindoMes && setConfirmarExclusaoMes(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border p-5 shadow-2xl"
+            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: "#FEF2F2", color: "#DC2626" }}>
+                <Trash2 size={18} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>Excluir programação de {mesLabel(confirmarExclusaoMes)}</h3>
+                <p className="mt-2 text-sm leading-6" style={{ color: "var(--text-secondary)" }}>
+                  Isso vai apagar todas as OPs carregadas para este mês. Depois você pode subir a programação correta pelo próprio modal de Bases.
+                </p>
+                <p className="mt-2 text-xs font-semibold" style={{ color: "#991B1B" }}>
+                  Não serão apagados estoque, compras, BOM ou lotes teóricos.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmarExclusaoMes(null)}
+                disabled={excluindoMes}
+                className="rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)" }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleExcluirProgramacaoMes}
+                disabled={excluindoMes}
+                className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+                style={{ background: "#DC2626" }}
+              >
+                {excluindoMes ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {excluindoMes ? "Excluindo..." : "Excluir mês"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <CardModal tipo={modalCard} ops={opsComAjustes} onClose={() => setModalCard(null)} />
+
+      {novaOpModal && (
+        <EditModal
+          op={{ id: undefined, mes_ref: mesSel, lote: "", produto: "", codigo: "", linha: "ENVASE_L1" as OPResult["linha"], op_numero: null, quantidade: 0, status: "ok" as StatusOP, alertas: [], detalhes: [], data_fim: null } as OPEditavel}
+          onClose={() => setNovaOpModal(false)}
+          onSaved={(novo) => {
+            setOps(prev => ordenarESequenciarOps([...prev, sanitizarOP({ ...novo, id: `new-${Date.now()}`, status: "ok" as StatusOP, alertas: [], detalhes: [] } as OPEditavel)]))
+            setNovaOpModal(false)
+          }}
+          isNova
+        />
+      )}
+
+      {opEditando && (
+        <EditModal op={opEditando}
+          onClose={() => { setOpEditando(null); setSelecionados(new Set()) }}
+          onSaved={handleSaved} />
+      )}
+    </div>
+  )
+}

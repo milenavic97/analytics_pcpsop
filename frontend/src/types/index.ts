@@ -6,13 +6,19 @@ export interface UploadStatus {
   erros?: string[]
 }
 
+export interface ColunaVisivel {
+  key:   string
+  label: string
+}
+
 export interface BaseConfig {
-  id:          string
-  label:       string
-  descricao:   string
-  colunas:     string[]
-  template:    string   // nome do arquivo de template
-  icone:       string   // nome do ícone Lucide
+  id:               string
+  label:            string
+  descricao:        string
+  colunas:          string[]
+  template:         string
+  icone:            string
+  colunasVisiveis?: ColunaVisivel[]   // quando definido, restringe e renomeia colunas na tabela
 }
 
 export interface OrcadoLiberacaoMes {

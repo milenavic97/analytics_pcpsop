@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { X } from "lucide-react"
-import { getProjecaoLiberacoes } from "@/services/api"
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -31,6 +30,8 @@ interface LinhaResumo {
   linha: "L1" | "L2"
   realizado: number | null
   planejado: number
+  planejado_v1?: number | null
+  versao_planejada?: string | null
   previsto: number | null
   orcado: number
   atingimento: number | null
@@ -38,12 +39,21 @@ interface LinhaResumo {
 
 interface ProjecaoLiberacoesResponse {
   total_real: number
+  total_real_mes_atual?: number
   total_previsto: number
   total_projetado: number
   total_orcado: number
   pct_atingimento: number
   delta_caixas: number
   ultimo_mes_fechado: number
+  mes_atual?: number
+  mes_inicio_previsto?: number
+  fonte_previsto?: string
+  fonte_previsto_detalhe?: string
+  versao_previsto_atual?: string | null
+  realizado_label?: string
+  previsto_label?: string
+  projecao_label?: string
   meses: MesResumo[]
   linhas?: LinhaResumo[]
 }
@@ -53,18 +63,52 @@ interface ChartPoint {
   mesLabel: string
   linha: "L1" | "L2"
   planejado: number
+  planejado_v1: number | null
+  versao_planejada: string | null
   realizado: number | null
   orcado: number
   atingimento: number | null
 }
 
+import { getAuthHeaders } from "../../lib/authHeaders"
+
 const MES_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 const TUBETES_POR_CAIXA = 500
 
+const API_URL = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
+const CACHE_VERSION = "projecao-liberacoes-2026-06-18-v3"
+
+async function getProjecaoLiberacoesFresh(signal?: AbortSignal): Promise<ProjecaoLiberacoesResponse> {
+  const params = new URLSearchParams({
+    cache_version: CACHE_VERSION,
+    t: String(Date.now()),
+  })
+
+  const authHeaders = await getAuthHeaders()
+  const response = await fetch(`${API_URL}/overview/projecao-liberacoes?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    signal,
+    headers: {
+      ...authHeaders,
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Erro ao carregar projeção de liberações: ${response.status}`)
+  }
+
+  return response.json() as Promise<ProjecaoLiberacoesResponse>
+}
+
 const COR_REAL = "#27336D"
 const COR_PLANEJADO = "#D7DCE7"
 const COR_ORCADO = "#E56A1C"
+const COR_V1 = "#6A7FC0"
 const COR_ATINGIMENTO = "#8FA0B8"
 const COR_VERDE = "#2E7D32"
 const COR_AMARELO = "#CA8A04"
@@ -109,11 +153,20 @@ function buildLinhaData(data: ProjecaoLiberacoesResponse, linha: "L1" | "L2"): C
   for (let mes = 1; mes <= 12; mes++) {
     const row = linhasMap.get(mes)
 
+    // Regra do modal de Liberações Reais + Previstas:
+    // - `planejado` pode vir como plano bruto da versão do MPS.
+    // - `previsto`, quando enviado pelo backend, já representa a projeção ajustada
+    //   usada nos cards da Overview/Rastreamento para o mês atual e meses previstos.
+    // Por isso o gráfico deve priorizar `previsto` e só cair em `planejado` como fallback.
+    const planejadoAjustado = row?.previsto ?? row?.planejado ?? 0
+
     result.push({
       mes,
       mesLabel: MES_LABELS[mes - 1],
       linha,
-      planejado: Number(row?.planejado || 0),
+      planejado: Number(planejadoAjustado || 0),
+      planejado_v1: row?.planejado_v1 ?? null,
+      versao_planejada: row?.versao_planejada ?? null,
       realizado: row?.realizado ?? null,
       orcado: Number(row?.orcado || 0),
       atingimento: row?.atingimento ?? null,
@@ -135,9 +188,11 @@ function getPctMax(data: ChartPoint[]) {
 }
 
 const PlannedLabel = (props: any) => {
-  const { x, y, width, value } = props
+  const { x, y, width, value, payload } = props
 
   if (!value || Number(value) <= 0) return null
+
+  const versao = payload?.versao_planejada ? String(payload.versao_planejada) : ""
 
   return (
     <text
@@ -148,7 +203,7 @@ const PlannedLabel = (props: any) => {
       fontWeight={600}
       fill="#6B7280"
     >
-      {fmt(value)}
+      {versao ? `${fmt(value)} · ${versao}` : fmt(value)}
     </text>
   )
 }
@@ -229,6 +284,39 @@ const MetaMarker = (props: any) => {
   )
 }
 
+const V1Marker = (props: any) => {
+  const { cx, cy, payload, showV1 } = props
+
+  if (!showV1) return null
+  if (!payload || payload.planejado_v1 === null || payload.planejado_v1 === undefined) return null
+  if (Number(payload.planejado_v1) <= 0) return null
+
+  return (
+    <g>
+      <line
+        x1={cx - 18}
+        y1={cy}
+        x2={cx + 18}
+        y2={cy}
+        stroke={COR_V1}
+        strokeWidth={3}
+        strokeLinecap="round"
+      />
+      <circle cx={cx} cy={cy} r={4} fill={COR_V1} />
+      <text
+        x={cx}
+        y={cy - 9}
+        textAnchor="middle"
+        fontSize={10}
+        fontWeight={700}
+        fill={COR_V1}
+      >
+        {fmt(payload.planejado_v1)}
+      </text>
+    </g>
+  )
+}
+
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload || !payload.length) return null
 
@@ -243,7 +331,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         padding: "10px 12px",
         boxShadow: "0 8px 20px rgba(0,0,0,0.10)",
         fontSize: 12,
-        minWidth: 180,
+        minWidth: 210,
       }}
     >
       <div
@@ -258,8 +346,17 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
       <div style={{ display: "grid", gap: 4 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-          <span style={{ color: "var(--text-secondary)" }}>Planejado</span>
+          <span style={{ color: "var(--text-secondary)" }}>
+            Planejado {row?.versao_planejada ? `(${row.versao_planejada})` : ""}
+          </span>
           <strong style={{ color: "var(--text-primary)" }}>{fmt(row?.planejado)} cx</strong>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <span style={{ color: "var(--text-secondary)" }}>V1 do mês</span>
+          <strong style={{ color: COR_V1 }}>
+            {row?.planejado_v1 ? `${fmt(row.planejado_v1)} cx` : "-"}
+          </strong>
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
@@ -285,7 +382,25 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   )
 }
 
-function PercentBand({ data }: { data: ChartPoint[] }) {
+function PercentBand({
+  data,
+  visible,
+}: {
+  data: ChartPoint[]
+  visible: boolean
+}) {
+  if (!visible) {
+    return (
+      <div
+        style={{
+          height: 48,
+          marginLeft: Y_AXIS_WIDTH + CHART_LEFT,
+          marginRight: CHART_RIGHT,
+        }}
+      />
+    )
+  }
+
   const pctMax = getPctMax(data)
 
   const points = data
@@ -371,11 +486,19 @@ function PercentBand({ data }: { data: ChartPoint[] }) {
 function LinhaChart({
   titulo,
   data,
+  showPlanejado,
+  showRealizado,
   showOrcado,
+  showV1,
+  showAtingimento,
 }: {
   titulo: string
   data: ChartPoint[]
+  showPlanejado: boolean
+  showRealizado: boolean
   showOrcado: boolean
+  showV1: boolean
+  showAtingimento: boolean
 }) {
   return (
     <div
@@ -413,7 +536,7 @@ function LinhaChart({
         </p>
       </div>
 
-      <PercentBand data={data} />
+      <PercentBand data={data} visible={showAtingimento} />
 
       <div style={{ height: 245 }}>
         <ResponsiveContainer width="100%" height="100%">
@@ -444,31 +567,45 @@ function LinhaChart({
 
             <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(39,51,109,0.04)" }} />
 
-            <Bar
-              dataKey="planejado"
-              fill={COR_PLANEJADO}
-              radius={[6, 6, 0, 0]}
-              barSize={50}
-              isAnimationActive={false}
-            >
-              <LabelList content={PlannedLabel} />
-            </Bar>
+            {showPlanejado && (
+              <Bar
+                dataKey="planejado"
+                fill={COR_PLANEJADO}
+                radius={[6, 6, 0, 0]}
+                barSize={50}
+                isAnimationActive={false}
+              >
+                <LabelList content={PlannedLabel} />
+              </Bar>
+            )}
 
-            <Bar
-              dataKey="realizado"
-              fill={COR_REAL}
-              radius={[6, 6, 0, 0]}
-              barSize={38}
-              isAnimationActive={false}
-            >
-              <LabelList content={RealizedLabel} />
-            </Bar>
+            {showRealizado && (
+              <Bar
+                dataKey="realizado"
+                fill={COR_REAL}
+                radius={[6, 6, 0, 0]}
+                barSize={38}
+                isAnimationActive={false}
+              >
+                <LabelList content={RealizedLabel} />
+              </Bar>
+            )}
 
             <Line
               type="linear"
               dataKey="orcado"
               stroke="transparent"
               dot={<MetaMarker showOrcado={showOrcado} />}
+              activeDot={false}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+
+            <Line
+              type="linear"
+              dataKey="planejado_v1"
+              stroke="transparent"
+              dot={<V1Marker showV1={showV1} />}
               activeDot={false}
               connectNulls={false}
               isAnimationActive={false}
@@ -504,6 +641,7 @@ function LegendToggleItem({
         padding: 0,
         cursor: "pointer",
         opacity: active ? 1 : 0.45,
+        textDecoration: active ? "none" : "line-through",
       }}
       title={active ? "Clique para ocultar" : "Clique para mostrar"}
     >
@@ -518,19 +656,42 @@ function LegendToggleItem({
 export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
   const [data, setData] = useState<ProjecaoLiberacoesResponse | null>(null)
   const [loading, setLoading] = useState(false)
+
+  const [showPlanejado, setShowPlanejado] = useState(true)
+  const [showRealizado, setShowRealizado] = useState(true)
   const [showOrcado, setShowOrcado] = useState(true)
+  const [showV1, setShowV1] = useState(true)
+  const [showAtingimento, setShowAtingimento] = useState(true)
 
   useEffect(() => {
     if (!open) return
 
-    setLoading(true)
+    const controller = new AbortController()
 
-    getProjecaoLiberacoes()
-      .then((response: unknown) => {
-        setData(response as ProjecaoLiberacoesResponse)
+    setLoading(true)
+    setData(null)
+
+    getProjecaoLiberacoesFresh(controller.signal)
+      .then((response) => {
+        setData(response)
       })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+      .catch((error: unknown) => {
+        const errorName =
+          typeof error === "object" && error !== null && "name" in error
+            ? String((error as { name?: string }).name || "")
+            : ""
+
+        if (errorName !== "AbortError") {
+          console.error(error)
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      })
+
+    return () => controller.abort()
   }, [open])
 
   useEffect(() => {
@@ -608,7 +769,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
             </h2>
 
             <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-              Comparativo por linha: planejado, realizado, orçado e atingimento mensal.
+              Comparativo por linha: realizado até o mês fechado e previsto pelo Gantt/MPS versionado.
             </p>
           </div>
 
@@ -681,7 +842,11 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   </p>
 
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-                    {fmt(totalRealTb)} tb
+                    {fmt(totalRealTb)} tubetes
+                  </p>
+
+                  <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "8px 0 0", fontWeight: 600 }}>
+                    {data.realizado_label || "Jan – mês fechado"}
                   </p>
                 </div>
 
@@ -695,7 +860,11 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   </p>
 
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-                    {fmt(totalPrevistoTb)} tb
+                    {fmt(totalPrevistoTb)} tubetes
+                  </p>
+
+                  <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "8px 0 0", fontWeight: 600 }}>
+                    {data.previsto_label || "Mês atual – Dez pelo Gantt/MPS"}
                   </p>
                 </div>
 
@@ -709,9 +878,27 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   </p>
 
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "4px 0 0" }}>
-                    {fmt(totalProjetadoTb)} tb · {fmtPct(data.pct_atingimento)} do orçado
+                    {fmt(totalProjetadoTb)} tubetes · {fmtPct(data.pct_atingimento)} do orçado
+                  </p>
+
+                  <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "8px 0 0", fontWeight: 600 }}>
+                    {data.projecao_label || "Realizado + previsto"}
                   </p>
                 </div>
+              </div>
+
+              <div
+                style={{
+                  marginBottom: 18,
+                  padding: "10px 12px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: "var(--text-secondary)",
+                  background: "var(--bg-primary)",
+                }}
+              >
+                {data.fonte_previsto_detalhe || "Fonte do previsto: Gantt/MPS versionado"}
               </div>
 
               <div style={{ marginBottom: 18 }}>
@@ -720,19 +907,42 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                 </p>
 
                 <div style={{ display: "flex", gap: 18, marginBottom: 12, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 14, height: 12, borderRadius: 3, background: COR_PLANEJADO }} />
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                      Planejado
-                    </span>
-                  </div>
+                  <LegendToggleItem
+                    active={showPlanejado}
+                    onClick={() => setShowPlanejado((prev) => !prev)}
+                    marker={<span style={{ width: 14, height: 12, borderRadius: 3, background: COR_PLANEJADO }} />}
+                  >
+                    Planejado · Gantt/MPS versionado
+                  </LegendToggleItem>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 14, height: 12, borderRadius: 3, background: COR_REAL }} />
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                      Realizado
-                    </span>
-                  </div>
+                  <LegendToggleItem
+                    active={showRealizado}
+                    onClick={() => setShowRealizado((prev) => !prev)}
+                    marker={<span style={{ width: 14, height: 12, borderRadius: 3, background: COR_REAL }} />}
+                  >
+                    Realizado
+                  </LegendToggleItem>
+
+                  <LegendToggleItem
+                    active={showV1}
+                    onClick={() => setShowV1((prev) => !prev)}
+                    marker={
+                      <svg width="26" height="10">
+                        <line
+                          x1="2"
+                          y1="5"
+                          x2="24"
+                          y2="5"
+                          stroke={COR_V1}
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                        />
+                        <circle cx="13" cy="5" r="3.5" fill={COR_V1} />
+                      </svg>
+                    }
+                  >
+                    V1 do mês
+                  </LegendToggleItem>
 
                   <LegendToggleItem
                     active={showOrcado}
@@ -754,34 +964,45 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                     Orçado
                   </LegendToggleItem>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <svg width="26" height="10">
-                      <line
-                        x1="2"
-                        y1="5"
-                        x2="24"
-                        y2="5"
-                        stroke={COR_ATINGIMENTO}
-                        strokeWidth="2"
-                      />
-                      <circle cx="13" cy="5" r="3.5" fill={COR_ATINGIMENTO} />
-                    </svg>
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                      % Ating. Real vs. Planejado
-                    </span>
-                  </div>
+                  <LegendToggleItem
+                    active={showAtingimento}
+                    onClick={() => setShowAtingimento((prev) => !prev)}
+                    marker={
+                      <svg width="26" height="10">
+                        <line
+                          x1="2"
+                          y1="5"
+                          x2="24"
+                          y2="5"
+                          stroke={COR_ATINGIMENTO}
+                          strokeWidth="2"
+                        />
+                        <circle cx="13" cy="5" r="3.5" fill={COR_ATINGIMENTO} />
+                      </svg>
+                    }
+                  >
+                    % Ating. Real vs. Planejado
+                  </LegendToggleItem>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
                   <LinhaChart
                     titulo="Linha 1 — Realizado vs. Planejado vs. Orçado"
                     data={linha1Data}
+                    showPlanejado={showPlanejado}
+                    showRealizado={showRealizado}
                     showOrcado={showOrcado}
+                    showV1={showV1}
+                    showAtingimento={showAtingimento}
                   />
                   <LinhaChart
                     titulo="Linha 2 — Realizado vs. Planejado vs. Orçado"
                     data={linha2Data}
+                    showPlanejado={showPlanejado}
+                    showRealizado={showRealizado}
                     showOrcado={showOrcado}
+                    showV1={showV1}
+                    showAtingimento={showAtingimento}
                   />
                 </div>
               </div>
@@ -797,7 +1018,7 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
                   background: "var(--bg-primary)",
                 }}
               >
-                Valores principais em caixas. Referência: 1 caixa contém 500 tubetes.
+                Valores principais em caixas. O previsto vem do Gantt/MPS versionado; meses fechados usam o realizado. Referência: 1 caixa contém 500 tubetes.
               </div>
             </>
           )}

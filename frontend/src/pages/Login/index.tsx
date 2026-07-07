@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { BarChart3 } from "lucide-react"
 import { supabase } from "../../lib/supabase"
 
 const USUARIOS: Record<string, string> = {
@@ -33,68 +34,75 @@ export function LoginPage() {
       return
     }
 
-    // 👉 REDIRECIONA PRA ÁREA LOGADA
-    navigate("/page1", { replace: true })
+    navigate("/overview", { replace: true })
   }
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-6"
-      style={{ background: "var(--bg-primary)" }}
-    >
-      <form onSubmit={handleLogin} className="card p-8 w-full max-w-sm space-y-5">
-        <div>
-          <p className="card-label mb-2">DFL S&OP Dashboard</p>
-          <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
-            Entrar
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-10">
+      <div className="w-full max-w-[420px]">
+        <div className="mb-7 flex flex-col items-center text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#1B3A5C] shadow-sm">
+            <BarChart3 size={28} className="text-white" />
+          </div>
+
+          <h1 className="text-2xl font-bold text-slate-950">
+            PCP - Analytics
           </h1>
-        </div>
 
-        <div className="space-y-3">
-          <input
-            type="text"
-            placeholder="Usuário ou email"
-            value={usuario}
-            onChange={(e) => setUsuario(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{
-              borderColor: "var(--border)",
-              background: "var(--bg-secondary)",
-              color: "var(--text-primary)",
-            }}
-            required
-          />
-
-          <input
-            type="password"
-            placeholder="Senha"
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{
-              borderColor: "var(--border)",
-              background: "var(--bg-secondary)",
-              color: "var(--text-primary)",
-            }}
-            required
-          />
-        </div>
-
-        {erro && (
-          <p className="text-sm" style={{ color: "#DC2626" }}>
-            {erro}
+          <p className="mt-2 text-sm text-slate-500">
+            Entre com seu login e senha
           </p>
-        )}
+        </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60"
-          style={{ background: "#2563EB", color: "#FFFFFF" }}
+        <form
+          onSubmit={handleLogin}
+          className="rounded-2xl bg-white p-6 shadow-sm border border-slate-200 sm:p-7"
         >
-          {loading ? "Entrando..." : "Entrar"}
-        </button>
-      </form>
+          <div className="space-y-5">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-900">
+                Usuário ou email
+              </label>
+              <input
+                type="text"
+                placeholder="adminpcp"
+                value={usuario}
+                onChange={(e) => setUsuario(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-[#1B3A5C] focus:ring-2 focus:ring-[#1B3A5C]/20"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-900">
+                Senha
+              </label>
+              <input
+                type="password"
+                placeholder="Digite sua senha"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-[#1B3A5C] focus:ring-2 focus:ring-[#1B3A5C]/20"
+                required
+              />
+            </div>
+
+            {erro && (
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                {erro}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-lg bg-[#1B3A5C] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#142B45] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? "Entrando..." : "Entrar"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
