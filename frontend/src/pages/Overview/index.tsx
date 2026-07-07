@@ -136,10 +136,11 @@ interface RastreamentoMtdLoadPayload {
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
-const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v3-strict-no-stale"
+const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v4-memory-versioned"
 // Importante: a Overview não pode usar snapshot persistido no navegador.
 // Número operacional precisa ser igual em aba normal, aba anônima e outros PCs.
-// Mantemos a chave só para apagar caches antigos que já ficaram no localStorage.
+// Para navegação dentro da própria sessão, usamos cache APENAS em memória do app.
+// Isso evita recarregar tudo ao sair/voltar da página sem prender outro computador em dado velho.
 
 type OverviewPageSnapshot = {
   savedAt: number
@@ -211,17 +212,42 @@ function limparCachesOperacionaisLocais() {
   }
 }
 
-function readOverviewPageCache(): OverviewPageSnapshot | null {
-  // Desativado de propósito.
-  // O cache local foi a causa de aba normal e aba anônima mostrarem números diferentes.
-  limparCachesOperacionaisLocais()
-  return null
+let overviewPageMemoryCache: OverviewPageSnapshot | null = null
+let overviewLocalStorageLimpo = false
+const OVERVIEW_MEMORY_CACHE_MAX_AGE_MS = 15 * 60 * 1000
+
+function limparCacheMemoriaOverview() {
+  overviewPageMemoryCache = null
 }
 
-function writeOverviewPageCache(_snapshot: Omit<OverviewPageSnapshot, "savedAt">) {
-  // Desativado de propósito.
-  // Não persistir números operacionais da Overview no navegador.
+function limparCachesOperacionaisLocaisUmaVez() {
+  if (overviewLocalStorageLimpo) return
+  overviewLocalStorageLimpo = true
   limparCachesOperacionaisLocais()
+}
+
+function readOverviewPageCache(): OverviewPageSnapshot | null {
+  // Não usar localStorage/sessionStorage para número operacional.
+  // Só limpa legado uma vez e reaproveita snapshot em memória da sessão atual.
+  limparCachesOperacionaisLocaisUmaVez()
+
+  if (!isOverviewSnapshotCompleto(overviewPageMemoryCache)) return null
+
+  const idade = Date.now() - Number(overviewPageMemoryCache.savedAt || 0)
+  if (idade > OVERVIEW_MEMORY_CACHE_MAX_AGE_MS) {
+    limparCacheMemoriaOverview()
+    return null
+  }
+
+  return overviewPageMemoryCache
+}
+
+function writeOverviewPageCache(snapshot: Omit<OverviewPageSnapshot, "savedAt">) {
+  // Cache só em memória do app: rápido ao navegar e seguro entre computadores.
+  overviewPageMemoryCache = {
+    ...snapshot,
+    savedAt: Date.now(),
+  }
 }
 
 
@@ -385,7 +411,7 @@ export function OverviewPage() {
   const [mtdLiberacaoOficial, setMtdLiberacaoOficial] = useState<RastreamentoMtdLoadPayload | null>(null)
 
   useEffect(() => {
-    limparCachesOperacionaisLocais()
+    limparCachesOperacionaisLocaisUmaVez()
   }, [])
 
   function aplicarResumo(resumo: OverviewResumoResponse) {
