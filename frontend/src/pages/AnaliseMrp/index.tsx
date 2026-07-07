@@ -248,8 +248,8 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
   throw new Error(mensagemErroFetch(path, ultimoErro))
 }
 
-// Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v78.
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v95_local_memoria_grafico_prefetch"
+// V97: muda o prefixo para descartar cache local antigo com Histórico 6M zerado.
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v97_historico_sd2_restaurado"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -7356,6 +7356,7 @@ export default function AgingEstoquePage() {
   const [uploadMessage, setUploadMessage] = useState("")
   const [refreshTick, setRefreshTick] = useState(0)
   const [activeFilter, setActiveFilter] = useState<FiltroTabelaEstoque | null>(filtroInicial)
+  const activeFilterRequestKey = useMemo(() => filtroKey(activeFilter), [activeFilter])
   const [escopoEstoque, setEscopoEstoque] = useState<EscopoEstoque>(escopoInicial)
   const [visaoEstoque, setVisaoEstoque] = useState<VisaoEstoque>(visaoInicial)
   const [cacheVersion, setCacheVersion] = useState<string | null>(null)
@@ -7666,11 +7667,38 @@ export default function AgingEstoquePage() {
     // 3) busca/filtro/ordenação/paginação acontecem no front.
     async function carregarTabelaLocalRapida() {
       try {
+        const filtroBackend = activeFilter && !filtroVazio(activeFilter) ? activeFilter : null
+        const temBuscaOuFiltroOperacional = Boolean(
+          filtroBackend?.busca ||
+          filtroBackend?.status ||
+          filtroBackend?.status_plano ||
+          filtroBackend?.semaforo ||
+          filtroBackend?.alerta_previsao ||
+          filtroBackend?.descontinuado ||
+          filtroBackend?.tipo_negocio ||
+          filtroBackend?.status_portfolio ||
+          filtroBackend?.transferencia_bravi
+        )
+
+        // v96: para reunião, busca/filtro precisa bater no backend já filtrado.
+        // Antes a tela tentava carregar TODOS os insumos primeiro para só depois filtrar no front,
+        // e a busca "embolo" ficava presa esperando o build completo.
+        const pageSizeInicial = temBuscaOuFiltroOperacional ? 100 : 100
+
         const paramsBase = {
           escopo: escopoEstoque,
-          page_size: DASHBOARD_PAGE_SIZE,
+          page_size: pageSizeInicial,
           sort_direction: "desc",
-          classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+          classificacao_cadastro: filtroBackend?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+          busca: filtroBackend?.busca,
+          status: filtroBackend?.status,
+          tipo_negocio: filtroBackend?.tipo_negocio,
+          status_portfolio: filtroBackend?.status_portfolio,
+          transferencia_bravi: filtroBackend?.transferencia_bravi,
+          descontinuado: filtroBackend?.descontinuado,
+          semaforo: filtroBackend?.semaforo,
+          status_plano: filtroBackend?.status_plano,
+          alerta_previsao: filtroBackend?.alerta_previsao,
           force_refresh: undefined,
           _t: refreshTick ? refreshTick : undefined,
         }
@@ -7689,20 +7717,29 @@ export default function AgingEstoquePage() {
         const totalPaginasBackend = Math.max(1, Number(primeiraPagina.total_pages || 1))
         if (totalPaginasBackend <= 1) return
 
-        const demaisPaginas = await Promise.allSettled(
-          Array.from({ length: totalPaginasBackend - 1 }, (_, index) =>
-            getAgingItensDireto({ ...paramsBase, page: index + 2 })
-              .then((res) => normalizarCoberturaPaMrResponse(res, escopoEstoque))
-          )
-        )
+        // Não dispara 20/40 páginas em paralelo. Isso era uma das causas da tela travar.
+        // Para filtro/busca, normalmente a primeira página já traz todo o recorte.
+        // Para visão sem filtro, completa só algumas páginas em background sem bloquear a reunião.
+        const limitePaginasBackground = temBuscaOuFiltroOperacional ? Math.min(totalPaginasBackend, 5) : Math.min(totalPaginasBackend, 4)
+        const paginasResolvidas: AgingItensResponse[] = []
 
-        if (!mounted) return
+        for (let paginaBackend = 2; paginaBackend <= limitePaginasBackground; paginaBackend += 1) {
+          try {
+            const pagina = normalizarCoberturaPaMrResponse(
+              await getAgingItensDireto({ ...paramsBase, page: paginaBackend }),
+              escopoEstoque,
+            )
+            paginasResolvidas.push(pagina)
+          } catch {
+            // Se uma página secundária falhar, mantém a primeira página visível.
+          }
+
+          if (!mounted) return
+        }
 
         const todosItens = [
           ...(primeiraPagina.itens || []),
-          ...demaisPaginas
-            .filter((resultado): resultado is PromiseFulfilledResult<AgingItensResponse> => resultado.status === "fulfilled")
-            .flatMap((resultado) => resultado.value.itens || []),
+          ...paginasResolvidas.flatMap((resultado) => resultado.itens || []),
         ]
 
         const vistos = new Set<string>()
@@ -7733,7 +7770,7 @@ export default function AgingEstoquePage() {
     void carregarTabelaLocalRapida()
 
     return () => { mounted = false }
-  }, [refreshTick, escopoEstoque, activeFilter?.classificacao_cadastro])
+  }, [refreshTick, escopoEstoque, activeFilterRequestKey])
 
 
   const itens = itensResp?.itens || []
