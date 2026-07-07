@@ -231,8 +231,23 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
 }
 
 // Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v78.
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v92_filtro_rapido_sem_dashboard_bg"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v93_sem_localstorage_operacional"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+
+// Números críticos da Gestão não devem ficar persistidos no navegador.
+// O backend já tem cache versionado por upload/snapshot; no front mantemos só
+// cache em memória durante a sessão para evitar o efeito "zero/valor antigo -> valor certo"
+// ao abrir outra janela ou depois de subir nova SB8/MPS/forecast.
+const GESTAO_ESTOQUE_CACHE_SOMENTE_MEMORIA_PATHS = new Set([
+  "/aging-estoque/resumo",
+  "/aging-estoque/itens",
+  "/aging-estoque/produtos/serie",
+  "__service__/aging-estoque/item",
+])
+
+function cacheGestaoSomenteMemoria(path: string) {
+  return GESTAO_ESTOQUE_CACHE_SOMENTE_MEMORIA_PATHS.has(path)
+}
 
 type CacheGestaoEstoquePayload<T> = {
   savedAt: number
@@ -263,6 +278,10 @@ function lerCacheGestaoEstoque<T>(path: string, params: Record<string, string | 
   const memory = GESTAO_ESTOQUE_MEMORY_CACHE.get(key) as CacheGestaoEstoquePayload<T> | undefined
   if (memory?.payload && Date.now() - Number(memory.savedAt || 0) <= GESTAO_ESTOQUE_CACHE_TTL_MS) {
     return memory.payload
+  }
+
+  if (cacheGestaoSomenteMemoria(path)) {
+    return null
   }
 
   try {
@@ -303,6 +322,10 @@ function salvarCacheGestaoEstoque<T>(
   }
 
   GESTAO_ESTOQUE_MEMORY_CACHE.set(key, value as CacheGestaoEstoquePayload<unknown>)
+
+  if (cacheGestaoSomenteMemoria(path)) {
+    return
+  }
 
   try {
     if (typeof window === "undefined") return
@@ -753,6 +776,17 @@ function salvarUltimoEstadoGestaoEstoque(state: GestaoEstoqueLastState) {
 }
 
 async function buscarVersaoGestaoEstoque(): Promise<string> {
+  // Fonte preferencial: endpoint único do backend com os marcadores que realmente
+  // invalidam a Gestão de Estoque (posição, SB8/upload_id, MPS, parâmetros e Benzotop).
+  // Fallback: mantém a lógica antiga por ultima_atualizacao se o backend antigo ainda estiver no ar.
+  try {
+    const res = await fetchJson<{ version?: string; versao?: string; backend_versao?: string }>("/aging-estoque/cache-version")
+    const versao = String(res.version || res.versao || res.backend_versao || "").trim()
+    if (versao) return versao
+  } catch {
+    // Backend antigo: segue para o fallback abaixo.
+  }
+
   const bases = BASES_GESTAO_ESTOQUE.map((base) => base.id)
 
   const versoes = await Promise.all(
@@ -6065,25 +6099,14 @@ function BraviSeriePanel({
       return () => { mounted = false }
     }
 
-    let mounted = true
-    setLoading(true)
+    // Performance v23: não carrega mais a série geral PA/MR automaticamente.
+    // Esse endpoint consolida muitos SKUs e competia com a tabela, dando a sensação
+    // de tela travada. A linha do tempo aparece rápida quando um item é selecionado
+    // ou quando a busca auto-seleciona o primeiro resultado.
+    setData(null)
     setError("")
-
-    getBraviSerie("mensal")
-      .then((res) => {
-        if (!mounted) return
-        setData(res)
-      })
-      .catch((err: unknown) => {
-        if (!mounted) return
-        console.warn("Falha transitória ao carregar série PA/MR", err)
-        setError("")
-      })
-      .finally(() => {
-        if (mounted) setLoading(false)
-      })
-
-    return () => { mounted = false }
+    setLoading(false)
+    return undefined
   }, [active, granularidade, refreshTick, codigoSelecionado, itemSelecionado])
 
   const toggleSerie = (dataKey?: string) => {
@@ -6235,9 +6258,7 @@ function BraviSeriePanel({
   }, [serieOriginal, itemSelecionado, resumo.estoque_atual, granularidade])
   const tituloSerie = itemSelecionado
     ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}${loading ? " · atualizando" : ""}`
-    : loading
-      ? "Linha do tempo PA / MR · carregando..."
-      : "Linha do tempo PA / MR"
+    : "Linha do tempo PA / MR"
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
@@ -7916,7 +7937,15 @@ export default function AgingEstoquePage() {
       if (!mounted) return
 
       setCacheVersion((atual) => {
-        if (atual && atual !== versao) {
+        if (!atual) {
+          // Remove caches antigos de versões anteriores ao abrir a página.
+          // Como os endpoints críticos agora usam apenas cache em memória, isso
+          // evita qualquer sobra de localStorage de builds antigos.
+          limparCacheGestaoEstoqueLocal()
+          return versao
+        }
+
+        if (atual !== versao) {
           limparCacheGestaoEstoqueLocal()
           setRefreshTick((current) => current + 1)
         }
@@ -9074,7 +9103,7 @@ export default function AgingEstoquePage() {
       </div>
 
       <BraviSeriePanel
-        active={mostrarCardsPortfolio && escopoEstoque === "produtos" && (!activeFilter?.busca || Boolean(selected?.codigo))}
+        active={mostrarCardsPortfolio && escopoEstoque === "produtos" && Boolean(selected?.codigo)}
         refreshTick={refreshTick}
         selectedItem={selected}
         loadingSelected={false}
