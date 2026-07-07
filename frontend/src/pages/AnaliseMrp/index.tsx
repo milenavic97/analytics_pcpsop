@@ -249,7 +249,7 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
 }
 
 // V97: muda o prefixo para descartar cache local antigo com Histórico 6M zerado.
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v98_timeline_entradas_historico"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v99_sem_resumo_pesado"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
 type CacheGestaoEstoquePayload<T> = {
@@ -7101,10 +7101,9 @@ function TimelinePrincipal({
         </div>
       ) : (
         <div className="space-y-4 p-5">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
             <KpiSmall label="Lead time fornecedor" value={`${fmtNumber(item.lead_time_dias, 0)} d`} />
             <KpiSmall label="Saldo atual" value={fmtCompact(item.saldo)} />
-            <KpiSmall label="Empenho" value={fmtCompact(getAnyNumber(item as unknown as Record<string, unknown>, "empenho_lote"))} />
             <KpiSmall label="Entradas previstas" value={fmtCompact(item.qtd_pedidos_abertos)} />
             <KpiSmall label="Entradas em atraso" value={fmtCompact(getPedidosAtrasados(item))} />
             <KpiSmall label="Cobertura atual" value={`${fmtNumber(getCoberturaAtualMeses(item), 1)} m`} />
@@ -7802,6 +7801,21 @@ export default function AgingEstoquePage() {
 
   useEffect(() => {
     let mounted = true
+
+    // Hotfix v99:
+    // Na aba Gestão de Estoque, a tabela/busca não pode depender do endpoint
+    // /aging-estoque/resumo. Esse endpoint monta agregados do escopo inteiro e,
+    // em Insumos, segura a tela em "Buscando itens" quando o cache da máquina
+    // está frio.
+    //
+    // Resultado esperado:
+    // - Gestão + busca/filtro: chama somente /aging-estoque/itens, já filtrado;
+    // - Dashboard: continua carregando os agregados normalmente.
+    if (visaoEstoque !== "dashboard") {
+      setLoadingResumo(false)
+      return () => { mounted = false }
+    }
+
     setLoadingResumo(true)
     setError("")
     getAgingResumoDireto({
@@ -7824,7 +7838,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingResumo(false)
       })
     return () => { mounted = false }
-  }, [refreshTick, escopoEstoque, activeFilter?.classificacao_cadastro])
+  }, [refreshTick, escopoEstoque, activeFilter?.classificacao_cadastro, visaoEstoque])
 
 
   useEffect(() => {
