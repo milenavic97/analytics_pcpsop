@@ -136,7 +136,7 @@ interface RastreamentoMtdLoadPayload {
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
-const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v2"
+const OVERVIEW_PAGE_CACHE_KEY = "dfl-overview-page-cache-v3-strict-no-stale"
 // Importante: a Overview não pode usar snapshot persistido no navegador.
 // Número operacional precisa ser igual em aba normal, aba anônima e outros PCs.
 // Mantemos a chave só para apagar caches antigos que já ficaram no localStorage.
@@ -389,6 +389,17 @@ export function OverviewPage() {
   }, [])
 
   function aplicarResumo(resumo: OverviewResumoResponse) {
+    const resumoAny = resumo as OverviewResumoResponse & { stale?: boolean; cache_atual?: boolean; cache_versao?: string | null }
+
+    // Segurança executiva: a Overview nunca deve aplicar snapshot antigo.
+    // Se algum backend antigo ainda devolver stale=true, não pinta a tela com número velho
+    // (ex.: estoque inicial Jul/26 1.569 projetado em vez do oficial recalculado).
+    if (resumoAny.stale || resumoAny.cache_atual === false) {
+      setAtualizandoAutomatico(true)
+      setCarregarDetalhes(false)
+      return
+    }
+
     const payload = resumo.payload || {}
 
     const orcadoLibPayload = (payload.orcado_liberacao || null) as { total_caixas: number; total_tubetes: number } | null
@@ -477,15 +488,17 @@ export function OverviewPage() {
         setUltimaAtualizacao(ultima)
 
         const cacheAtualizadoEmBackend = (versao as any).cache_atualizado_em || null
-        const cacheLocal = readOverviewPageCache()
+        const precisaRecalcular = Boolean((versao as any).precisa_recalcular || (versao as any).cache_desatualizado)
+        const telaAtualCompleta = Boolean(orcadoLib && orcadoFat && projFat && projLib)
 
         // Se a versão e o timestamp do snapshot são os mesmos que já estão na tela,
-        // não refaz nenhuma chamada pesada. O timestamp evita prender número antigo
-        // quando o backend recalcula a mesma versao_base depois de uma nova rodada MPS.
+        // não refaz nenhuma chamada pesada. Como cache local foi desativado, a referência
+        // de completude agora é o próprio estado da tela, não localStorage.
         if (
+          !precisaRecalcular &&
           versaoCarregada === versao.versao_base &&
           cacheAtualizadoEmCarregado === cacheAtualizadoEmBackend &&
-          isOverviewSnapshotCompleto(cacheLocal)
+          telaAtualCompleta
         ) {
           if (!carregarDetalhes) {
             window.setTimeout(() => {
@@ -493,6 +506,11 @@ export function OverviewPage() {
             }, 500)
           }
           return
+        }
+
+        if (precisaRecalcular) {
+          setAtualizandoAutomatico(true)
+          setCarregarDetalhes(false)
         }
 
         const resumo = await getOverviewResumo(versao.versao_base)
@@ -537,7 +555,7 @@ export function OverviewPage() {
       document.removeEventListener("visibilitychange", atualizarAoVoltarParaAba)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [versaoCarregada, cacheAtualizadoEmCarregado])
+  }, [versaoCarregada, cacheAtualizadoEmCarregado, orcadoLib, orcadoFat, projFat, projLib, carregarDetalhes])
 
 
 
