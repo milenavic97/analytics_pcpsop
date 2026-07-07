@@ -146,12 +146,30 @@ type BraviSerieResponse = {
 }
 
 async function getBraviSerie(granularidade: GranularidadeSerie, codigo?: string): Promise<BraviSerieResponse> {
-  // V32: a série geral PA/MR e a série por item entram no cache local de 12h.
-  // Ao selecionar item, o front mostra fallback rápido e troca pela série real quando o backend/cache responder.
+  // v95: a série por item fica em cache só na memória da aba.
+  // O front também faz prefetch dos itens visíveis da página para troca de gráfico instantânea em reunião.
   const params: Record<string, string> = { granularidade }
   if (codigo) params.codigo = codigo
 
   return fetchJsonComCache<BraviSerieResponse>("/aging-estoque/produtos/serie", params)
+}
+
+async function preaquecerCacheGestaoEstoque(forceRefresh = false) {
+  return fetchJson<{ ok?: boolean; status?: string; version?: string; duracao_segundos?: number }>("/aging-estoque/preaquecer-cache", {
+    force_refresh: forceRefresh,
+    _t: Date.now(),
+  })
+}
+
+async function prefetchBraviSerieItem(codigo?: string | null) {
+  const codigoLimpo = String(codigo || "").trim()
+  if (!codigoLimpo) return null
+
+  try {
+    return await getBraviSerie("mensal", codigoLimpo)
+  } catch {
+    return null
+  }
 }
 
 function esperar(ms: number) {
@@ -231,23 +249,8 @@ async function fetchJson<T>(path: string, params: Record<string, string | number
 }
 
 // Mantém o prefixo v75 para reaproveitar cache bom já salvo e reduzir chamadas pesadas após o deploy v78.
-const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v93_sem_localstorage_operacional"
+const GESTAO_ESTOQUE_CACHE_PREFIX = "pcp_gestao_estoque_cache_v95_local_memoria_grafico_prefetch"
 const GESTAO_ESTOQUE_CACHE_TTL_MS = 12 * 60 * 60 * 1000
-
-// Números críticos da Gestão não devem ficar persistidos no navegador.
-// O backend já tem cache versionado por upload/snapshot; no front mantemos só
-// cache em memória durante a sessão para evitar o efeito "zero/valor antigo -> valor certo"
-// ao abrir outra janela ou depois de subir nova SB8/MPS/forecast.
-const GESTAO_ESTOQUE_CACHE_SOMENTE_MEMORIA_PATHS = new Set([
-  "/aging-estoque/resumo",
-  "/aging-estoque/itens",
-  "/aging-estoque/produtos/serie",
-  "__service__/aging-estoque/item",
-])
-
-function cacheGestaoSomenteMemoria(path: string) {
-  return GESTAO_ESTOQUE_CACHE_SOMENTE_MEMORIA_PATHS.has(path)
-}
 
 type CacheGestaoEstoquePayload<T> = {
   savedAt: number
@@ -280,32 +283,7 @@ function lerCacheGestaoEstoque<T>(path: string, params: Record<string, string | 
     return memory.payload
   }
 
-  if (cacheGestaoSomenteMemoria(path)) {
-    return null
-  }
-
-  try {
-    if (typeof window === "undefined") return null
-
-    const raw = window.localStorage.getItem(key)
-
-    if (!raw) return null
-
-    const parsed = JSON.parse(raw) as CacheGestaoEstoquePayload<T>
-    const savedAt = Number(parsed.savedAt || 0)
-    const expirado = !savedAt || Date.now() - savedAt > GESTAO_ESTOQUE_CACHE_TTL_MS
-
-    if (expirado || !parsed.payload) {
-      window.localStorage.removeItem(key)
-      GESTAO_ESTOQUE_MEMORY_CACHE.delete(key)
-      return null
-    }
-
-    GESTAO_ESTOQUE_MEMORY_CACHE.set(key, parsed as CacheGestaoEstoquePayload<unknown>)
-    return parsed.payload
-  } catch {
-    return null
-  }
+  return null
 }
 
 function salvarCacheGestaoEstoque<T>(
@@ -321,19 +299,9 @@ function salvarCacheGestaoEstoque<T>(
     payload,
   }
 
+  // v94: números operacionais ficam só na memória da aba.
+  // Não grava localStorage para evitar pessoa vendo estoque/forecast antigo depois de upload.
   GESTAO_ESTOQUE_MEMORY_CACHE.set(key, value as CacheGestaoEstoquePayload<unknown>)
-
-  if (cacheGestaoSomenteMemoria(path)) {
-    return
-  }
-
-  try {
-    if (typeof window === "undefined") return
-    window.localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    // Payload grande pode estourar localStorage.
-    // O cache em memória continua mantendo a navegação entre páginas instantânea.
-  }
 }
 
 function limparCacheGestaoEstoqueLocal() {
@@ -776,15 +744,14 @@ function salvarUltimoEstadoGestaoEstoque(state: GestaoEstoqueLastState) {
 }
 
 async function buscarVersaoGestaoEstoque(): Promise<string> {
-  // Fonte preferencial: endpoint único do backend com os marcadores que realmente
-  // invalidam a Gestão de Estoque (posição, SB8/upload_id, MPS, parâmetros e Benzotop).
-  // Fallback: mantém a lógica antiga por ultima_atualizacao se o backend antigo ainda estiver no ar.
+  // Fonte oficial de versão vem do backend.
+  // Isso evita depender de localStorage/navegador: se SB8, MPS, forecast, compras ou parâmetros mudarem, a versão muda para todo mundo.
   try {
-    const res = await fetchJson<{ version?: string; versao?: string; backend_versao?: string }>("/aging-estoque/cache-version")
-    const versao = String(res.version || res.versao || res.backend_versao || "").trim()
+    const res = await fetchJson<{ version?: string; versao?: string; backend_versao?: string }>("/aging-estoque/cache-version", { _t: Date.now() })
+    const versao = String(res.version || res.versao || "").trim()
     if (versao) return versao
   } catch {
-    // Backend antigo: segue para o fallback abaixo.
+    // fallback abaixo mantém compatibilidade se o backend antigo ainda estiver no ar durante deploy.
   }
 
   const bases = BASES_GESTAO_ESTOQUE.map((base) => base.id)
@@ -802,7 +769,6 @@ async function buscarVersaoGestaoEstoque(): Promise<string> {
 
   return versoes.join("|")
 }
-
 const isFiltroAtivo = (filtro: FiltroTabelaEstoque | null, parcial: Partial<FiltroTabelaEstoque>) => {
   if (!filtro) return false
   return Object.entries(parcial).every(([key, value]) => (filtro as Record<string, unknown>)[key] === value)
@@ -6006,7 +5972,9 @@ function BraviSeriePanel({
         return fallbackItem
       })
       setError("")
-      setLoading(true)
+      // O gráfico por item precisa trocar imediatamente na reunião.
+      // Mantemos o fallback local visível e buscamos a série real em segundo plano, sem travar a troca visual.
+      setLoading(false)
 
       const salvarSerieEstavel = (serieFinal: BraviSeriePonto[]) => {
         if (codigoEsperado && serieTemEntradasPrevistas(serieFinal)) {
@@ -6099,14 +6067,25 @@ function BraviSeriePanel({
       return () => { mounted = false }
     }
 
-    // Performance v23: não carrega mais a série geral PA/MR automaticamente.
-    // Esse endpoint consolida muitos SKUs e competia com a tabela, dando a sensação
-    // de tela travada. A linha do tempo aparece rápida quando um item é selecionado
-    // ou quando a busca auto-seleciona o primeiro resultado.
-    setData(null)
+    let mounted = true
+    setLoading(true)
     setError("")
-    setLoading(false)
-    return undefined
+
+    getBraviSerie("mensal")
+      .then((res) => {
+        if (!mounted) return
+        setData(res)
+      })
+      .catch((err: unknown) => {
+        if (!mounted) return
+        console.warn("Falha transitória ao carregar série PA/MR", err)
+        setError("")
+      })
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
+
+    return () => { mounted = false }
   }, [active, granularidade, refreshTick, codigoSelecionado, itemSelecionado])
 
   const toggleSerie = (dataKey?: string) => {
@@ -6258,7 +6237,9 @@ function BraviSeriePanel({
   }, [serieOriginal, itemSelecionado, resumo.estoque_atual, granularidade])
   const tituloSerie = itemSelecionado
     ? `${itemSelecionado.codigo} · ${itemSelecionado.produto || "Item selecionado"}${loading ? " · atualizando" : ""}`
-    : "Linha do tempo PA / MR"
+    : loading
+      ? "Linha do tempo PA / MR · carregando..."
+      : "Linha do tempo PA / MR"
 
   const eixoMaxComum = useMemo(() => {
     const maiorValor = serie.reduce((max, ponto: any) => {
@@ -7184,6 +7165,101 @@ function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
   return partes.length ? partes.join(" · ") : "Filtro personalizado"
 }
 
+function normalizarTextoFiltroLocal(value: unknown) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function textoBuscaItemEstoqueLocal(item: AgingEstoqueItem) {
+  const raw = item as unknown as Record<string, unknown>
+  return normalizarTextoFiltroLocal([
+    raw.codigo,
+    raw.cod_produto,
+    raw.sku,
+    raw.produto,
+    raw.descricao,
+    raw.desc_produto,
+    raw.concatenado_produto,
+    raw.tipo,
+    raw.tipo_produto_erp,
+    raw.segmento,
+    raw.mercado,
+    raw.macro_negocio,
+    raw.tipo_negocio,
+    raw.familia,
+    raw.grupo,
+    raw.grupo_gerencial,
+  ].filter(Boolean).join(" "))
+}
+
+function textoCampoLocal(item: AgingEstoqueItem, ...campos: string[]) {
+  const raw = item as unknown as Record<string, unknown>
+  for (const campo of campos) {
+    const valor = raw[campo]
+    if (valor !== undefined && valor !== null && String(valor).trim()) return String(valor).trim()
+  }
+  return ""
+}
+
+function itemBateFiltroLocal(item: AgingEstoqueItem, filtro: FiltroTabelaEstoque | null) {
+  if (!filtro || filtroVazio(filtro)) return true
+
+  if (filtro.busca) {
+    const termos = normalizarTextoFiltroLocal(filtro.busca).split(" ").filter(Boolean)
+    const textoItem = textoBuscaItemEstoqueLocal(item)
+    if (termos.length && !termos.every((termo) => textoItem.includes(termo))) return false
+  }
+
+  if (filtro.status) {
+    const status = textoCampoLocal(item, "status_estoque", "status").toUpperCase()
+    if (status !== String(filtro.status).toUpperCase()) return false
+  }
+
+  if (filtro.status_plano && getStatusPlanoMes(item) !== filtro.status_plano) return false
+  if (filtro.semaforo && calcularSemaforoEstoque(item) !== filtro.semaforo) return false
+  if (filtro.alerta_previsao === "SIM" && !itemTemAlertaConsumoPrevisao(item)) return false
+
+  if (filtro.descontinuado) {
+    const ehDescontinuado = itemEhDescontinuadoDashboard(item)
+    if (filtro.descontinuado === "SIM" && !ehDescontinuado) return false
+    if (filtro.descontinuado === "NAO" && ehDescontinuado) return false
+  }
+
+  if (filtro.tipo_negocio) {
+    const valor = textoCampoLocal(item, "tipo_negocio", "macro_negocio", "segmento", "familia")
+    if (normalizarTextoFiltroLocal(valor) !== normalizarTextoFiltroLocal(filtro.tipo_negocio)) return false
+  }
+
+  if (filtro.status_portfolio) {
+    const valor = textoCampoLocal(item, "status_portfolio")
+    if (normalizarTextoFiltroLocal(valor) !== normalizarTextoFiltroLocal(filtro.status_portfolio)) return false
+  }
+
+  if (filtro.transferencia_bravi) {
+    const valor = textoCampoLocal(item, "transferencia_bravi")
+    if (normalizarTextoFiltroLocal(valor) !== normalizarTextoFiltroLocal(filtro.transferencia_bravi)) return false
+  }
+
+  if (filtro.classificacao_cadastro) {
+    const origem = textoCampoLocal(item, "origem_classificacao")
+    const itemMapeado = String((item as unknown as Record<string, unknown>).item_mapeado ?? "").toUpperCase()
+    if (filtro.classificacao_cadastro === "MAPEADOS" && origem === "NAO_CLASSIFICADO") return false
+    if (filtro.classificacao_cadastro === "NAO_CLASSIFICADOS" && origem !== "NAO_CLASSIFICADO" && itemMapeado !== "FALSE") return false
+  }
+
+  return true
+}
+
+function filtrarItensEstoqueLocal(itens: AgingEstoqueItem[], filtro: FiltroTabelaEstoque | null) {
+  if (!filtro || filtroVazio(filtro)) return itens
+  return itens.filter((item) => itemBateFiltroLocal(item, filtro))
+}
+
 export default function AgingEstoquePage() {
   const estadoInicial = useMemo(() => lerUltimoEstadoGestaoEstoque(), [])
 
@@ -7294,6 +7370,7 @@ export default function AgingEstoquePage() {
   const [columnSelectorOpen, setColumnSelectorOpen] = useState(false)
   const [colunasVisiveisPorEscopo, setColunasVisiveisPorEscopo] = useState<Partial<Record<EscopoEstoque, string[]>>>({})
   const [exportingCsv, setExportingCsv] = useState(false)
+  const seriesPaMrPrefetchedRef = useRef<Set<string>>(new Set())
 
   const carregarAtualizacoesBases = async () => {
     setLoadingAtualizacoesBases(true)
@@ -7335,6 +7412,9 @@ export default function AgingEstoquePage() {
       )
 
       await carregarAtualizacoesBases()
+      // Depois de subir base, tenta aquecer o cache oficial do backend.
+      // Se falhar, não bloqueia a tela: a primeira leitura ainda reconstrói pelo fluxo normal.
+      void preaquecerCacheGestaoEstoque(true).catch(() => undefined)
       setCacheVersion(null)
       setRefreshTick((current) => current + 1)
     } catch (err) {
@@ -7342,6 +7422,18 @@ export default function AgingEstoquePage() {
     } finally {
       setUploadingBaseId(null)
     }
+  }
+
+  const atualizarGestaoEstoqueAgora = () => {
+    limparCacheGestaoEstoqueLocal()
+    setCacheVersion(null)
+    setRefreshTick((current) => current + 1)
+
+    // Em reunião, o usuário não precisa esperar esse aquecimento terminar.
+    // Ele deixa o backend pronto para as próximas aberturas/trocas de escopo.
+    void preaquecerCacheGestaoEstoque(true)
+      .then(() => setRefreshTick((current) => current + 1))
+      .catch(() => undefined)
   }
 
   useEffect(() => {
@@ -7567,43 +7659,84 @@ export default function AgingEstoquePage() {
     let mounted = true
     setLoadingItens(true)
     setError("")
-    getAgingItensDireto({
-        escopo: escopoEstoque,
-        page,
-        page_size: PAGE_SIZE,
-        sort_key: sortKey || undefined,
-        sort_direction: sortDirection,
-        busca: activeFilter?.busca,
-        status: activeFilter?.status,
-        tipo_negocio: activeFilter?.tipo_negocio,
-        status_portfolio: activeFilter?.status_portfolio,
-        descontinuado: activeFilter?.descontinuado,
-        transferencia_bravi: activeFilter?.transferencia_bravi,
-        classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
-        semaforo: activeFilter?.semaforo,
-        status_plano: activeFilter?.status_plano,
-        alerta_previsao: activeFilter?.alerta_previsao,
-        force_refresh: undefined,
-        _t: refreshTick ? refreshTick : undefined,
-      })
-      .then((res) => {
+
+    // Performance reunião v94:
+    // 1) baixa a primeira página grande do escopo e libera a tabela rápido;
+    // 2) se houver mais páginas, completa em segundo plano;
+    // 3) busca/filtro/ordenação/paginação acontecem no front.
+    async function carregarTabelaLocalRapida() {
+      try {
+        const paramsBase = {
+          escopo: escopoEstoque,
+          page_size: DASHBOARD_PAGE_SIZE,
+          sort_direction: "desc",
+          classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+          force_refresh: undefined,
+          _t: refreshTick ? refreshTick : undefined,
+        }
+
+        const primeiraPagina = normalizarCoberturaPaMrResponse(
+          await getAgingItensDireto({ ...paramsBase, page: 1 }),
+          escopoEstoque,
+        )
+
         if (!mounted) return
-        if (res?.escopo && res.escopo !== escopoEstoque) return
-        setItensResp(normalizarCoberturaPaMrResponse(res, escopoEstoque))
-      })
-      .catch((err: unknown) => {
+        if (primeiraPagina?.escopo && primeiraPagina.escopo !== escopoEstoque) return
+
+        setItensResp(primeiraPagina)
+        setLoadingItens(false)
+
+        const totalPaginasBackend = Math.max(1, Number(primeiraPagina.total_pages || 1))
+        if (totalPaginasBackend <= 1) return
+
+        const demaisPaginas = await Promise.allSettled(
+          Array.from({ length: totalPaginasBackend - 1 }, (_, index) =>
+            getAgingItensDireto({ ...paramsBase, page: index + 2 })
+              .then((res) => normalizarCoberturaPaMrResponse(res, escopoEstoque))
+          )
+        )
+
+        if (!mounted) return
+
+        const todosItens = [
+          ...(primeiraPagina.itens || []),
+          ...demaisPaginas
+            .filter((resultado): resultado is PromiseFulfilledResult<AgingItensResponse> => resultado.status === "fulfilled")
+            .flatMap((resultado) => resultado.value.itens || []),
+        ]
+
+        const vistos = new Set<string>()
+        const itensDeduplicados = todosItens.filter((item) => {
+          const codigo = String((item as AgingEstoqueItem & Record<string, unknown>).codigo || (item as AgingEstoqueItem & Record<string, unknown>).cod_produto || "")
+          const key = codigo || JSON.stringify(item)
+          if (vistos.has(key)) return false
+          vistos.add(key)
+          return true
+        })
+
+        setItensResp({
+          ...primeiraPagina,
+          itens: itensDeduplicados,
+          total: itensDeduplicados.length,
+          total_pages: Math.max(1, Math.ceil(itensDeduplicados.length / PAGE_SIZE)),
+          page: 1,
+          page_size: PAGE_SIZE,
+        })
+      } catch (err: unknown) {
         if (!mounted) return
         console.warn("Falha transitória ao carregar itens de estoque", err)
         setError("")
-      })
-      .finally(() => {
-        if (mounted) setLoadingItens(false)
-      })
+        setLoadingItens(false)
+      }
+    }
+
+    void carregarTabelaLocalRapida()
+
     return () => { mounted = false }
-  }, [page, sortKey, sortDirection, refreshTick, activeFilter, escopoEstoque])
+  }, [refreshTick, escopoEstoque, activeFilter?.classificacao_cadastro])
+
 
   const itens = itensResp?.itens || []
-  const totalPages = Math.max(1, itensResp?.total_pages || 1)
 
   const autocompleteBuscaEstoqueId = useMemo(
     () => `autocomplete-busca-estoque-${Math.random().toString(36).slice(2)}`,
@@ -7684,7 +7817,6 @@ export default function AgingEstoquePage() {
   }
 
   const atualizarFiltroCampo = (campo: keyof FiltroTabelaEstoque, value?: string) => {
-    setLoadingItens(true)
     setPage(1)
     setSelected(null)
     setActiveFilter((current) => {
@@ -7759,11 +7891,14 @@ export default function AgingEstoquePage() {
     return () => { mounted = false }
   }, [selected?.codigo, horizonteFuturo, refreshTick, escopoEstoque])
 
-  // O backend ordena a base inteira; esta ordenação local garante resposta visual imediata na página carregada.
-  const itensOrdenados = useMemo(() => {
-    const base = activeFilter?.semaforo
-      ? itens.filter((item) => calcularSemaforoEstoque(item) === activeFilter.semaforo)
-      : itens
+  // v94: filtro, ordenação e paginação são locais. Depois que o escopo carrega,
+  // a reunião consegue buscar/ordenar sem esperar o backend a cada ação.
+  const itensFiltradosLocal = useMemo(() => {
+    return filtrarItensEstoqueLocal(itens, activeFilter)
+  }, [itens, activeFilter])
+
+  const itensOrdenadosTodos = useMemo(() => {
+    const base = itensFiltradosLocal
 
     if (!sortKey) return base
 
@@ -7780,7 +7915,19 @@ export default function AgingEstoquePage() {
 
       return (aValue - bValue) * direction
     })
-  }, [itens, sortKey, sortDirection, activeFilter?.semaforo, escopoEstoque])
+  }, [itensFiltradosLocal, sortKey, sortDirection, escopoEstoque])
+
+  const totalItensLocal = itensOrdenadosTodos.length
+  const totalPages = Math.max(1, Math.ceil(totalItensLocal / PAGE_SIZE))
+  const pageSeguro = Math.min(Math.max(1, page), totalPages)
+  const itensOrdenados = useMemo(() => {
+    const start = (pageSeguro - 1) * PAGE_SIZE
+    return itensOrdenadosTodos.slice(start, start + PAGE_SIZE)
+  }, [itensOrdenadosTodos, pageSeguro])
+
+  useEffect(() => {
+    if (page !== pageSeguro) setPage(pageSeguro)
+  }, [page, pageSeguro])
 
   // Performance v22: quando a usuária filtra PA/MR, não carregamos a série geral pesada.
   // Assim que a tabela responder, selecionamos o primeiro item visível para a linha do tempo
@@ -7794,6 +7941,36 @@ export default function AgingEstoquePage() {
     if (!primeiro?.codigo) return
     setSelected(normalizarCoberturaPaMrItem(primeiro) as AgingEstoqueItemDetalhe)
   }, [escopoEstoque, activeFilter?.busca, selected?.codigo, loadingItens, itensOrdenados])
+
+  useEffect(() => {
+    if (escopoEstoque !== "produtos") return
+    if (loadingItens) return
+
+    const codigos = itensOrdenados
+      .slice(0, 10)
+      .map((item) => String(item.codigo || "").trim())
+      .filter(Boolean)
+      .filter((codigo) => !seriesPaMrPrefetchedRef.current.has(codigo))
+
+    if (!codigos.length) return
+
+    let cancelado = false
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        for (const codigo of codigos) {
+          if (cancelado) return
+          seriesPaMrPrefetchedRef.current.add(codigo)
+          await prefetchBraviSerieItem(codigo)
+          await esperar(120)
+        }
+      })()
+    }, 450)
+
+    return () => {
+      cancelado = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [escopoEstoque, loadingItens, pageSeguro, activeFilter?.busca, activeFilter?.status, activeFilter?.status_plano, activeFilter?.descontinuado, itensOrdenados])
 
   const saudeNegocios = useMemo(() => resumo?.saude_negocios || [], [resumo])
   const negociosClassificados = useMemo(
@@ -7920,6 +8097,35 @@ export default function AgingEstoquePage() {
   const totalAtivosOutros = Math.max(0, totalItensResumo - totalDescontinuadoSaldo - totalBravi - qtdAClassificar)
   const escopoTitulo = ESCOPO_TITULO[escopoEstoque]
   const mostrarCardsPortfolio = escopoEstoque !== "insumos"
+  const metricasTabelaLocal = useMemo(() => {
+    const base = itensFiltradosLocal
+    const resumoLocal = {
+      total_itens: base.length,
+      ruptura: 0,
+      critico: 0,
+      excesso: 0,
+      pedidos_total: 0,
+    }
+
+    for (const item of base) {
+      const raw = item as unknown as Record<string, unknown>
+      const status = String(raw.status_estoque || raw.status || "").trim().toUpperCase()
+      if (status === "RUPTURA") resumoLocal.ruptura += 1
+      if (status === "CRITICO") resumoLocal.critico += 1
+      if (status === "EXCESSO") resumoLocal.excesso += 1
+      resumoLocal.pedidos_total += getPedidosAbertos(item)
+    }
+
+    return resumoLocal
+  }, [itensFiltradosLocal])
+
+  const kpiCarregandoSemBase = loadingItens && itens.length === 0
+  const usarMetricasTabelaLocal = itens.length > 0 || Boolean(activeFilter)
+  const valorKpiNumero = (localValue: number, backendValue?: number | null, compact = false) => {
+    if (kpiCarregandoSemBase) return "—"
+    const valor = usarMetricasTabelaLocal ? localValue : Number(backendValue || 0)
+    return compact ? fmtCompact(valor) : fmtNumber(valor)
+  }
   useEffect(() => {
     salvarUltimoEstadoGestaoEstoque({
       visaoEstoque,
@@ -7937,15 +8143,7 @@ export default function AgingEstoquePage() {
       if (!mounted) return
 
       setCacheVersion((atual) => {
-        if (!atual) {
-          // Remove caches antigos de versões anteriores ao abrir a página.
-          // Como os endpoints críticos agora usam apenas cache em memória, isso
-          // evita qualquer sobra de localStorage de builds antigos.
-          limparCacheGestaoEstoqueLocal()
-          return versao
-        }
-
-        if (atual !== versao) {
+        if (atual && atual !== versao) {
           limparCacheGestaoEstoqueLocal()
           setRefreshTick((current) => current + 1)
         }
@@ -8319,7 +8517,7 @@ export default function AgingEstoquePage() {
               <Database size={16} /> Bases
             </button>
             <button
-              onClick={() => { limparCacheGestaoEstoqueLocal(); setRefreshTick((x) => x + 1) }}
+              onClick={atualizarGestaoEstoqueAgora}
               className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
               style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
             >
@@ -8375,7 +8573,7 @@ export default function AgingEstoquePage() {
               <Database size={16} /> Bases
             </button>
             <button
-              onClick={() => { limparCacheGestaoEstoqueLocal(); setRefreshTick((x) => x + 1) }}
+              onClick={atualizarGestaoEstoqueAgora}
               className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
               style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
             >
@@ -8383,7 +8581,7 @@ export default function AgingEstoquePage() {
             </button>
             <button
               onClick={exportCsv}
-              disabled={exportingCsv || !itensResp?.total}
+              disabled={exportingCsv || !itens.length}
               className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
             >
@@ -8425,14 +8623,14 @@ export default function AgingEstoquePage() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           <KpiCard
             label="Itens"
-            value={fmtNumber(resumo?.resumo?.total_itens || 0)}
+            value={valorKpiNumero(metricasTabelaLocal.total_itens, resumo?.resumo?.total_itens)}
             helper={`Insumos de produção · Snapshot: ${resumo?.data_snapshot_consumo ? fmtDate(resumo.data_snapshot_consumo) : "—"}`}
             icon={<Boxes size={20} />}
             active={!activeFilter}
           />
           <KpiCard
             label="Ruptura"
-            value={fmtNumber(resumo?.resumo?.ruptura || 0)}
+            value={valorKpiNumero(metricasTabelaLocal.ruptura, resumo?.resumo?.ruptura)}
             helper="Saldo zerado com demanda"
             icon={<AlertTriangle size={20} />}
             tone="danger"
@@ -8441,7 +8639,7 @@ export default function AgingEstoquePage() {
           />
           <KpiCard
             label="Críticos"
-            value={fmtNumber(resumo?.resumo?.critico || 0)}
+            value={valorKpiNumero(metricasTabelaLocal.critico, resumo?.resumo?.critico)}
             helper="Abaixo da necessidade"
             icon={<ArrowDownRight size={20} />}
             tone="warning"
@@ -8450,7 +8648,7 @@ export default function AgingEstoquePage() {
           />
           <KpiCard
             label="Excesso"
-            value={fmtNumber(resumo?.resumo?.excesso || 0)}
+            value={valorKpiNumero(metricasTabelaLocal.excesso, resumo?.resumo?.excesso)}
             helper="cobertura > 3 meses"
             icon={<ArrowUpRight size={20} />}
             tone="blue"
@@ -8459,7 +8657,7 @@ export default function AgingEstoquePage() {
           />
           <KpiCard
             label="Entradas previstas"
-            value={fmtCompact(resumo?.resumo?.pedidos_total || 0)}
+            value={valorKpiNumero(metricasTabelaLocal.pedidos_total, resumo?.resumo?.pedidos_total, true)}
             helper="volume em compras abertas"
             icon={<ShoppingCart size={20} />}
             tone="blue"
@@ -8661,7 +8859,7 @@ export default function AgingEstoquePage() {
                 )}
               </div>
 
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {pageSeguro} de {totalPages} · {fmtNumber(totalItensLocal)} itens no recorte</p>
             </div>
           </div>
 
@@ -8748,7 +8946,7 @@ export default function AgingEstoquePage() {
 
           <div className="flex items-center justify-between border-t px-5 py-4" style={{ borderColor: "var(--border)" }}>
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              {loadingItens ? "Atualizando resultados..." : `Exibindo ${fmtNumber(itensOrdenados.length)} de ${fmtNumber(itensResp?.total || 0)} itens`}
+              {loadingItens ? "Atualizando resultados..." : `Exibindo ${fmtNumber(itensOrdenados.length)} de ${fmtNumber(totalItensLocal)} itens`}
             </p>
             <div className="flex gap-2">
               <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loadingItens} className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Anterior</button>
@@ -8798,13 +8996,13 @@ export default function AgingEstoquePage() {
           </button>
           <button
             type="button"
-            onClick={() => { limparCacheGestaoEstoqueLocal(); setRefreshTick((current) => current + 1) }}
+            onClick={atualizarGestaoEstoqueAgora}
             className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50"
             style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
           >
             <RefreshCw size={16} /> Atualizar
           </button>
-          <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} disabled={exportingCsv || !itensResp?.total}>
+          <button onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }} disabled={exportingCsv || !itens.length}>
             <Download size={16} /> {exportingCsv ? "Exportando..." : "Exportar CSV"}
           </button>
         </div>
@@ -8854,7 +9052,7 @@ export default function AgingEstoquePage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <KpiCard
           label="Itens"
-          value={fmtNumber(resumo?.resumo?.total_itens || 0)}
+          value={valorKpiNumero(metricasTabelaLocal.total_itens, resumo?.resumo?.total_itens)}
           helper={`Snapshot: ${fmtDate(resumo?.data_snapshot_consumo)}`}
           icon={<Boxes size={20} />}
           onClick={() => aplicarFiltro(null)}
@@ -8862,7 +9060,7 @@ export default function AgingEstoquePage() {
         />
         <KpiCard
           label="Ruptura"
-          value={fmtNumber(resumo?.resumo?.ruptura || 0)}
+          value={valorKpiNumero(metricasTabelaLocal.ruptura, resumo?.resumo?.ruptura)}
           helper="Sem estoque disponível"
           icon={<AlertTriangle size={20} />}
           tone="danger"
@@ -8871,7 +9069,7 @@ export default function AgingEstoquePage() {
         />
         <KpiCard
           label="Críticos"
-          value={fmtNumber(resumo?.resumo?.critico || 0)}
+          value={valorKpiNumero(metricasTabelaLocal.critico, resumo?.resumo?.critico)}
           helper="Abaixo da necessidade"
           icon={<ArrowDownRight size={20} />}
           tone="warning"
@@ -8880,7 +9078,7 @@ export default function AgingEstoquePage() {
         />
         <KpiCard
           label="Excesso"
-          value={fmtNumber(resumo?.resumo?.excesso || 0)}
+          value={valorKpiNumero(metricasTabelaLocal.excesso, resumo?.resumo?.excesso)}
           helper="cobertura > 3 meses"
           icon={<ArrowUpRight size={20} />}
           tone="blue"
@@ -8889,7 +9087,7 @@ export default function AgingEstoquePage() {
         />
         <KpiCard
           label="Entradas previstas"
-          value={fmtCompact(resumo?.resumo?.pedidos_total || 0)}
+          value={valorKpiNumero(metricasTabelaLocal.pedidos_total, resumo?.resumo?.pedidos_total, true)}
           helper="volume em compras abertas"
           icon={<ShoppingCart size={20} />}
           tone="blue"
@@ -8992,7 +9190,7 @@ export default function AgingEstoquePage() {
               )}
             </div>
 
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {page} de {totalPages} · {fmtNumber(itensResp?.total || 0)} itens no escopo</p>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Página {pageSeguro} de {totalPages} · {fmtNumber(totalItensLocal)} itens no recorte</p>
           </div>
         </div>
 
@@ -9093,7 +9291,7 @@ export default function AgingEstoquePage() {
 
         <div className="flex items-center justify-between border-t px-5 py-4" style={{ borderColor: "var(--border)" }}>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            {loadingItens ? "Atualizando resultados..." : `Exibindo ${fmtNumber(itensOrdenados.length)} de ${fmtNumber(itensResp?.total || 0)} itens`}
+            {loadingItens ? "Atualizando resultados..." : `Exibindo ${fmtNumber(itensOrdenados.length)} de ${fmtNumber(totalItensLocal)} itens`}
           </p>
           <div className="flex gap-2">
             <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loadingItens} className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40" style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>Anterior</button>
@@ -9103,7 +9301,7 @@ export default function AgingEstoquePage() {
       </div>
 
       <BraviSeriePanel
-        active={mostrarCardsPortfolio && escopoEstoque === "produtos" && Boolean(selected?.codigo)}
+        active={mostrarCardsPortfolio && escopoEstoque === "produtos" && (!activeFilter?.busca || Boolean(selected?.codigo))}
         refreshTick={refreshTick}
         selectedItem={selected}
         loadingSelected={false}
