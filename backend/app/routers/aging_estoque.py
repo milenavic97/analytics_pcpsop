@@ -56,6 +56,50 @@ _SERIE_PRODUTOS_CACHE: Dict[str, Any] = {
 _SERIE_PRODUTOS_CACHE_LOCK = Lock()
 
 
+# V_perf_2026_07_08: cache curto para as linhas cruas de d_bom_estrutura.
+# Antes, _buscar_bom_filhos() e _buscar_componentes_bom_info() refaziam a
+# consulta completa na tabela toda vez que eram chamadas — e cada requisição
+# de /aging-estoque/itens chama essas funções (via _explodir_forecast_multinivel)
+# até 4 vezes. Com a BOM pequena isso passava despercebido; com o upload novo
+# de PPS (tabela quase triplicou), virou 4 buscas completas + reprocessamento
+# redundante dentro da mesma chamada. Este cache elimina a repetição sem mudar
+# o resultado: TTL curto o suficiente para refletir uploads novos rapidamente.
+BOM_ESTRUTURA_RAW_CACHE_TTL_SECONDS = 5 * 60
+_BOM_ESTRUTURA_RAW_CACHE: Dict[str, Any] = {
+    "key": "bom_estrutura_raw",
+    "created_at": 0.0,
+    "data": None,
+}
+_BOM_ESTRUTURA_RAW_CACHE_LOCK = Lock()
+
+
+def _buscar_bom_estrutura_rows_raw() -> List[Dict[str, Any]]:
+    """Retorna as linhas cruas de d_bom_estrutura, com cache curto em memória
+    compartilhado entre _buscar_bom_filhos() e _buscar_componentes_bom_info()."""
+    cache_key = "bom_estrutura_raw"
+
+    if _cache_simples_valido(_BOM_ESTRUTURA_RAW_CACHE, cache_key, BOM_ESTRUTURA_RAW_CACHE_TTL_SECONDS):
+        return _BOM_ESTRUTURA_RAW_CACHE.get("data") or []
+
+    with _BOM_ESTRUTURA_RAW_CACHE_LOCK:
+        if _cache_simples_valido(_BOM_ESTRUTURA_RAW_CACHE, cache_key, BOM_ESTRUTURA_RAW_CACHE_TTL_SECONDS):
+            return _BOM_ESTRUTURA_RAW_CACHE.get("data") or []
+
+        try:
+            rows = _select_all(
+                supabase.table("d_bom_estrutura")
+                .select("codigo_pai, codigo_comp, descricao_comp, tp, tipo_pai, descricao_pai, quantidade")
+            )
+        except Exception:
+            rows = []
+
+        _BOM_ESTRUTURA_RAW_CACHE["key"] = cache_key
+        _BOM_ESTRUTURA_RAW_CACHE["created_at"] = time.time()
+        _BOM_ESTRUTURA_RAW_CACHE["data"] = rows
+
+        return rows
+
+
 def _cache_base_valido(
     cached_data: Any,
     cached_key: Any,
@@ -1485,10 +1529,7 @@ def _buscar_pais_bom_dos_componentes(codigos_componentes: List[str]) -> set[str]
         return set()
 
     try:
-        rows = _select_all(
-            supabase.table("d_bom_estrutura")
-            .select("codigo_pai, codigo_comp")
-        )
+        rows = _buscar_bom_estrutura_rows_raw()
     except Exception:
         rows = []
 
@@ -3842,10 +3883,7 @@ def _buscar_bom_filhos():
     x100 somente quando o intermediário realmente representa centos de tubetes.
     """
     try:
-        rows = _select_all(
-            supabase.table("d_bom_estrutura")
-            .select("codigo_pai, codigo_comp, quantidade, descricao_comp, tp")
-        )
+        rows = _buscar_bom_estrutura_rows_raw()
     except Exception:
         rows = []
 
@@ -3886,10 +3924,7 @@ def _buscar_componentes_bom_info() -> Dict[str, Dict[str, Any]]:
           mais de uma linha -> Compartilhado
     """
     try:
-        rows = _select_all(
-            supabase.table("d_bom_estrutura")
-            .select("codigo_pai, codigo_comp, descricao_comp, tp, tipo_pai, descricao_pai")
-        )
+        rows = _buscar_bom_estrutura_rows_raw()
     except Exception:
         rows = []
 
@@ -5192,10 +5227,7 @@ def _buscar_mapa_pi_para_pas_por_bom(
         return {}
 
     try:
-        rows = _select_all(
-            supabase.table("d_bom_estrutura")
-            .select("codigo_pai,codigo_comp,descricao_comp,tp,tipo_pai,descricao_pai")
-        )
+        rows = _buscar_bom_estrutura_rows_raw()
     except Exception:
         rows = []
 
@@ -6622,20 +6654,32 @@ def _buscar_demanda_mes_atual(codigos: List[str]):
 
     # Demanda de insumos passa a vir da programação/Gantt V1.
     programacao_rows, debug_programacao = _buscar_mrp_v1_l1_l2_rows()
-    programacao_mes = _rows_mes_atual(programacao_rows)
 
     origem_demanda_bom = "mrp_v1_l1_l2_bom"
 
-    if not programacao_mes:
+    if not programacao_rows:
         # Fallback controlado: mantém a tela funcionando enquanto validamos o
         # nome/estrutura da tabela de Gantt no ambiente.
-        programacao_mes = forecast_rows_mes
+        programacao_rows = forecast_rows_mes
         origem_demanda_bom = "forecast_sop_bom_fallback_sem_programacao_v1"
 
-    _, demanda_explodida = _explodir_forecast_multinivel(
-        programacao_mes,
+    # V_perf_2026_07_08: antes, a programação era filtrada para o mês atual
+    # ANTES de explodir pela BOM (_rows_mes_atual). Isso podia zerar a demanda
+    # de um insumo quando o intermediário da BOM (PI) aparece na programação
+    # com um mês próprio diferente do mês do PA final que efetivamente puxa a
+    # demanda no mês atual — o mesmo insumo aparecia corretamente no gráfico de
+    # detalhe (_forecast_explodido_bom), que explode a programação inteira e só
+    # filtra o resultado pelo mês atual depois. Alinhado aqui com esse mesmo
+    # padrão para a tabela bater com o gráfico.
+    _, demanda_explodida_completa = _explodir_forecast_multinivel(
+        programacao_rows,
         codigos_interesse=codigos_set,
     )
+    demanda_explodida = {
+        chave: valor
+        for chave, valor in demanda_explodida_completa.items()
+        if chave[1] == ano_atual and chave[2] == mes_atual
+    }
 
     for codigo in codigos_set:
         chave_mes = (codigo, ano_atual, mes_atual)
