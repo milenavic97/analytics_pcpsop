@@ -6648,20 +6648,30 @@ def _buscar_demanda_mes_atual(codigos: List[str]):
 
     # Demanda de insumos passa a vir da programação/Gantt V1.
     programacao_rows, debug_programacao = _buscar_mrp_v1_l1_l2_rows()
-    programacao_mes = _rows_mes_atual(programacao_rows)
 
     origem_demanda_bom = "mrp_v1_l1_l2_bom"
 
-    if not programacao_mes:
+    if not programacao_rows:
         # Fallback controlado: mantém a tela funcionando enquanto validamos o
         # nome/estrutura da tabela de Gantt no ambiente.
-        programacao_mes = forecast_rows_mes
+        programacao_rows = forecast_rows_mes
         origem_demanda_bom = "forecast_sop_bom_fallback_sem_programacao_v1"
 
-    _, demanda_explodida = _explodir_forecast_multinivel(
-        programacao_mes,
+    # Explode a programação inteira (todos os meses) e filtra o resultado pelo
+    # mês atual depois, em vez de filtrar as linhas de entrada antes de
+    # explodir. Isso alinha com o gráfico de detalhe (_forecast_explodido_bom)
+    # e evita zerar a demanda de um insumo quando o intermediário da BOM (PI)
+    # aparece na programação com um mês próprio diferente do mês do PA final
+    # que efetivamente puxa a demanda no mês atual.
+    _, demanda_explodida_completa = _explodir_forecast_multinivel(
+        programacao_rows,
         codigos_interesse=codigos_set,
     )
+    demanda_explodida = {
+        chave: valor
+        for chave, valor in demanda_explodida_completa.items()
+        if chave[1] == ano_atual and chave[2] == mes_atual
+    }
 
     for codigo in codigos_set:
         chave_mes = (codigo, ano_atual, mes_atual)
