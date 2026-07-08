@@ -783,7 +783,14 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     setData(json);
     setUltimaAtualizacaoProducao(atualizacaoServidor || null);
 
-    if (onMtdLoad) {
+    // Os cards "mês atual" da Overview (Atendimento Projetado, Liberações e o
+    // gráfico de Demanda vs. Disponibilidade) só devem refletir o mês
+    // corrente de verdade. Sem essa checagem, trocar o filtro deste widget
+    // para um mês passado (ex.: Junho, para conferir o Rastreamento) também
+    // sobrescrevia esses cards da Overview com o dado do mês selecionado.
+    const ehMesAtualDeVerdade = mesSelecionado === mesInicial && anoSelecionado === anoInicial;
+
+    if (onMtdLoad && ehMesAtualDeVerdade) {
       const resumoLiberacao = json.mtd_resumo_liberacao;
       const previstoAteHoje = Number(
         resumoLiberacao?.previsto_ate_hoje ?? json.mtd_cx_previsto ?? 0
