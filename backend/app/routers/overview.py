@@ -3087,25 +3087,20 @@ def get_rastreamento_lotes(
 
     rodada_baseline_v1 = buscar_rodada_mrp_v1_mes()
 
-    # Para o mês analisado, o plano atualizado continua sendo a maior versão
-    # daquele próprio mês. Isso preserva a conciliação V1 x plano atualizado
-    # de meses fechados.
-    rodada_atual_mes_mrp = buscar_rodada_mrp_atual_mes()
-
-    # Para detectar reprogramação de um mês fechado para um mês futuro, também
-    # precisamos olhar a rodada operacional global vigente. Ex.: analisando
-    # Jun/2026 depois que já existe Jul/2026, um lote que saiu de junho e foi
-    # para julho só aparece como futuro na rodada global atual.
-    rodada_global_mrp = _buscar_rodada_mrp_atual()
-
-    rodada_atual_mrp = rodada_atual_mes_mrp or rodada_global_mrp
+    # Duas leituras diferentes são necessárias aqui:
+    # 1) rodada_atual_mrp_mes: maior versão do próprio mês analisado.
+    #    Mantém o plano atualizado de Junho como Junho, sem puxar Julho para a tela.
+    # 2) rodada_atual_mrp_global: rodada operacional mais recente.
+    #    Serve só para detectar lote da V1 de Junho que hoje foi jogado para Julho.
+    rodada_atual_mrp_mes = buscar_rodada_mrp_atual_mes()
+    rodada_atual_mrp_global = _buscar_rodada_mrp_atual()
+    rodada_atual_mrp = rodada_atual_mrp_mes or rodada_atual_mrp_global
 
     rows_gantt_ano_atual = montar_gantt_mrp_por_rodada(rodada_atual_mrp)
-    rows_gantt_ano_operacional = (
-        montar_gantt_mrp_por_rodada(rodada_global_mrp)
-        if rodada_global_mrp and rodada_global_mrp.get("id") != (rodada_atual_mrp or {}).get("id")
-        else rows_gantt_ano_atual
-    )
+    rows_gantt_ano_atual_global = montar_gantt_mrp_por_rodada(rodada_atual_mrp_global)
+    if not rows_gantt_ano_atual_global:
+        rows_gantt_ano_atual_global = rows_gantt_ano_atual
+
     rows_gantt_ano = montar_gantt_mrp_por_rodada(rodada_baseline_v1)
 
     fonte_baseline = "Gantt/MPS V1" if rodada_baseline_v1 else "Gantt/MPS atual"
@@ -3495,12 +3490,12 @@ def get_rastreamento_lotes(
         return mapa
 
     # Mapa V1 = baseline do mês.
-    # Mapa atual = plano atualizado do próprio mês analisado.
-    # Mapa operacional = rodada global vigente, usado só para detectar
-    # reprogramações de meses fechados para meses futuros.
+    # Mapa atual do mês = usado para plano atualizado/tendência do mês escolhido.
+    # Mapa global = usado apenas para detectar reprogramação para mês futuro
+    # quando se está olhando mês fechado (ex.: V1 de Jun jogada para Jul na rodada atual).
     gantt_lotes_ano_map = construir_mapa_previsoes_por_lote(rows_gantt_ano)
     gantt_atual_lotes_ano_map = construir_mapa_previsoes_por_lote(rows_gantt_ano_atual)
-    gantt_operacional_lotes_ano_map = construir_mapa_previsoes_por_lote(rows_gantt_ano_operacional)
+    gantt_global_lotes_ano_map = construir_mapa_previsoes_por_lote(rows_gantt_ano_atual_global)
 
     # Mapa SD3 por lote: lote → qtd liberada no mês atual.
     sd3_lote_map: dict[str, float] = {}
@@ -3920,30 +3915,35 @@ def get_rastreamento_lotes(
                 pass
 
         previsoes_atuais = gantt_atual_lotes_ano_map.get(lote, [])
-        previsoes_operacionais = gantt_operacional_lotes_ano_map.get(lote, previsoes_atuais)
+        previsoes_globais = gantt_global_lotes_ano_map.get(lote, [])
 
         previsoes_atuais_mes = [
             p for p in previsoes_atuais
             if p.get("mes_previsto") == mes_analise
             and p.get("ano_previsto") == ano_analise
         ]
-
-        # Para mês fechado, a rodada atual do próprio mês pode não mostrar mais
-        # o destino futuro. Por isso a detecção de reprogramação olha primeiro
-        # a rodada operacional global vigente.
-        previsoes_futuras = [
-            p for p in previsoes_operacionais
+        previsoes_futuras_mes = [
+            p for p in previsoes_atuais
             if (p.get("ano_previsto") or 0, p.get("mes_previsto") or 0) > (ano_analise, mes_analise)
         ]
-        if not previsoes_futuras:
-            previsoes_futuras = [
-                p for p in previsoes_atuais
-                if (p.get("ano_previsto") or 0, p.get("mes_previsto") or 0) > (ano_analise, mes_analise)
-            ]
+        previsoes_futuras_global = [
+            p for p in previsoes_globais
+            if (p.get("ano_previsto") or 0, p.get("mes_previsto") or 0) > (ano_analise, mes_analise)
+        ]
+        previsoes_futuras = previsoes_futuras_global or previsoes_futuras_mes
 
-        previsao_atual_ref = previsoes_atuais_mes[0] if previsoes_atuais_mes else (previsoes_futuras[0] if previsoes_futuras else None)
+        previsao_atual_ref = (
+            previsoes_atuais_mes[0]
+            if previsoes_atuais_mes
+            else (previsoes_futuras[0] if previsoes_futuras else None)
+        )
 
-        reprogramado = bool(previsoes_futuras) and not bool(previsoes_atuais_mes) and not check_liberado
+        # Regra simples e direta para mês fechado:
+        # se o lote estava na V1 do mês analisado e na rodada operacional atual
+        # aparece em mês futuro, ele é reprogramado/perda produção do mês de origem.
+        # Não precisa esperar data_lib e não pode ficar preso como "Em desvio"
+        # salvo quando já houver reprovação/descarte.
+        reprogramado = bool(previsoes_futuras) and not check_liberado
         saiu_do_plano_atual = not bool(previsoes_atuais_mes) and not check_liberado
         tem_etapa_producao = check_lavagem or check_envase or check_embalagem
 
@@ -4346,14 +4346,12 @@ def get_rastreamento_lotes(
         r_mes = resultado_por_lote.get(lote_mes, {})
         status_gap_lote = str(r_mes.get("status_gap") or "")
 
-        # Prioridade validada: reprovação/descarte sempre prevalece sobre
-        # atraso/reprogramação. Depois vem rendimento, e só então perda produção.
-        if status_gap_lote == "Reprovação/desvio" or r_mes.get("desvio_reprovacao"):
+        if status_gap_lote == "Atraso de produção" or r_mes.get("reprogramado") or r_mes.get("atraso_producao"):
+            mes_reducao_atraso_producao += reducao_lote
+        elif status_gap_lote == "Reprovação/desvio" or r_mes.get("desvio_reprovacao"):
             mes_reducao_reprovacao_desvio += reducao_lote
         elif status_gap_lote == "Perda por rendimento" or r_mes.get("check_liberado") or r_mes.get("perda_rendimento"):
             mes_reducao_rendimento += reducao_lote
-        elif status_gap_lote == "Atraso de produção" or r_mes.get("reprogramado") or r_mes.get("atraso_producao"):
-            mes_reducao_atraso_producao += reducao_lote
         else:
             # Mantém rastreabilidade sem forçar uma causa incorreta. Se aparecer
             # valor aqui, o front mostra como ajuste/outros na conciliação.
@@ -4403,21 +4401,15 @@ def get_rastreamento_lotes(
             continue
 
         lote_atraso = normaliza_lote(r.get("lote"))
-        previsoes_atuais_atraso = gantt_atual_lotes_ano_map.get(lote_atraso, [])
-        previsoes_operacionais_atraso = gantt_operacional_lotes_ano_map.get(lote_atraso, previsoes_atuais_atraso)
+        previsoes_atuais_atraso = gantt_global_lotes_ano_map.get(lote_atraso, []) or gantt_atual_lotes_ano_map.get(lote_atraso, [])
         previsoes_mes_atraso = [
             p for p in previsoes_atuais_atraso
             if p.get("mes_previsto") == mes_analise and p.get("ano_previsto") == ano_analise
         ]
         previsoes_futuras_atraso = [
-            p for p in previsoes_operacionais_atraso
+            p for p in previsoes_atuais_atraso
             if (p.get("ano_previsto") or 0, p.get("mes_previsto") or 0) > (ano_analise, mes_analise)
         ]
-        if not previsoes_futuras_atraso:
-            previsoes_futuras_atraso = [
-                p for p in previsoes_atuais_atraso
-                if (p.get("ano_previsto") or 0, p.get("mes_previsto") or 0) > (ano_analise, mes_analise)
-            ]
         previsao_ref_atraso = previsoes_mes_atraso[0] if previsoes_mes_atraso else (previsoes_futuras_atraso[0] if previsoes_futuras_atraso else None)
 
         destino_mes = r.get("mes_previsto_atual")
@@ -4548,6 +4540,14 @@ def get_rastreamento_lotes(
         if r.get("reprogramado") and not r.get("desvio_reprovacao")
     ]
 
+    # Blindagem executiva: o card de Perda Produção nunca pode ficar menor
+    # que a soma direta dos lotes da V1 reprogramados para mês futuro.
+    # Reprovação/descarte continua fora daqui e permanece no card de Reprovação/Desvio.
+    mes_cx_atraso_producao_card = max(
+        mes_cx_atraso_producao_card,
+        perda_producao_reprogramados_simples,
+    )
+
     _marcar("fim_tudo")
 
     return {
@@ -4560,9 +4560,6 @@ def get_rastreamento_lotes(
         "rodada_atual_id": rodada_atual_mrp.get("id") if rodada_atual_mrp else None,
         "rodada_atual_mes": rodada_atual_mrp.get("mes") if rodada_atual_mrp else None,
         "rodada_atual_versao": rodada_atual_mrp.get("versao") if rodada_atual_mrp else None,
-        "rodada_global_id": rodada_global_mrp.get("id") if rodada_global_mrp else None,
-        "rodada_global_mes": rodada_global_mrp.get("mes") if rodada_global_mrp else None,
-        "rodada_global_versao": rodada_global_mrp.get("versao") if rodada_global_mrp else None,
         "total_lotes": len(resultado),
         "total_lotes_mtd": len(lotes_mtd),
         "total_lotes_futuros": len(lotes_futuros),
@@ -4840,12 +4837,12 @@ async def _montar_payload_overview_resumo() -> dict:
     explicitamente com None para evitar passar objetos Query quando usamos
     as funções diretamente no backend.
     """
-    orcado_faturamento = get_orcado_faturamento(None, None, None, None, None, None)
-    projecao_faturamento = get_projecao_faturamento(None, None, None, None, None, None)
-    orcado_liberacao = get_orcado_liberacao()
-    projecao_liberacoes = get_projecao_liberacoes()
-    estoque_mensal = get_estoque_mensal(None, None, None, None, None, None)
-    disponibilidade_mensal = get_disponibilidade_mensal(
+    orcado_faturamento = await get_orcado_faturamento(None, None, None, None, None, None)
+    projecao_faturamento = await get_projecao_faturamento(None, None, None, None, None, None)
+    orcado_liberacao = await get_orcado_liberacao()
+    projecao_liberacoes = await get_projecao_liberacoes()
+    estoque_mensal = await get_estoque_mensal(None, None, None, None, None, None)
+    disponibilidade_mensal = await get_disponibilidade_mensal(
         None, None, None, None, None, None, None, None
     )
 
@@ -5079,7 +5076,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
     versions = _rastreamento_upload_versions()
 
     partes = [
-        "rastreamento-cache-v13-mes-fechado-reprogramado-global",
+        "rastreamento-cache-v8-mrp-versionado",
         f"ano:{ano_ref}",
         f"mes:{mes_ref}",
         # O rastreamento tem MTD/previsto até hoje; por isso muda na virada do dia.
@@ -5106,7 +5103,7 @@ async def recalcular_cache_rastreamento_lotes(
     chave = _rastreamento_cache_chave(mes_ref, ano_ref)
     versao_base, versions = _rastreamento_cache_version(mes_ref, ano_ref)
 
-    payload = get_rastreamento_lotes(mes_ref, ano_ref)
+    payload = await get_rastreamento_lotes(mes_ref, ano_ref)
 
     registro = _write_cache_overview(payload, versao_base, chave=chave)
 
