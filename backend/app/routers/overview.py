@@ -4493,6 +4493,20 @@ def get_rastreamento_lotes(
         x.get("lote") or "",
     ))
 
+    # Cálculo simples e direto, só pra conferência: soma o gap dos lotes
+    # marcados como reprogramado (e cujo desvio, se houver, não foi
+    # resolvido como reprovação). Não usa nenhuma das variáveis de cima,
+    # é só um contador cru, fácil de auditar por fora.
+    perda_producao_reprogramados_simples = round(sum(
+        r["qtd_gap_cx"]
+        for r in resultado
+        if r.get("reprogramado") and not r.get("desvio_reprovacao")
+    ))
+    lotes_reprogramados_simples = [
+        r.get("lote") for r in resultado
+        if r.get("reprogramado") and not r.get("desvio_reprovacao")
+    ]
+
     _marcar("fim_tudo")
 
     return {
@@ -4526,6 +4540,8 @@ def get_rastreamento_lotes(
         "mes_cx_ganho_rendimento": mes_cx_ganho_rendimento,
         "mes_cx_perdas_brutas_vs_v1": mes_cx_perdas_brutas_vs_v1,
         "mes_cx_reconciliado_v1": mes_cx_reconciliado_v1,
+        "perda_producao_reprogramados_simples": perda_producao_reprogramados_simples,
+        "lotes_reprogramados_simples": lotes_reprogramados_simples,
         "mes_perdas_vs_v1_por_causa": {
             "reprovacao_desvio": mes_cx_reprovacao_desvio_card,
             "atraso_producao": mes_cx_atraso_producao_card,
