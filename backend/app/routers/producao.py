@@ -3835,7 +3835,7 @@ def _agregar_excelencia_operacional(rows: List[Dict[str, Any]]) -> Dict[str, Any
 # ─────────────────────────────────────────────────────────────
 
 @router.get("/debug-versao")
-async def debug_versao_producao():
+def debug_versao_producao():
     return {
         "router": "producao",
         "versao": "producao_v126_sem_barra_v1",
@@ -3845,7 +3845,7 @@ async def debug_versao_producao():
 
 
 @router.get("/debug-apontamentos-envase")
-async def debug_apontamentos_envase(
+def debug_apontamentos_envase(
     ano: int | None = Query(default=None),
 ):
     try:
@@ -3883,7 +3883,7 @@ async def debug_apontamentos_envase(
 
 
 @router.get("/debug-planejado-programacao")
-async def debug_planejado_programacao(
+def debug_planejado_programacao(
     ano: int | None = Query(default=None),
 ):
     try:
@@ -3916,7 +3916,7 @@ async def debug_planejado_programacao(
 
 
 @router.get("/debug-realizado-envase")
-async def debug_realizado_envase(
+def debug_realizado_envase(
     ano: int | None = Query(default=None),
 ):
     """
@@ -4377,7 +4377,7 @@ def _carregar_planejamento_gantt_excelencia(
 
 
 @router.get("/excelencia-operacional")
-async def excelencia_operacional_producao(
+def excelencia_operacional_producao(
     ano: int | None = Query(default=None),
     mes: int | None = Query(default=None),
     periodo: str = Query(default="mes", description="Use mes ou ytd."),
@@ -4437,7 +4437,7 @@ async def excelencia_operacional_producao(
 
 
 @router.get("/perdas")
-async def perdas_producao(
+def perdas_producao(
     ano: int | None = Query(default=None),
     mes_final: int | None = Query(default=None),
     linha: str = Query(default="TODAS"),
@@ -4483,7 +4483,7 @@ async def perdas_producao(
 
 
 @router.get("/dashboard")
-async def dashboard_producao(
+def dashboard_producao(
     ano: int | None = Query(default=None),
     mes: int | None = Query(default=None),
     linha: str = Query(default="TODAS"),
@@ -4615,7 +4615,7 @@ async def dashboard_producao(
 
 
 @router.get("/acompanhamento")
-async def acompanhamento_producao(
+def acompanhamento_producao(
     ano: int | None = Query(default=None),
     mes: int | None = Query(default=None),
     linha: str = Query(default="TODAS"),

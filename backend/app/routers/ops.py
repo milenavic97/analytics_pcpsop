@@ -25,7 +25,7 @@ router = APIRouter(prefix="/ops", tags=["ops"])
 
 
 @router.get("/debug-versao")
-async def debug_versao_ops():
+def debug_versao_ops():
     return {
         "router": "ops",
         "versao": "debug_2026_06_11_tipo_posicao_estoque_prioritario_v9",
@@ -1855,7 +1855,7 @@ def _montar_criticos(todas: list[dict]) -> list[dict]:
 
 
 @router.get("/viabilidade")
-async def viabilidade_ops(
+def viabilidade_ops(
     mes_ref: str = Query(..., description="Mês de referência no formato YYYY-MM, ex: 2026-05"),
     linha: str | None = Query(None, description="Filtrar por linha: ENVASE_L1, ENVASE_L2, EMBALAGEM"),
     leadtime_compra_dias: int = Query(2, ge=0, le=30, description="Dias de antecedência necessários entre entrega da compra e início da fabricação"),
@@ -2038,7 +2038,7 @@ async def viabilidade_ops(
 
 
 @router.delete("/programacao/{mes_ref}")
-async def excluir_programacao_mes(mes_ref: str):
+def excluir_programacao_mes(mes_ref: str):
     """
     Exclui a programação mensal de OPs de um mês específico.
 
@@ -2129,7 +2129,7 @@ async def excluir_programacao_mes(mes_ref: str):
     }
 
 @router.get("/meses")
-async def meses_disponiveis():
+def meses_disponiveis():
     """
     Lista meses disponíveis sem varrer a tabela inteira.
 
@@ -2161,7 +2161,7 @@ async def meses_disponiveis():
 
 
 @router.get("/resumo/{mes_ref}")
-async def resumo_mes(
+def resumo_mes(
     mes_ref: str,
     leadtime_compra_dias: int = Query(2, ge=0, le=30, description="Dias de antecedência necessários entre entrega da compra e início da fabricação"),
 ):
@@ -2632,7 +2632,7 @@ async def recalcular_caches_ops_padrao(
 
 
 @router.get("/cache/versao")
-async def get_ops_cache_versao(
+def get_ops_cache_versao(
     mes_ref: str = Query(..., description="Mês de referência YYYY-MM"),
     leadtime_compra_dias: int = Query(2, ge=0, le=30),
 ):

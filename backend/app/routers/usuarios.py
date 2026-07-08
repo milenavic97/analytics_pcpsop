@@ -115,7 +115,7 @@ def _exigir_admin(authorization: str | None) -> dict[str, Any]:
 
 
 @router.get("/me")
-async def get_me(authorization: str | None = Header(default=None)):
+def get_me(authorization: str | None = Header(default=None)):
     perfil = _usuario_logado(authorization)
 
     return {
@@ -131,7 +131,7 @@ async def get_me(authorization: str | None = Header(default=None)):
 
 
 @router.get("")
-async def listar_usuarios(authorization: str | None = Header(default=None)):
+def listar_usuarios(authorization: str | None = Header(default=None)):
     _exigir_admin(authorization)
 
     res = (
@@ -145,7 +145,7 @@ async def listar_usuarios(authorization: str | None = Header(default=None)):
 
 
 @router.post("")
-async def criar_usuario(body: UsuarioCreate, authorization: str | None = Header(default=None)):
+def criar_usuario(body: UsuarioCreate, authorization: str | None = Header(default=None)):
     _exigir_admin(authorization)
 
     permissoes = _validar_permissoes(body.permissoes)
@@ -194,7 +194,7 @@ async def criar_usuario(body: UsuarioCreate, authorization: str | None = Header(
 
 
 @router.put("/{usuario_id}")
-async def atualizar_usuario(
+def atualizar_usuario(
     usuario_id: str,
     body: UsuarioUpdate,
     authorization: str | None = Header(default=None),
@@ -243,7 +243,7 @@ async def atualizar_usuario(
 
 
 @router.put("/{usuario_id}/senha")
-async def alterar_senha(
+def alterar_senha(
     usuario_id: str,
     body: SenhaUpdate,
     authorization: str | None = Header(default=None),
@@ -278,7 +278,7 @@ async def alterar_senha(
 
 
 @router.delete("/{usuario_id}")
-async def excluir_usuario(
+def excluir_usuario(
     usuario_id: str,
     authorization: str | None = Header(default=None),
 ):

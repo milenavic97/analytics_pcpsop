@@ -1451,7 +1451,7 @@ async def upload_base(
 # ─────────────────────────────────────────────────────────────
 
 @router.get("/log")
-async def listar_logs():
+def listar_logs():
     res = (
         supabase.table("upload_log")
         .select("*")
@@ -1464,7 +1464,7 @@ async def listar_logs():
 
 
 @router.get("/status/{base_id}")
-async def status_base(base_id: str):
+def status_base(base_id: str):
     res = (
         supabase.table("upload_log")
         .select("*")
@@ -1478,7 +1478,7 @@ async def status_base(base_id: str):
 
 
 @router.get("/ultima-atualizacao/{base_id}")
-async def ultima_atualizacao(base_id: str):
+def ultima_atualizacao(base_id: str):
     res = (
         supabase.table("upload_log")
         .select("processado_em, status")
@@ -1502,7 +1502,7 @@ async def ultima_atualizacao(base_id: str):
 
 
 @router.get("/apontamentos/resumo")
-async def resumo_apontamentos(
+def resumo_apontamentos(
     ano: int | None = Query(default=None),
     mes: int | None = Query(default=None),
 ):

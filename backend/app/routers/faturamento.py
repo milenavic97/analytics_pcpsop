@@ -2127,7 +2127,7 @@ def _write_cache_faturamento(chave: str, payload: dict[str, Any], versao_base: s
     return registro
 
 
-async def recalcular_cache_faturamento(
+def recalcular_cache_faturamento(
     ano: int | None = None,
     bloco: str = "TODOS",
     produto: str | None = None,
@@ -2191,7 +2191,7 @@ async def recalcular_caches_faturamento_padrao(
 
 
 @router.get("/cache/versao")
-async def get_faturamento_cache_versao(
+def get_faturamento_cache_versao(
     ano: int | None = Query(default=None),
     bloco: str = Query(default="TODOS"),
     produto: str | None = Query(default=None),

@@ -619,12 +619,12 @@ def _aplicar_metricas(row: dict) -> dict:
 
 
 @router.get("/health")
-async def health_overview_producao():
+def health_overview_producao():
     return {"status": "ok", "router": "overview-producao"}
 
 
 @router.get("/resumo")
-async def resumo_overview_producao(
+def resumo_overview_producao(
     ano: int | None = Query(default=None),
     mes: int | None = Query(default=None),
     linha: Optional[str] = Query(default="TODAS"),

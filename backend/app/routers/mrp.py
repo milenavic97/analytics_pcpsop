@@ -3386,7 +3386,7 @@ def _diagnostico_importacao_mps(excel_bytes, xls, abas_config):
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/rodadas")
-async def listar_rodadas():
+def listar_rodadas():
     try:
         res = supabase.table("f_mrp_rodadas").select("*").order("criado_em", desc=True).execute()
         return res.data or []
@@ -3395,7 +3395,7 @@ async def listar_rodadas():
 
 
 @router.post("/rodadas")
-async def criar_rodada(payload: RodadaCreate):
+def criar_rodada(payload: RodadaCreate):
     try:
         res = supabase.table("f_mrp_rodadas").insert({"nome": payload.nome, "mes": payload.mes, "ano": payload.ano, "versao": payload.versao, "observacao": payload.observacao, "status": "rascunho"}).execute()
         data = res.data or []
@@ -3409,7 +3409,7 @@ async def criar_rodada(payload: RodadaCreate):
 
 
 @router.delete("/rodadas/{rodada_id}")
-async def excluir_rodada(rodada_id: str):
+def excluir_rodada(rodada_id: str):
     try:
         rodada_res = supabase.table("f_mrp_rodadas").select("*").eq("id", rodada_id).execute()
         if not (rodada_res.data or []):
@@ -3429,7 +3429,7 @@ async def excluir_rodada(rodada_id: str):
 
 
 @router.post("/rodadas/{rodada_id}/copiar")
-async def copiar_rodada(rodada_id: str, payload: RodadaCopiarCreate):
+def copiar_rodada(rodada_id: str, payload: RodadaCopiarCreate):
     try:
         res_origem = supabase.table("f_mrp_rodadas").select("*").eq("id", rodada_id).single().execute()
         rodada_origem = res_origem.data
@@ -3608,7 +3608,7 @@ async def importar_mps(
 
 
 @router.get("/rodadas/{rodada_id}/calendario-comentarios-resumo")
-async def resumo_calendario_comentarios(rodada_id: str):
+def resumo_calendario_comentarios(rodada_id: str):
     """
     Diagnóstico rápido pós-upload para validar se f_mrp_calendario_dia recebeu
     calendário e comentários do Gantt.
@@ -3705,7 +3705,7 @@ async def importar_producao_real(rodada_id: str, file: UploadFile = File(...)):
 
 
 @router.get("/rodadas/{rodada_id}/mudancas-realizado")
-async def listar_mudancas_realizado(rodada_id: str):
+def listar_mudancas_realizado(rodada_id: str):
     try:
         etapas = _select_all(supabase.table("f_mrp_etapas").select("*").eq("rodada_id", rodada_id).order("recurso").order("data_inicio").order("sequencia"))
         mudancas_base = [m for e in etapas if (m := _montar_mudanca_realizado_da_etapa(e))]
@@ -3724,7 +3724,7 @@ async def listar_mudancas_realizado(rodada_id: str):
 
 
 @router.get("/rodadas/{rodada_id}/comparativo-liberacao")
-async def comparar_liberacao_rodadas(rodada_id: str):
+def comparar_liberacao_rodadas(rodada_id: str):
     try:
         rodada_res = supabase.table("f_mrp_rodadas").select("*").eq("id", rodada_id).single().execute()
         rodada_atual = rodada_res.data
@@ -3744,7 +3744,7 @@ async def comparar_liberacao_rodadas(rodada_id: str):
 
 
 @router.get("/rodadas/{rodada_id}/etapas")
-async def listar_etapas(rodada_id: str):
+def listar_etapas(rodada_id: str):
     try:
         query = supabase.table("f_mrp_etapas").select("*").eq("rodada_id", rodada_id).order("recurso").order("data_inicio").order("sequencia")
         return _select_all(query)
@@ -3753,7 +3753,7 @@ async def listar_etapas(rodada_id: str):
 
 
 @router.get("/rodadas/{rodada_id}/alocacoes")
-async def listar_alocacoes(rodada_id: str):
+def listar_alocacoes(rodada_id: str):
     try:
         query = supabase.table("f_mrp_alocacoes_dia").select("*").eq("rodada_id", rodada_id).order("recurso").order("data")
         return _select_all(query)
@@ -3762,7 +3762,7 @@ async def listar_alocacoes(rodada_id: str):
 
 
 @router.get("/parametros")
-async def listar_parametros_mrp():
+def listar_parametros_mrp():
     try:
         globais = _select_all(supabase.table("d_mrp_parametros").select("*").order("chave"))
         produtos = _select_all(supabase.table("d_mrp_parametros_produto").select("*").order("grupo_produto"))
@@ -3772,7 +3772,7 @@ async def listar_parametros_mrp():
 
 
 @router.post("/etapas")
-async def criar_etapa(payload: EtapaCreate):
+def criar_etapa(payload: EtapaCreate):
     try:
         res = supabase.table("f_mrp_etapas").insert({
             "rodada_id": payload.rodada_id, "lote": payload.lote, "op": payload.op,
@@ -3798,7 +3798,7 @@ async def criar_etapa(payload: EtapaCreate):
 
 
 @router.put("/etapas/{etapa_id}")
-async def atualizar_etapa(etapa_id: str, payload: EtapaUpdate):
+def atualizar_etapa(etapa_id: str, payload: EtapaUpdate):
     try:
         dados = payload.model_dump(exclude_unset=True)
         for campo in ["data_inicio", "data_fim", "data_pa"]:
@@ -3818,7 +3818,7 @@ async def atualizar_etapa(etapa_id: str, payload: EtapaUpdate):
 
 
 @router.delete("/etapas/{etapa_id}")
-async def excluir_etapa(etapa_id: str):
+def excluir_etapa(etapa_id: str):
     try:
         res = supabase.table("f_mrp_etapas").delete().eq("id", etapa_id).execute()
         return {"ok": True, "deleted": res.data or []}
@@ -3827,7 +3827,7 @@ async def excluir_etapa(etapa_id: str):
 
 
 @router.get("/sd3-realizado")
-async def sd3_realizado(ano: int):
+def sd3_realizado(ano: int):
     try:
         rows = _select_all(
             supabase.table("f_sd3_entradas")

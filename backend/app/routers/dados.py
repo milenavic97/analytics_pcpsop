@@ -80,7 +80,7 @@ def get_pk(tabela: str) -> str:
 
 
 @router.get("/{tabela}")
-async def listar_dados(
+def listar_dados(
     tabela: str,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
@@ -114,7 +114,7 @@ class UpsertBody(BaseModel):
 
 
 @router.post("/{tabela}")
-async def inserir(tabela: str, body: UpsertBody):
+def inserir(tabela: str, body: UpsertBody):
     if tabela not in TABELAS_PERMITIDAS:
         raise HTTPException(
             status_code=404,
@@ -133,7 +133,7 @@ async def inserir(tabela: str, body: UpsertBody):
 
 
 @router.put("/{tabela}/{pk_value}")
-async def atualizar(tabela: str, pk_value: str, body: UpsertBody):
+def atualizar(tabela: str, pk_value: str, body: UpsertBody):
     if tabela not in TABELAS_PERMITIDAS:
         raise HTTPException(
             status_code=404,
@@ -159,7 +159,7 @@ async def atualizar(tabela: str, pk_value: str, body: UpsertBody):
 
 
 @router.delete("/{tabela}")
-async def excluir(
+def excluir(
     tabela: str,
     ids: list[str] = Query(...)
 ):

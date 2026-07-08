@@ -479,7 +479,7 @@ def _filtrar_rows_por_produto(rows: list[dict], codigos: set[str] | None, campo:
 
 
 @router.get("/filtros-produtos")
-async def get_filtros_produtos():
+def get_filtros_produtos():
     rows = _dimensao_produtos()
 
     def valores(campo: str) -> list[str]:
@@ -1420,7 +1420,7 @@ def _entradas_previstas_para_disponibilidade() -> dict[int, float]:
 
 
 @router.get("/orcado-faturamento")
-async def get_orcado_faturamento(
+def get_orcado_faturamento(
     linha: str | None = Query(default=None),
     familia: str | None = Query(default=None),
     segmento: str | None = Query(default=None),
@@ -1450,7 +1450,7 @@ async def get_orcado_faturamento(
 
 
 @router.get("/orcado-faturamento-detalhe")
-async def get_orcado_faturamento_detalhe(
+def get_orcado_faturamento_detalhe(
     linha: str | None = Query(default=None),
     familia: str | None = Query(default=None),
     segmento: str | None = Query(default=None),
@@ -1530,7 +1530,7 @@ async def get_orcado_faturamento_detalhe(
 
 
 @router.get("/projecao-faturamento")
-async def get_projecao_faturamento(
+def get_projecao_faturamento(
     linha: str | None = Query(default=None),
     familia: str | None = Query(default=None),
     segmento: str | None = Query(default=None),
@@ -1634,7 +1634,7 @@ async def get_projecao_faturamento(
 
 
 @router.get("/orcado-liberacao")
-async def get_orcado_liberacao():
+def get_orcado_liberacao():
     rows = _select_all(
         supabase.table("f_orcado_liberacao")
         .select("*")
@@ -1683,7 +1683,7 @@ async def get_orcado_liberacao():
 
 
 @router.get("/projecao-liberacoes")
-async def get_projecao_liberacoes():
+def get_projecao_liberacoes():
     ultimo_mes_fechado = _mes_atual() - 1
 
     rows_sd3 = _select_all(
@@ -1845,7 +1845,7 @@ async def get_projecao_liberacoes():
 
 
 @router.get("/disponibilidade-mensal")
-async def get_disponibilidade_mensal(
+def get_disponibilidade_mensal(
     linha: str | None = Query(default=None),
     familia: str | None = Query(default=None),
     segmento: str | None = Query(default=None),
@@ -2205,7 +2205,7 @@ async def get_disponibilidade_mensal(
 
 
 @router.get("/entradas-reais-mensal")
-async def get_entradas_reais_mensal(
+def get_entradas_reais_mensal(
     linha: str | None = Query(default=None),
     familia: str | None = Query(default=None),
     segmento: str | None = Query(default=None),
@@ -2227,7 +2227,7 @@ async def get_entradas_reais_mensal(
 
 
 @router.get("/forecast-mensal")
-async def get_forecast_mensal(
+def get_forecast_mensal(
     linha: str | None = Query(default=None),
     familia: str | None = Query(default=None),
     segmento: str | None = Query(default=None),
@@ -2249,7 +2249,7 @@ async def get_forecast_mensal(
 
 
 @router.get("/vendas-reais-mensal")
-async def get_vendas_reais_mensal(
+def get_vendas_reais_mensal(
     linha: str | None = Query(default=None),
     familia: str | None = Query(default=None),
     segmento: str | None = Query(default=None),
@@ -2271,7 +2271,7 @@ async def get_vendas_reais_mensal(
 
 
 @router.get("/estoque-mensal")
-async def get_estoque_mensal(
+def get_estoque_mensal(
     linha: str | None = Query(default=None),
     familia: str | None = Query(default=None),
     segmento: str | None = Query(default=None),
@@ -2293,7 +2293,7 @@ async def get_estoque_mensal(
 
 
 @router.get("/atendimento-sku")
-async def get_atendimento_sku():
+def get_atendimento_sku():
     """
     Retorna liberações previstas e reais por SKU para o mês atual.
     Prevista: f_liberacoes_previstas_sku (mes atual, ano atual)
@@ -2409,7 +2409,7 @@ async def get_atendimento_sku():
 
 
 @router.get("/rastreamento-lotes")
-async def get_rastreamento_lotes(
+def get_rastreamento_lotes(
     mes: int | None = Query(default=None, ge=1, le=12),
     ano: int | None = Query(default=None),
 ):
@@ -3908,14 +3908,19 @@ async def get_rastreamento_lotes(
         # para mês futuro ou saiu do mês, ele precisa explicar perda do mês agora.
         # Não esperamos a data_lib original chegar, porque a própria reprogramação
         # já confirma que aquele volume não será liberado dentro do mês planejado.
+        #
+        # Um lote reprogramado conta como perda de produção mesmo que ainda esteja
+        # em desvio aberto (sem resultado): só sai dessa conta se o desvio for
+        # resolvido como reprovação (desvio_reprovacao), que sempre tem prioridade.
+        # As outras duas causas (saiu do plano sem reprogramação, ou atrasado sem
+        # etapa de produção) continuam exigindo que o lote não esteja em desvio.
         atraso_producao = (
             not check_liberado
-            and not em_desvio
             and not desvio_reprovacao
             and (
                 reprogramado
-                or (saiu_do_plano_atual and not tem_etapa_producao)
-                or (atrasado and not tem_etapa_producao)
+                or (not em_desvio and saiu_do_plano_atual and not tem_etapa_producao)
+                or (not em_desvio and atrasado and not tem_etapa_producao)
             )
         )
 
@@ -3945,10 +3950,10 @@ async def get_rastreamento_lotes(
             status_gap = "Liberado"
         elif desvio_reprovacao:
             status_gap = "Reprovação/desvio"
-        elif em_desvio:
-            status_gap = "Em desvio"
         elif atraso_producao:
             status_gap = "Atraso de produção"
+        elif em_desvio:
+            status_gap = "Em desvio"
         elif check_embalagem:
             status_gap = "Em embalagem"
         elif check_envase:
@@ -4830,7 +4835,7 @@ def _recalcular_cache_overview_background() -> None:
 
 
 @router.get("/resumo/versao")
-async def get_overview_resumo_versao():
+def get_overview_resumo_versao():
     versao_base, versions = _overview_cache_version()
     cache = _read_cache_overview()
 
@@ -5050,7 +5055,7 @@ def _recalcular_cache_rastreamento_lotes_background(mes: int | None, ano: int | 
 
 
 @router.get("/rastreamento-lotes-cache/versao")
-async def get_rastreamento_lotes_cache_versao(
+def get_rastreamento_lotes_cache_versao(
     mes: int | None = Query(default=None, ge=1, le=12),
     ano: int | None = Query(default=None),
 ):

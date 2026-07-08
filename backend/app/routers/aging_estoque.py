@@ -12,7 +12,18 @@ from datetime import date, datetime, timedelta
 
 router = APIRouter(prefix="/aging-estoque", tags=["aging-estoque"])
 
-VERSAO_AGING_ESTOQUE = "debug_2026_07_07_v28_insumos_armazem_01"
+VERSAO_AGING_ESTOQUE = "debug_2026_07_08_v29_bom_componente_tipo_bom_prevalece"
+
+# Tipos usados para separar produto acabado/revenda de componente operacional da BOM.
+# Importante para Gestão de Estoque:
+# - ativo_analise controla a lista oficial de PA/MR/PPS;
+# - componente vindo da BOM deve entrar como insumo mesmo se ativo_analise=False;
+# - quando d_produtos divergir da BOM (ex.: 71991 cadastrado como PI, mas BOM tp=MP),
+#   a visão de Insumos deve usar o tipo da BOM para não excluir o componente.
+TIPOS_PRODUTO_ACABADO_ESTOQUE = {"PA", "MR", "PPS", "PV", "PA/MR"}
+TIPOS_COMPONENTE_BOM_CONSUMIVEL = {"MP", "ME", "MI", "MC", "MP/ME"}
+TIPOS_INTERMEDIARIO_BOM = {"PI", "SEMI", "INTERMEDIARIO", "INTERMEDIÁRIO"}
+
 
 # Cache curto em memória para a base pesada da Gestão de Estoque.
 # Sem isso, cada filtro/troca de página refaz leitura de consumo, d_produtos,
@@ -2298,6 +2309,13 @@ def _buscar_classificacao_bom(codigos: List[str], produtos_dim_all: Dict[str, di
         classificacao = _classificacao_bom_dict_from_linhas(linhas_bom)
         classificacao["pais_bom"] = comp_info.get("pais_bom") or []
         classificacao["qtd_pais_bom"] = comp_info.get("qtd_pais_bom") or 0
+        classificacao["linha_bom"] = comp_info.get("linha_bom")
+        classificacao["tipo_negocio_bom"] = comp_info.get("tipo_negocio_bom")
+        classificacao["macro_negocio_bom"] = comp_info.get("macro_negocio_bom")
+        classificacao["grupo_gerencial_bom"] = comp_info.get("grupo_gerencial_bom")
+        classificacao["tp"] = comp_info.get("tp")
+        classificacao["tipo_componente_bom"] = comp_info.get("tp")
+        classificacao["descricao_comp"] = comp_info.get("descricao_comp")
         resultado[codigo] = classificacao
 
     return resultado
@@ -7179,6 +7197,37 @@ def _calcular_cobertura_status_mes_atual(
     }
 
 
+def _tipo_bom_deve_prevalecer_para_componente(
+    tipo_bom: Any,
+    tipo_cadastro: Any = None,
+) -> bool:
+    """
+    Decide quando o tipo informado na BOM deve prevalecer sobre d_produtos.
+
+    Caso real que motivou a regra:
+    - 71991 aparece na BOM como MP (AGULHA UNOJECT SHORT BISEL);
+    - em d_produtos está como PI e ativo_analise=False;
+    - a listagem de Insumos não pode excluir esse item como intermediário, porque
+      na estrutura ele é componente consumível do PA.
+    """
+    tipo_bom_norm = str(tipo_bom or "").strip().upper()
+    tipo_cadastro_norm = str(tipo_cadastro or "").strip().upper()
+
+    if tipo_bom_norm in TIPOS_COMPONENTE_BOM_CONSUMIVEL:
+        return True
+
+    # Se a BOM disse explicitamente que é PI/intermediário, não converte.
+    if tipo_bom_norm in TIPOS_INTERMEDIARIO_BOM:
+        return False
+
+    # Se o cadastro é PA/MR/PPS/PV, preserva o cadastro para não transformar
+    # produto acabado/revenda em insumo por engano.
+    if tipo_cadastro_norm in TIPOS_PRODUTO_ACABADO_ESTOQUE:
+        return False
+
+    return False
+
+
 def _tipo_produto_usa_entradas_compra_no_status(tipo_produto: Any, fonte_entradas_previstas: Any = None) -> bool:
     """
     Define quando as entradas previstas podem entrar na cobertura/status.
@@ -7365,10 +7414,28 @@ def _montar_item_base(row, compras, parametros, custos, demanda_mes, produtos, v
 
         return default
 
-    tipo_produto_erp = _coalesce(
-        produto_dim.get("tipo_produto_erp") if produto_dim else None,
-        row.get("tipo"),
+    tipo_produto_erp_cadastro = produto_dim.get("tipo_produto_erp") if produto_dim else None
+    tipo_produto_erp_row = row.get("tipo")
+    tipo_produto_erp_bom = _coalesce(
+        bom_dim.get("tp") if bom_dim else None,
+        bom_dim.get("tipo_componente_bom") if bom_dim else None,
     )
+
+    if bom_dim and _tipo_bom_deve_prevalecer_para_componente(tipo_produto_erp_bom, tipo_produto_erp_cadastro):
+        tipo_produto_erp = tipo_produto_erp_bom
+        tipo_produto_erp_origem = "BOM"
+    else:
+        tipo_produto_erp = _coalesce(
+            tipo_produto_erp_cadastro,
+            tipo_produto_erp_row,
+            tipo_produto_erp_bom,
+        )
+        tipo_produto_erp_origem = (
+            "DIMENSAO" if tipo_produto_erp_cadastro is not None and str(tipo_produto_erp_cadastro).strip() != "" else
+            "ESTOQUE" if tipo_produto_erp_row is not None and str(tipo_produto_erp_row).strip() != "" else
+            "BOM" if tipo_produto_erp_bom is not None and str(tipo_produto_erp_bom).strip() != "" else
+            None
+        )
 
     desc_produto = _coalesce(
         produto_dim.get("desc_produto") if produto_dim else None,
@@ -7564,6 +7631,13 @@ def _montar_item_base(row, compras, parametros, custos, demanda_mes, produtos, v
         "grupo": grupo,
         "grupo_descricao": grupo_descricao,
         "tipo": tipo_produto_erp,
+
+        # Tipo operacional usado na Gestão.
+        # Para componentes da BOM, o tipo da estrutura pode prevalecer sobre o
+        # tipo do cadastro, evitando excluir insumos por ativo_analise/tipo PI.
+        "tipo_produto_erp_cadastro": tipo_produto_erp_cadastro,
+        "tipo_produto_erp_bom": tipo_produto_erp_bom,
+        "tipo_produto_erp_origem": tipo_produto_erp_origem,
 
         # Classificações gerenciais da d_produtos ou herdadas da BOM.
         "macro_negocio": macro_negocio_gerencial,
@@ -7855,28 +7929,42 @@ def _item_eh_intermediario_pi(item: Dict[str, Any]) -> bool:
 
     Regra validada:
       - PI representa produto intermediário/preparado, como TUBETE PREP;
-      - a visão Insumos deve focar MP/ME/MI e materiais consumíveis;
-      - portanto PI não conta como ruptura/crítico/excesso no escopo Insumos.
+      - a visão Insumos deve focar MP/ME/MI/MC e materiais consumíveis;
+      - se o item aparece na BOM com tp=MP/ME/MI/MC, o tipo da BOM prevalece
+        sobre d_produtos.tipo_produto_erp para a visão de Insumos.
 
-    O item continua existindo na base geral/Todos, mas sai do escopo Insumos.
+    Caso real:
+      - 71991 está em d_produtos como PI/ativo_analise=false;
+      - mas na d_bom_estrutura aparece como componente MP do PA 52832;
+      - portanto deve aparecer em Insumos e não ser excluído como PI.
     """
     tipo_norm = _tipo_item_norm(item)
     tipo_bom = str(
         _coalesce(
             item.get("tipo_componente_bom"),
             item.get("tp"),
+            item.get("tipo_produto_erp_bom"),
             "",
         )
         or ""
     ).strip().upper()
 
-    return tipo_norm in {"PI", "SEMI", "INTERMEDIARIO", "INTERMEDIÁRIO"} or tipo_bom in {
-        "PI",
-        "SEMI",
-        "INTERMEDIARIO",
-        "INTERMEDIÁRIO",
-    }
+    eh_componente_bom = (
+        item.get("eh_componente_bom") is True
+        or str(item.get("origem_classificacao") or "").strip() == "BOM"
+        or str(item.get("origem_linha_estoque") or "").strip() == "bom_pa_pi_sem_snapshot_aging"
+    )
 
+    # Se a estrutura disse que o item é componente consumível, não deixa o tipo
+    # cadastral PI derrubar o item do escopo de Insumos.
+    if eh_componente_bom and tipo_bom in TIPOS_COMPONENTE_BOM_CONSUMIVEL:
+        return False
+
+    # Se a própria BOM diz que é intermediário, mantém fora da visão operacional.
+    if tipo_bom in TIPOS_INTERMEDIARIO_BOM:
+        return True
+
+    return tipo_norm in TIPOS_INTERMEDIARIO_BOM
 
 
 def _item_ativo_analise(item: Dict[str, Any]) -> bool:
@@ -9613,6 +9701,9 @@ def _classificacao_bom_from_componentes_info(
         classificacao["tipo_negocio_bom"] = comp_info.get("tipo_negocio_bom")
         classificacao["macro_negocio_bom"] = comp_info.get("macro_negocio_bom")
         classificacao["grupo_gerencial_bom"] = comp_info.get("grupo_gerencial_bom")
+        classificacao["tp"] = comp_info.get("tp")
+        classificacao["tipo_componente_bom"] = comp_info.get("tp")
+        classificacao["descricao_comp"] = comp_info.get("descricao_comp")
         resultado[codigo] = classificacao
     return resultado
 

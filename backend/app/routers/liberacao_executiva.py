@@ -886,7 +886,7 @@ def _total_rodada_mrp_cx(ano: int, mes: int, versao: int) -> dict[str, Any]:
     }
 
 @router.get("/plano1")
-async def get_liberacao_executiva_plano1(
+def get_liberacao_executiva_plano1(
     ano: int | None = Query(default=None),
 ):
     """
@@ -997,7 +997,7 @@ def _count_itens_impactados_por_versao(
 
 
 @router.get("/ponte-versoes")
-async def get_liberacao_executiva_ponte_versoes(
+def get_liberacao_executiva_ponte_versoes(
     ano: int | None = Query(default=None),
     mes: int | None = Query(default=None, ge=1, le=12),
 ):
@@ -2323,7 +2323,7 @@ def _totais_mps_liberacoes(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 @router.get("/diagnostico-fontes")
-async def get_liberacao_executiva_diagnostico_fontes(
+def get_liberacao_executiva_diagnostico_fontes(
     ano: int | None = Query(default=None),
 ):
     """
@@ -2409,7 +2409,7 @@ async def get_liberacao_executiva_diagnostico_fontes(
 
 
 @router.get("/diagnostico-rodada")
-async def get_liberacao_executiva_diagnostico_rodada(
+def get_liberacao_executiva_diagnostico_rodada(
     ano: int | None = Query(default=None),
     mes: int = Query(default=1, ge=1, le=12),
     versao: int = Query(default=3, ge=1),
@@ -2601,7 +2601,7 @@ def _total_rodada_por_mes_liberacao(ano: int, mes_revisao: int, versao: int) -> 
 
 
 @router.get("/diagnostico-plano-atual")
-async def get_liberacao_executiva_diagnostico_plano_atual(
+def get_liberacao_executiva_diagnostico_plano_atual(
     ano: int | None = Query(default=None),
     mes_atual: int | None = Query(default=None, ge=1, le=12),
 ):
@@ -5787,7 +5787,7 @@ def _snapshot_lotes_reprovados(snapshot_id: str, ano: int | None = None, limit: 
     return _detalhar_lotes_reprovados(snapshot_id=snapshot_id, ano=ano, limit=limit)
 
 @router.get("/debug-lotes-reprovados")
-async def get_liberacao_executiva_debug_lotes_reprovados(
+def get_liberacao_executiva_debug_lotes_reprovados(
     ano: int | None = Query(default=None),
     mes_atual: int | None = Query(default=None, ge=1, le=12),
 ):

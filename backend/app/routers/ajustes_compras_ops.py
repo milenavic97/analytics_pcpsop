@@ -22,7 +22,7 @@ class AjusteCompraOP(BaseModel):
 
 
 @router.get("")
-async def listar_ajustes():
+def listar_ajustes():
     try:
         res = (
             supabase
@@ -39,7 +39,7 @@ async def listar_ajustes():
 
 
 @router.post("")
-async def salvar_ajuste(body: AjusteCompraOP):
+def salvar_ajuste(body: AjusteCompraOP):
     try:
         payload = body.dict()
 
@@ -84,7 +84,7 @@ async def salvar_ajuste(body: AjusteCompraOP):
 
 
 @router.delete("/{ajuste_id}")
-async def excluir_ajuste(ajuste_id: str):
+def excluir_ajuste(ajuste_id: str):
     try:
         supabase.table("f_ajustes_compras_ops").delete().eq(
             "id",

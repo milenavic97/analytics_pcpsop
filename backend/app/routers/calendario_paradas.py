@@ -10,7 +10,7 @@ router = APIRouter(
 
 
 @router.get("/")
-async def listar_paradas():
+def listar_paradas():
     try:
         res = (
             supabase
@@ -27,7 +27,7 @@ async def listar_paradas():
 
 
 @router.get("/resumo")
-async def resumo_paradas():
+def resumo_paradas():
     try:
         res = (
             supabase
@@ -78,7 +78,7 @@ async def resumo_paradas():
 
 
 @router.post("/")
-async def criar_parada(body: dict):
+def criar_parada(body: dict):
     try:
         supabase.table("f_calendario_paradas")\
             .insert(body)\
@@ -91,7 +91,7 @@ async def criar_parada(body: dict):
 
 
 @router.put("/{id}")
-async def editar_parada(id: str, body: dict):
+def editar_parada(id: str, body: dict):
     try:
         supabase.table("f_calendario_paradas")\
             .update(body)\
@@ -105,7 +105,7 @@ async def editar_parada(id: str, body: dict):
 
 
 @router.delete("/{id}")
-async def excluir_parada(id: str):
+def excluir_parada(id: str):
     try:
         supabase.table("f_calendario_paradas")\
             .delete()\
