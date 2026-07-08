@@ -6654,32 +6654,20 @@ def _buscar_demanda_mes_atual(codigos: List[str]):
 
     # Demanda de insumos passa a vir da programação/Gantt V1.
     programacao_rows, debug_programacao = _buscar_mrp_v1_l1_l2_rows()
+    programacao_mes = _rows_mes_atual(programacao_rows)
 
     origem_demanda_bom = "mrp_v1_l1_l2_bom"
 
-    if not programacao_rows:
+    if not programacao_mes:
         # Fallback controlado: mantém a tela funcionando enquanto validamos o
         # nome/estrutura da tabela de Gantt no ambiente.
-        programacao_rows = forecast_rows_mes
+        programacao_mes = forecast_rows_mes
         origem_demanda_bom = "forecast_sop_bom_fallback_sem_programacao_v1"
 
-    # V_perf_2026_07_08: antes, a programação era filtrada para o mês atual
-    # ANTES de explodir pela BOM (_rows_mes_atual). Isso podia zerar a demanda
-    # de um insumo quando o intermediário da BOM (PI) aparece na programação
-    # com um mês próprio diferente do mês do PA final que efetivamente puxa a
-    # demanda no mês atual — o mesmo insumo aparecia corretamente no gráfico de
-    # detalhe (_forecast_explodido_bom), que explode a programação inteira e só
-    # filtra o resultado pelo mês atual depois. Alinhado aqui com esse mesmo
-    # padrão para a tabela bater com o gráfico.
-    _, demanda_explodida_completa = _explodir_forecast_multinivel(
-        programacao_rows,
+    _, demanda_explodida = _explodir_forecast_multinivel(
+        programacao_mes,
         codigos_interesse=codigos_set,
     )
-    demanda_explodida = {
-        chave: valor
-        for chave, valor in demanda_explodida_completa.items()
-        if chave[1] == ano_atual and chave[2] == mes_atual
-    }
 
     for codigo in codigos_set:
         chave_mes = (codigo, ano_atual, mes_atual)
@@ -9952,11 +9940,32 @@ def _buscar_consumo_latest_por_busca_light_v27(busca: Optional[str], limite: int
 
     if codigo_norm:
         query_codigo_exato(codigo_norm)
-        query_coluna_ilike("codigo", codigo_norm.lstrip("0") or codigo_norm)
 
-    # Campos mais prováveis do Aging/posição de estoque.
+    # V_perf_2026_07_08: antes, cada coluna (codigo, produto, descricao,
+    # desc_produto, grupo, familia, grupo_gerencial) virava uma chamada de
+    # rede separada ao Supabase, em sequência — até 7 idas e voltas por busca.
+    # Combinamos tudo numa única consulta com OR entre as colunas, cortando
+    # para 1 chamada (mais a exata por código, que já é rápida/indexada).
+    colunas_ilike: List[Tuple[str, str]] = []
+    if codigo_norm:
+        colunas_ilike.append(("codigo", codigo_norm.lstrip("0") or codigo_norm))
     for coluna in ["produto", "descricao", "desc_produto", "grupo", "familia", "grupo_gerencial"]:
-        query_coluna_ilike(coluna, termo)
+        colunas_ilike.append((coluna, termo))
+
+    or_filtro = ",".join(f"{coluna}.ilike.%{valor}%" for coluna, valor in colunas_ilike if valor)
+
+    if or_filtro:
+        try:
+            query = supabase.table("f_consumo_materiais").select("*")
+            if snapshot:
+                query = query.eq("data_snapshot", snapshot)
+            res = query.or_(or_filtro).limit(limite).execute()
+            add_rows(res.data or [])
+        except Exception:
+            # Fallback: se o .or_ falhar (ex.: base antiga sem alguma coluna),
+            # volta pro caminho coluna a coluna, mais lento porém mais tolerante.
+            for coluna, valor in colunas_ilike:
+                query_coluna_ilike(coluna, valor)
 
     # Fallback controlado: se o banco não aceitou ilike em nenhuma coluna,
     # lê o snapshot e filtra em Python, mas para no limite para não travar.
@@ -9990,9 +9999,20 @@ def _buscar_consumo_latest_por_busca_light_v27(busca: Optional[str], limite: int
 
 
 def _buscar_componentes_bom_info_busca_light_v27(busca: Optional[str], codigos_base: Optional[List[str]] = None, limite: int = 500) -> Dict[str, Dict[str, Any]]:
-    """Busca componentes da BOM só para o termo/códigos encontrados, sem atravessar a estrutura inteira."""
+    """Busca componentes da BOM só para o termo/códigos encontrados, sem atravessar a estrutura inteira.
+
+    V_perf_2026_07_08: antes, isso fazia de 1 a 3 chamadas de rede separadas ao
+    Supabase (.in_ + .ilike x2) a cada busca digitada na tela. Como a
+    d_bom_estrutura já fica em cache local (_buscar_bom_estrutura_rows_raw,
+    5 min de TTL, ~600 linhas — pequeno o suficiente pra filtrar em memória),
+    filtramos aqui direto no cache, sem nenhuma ida à rede. Resultado idêntico,
+    só sem o tempo de rede repetido.
+    """
     termo = str(busca or "").strip()
+    termo_norm = _texto_busca_fast_norm(termo)
     codigos_norm = sorted({_normalizar_codigo(c) for c in (codigos_base or []) if _normalizar_codigo(c)})
+    codigos_set = set(codigos_norm)
+
     rows_coletadas: List[Dict[str, Any]] = []
     vistos = set()
 
@@ -10007,35 +10027,24 @@ def _buscar_componentes_bom_info_busca_light_v27(busca: Optional[str], codigos_b
                 continue
             vistos.add(key)
             rows_coletadas.append(row)
+            if len(rows_coletadas) >= limite:
+                break
 
-    select_cols = "codigo_pai, codigo_comp, descricao_comp, tp, tipo_pai, descricao_pai"
+    try:
+        todas_rows = _buscar_bom_estrutura_rows_raw()
+    except Exception:
+        todas_rows = []
 
-    for chunk in _chunks_lista(codigos_norm, 300):
-        try:
-            res = (
-                supabase.table("d_bom_estrutura")
-                .select(select_cols)
-                .in_("codigo_comp", chunk)
-                .limit(limite)
-                .execute()
-            )
-            add_rows(res.data or [])
-        except Exception:
-            pass
+    if codigos_set:
+        add_rows([r for r in todas_rows if _normalizar_codigo(r.get("codigo_comp")) in codigos_set])
 
-    if termo:
-        for coluna in ["codigo_comp", "descricao_comp"]:
-            try:
-                res = (
-                    supabase.table("d_bom_estrutura")
-                    .select(select_cols)
-                    .ilike(coluna, f"%{termo}%")
-                    .limit(limite)
-                    .execute()
-                )
-                add_rows(res.data or [])
-            except Exception:
-                pass
+    if termo and len(rows_coletadas) < limite:
+        candidatas = [
+            r for r in todas_rows
+            if termo_norm in _texto_busca_fast_norm(str(r.get("codigo_comp") or ""))
+            or termo_norm in _texto_busca_fast_norm(str(r.get("descricao_comp") or ""))
+        ]
+        add_rows(candidatas)
 
     componentes: Dict[str, Dict[str, Any]] = {}
     for row in rows_coletadas:
