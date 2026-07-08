@@ -2197,23 +2197,29 @@ function getPedidosOperacionaisItem(item: AgingEstoqueItemDetalhe | AgingEstoque
         ponto?.data_inicio ||
         (periodo ? `${periodo.ano}-${String(periodo.mes).padStart(2, "0")}-01` : null)
 
-      const temDetalhePedidos =
-        (Array.isArray(ponto?.pedidos_detalhe) && ponto.pedidos_detalhe.length > 0) ||
-        (Array.isArray(ponto?.entradas_detalhe) && ponto.entradas_detalhe.length > 0) ||
-        (Array.isArray(ponto?.pedidos) && ponto.pedidos.length > 0)
-
+      const antesCount = pedidos.length
       adicionarLista(ponto?.pedidos_detalhe, "RELPC", dataFallback, periodo)
       adicionarLista(ponto?.entradas_detalhe, "RELPC", dataFallback, periodo)
       adicionarLista(ponto?.pedidos, "RELPC", dataFallback, periodo)
+      const ganhouDetalheNesteponto = pedidos.length > antesCount
 
-      // Correção: "ponto" é o total agregado do mês (a mesma quantidade dos
-      // pedidos reais acima, somada). Antes ele era sempre adicionado como uma
-      // linha extra "Previsão mensal", duplicando o valor quando os pedidos
-      // detalhados do mês já existiam (ex.: 100.000 do pedido real + 100.000
-      // do "Previsão mensal" agregado = 200.000 exibidos, sendo que só havia
-      // 100.000 de verdade). Agora só usamos o agregado como fallback, quando
-      // não há nenhum pedido detalhado para aquele mês.
-      if (!temDetalhePedidos) {
+      // Correção v2: a checagem anterior só olhava campos aninhados dentro do
+      // próprio "ponto" da série, que costumam vir vazios — por isso a
+      // duplicação continuava. Agora verificamos se já existe QUALQUER pedido
+      // real já coletado (de raw.pedidos_detalhe no topo, ou de qualquer outra
+      // série já percorrida) cuja data caia no mesmo mês/ano deste ponto. Só
+      // adicionamos o agregado "Previsão mensal" quando nenhum pedido real
+      // cobre esse período — nunca como extra somado ao que já é real.
+      const chavePeriodo = periodo ? `${periodo.ano}-${String(periodo.mes).padStart(2, "0")}` : null
+      const temPedidoRealNoPeriodo =
+        !!chavePeriodo &&
+        pedidos.some((p) => {
+          if (p.origem_entrada === "serie_mensal") return false
+          const dataP = p.data_prevista_entrega ? String(p.data_prevista_entrega).slice(0, 7) : null
+          return dataP === chavePeriodo
+        })
+
+      if (!ganhouDetalheNesteponto && !temPedidoRealNoPeriodo) {
         adicionar(ponto, "serie_mensal", dataFallback, periodo)
       }
     }
