@@ -2437,6 +2437,15 @@ def get_rastreamento_lotes(
       - Cards explicam perdas e status aberto do mês, sem antecipar lote futuro no MTD.
     """
     from datetime import date as date_cls
+    import time as _time_mod
+    import logging as _logging_mod
+    _logger_tempo = _logging_mod.getLogger("uvicorn")
+    _t0 = _time_mod.time()
+    _marcas_tempo = []
+    def _marcar(nome: str):
+        decorrido = round(_time_mod.time() - _t0, 2)
+        _marcas_tempo.append((nome, decorrido))
+        _logger_tempo.warning("TEMPO rastreamento-lotes mes=%s ano=%s [%s] em %ss", mes, ano, nome, decorrido)
 
     hoje = _hoje_br()
     hoje_iso = hoje.isoformat()
@@ -3125,6 +3134,7 @@ def get_rastreamento_lotes(
     #   - f_apontamentos: melhor para etapa/lote e avanço operacional;
     #   - f_producao_real: melhor para paradas por equipamento/dia, igual ao MPS.
     try:
+        _marcar("inicio_fetches_apontamentos")
         rows_apt_base = _select_all(
             supabase.table("f_apontamentos")
             .select("lote, etapa, qtd_produzida, equipamento, ordem, sku, data_inicial, data_final, duracao_h, tipo_evento, evento, situacao")
@@ -3827,6 +3837,7 @@ def get_rastreamento_lotes(
         ))
         return paradas
 
+    _marcar("fim_fetches_inicio_loop_lotes")
     resultado = []
 
     for r in rows_gantt:
@@ -4035,6 +4046,8 @@ def get_rastreamento_lotes(
         item["status_operacional"] = status_operacional_lote(item)
 
         resultado.append(item)
+
+    _marcar("fim_loop_lotes")
 
     resultado.sort(key=lambda x: (
         0 if (x.get("em_desvio") and x.get("atrasado") and not x.get("check_liberado")) else
@@ -4479,6 +4492,8 @@ def get_rastreamento_lotes(
         x.get("data_lib_prevista") or "9999-12-31",
         x.get("lote") or "",
     ))
+
+    _marcar("fim_tudo")
 
     return {
         "mes": mes_analise,
