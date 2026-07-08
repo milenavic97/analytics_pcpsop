@@ -1043,16 +1043,35 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
   function statusPrincipalLote(l: LoteRastreamento) {
     // Status/causa principal do lote.
-    // A ordem evita que um lote reprovado ou reprogramado apareça também como "em envase"
-    // só porque já teve apontamento de envase.
-    if (loteEhReprovacaoOuDescarte(l)) return "REPROVACAO_DESVIO";
-    if (l.em_desvio) return "DESVIO";
-    if (l.atraso_producao) return "ATRASO_PRODUCAO";
-    if (l.perda_rendimento) return "RENDIMENTO";
-    if (l.check_liberado) return "LIBERADO";
-    if (l.check_embalagem) return "EMBALAGEM";
-    if (l.check_envase) return "ENVASE";
-    if (l.check_lavagem) return "LAVAGEM";
+    // O backend é a fonte oficial da regra de negócio. O front só traduz o
+    // status_gap para o filtro/card visual e usa fallback quando o campo não vem.
+    // Prioridade validada:
+    // 1) reprovação/descarte; 2) rendimento; 3) perda produção/reprogramação;
+    // 4) desvio aberto; 5) etapas operacionais.
+    const statusBackend = normalizarStatusLocal(l.status_gap);
+
+    if (loteEhReprovacaoOuDescarte(l) || statusBackend.includes("REPROVACAO")) {
+      return "REPROVACAO_DESVIO";
+    }
+
+    if (statusBackend.includes("PERDA POR RENDIMENTO") || l.perda_rendimento) {
+      return "RENDIMENTO";
+    }
+
+    if (
+      statusBackend.includes("ATRASO DE PRODUCAO") ||
+      statusBackend.includes("PERDA PRODUCAO") ||
+      l.atraso_producao ||
+      l.reprogramado
+    ) {
+      return "ATRASO_PRODUCAO";
+    }
+
+    if (statusBackend.includes("EM DESVIO") || l.em_desvio) return "DESVIO";
+    if (statusBackend.includes("LIBERADO") || l.check_liberado) return "LIBERADO";
+    if (statusBackend.includes("EM EMBALAGEM") || l.check_embalagem) return "EMBALAGEM";
+    if (statusBackend.includes("EM ENVASE") || l.check_envase) return "ENVASE";
+    if (statusBackend.includes("EM LAVAGEM") || l.check_lavagem) return "LAVAGEM";
     return "NAO_INICIADO";
   }
 
@@ -1135,21 +1154,14 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     base: GapPorEtapaNormalizado,
     fallbackLotes: GapPorEtapaNormalizado,
   ): GapPorEtapaNormalizado => {
-    // As perdas principais continuam vindo preferencialmente dos campos reconciliados do backend.
-    // Já os status operacionais abertos precisam bater com os lotes visíveis na tabela.
-    const temFallbackPrincipal =
-      fallbackLotes.reprovacao_desvio > 0 ||
-      fallbackLotes.atraso_producao > 0 ||
-      fallbackLotes.rendimento > 0;
-
+    // O backend é a fonte oficial das perdas principais reconciliadas.
+    // O fallback calculado pelos lotes só completa campo zerado/ausente,
+    // mas não sobrescreve valor principal que já veio do backend.
     const combinado = {
       ...base,
-      // Para as perdas principais, quando os lotes visíveis permitem reclassificar
-      // o destino como Descartado/Reprovado, a tabela deve mandar no card.
-      // Ex.: lote com Desvio = "-" e Destino = "Descartado".
-      reprovacao_desvio: temFallbackPrincipal ? fallbackLotes.reprovacao_desvio : base.reprovacao_desvio,
-      atraso_producao: temFallbackPrincipal ? fallbackLotes.atraso_producao : base.atraso_producao,
-      rendimento: temFallbackPrincipal ? fallbackLotes.rendimento : base.rendimento,
+      reprovacao_desvio: base.reprovacao_desvio > 0 ? base.reprovacao_desvio : fallbackLotes.reprovacao_desvio,
+      atraso_producao: base.atraso_producao > 0 ? base.atraso_producao : fallbackLotes.atraso_producao,
+      rendimento: base.rendimento > 0 ? base.rendimento : fallbackLotes.rendimento,
 
       // Status abertos continuam usando o backend quando ele já trouxe valor;
       // fallback só evita card zerado quando o backend não manda a quebra.
