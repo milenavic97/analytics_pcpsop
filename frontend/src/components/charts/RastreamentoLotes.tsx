@@ -971,27 +971,11 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   }, [mesSelecionado, anoSelecionado]);
 
   useEffect(() => {
-    const onFocusOrVisible = () => {
-      if (document.visibilityState === "visible") {
-        verificarBaseNovaEAtualizar();
-      }
-    };
-
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        verificarBaseNovaEAtualizar();
-      }
-    }, 30000);
-
-    window.addEventListener("focus", onFocusOrVisible);
-    document.addEventListener("visibilitychange", onFocusOrVisible);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", onFocusOrVisible);
-      document.removeEventListener("visibilitychange", onFocusOrVisible);
-    };
-  }, [mesSelecionado, anoSelecionado, data]);
+    // Desativado para evitar loop de refresh/flicker na Overview.
+    // A atualização do Rastreamento fica manual pelo botão "Atualizar".
+    // Mantemos a referência abaixo para evitar alerta de variável não usada em builds mais rígidos.
+    void verificarBaseNovaEAtualizar;
+  }, [mesSelecionado, anoSelecionado]);
 
 
   const mesLabel = data ? MES_LABELS[(data.mes ?? 1) - 1] : "";
