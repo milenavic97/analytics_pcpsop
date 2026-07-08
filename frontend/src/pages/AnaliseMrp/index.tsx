@@ -2197,10 +2197,25 @@ function getPedidosOperacionaisItem(item: AgingEstoqueItemDetalhe | AgingEstoque
         ponto?.data_inicio ||
         (periodo ? `${periodo.ano}-${String(periodo.mes).padStart(2, "0")}-01` : null)
 
+      const temDetalhePedidos =
+        (Array.isArray(ponto?.pedidos_detalhe) && ponto.pedidos_detalhe.length > 0) ||
+        (Array.isArray(ponto?.entradas_detalhe) && ponto.entradas_detalhe.length > 0) ||
+        (Array.isArray(ponto?.pedidos) && ponto.pedidos.length > 0)
+
       adicionarLista(ponto?.pedidos_detalhe, "RELPC", dataFallback, periodo)
       adicionarLista(ponto?.entradas_detalhe, "RELPC", dataFallback, periodo)
       adicionarLista(ponto?.pedidos, "RELPC", dataFallback, periodo)
-      adicionar(ponto, "serie_mensal", dataFallback, periodo)
+
+      // Correção: "ponto" é o total agregado do mês (a mesma quantidade dos
+      // pedidos reais acima, somada). Antes ele era sempre adicionado como uma
+      // linha extra "Previsão mensal", duplicando o valor quando os pedidos
+      // detalhados do mês já existiam (ex.: 100.000 do pedido real + 100.000
+      // do "Previsão mensal" agregado = 200.000 exibidos, sendo que só havia
+      // 100.000 de verdade). Agora só usamos o agregado como fallback, quando
+      // não há nenhum pedido detalhado para aquele mês.
+      if (!temDetalhePedidos) {
+        adicionar(ponto, "serie_mensal", dataFallback, periodo)
+      }
     }
   }
 
