@@ -3983,12 +3983,6 @@ def _buscar_componentes_bom_info() -> Dict[str, Dict[str, Any]]:
             descricao_pai_por_codigo.get(raiz),
         )
 
-        # PPS não é mais produzido internamente nesta visão.
-        # Se existir estrutura antiga/geralzão apontando para PPS, ela não deve
-        # contaminar a classificação dos insumos do dashboard.
-        if linha_raiz == "PPS":
-            continue
-
         stack.append((raiz, tuple([linha_raiz] if linha_raiz else [])))
 
     while stack:
