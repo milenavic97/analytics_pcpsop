@@ -1407,7 +1407,23 @@ const textoPercentualV1 = (valor: number) =>
     },
   ];
 
-  const statusAcompanhamento = montarStatusCards(apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes);
+  const totalLiberadoAcompanhamento = apenasAtrasados ? mtdLiberado : mesRealizado;
+  const totalPrevistoAcompanhamento = apenasAtrasados ? mtdPrevistoV1 : mesPrevistoV1;
+  const textoPercentualLiberado = totalPrevistoAcompanhamento > 0
+    ? `${fmtPercent((totalLiberadoAcompanhamento / totalPrevistoAcompanhamento) * 100)}% do previsto ${apenasAtrasados ? "até hoje" : "no mês (V1)"}`
+    : "0,0% do previsto";
+
+  const statusAcompanhamento = [
+    {
+      label: "Liberados",
+      value: totalLiberadoAcompanhamento,
+      color: "#16A34A",
+      icon: CheckCircle2,
+      filtro: "LIBERADO",
+      percentualTexto: textoPercentualLiberado,
+    },
+    ...montarStatusCards(apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes),
+  ];
   const tituloAcompanhamento = apenasAtrasados
     ? "Lotes previstos até hoje pela V1"
     : "Mês completo — V1 vs plano atual";
@@ -1860,7 +1876,7 @@ const textoPercentualV1 = (valor: number) =>
             </div>
 
             <div
-              className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-7"
+              className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-8"
               style={{ background: "var(--border)" }}
             >
               {statusAcompanhamento.map((k) => (
@@ -1901,7 +1917,7 @@ const textoPercentualV1 = (valor: number) =>
                     {fmtTubetes(k.value)} tubetes
                   </p>
                   <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    {textoPercentualAcompanhamento(k.value)}
+                    {(k as any).percentualTexto ?? textoPercentualAcompanhamento(k.value)}
                   </p>
                 </button>
               ))}
