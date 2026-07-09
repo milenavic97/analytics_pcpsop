@@ -1421,7 +1421,7 @@ const textoPercentualV1 = (valor: number) =>
     ? `${fmtPercent((totalLiberadoAcompanhamento / totalPrevistoAcompanhamento) * 100)}% do previsto ${apenasAtrasados ? "até hoje" : "no mês (V1)"}`
     : "0,0% do previsto";
 
-  const statusAcompanhamento = [
+  const statusAcompanhamentoBruto = [
     {
       label: "Liberados",
       value: totalLiberadoAcompanhamento,
@@ -1432,6 +1432,29 @@ const textoPercentualV1 = (valor: number) =>
     },
     ...montarStatusCards(apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes),
   ];
+
+  // Ajuste de arredondamento: cada card já vem arredondado individualmente
+  // (na origem, back ou fallback dos lotes), então a soma pode ficar 1 cx
+  // acima/abaixo do previsto total. Em vez de deixar essa sobra aparecer só
+  // "boiando", jogamos ela no card de maior volume (normalmente "Não
+  // iniciados" ou "Em desvio aberto") -- lá 1 cx não muda leitura nenhuma,
+  // e a soma dos cards sempre bate com o previsto total.
+  const somaCardsAcompanhamento = statusAcompanhamentoBruto.reduce((acc, c) => acc + c.value, 0);
+  const deltaArredondamentoAcompanhamento =
+    totalPrevistoAcompanhamento > 0
+      ? Math.round(totalPrevistoAcompanhamento) - Math.round(somaCardsAcompanhamento)
+      : 0;
+
+  const statusAcompanhamento = (() => {
+    if (deltaArredondamentoAcompanhamento === 0) return statusAcompanhamentoBruto;
+    const indiceMaior = statusAcompanhamentoBruto.reduce(
+      (melhorIdx, c, idx, arr) => (c.value > arr[melhorIdx].value ? idx : melhorIdx),
+      0,
+    );
+    return statusAcompanhamentoBruto.map((c, idx) =>
+      idx === indiceMaior ? { ...c, value: Math.max(c.value + deltaArredondamentoAcompanhamento, 0) } : c,
+    );
+  })();
   const tituloAcompanhamento = apenasAtrasados
     ? "Lotes previstos até hoje pela V1"
     : "Mês completo — V1 vs plano atual";
