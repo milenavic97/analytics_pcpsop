@@ -2565,7 +2565,7 @@ async def recalcular_cache_ops(
     chave = _ops_cache_chave(mes_ref_norm, leadtime)
     versao_base, versions = _ops_cache_version(mes_ref_norm, leadtime)
 
-    payload = await viabilidade_ops(
+    payload = viabilidade_ops(
         mes_ref=mes_ref_norm,
         linha=None,
         leadtime_compra_dias=leadtime,

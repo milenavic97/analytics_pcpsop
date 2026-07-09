@@ -6131,7 +6131,7 @@ async def get_liberacao_executiva_causas_anuais(
     # ver docstring de _projecao_liberacoes_oficial para o motivo.
     proj_liberacoes = _projecao_liberacoes_oficial(proj_liberacoes_cru, disponibilidade_mensal_payload)
 
-    plano1 = await get_liberacao_executiva_plano1(ano_ref)
+    plano1 = get_liberacao_executiva_plano1(ano_ref)
     plano1_liberacao_cx = _round(plano1.get("plano1LiberacaoCx"))
     estoque_jan_cx = _round(plano1.get("estoqueInicialJanCx"))
     plano1_base_cx = plano1_liberacao_cx + estoque_jan_cx

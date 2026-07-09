@@ -4030,14 +4030,14 @@ async def cache_producao(
 
     try:
         if tipo_norm == "dashboard":
-            payload = await dashboard_producao(
+            payload = dashboard_producao(
                 ano=int(ano),
                 mes=int(mes),
                 linha=linha_norm,
             )
 
         elif tipo_norm == "acompanhamento":
-            payload = await acompanhamento_producao(
+            payload = acompanhamento_producao(
                 ano=int(ano),
                 mes=int(mes),
                 linha=linha_norm,
@@ -4045,7 +4045,7 @@ async def cache_producao(
             )
 
         elif tipo_norm == "perdas":
-            payload = await perdas_producao(
+            payload = perdas_producao(
                 ano=int(ano),
                 mes_final=int(mes),
                 linha=linha_norm,

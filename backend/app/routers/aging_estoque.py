@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 
 router = APIRouter(prefix="/aging-estoque", tags=["aging-estoque"])
 
-VERSAO_AGING_ESTOQUE = "debug_2026_07_08_v29_bom_componente_tipo_bom_prevalece"
+VERSAO_AGING_ESTOQUE = "debug_2026_07_08_v30_busca_insumo_previsao_mes_mps_bom"
 
 # Tipos usados para separar produto acabado/revenda de componente operacional da BOM.
 # Importante para Gestão de Estoque:
@@ -10260,10 +10260,14 @@ def _build_insumos_fast_busca_light_v27(busca: Optional[str]) -> Dict[str, Any]:
     parametros, snapshot_parametros = _buscar_parametros_estoque(codigos)
     custos = _buscar_custos_unitarios(codigos)
 
-    # Para não travar a busca, não explode MPS/BOM nesta listagem rápida.
-    # O detalhe do item e o cache completo continuam trazendo demanda/forecast completo.
-    demanda_mes: Dict[str, Dict[str, Any]] = {}
-    forecast_futuro: Dict[str, List[Dict[str, Any]]] = {}
+    # Busca rápida com termo: calcula demanda somente para os códigos do recorte.
+    # Antes esta rotina zerava demanda_mes/forecast_futuro para não pesar a abertura
+    # da tela. Isso fazia itens encontrados pela busca, como 71991, aparecerem com
+    # Previsão mês = 0 na tabela, embora o detalhe/linha verde já mostrasse a
+    # Demanda MPS/BOM correta. Como aqui o universo já está reduzido pelo termo
+    # pesquisado, é seguro explodir MPS/BOM apenas desses códigos.
+    demanda_mes = _buscar_demanda_mes_atual(codigos)
+    forecast_futuro = _buscar_forecast_futuro_por_codigo(codigos, produtos_all=produtos_all)
     classificacao_bom = _classificacao_bom_from_componentes_info(componentes_bom_info, codigos)
 
     itens: List[Dict[str, Any]] = []

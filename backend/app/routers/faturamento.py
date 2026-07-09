@@ -2172,7 +2172,7 @@ async def recalcular_caches_faturamento_padrao(
     # Cache padrão da tela inicial. Filtros específicos são calculados sob demanda.
     for bloco in ["TODOS"]:
         try:
-            resultados[bloco] = await recalcular_cache_faturamento(
+            resultados[bloco] = recalcular_cache_faturamento(
                 ano=ano_ref,
                 bloco=bloco,
                 produto=None,
@@ -2250,7 +2250,7 @@ async def get_faturamento_cache(
             "payload": cache.get("payload"),
         }
 
-    return await recalcular_cache_faturamento(
+    return recalcular_cache_faturamento(
         ano=int(ano),
         bloco=bloco_norm,
         produto=produto_norm or None,
@@ -2264,7 +2264,7 @@ async def post_faturamento_cache_recalcular(
     produto: str | None = Query(default=None),
 ):
     ano = ano or date.today().year
-    return await recalcular_cache_faturamento(
+    return recalcular_cache_faturamento(
         ano=ano,
         bloco=bloco,
         produto=produto,

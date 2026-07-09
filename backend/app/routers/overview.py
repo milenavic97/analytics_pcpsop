@@ -4837,12 +4837,12 @@ async def _montar_payload_overview_resumo() -> dict:
     explicitamente com None para evitar passar objetos Query quando usamos
     as funções diretamente no backend.
     """
-    orcado_faturamento = await get_orcado_faturamento(None, None, None, None, None, None)
-    projecao_faturamento = await get_projecao_faturamento(None, None, None, None, None, None)
-    orcado_liberacao = await get_orcado_liberacao()
-    projecao_liberacoes = await get_projecao_liberacoes()
-    estoque_mensal = await get_estoque_mensal(None, None, None, None, None, None)
-    disponibilidade_mensal = await get_disponibilidade_mensal(
+    orcado_faturamento = get_orcado_faturamento(None, None, None, None, None, None)
+    projecao_faturamento = get_projecao_faturamento(None, None, None, None, None, None)
+    orcado_liberacao = get_orcado_liberacao()
+    projecao_liberacoes = get_projecao_liberacoes()
+    estoque_mensal = get_estoque_mensal(None, None, None, None, None, None)
+    disponibilidade_mensal = get_disponibilidade_mensal(
         None, None, None, None, None, None, None, None
     )
 
@@ -5103,7 +5103,7 @@ async def recalcular_cache_rastreamento_lotes(
     chave = _rastreamento_cache_chave(mes_ref, ano_ref)
     versao_base, versions = _rastreamento_cache_version(mes_ref, ano_ref)
 
-    payload = await get_rastreamento_lotes(mes_ref, ano_ref)
+    payload = get_rastreamento_lotes(mes_ref, ano_ref)
 
     registro = _write_cache_overview(payload, versao_base, chave=chave)
 
