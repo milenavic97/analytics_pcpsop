@@ -607,8 +607,16 @@ export function OverviewPage() {
         }
 
         if (precisaRecalcular) {
+          // Verificações silenciosas (a cada 60s, ou ao voltar o foco na aba)
+          // nunca devem esconder o gráfico/Rastreamento que já está na tela.
+          // Só a carga inicial (silencioso = false) pode partir de um estado
+          // "Preparando gráfico...". Sem essa checagem, toda vez que alguém
+          // em outro PC atualizava uma base, o gráfico sumia e reaparecia
+          // sozinho pra quem já estava com a tela aberta.
+          if (!silencioso) {
+            setCarregarDetalhes(false)
+          }
           setAtualizandoAutomatico(true)
-          setCarregarDetalhes(false)
         }
 
         const resumo = await getOverviewResumo(versao.versao_base)
