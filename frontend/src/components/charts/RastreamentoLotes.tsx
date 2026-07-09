@@ -9,6 +9,7 @@ import {
   Target,
   Package,
   Waves,
+  Droplet,
   Droplets,
   TrendingDown,
   TrendingUp,
@@ -1399,6 +1400,13 @@ const textoPercentualV1 = (valor: number) =>
       filtro: "ENVASE",
     },
     {
+      label: "Lavados não envasados",
+      value: base.lavagem,
+      color: "#0891B2",
+      icon: Droplet,
+      filtro: "LAVAGEM",
+    },
+    {
       label: "Não iniciados",
       value: base.nao_iniciado,
       color: "#CA8A04",
@@ -1876,7 +1884,7 @@ const textoPercentualV1 = (valor: number) =>
             </div>
 
             <div
-              className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-8"
+              className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-9"
               style={{ background: "var(--border)" }}
             >
               {statusAcompanhamento.map((k) => (
