@@ -2150,6 +2150,32 @@ function getPedidosOperacionaisItem(item: AgingEstoqueItemDetalhe | AgingEstoque
       dataPrevista = `${periodoFallback.ano}-${String(periodoFallback.mes).padStart(2, "0")}-01`
     }
 
+    // Pedido atrasado é jogado pelo backend pro mês do gráfico (mês atual),
+    // que pode ser bem diferente da data original prevista (ex.: pedido de dez/25
+    // atrasado entra no balde de jul/26). O campo entrada?.data_entrada_grafico
+    // nunca vem preenchido nesta etapa (só é calculado depois, dentro do
+    // buildLinhaTempoFallback) -- por isso o fallback pra dataPrevista (a data
+    // ORIGINAL) fazia a checagem de "já existe pedido real neste mês" abaixo
+    // nunca reconhecer que o atrasado seria rebucketado pro mês atual, e a
+    // "Previsão mensal" genérica acabava somada de novo em cima do mesmo valor
+    // (ex.: 71991 mostrando 120 mil em vez de 90 mil no balde de jul/26).
+    // Agora calculamos o balde real com a MESMA função usada pra montar o
+    // gráfico (dataEntradaGraficoPedido), em vez de confiar num campo que
+    // ainda não existe neste ponto.
+    const dataBaldeReal = entrada?.data_entrada_grafico
+      ? new Date(`${String(entrada.data_entrada_grafico).slice(0, 10)}T00:00:00`)
+      : dataEntradaGraficoPedido({
+          nova_previsao_fup: entrada?.nova_previsao_fup,
+          data_previsao_fup: entrada?.data_previsao_fup,
+          nova_data_previsao_fup: entrada?.nova_data_previsao_fup,
+          data_prevista_entrega_original: entrada?.data_prevista_entrega_original || dataPrevista,
+          data_prevista_entrega: dataPrevista,
+        })
+    const periodoGrafico =
+      dataBaldeReal && !Number.isNaN(dataBaldeReal.getTime())
+        ? `${dataBaldeReal.getFullYear()}-${String(dataBaldeReal.getMonth() + 1).padStart(2, "0")}`
+        : null
+
     const pedidoNumero = entrada?.pedido_numero ?? entrada?.pedido ?? entrada?.pc_numero ?? null
     const scNumero = entrada?.sc_numero ?? entrada?.solicitacao_compra ?? entrada?.sc ?? null
     const chave = JSON.stringify([String(dataPrevista || ""), String(pedidoNumero || ""), String(scNumero || ""), quantidade])
@@ -2163,10 +2189,12 @@ function getPedidosOperacionaisItem(item: AgingEstoqueItemDetalhe | AgingEstoque
       quantidade_pendente: quantidade,
       data_prevista_entrega: dataPrevista ? String(dataPrevista) : null,
       data_prevista_entrega_original: entrada?.data_prevista_entrega_original || entrada?.data_prevista_entrega || dataPrevista || null,
+      periodo_grafico: periodoGrafico,
       fornecedor: entrada?.fornecedor ?? entrada?.razao_social_fornecedor ?? entrada?.nome_fornecedor ?? null,
       origem_entrada: origem,
     })
   }
+
 
   const adicionarLista = (lista: any, origem = "RELPC", dataFallback?: string | null, periodoFallback?: { ano: number; mes: number } | null) => {
     if (!Array.isArray(lista)) return
@@ -2215,7 +2243,10 @@ function getPedidosOperacionaisItem(item: AgingEstoqueItemDetalhe | AgingEstoque
         !!chavePeriodo &&
         pedidos.some((p) => {
           if (p.origem_entrada === "serie_mensal") return false
-          const dataP = p.data_prevista_entrega ? String(p.data_prevista_entrega).slice(0, 7) : null
+          // Usa o período do balde real (periodo_grafico) quando existir --
+          // é ele que reflete onde o pedido atrasado efetivamente caiu no
+          // gráfico, não a data original prevista.
+          const dataP = p.periodo_grafico || (p.data_prevista_entrega ? String(p.data_prevista_entrega).slice(0, 7) : null)
           return dataP === chavePeriodo
         })
 
