@@ -2,8 +2,11 @@ from fastapi import APIRouter, Query, BackgroundTasks
 from app.database import supabase
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+from threading import Lock
+from typing import Optional
 import asyncio
 import re
+import time
 import unicodedata
 
 router = APIRouter(prefix="/overview", tags=["overview"])
@@ -1131,6 +1134,61 @@ def _sd3_lote_mes_atual_overview() -> dict[str, float]:
     return por_lote
 
 
+# ────────────────────────────────────────────────────────────
+# Cache passivo do total "Plano atualizado" já reconciliado do mês atual
+# (mesma conta do card do Rastreamento de Lotes / Ver conciliação).
+#
+# _planejamento_liberacao_mes_atual_ajustado_por_linha() soma por LINHA, direto
+# das rodadas de MRP -- caminho de dado separado da reconciliação por LOTE
+# usada em get_rastreamento_lotes(), então os dois podem divergir por 1 cx de
+# arredondamento (ex.: gráfico "Demanda vs Disponibilidade" em 16.874 vs o
+# card já reconciliado em 16.873).
+#
+# IMPORTANTE (aprendido na marra): get_rastreamento_lotes() é uma função pesada
+# (~2200 linhas, várias consultas). Chamá-la de dentro de uma requisição normal
+# (ex.: toda vez que a Overview monta o gráfico) já causou uma instabilidade
+# real em produção -- números errados aparecendo por causa da carga extra.
+# Por isso este cache é só de LEITURA aqui: quem escreve nele é exclusivamente
+# a thread de aquecimento em background (ver app/main.py), nunca uma
+# requisição de usuário. Se ainda não tiver rodado (ex.: logo depois de um
+# deploy), a leitura simplesmente não encontra nada e a função segue com o
+# total bruto por linha, sem ajuste -- nunca trava esperando, nunca quebra.
+_MES_ATUAL_RECONCILIADO_CACHE: dict = {"chave": None, "valor": None}
+_MES_ATUAL_RECONCILIADO_LOCK = Lock()
+
+
+def atualizar_cache_reconciliacao_mes_atual() -> Optional[float]:
+    """
+    Recalcula e guarda o valor reconciliado do mês atual. Chamado SÓ pela
+    thread de aquecimento em background (app/main.py), nunca dentro de uma
+    requisição HTTP normal -- ver aviso acima.
+    """
+    chave = f"{_ano_atual()}-{_mes_atual()}"
+
+    try:
+        rastreamento = get_rastreamento_lotes(mes=None, ano=None)
+        valor = rastreamento.get("mes_cx_plano_atual_tendencia")
+        valor = float(valor) if valor is not None else None
+    except Exception:
+        valor = None
+
+    with _MES_ATUAL_RECONCILIADO_LOCK:
+        _MES_ATUAL_RECONCILIADO_CACHE["chave"] = chave
+        _MES_ATUAL_RECONCILIADO_CACHE["valor"] = valor
+
+    return valor
+
+
+def _ler_cache_reconciliacao_mes_atual() -> Optional[float]:
+    """Leitura pura, sem calcular nada -- segura pra chamar de dentro de
+    qualquer requisição (é só um dict.get())."""
+    chave_esperada = f"{_ano_atual()}-{_mes_atual()}"
+    with _MES_ATUAL_RECONCILIADO_LOCK:
+        if _MES_ATUAL_RECONCILIADO_CACHE.get("chave") != chave_esperada:
+            return None
+        return _MES_ATUAL_RECONCILIADO_CACHE.get("valor")
+
+
 def _planejamento_liberacao_mes_atual_ajustado_por_linha() -> dict[str, float]:
     """
     Valor correto do mês atual para a Overview:
@@ -1211,6 +1269,22 @@ def _planejamento_liberacao_mes_atual_ajustado_por_linha() -> dict[str, float]:
         linha = item.get("linha")
         if linha in LINHAS:
             totais[linha] += _to_float(item.get("qtd_cx"))
+
+    # Reconciliação (leitura passiva, sem calcular nada aqui -- ver aviso
+    # acima da definição do cache): se a thread de background já tiver um
+    # valor reconciliado pro mês atual, ajusta o total bruto por linha pra
+    # bater exatamente com o card do Rastreamento de Lotes, jogando a
+    # diferença de arredondamento (normalmente 1 cx) na linha de maior
+    # volume. Se o cache ainda não tiver rodado (app acabou de subir),
+    # segue com o total bruto sem ajuste -- nunca bloqueia, nunca quebra.
+    total_bruto_linhas = sum(totais.values())
+    valor_reconciliado = _ler_cache_reconciliacao_mes_atual()
+
+    if valor_reconciliado is not None and total_bruto_linhas > 0:
+        delta = round(valor_reconciliado) - round(total_bruto_linhas)
+        if delta != 0:
+            linha_maior = max(totais, key=lambda l: totais[l])
+            totais[linha_maior] = max(totais[linha_maior] + delta, 0.0)
 
     return totais
 
@@ -4547,6 +4621,25 @@ def get_rastreamento_lotes(
         mes_cx_atraso_producao_card,
         perda_producao_reprogramados_simples,
     )
+
+    # Reconciliação: a "Diferença vs V1" exibida no topo (card "Ver conciliação")
+    # tem que bater exatamente com a soma das causas mostradas logo abaixo
+    # (reprovação/desvio + atraso de produção + perda de rendimento - ganho de
+    # rendimento). Antes, a diferença vinha de um cálculo agregado independente
+    # (previsto_v1 - realizado - saldo, cada parcela arredondada em separado),
+    # que podia divergir da soma das causas em 1 cx -- arredondamento acontecendo
+    # em pontos diferentes do cálculo (ex.: mostrava -176 no topo mas 177 cx na
+    # causa "Perda rendimento" logo abaixo, sem nenhuma outra causa pra explicar
+    # a diferença de 1 cx). Recalculamos aqui, depois que todos os cards de causa
+    # já estão no valor final (inclusive a blindagem do atraso de produção acima),
+    # para os números sempre fecharem entre si.
+    mes_cx_diferenca_vs_v1 = round(
+        mes_cx_reprovacao_desvio_card
+        + mes_cx_atraso_producao_card
+        + mes_cx_perda_rendimento_card
+        - mes_cx_ganho_rendimento
+    )
+    mes_cx_plano_atual_tendencia = mes_cx_previsto_v1 - mes_cx_diferenca_vs_v1
 
     _marcar("fim_tudo")
 

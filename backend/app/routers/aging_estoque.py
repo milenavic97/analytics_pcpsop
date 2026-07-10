@@ -262,15 +262,16 @@ def cache_version_aging_estoque():
     }
 
 
-@router.api_route("/preaquecer-cache", methods=["GET", "POST"])
-def preaquecer_cache_aging_estoque(force_refresh: bool = Query(False)):
+def preaquecer_todos_caches_aging_estoque(force_refresh: bool = False) -> Dict[str, Any]:
     """
-    Aquece os caches oficiais em memória do backend para a Gestão de Estoque.
+    Aquece os 3 caches oficiais da Gestão de Estoque: produtos, insumos e a
+    base completa (usada pelo escopo=todos e por /resumo).
 
-    Uso operacional: depois que a Milena sobe as bases de manhã, chamar este endpoint
-    deixa PA/MR e Insumos prontos para os usuários abrirem a tela sem pagar o build pesado.
-    Se houver duas máquinas no Fly, chamar mais de uma vez ajuda a aquecer as instâncias
-    conforme o balanceador distribuir as chamadas.
+    Extraído do endpoint /preaquecer-cache para ser reutilizável também pelo
+    scheduler automático em background (ver app/main.py). Antes, o endpoint
+    manual só aquecia produtos/insumos e NUNCA aquecia _BUILD_BASE_CACHE
+    (usado por escopo=todos) -- então a chamada manual de manhã não evitava
+    o build pesado para quem abria a tela sem escopo específico.
     """
     inicio = time.time()
     erros: Dict[str, str] = {}
@@ -295,19 +296,46 @@ def preaquecer_cache_aging_estoque(force_refresh: bool = Query(False)):
         erros["insumos"] = str(e)[:500]
 
     try:
-        versao_payload = cache_version_aging_estoque()
-    except Exception:
-        versao_payload = {"version": VERSAO_AGING_ESTOQUE}
+        base_todos = _build_base_cached(force_refresh=force_refresh)
+        resultados["todos"] = {
+            "itens": len(base_todos.get("itens") or []),
+        }
+    except Exception as e:
+        erros["todos"] = str(e)[:500]
 
     return {
         "ok": not bool(erros),
         "status": "cache_aquecido" if not erros else "cache_aquecido_com_avisos",
         "backend_versao": VERSAO_AGING_ESTOQUE,
-        "version": versao_payload.get("version") or versao_payload.get("versao"),
         "resultados": resultados,
         "erros": erros,
         "duracao_segundos": round(time.time() - inicio, 3),
     }
+
+
+@router.api_route("/preaquecer-cache", methods=["GET", "POST"])
+def preaquecer_cache_aging_estoque(force_refresh: bool = Query(False)):
+    """
+    Aquece os caches oficiais em memória do backend para a Gestão de Estoque.
+
+    Uso operacional: depois que a Milena sobe as bases de manhã, chamar este endpoint
+    deixa PA/MR, Insumos e a base completa (escopo=todos) prontos para os usuários
+    abrirem a tela sem pagar o build pesado.
+
+    Desde V31: isso também roda sozinho em background a cada poucos minutos
+    (ver app/main.py, _agendar_preaquecimento_cache), então normalmente não
+    precisa mais ser chamado manualmente -- fica disponível pra forçar um
+    refresh imediato quando quiser (force_refresh=true).
+    """
+    resultado = preaquecer_todos_caches_aging_estoque(force_refresh=force_refresh)
+
+    try:
+        versao_payload = cache_version_aging_estoque()
+    except Exception:
+        versao_payload = {"version": VERSAO_AGING_ESTOQUE}
+
+    resultado["version"] = versao_payload.get("version") or versao_payload.get("versao")
+    return resultado
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
