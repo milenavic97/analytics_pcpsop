@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import {
   RefreshCw,
   AlertTriangle,
@@ -763,6 +763,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     cacheInicial?.apontamentoAtualizadoEm ?? null
   );
   const [loading, setLoading] = useState(!cacheInicial?.data);
+  const tentativasAutoRetryRef = useRef(0);
   const [refreshing, setRefreshing] = useState(false);
   const [filtroGrupo, setFiltroGrupo] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
@@ -881,18 +882,46 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         limparRastreamentoCache(mesSelecionado, anoSelecionado);
       }
 
-      const [json, versaoServidor] = await Promise.all([
-        // Chamada direta sem cache do endpoint. O cache do rastreamento estava
-        // segurando payload antigo e impedindo desvios recém-carregados de
-        // aparecerem na Overview.
-        buscarRastreamentoLotesDireto(params),
-        versaoServidorRef !== undefined
-          ? Promise.resolve({
-              versao_base: versaoServidorRef,
-              ultima_atualizacao: atualizacaoServidorRef ?? null,
-            })
-          : buscarVersaoRastreamento(),
-      ]);
+      // Retry automático: essa chamada ignora cache de propósito (sempre
+      // recalcula na hora, ver buscarRastreamentoLotesDireto), então uma
+      // falha passageira de rede (ex.: erro intermitente de concorrência do
+      // HTTP/2 com o Supabase, já visto em produção) deixava o painel em
+      // branco pra sempre, só recuperando com F5 manual. Agora tenta de novo
+      // até 3 vezes, com uma pausa curta crescente entre elas, antes de
+      // desistir de verdade.
+      let json: RastreamentoData | null = null;
+      let versaoServidor: any = null;
+      let ultimoErro: unknown = null;
+
+      for (let tentativa = 0; tentativa < 3; tentativa++) {
+        try {
+          const resultado = await Promise.all([
+            // Chamada direta sem cache do endpoint. O cache do rastreamento estava
+            // segurando payload antigo e impedindo desvios recém-carregados de
+            // aparecerem na Overview.
+            buscarRastreamentoLotesDireto(params),
+            versaoServidorRef !== undefined
+              ? Promise.resolve({
+                  versao_base: versaoServidorRef,
+                  ultima_atualizacao: atualizacaoServidorRef ?? null,
+                })
+              : buscarVersaoRastreamento(),
+          ]);
+          json = resultado[0];
+          versaoServidor = resultado[1];
+          ultimoErro = null;
+          break;
+        } catch (erro) {
+          ultimoErro = erro;
+          if (tentativa < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1500 * (tentativa + 1)));
+          }
+        }
+      }
+
+      if (ultimoErro || !json) {
+        throw ultimoErro || new Error("Falha ao carregar rastreamento de lotes");
+      }
 
       const versaoBase = versaoServidor?.versao_base || versaoServidorRef || null;
       const atualizacaoServidor =
@@ -906,11 +935,26 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         atualizacaoServidor,
         versaoBase
       );
+      // Deu certo -- zera o contador de auto-retry pra próxima vez que algo falhar.
+      tentativasAutoRetryRef.current = 0;
     } catch (_) {
       // Se for atualização automática/manual, preserva a tabela antiga para não sumir tudo.
       if (!manterTabelaDuranteRefresh && !data) {
         setData(null);
         setUltimaAtualizacaoProducao(null);
+      }
+
+      // Auto-retry externo: as 3 tentativas internas (acima) já cobrem falha
+      // de rede passageira, mas se o backend estiver mais sobrecarregado
+      // (ex.: logo depois de subir todas as bases de uma vez), as 3 podem
+      // não ser suficientes -- e sem isso o painel ficava em branco pra
+      // sempre, só recuperando com F5 manual. Agenda até 3 tentativas extras,
+      // 15s cada, sozinho, sem precisar de nenhuma ação da pessoa.
+      if (tentativasAutoRetryRef.current < 3) {
+        tentativasAutoRetryRef.current += 1;
+        window.setTimeout(() => {
+          void carregar(true, true, versaoServidorRef, atualizacaoServidorRef);
+        }, 15000);
       }
     } finally {
       setLoading(false);
@@ -2160,7 +2204,7 @@ const textoPercentualV1 = (valor: number) =>
       </div>
           </div>
 
-      {loading && !data ? (
+      {!data ? (
         <div
           className="p-10 text-center text-sm"
           style={{ color: "var(--text-secondary)" }}
@@ -2170,7 +2214,7 @@ const textoPercentualV1 = (valor: number) =>
             className="mx-auto mb-3 animate-spin"
             style={{ opacity: 0.4 }}
           />
-          Carregando rastreamento...
+          {loading ? "Carregando rastreamento..." : "Tentando carregar de novo..."}
         </div>
       ) : (
         <div className="overflow-hidden p-0">
