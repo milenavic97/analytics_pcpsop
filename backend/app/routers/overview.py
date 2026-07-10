@@ -1159,22 +1159,41 @@ _MES_ATUAL_RECONCILIADO_LOCK = Lock()
 
 def atualizar_cache_reconciliacao_mes_atual() -> Optional[float]:
     """
-    Recalcula e guarda o valor reconciliado do mês atual. Chamado SÓ pela
-    thread de aquecimento em background (app/main.py), nunca dentro de uma
-    requisição HTTP normal -- ver aviso acima.
+    Recalcula e guarda o valor reconciliado do mês atual (só em memória,
+    local a este processo -- NÃO grava na tabela cache_overview).
+
+    Chamado SÓ pela thread de aquecimento em background (app/main.py), nunca
+    dentro de uma requisição HTTP normal -- ver aviso acima.
+
+    Importante (decisão consciente): cheguei a fazer essa função reaproveitar
+    recalcular_cache_rastreamento_lotes (que grava o payload inteiro na
+    tabela cache_overview do Supabase) pra também esquentar o cache oficial
+    do painel "Lotes de [mês]". Revertido: isso faz a thread de background
+    escrever um payload grande no banco a cada poucos minutos, competindo
+    pela mesma conexão HTTP/2 compartilhada com requisições de usuários reais
+    -- justamente o tipo de concorrência que dispara o bug intermitente do
+    httpx/HTTP2 (KeyError em _response_closed). Prefiro manter esta função
+    só de LEITURA (sem escrita extra no banco), aceitando que o painel de
+    lotes continue esquentando do jeito antigo, a correr esse risco.
     """
     chave = f"{_ano_atual()}-{_mes_atual()}"
+    valor = None
 
-    try:
-        rastreamento = get_rastreamento_lotes(mes=None, ano=None)
-        valor = rastreamento.get("mes_cx_plano_atual_tendencia")
-        valor = float(valor) if valor is not None else None
-    except Exception:
-        valor = None
+    for tentativa in range(3):
+        try:
+            rastreamento = get_rastreamento_lotes(mes=None, ano=None)
+            valor_bruto = rastreamento.get("mes_cx_plano_atual_tendencia")
+            valor = float(valor_bruto) if valor_bruto is not None else None
+            break
+        except Exception:
+            valor = None
+            if tentativa < 2:
+                time.sleep(2)
 
-    with _MES_ATUAL_RECONCILIADO_LOCK:
-        _MES_ATUAL_RECONCILIADO_CACHE["chave"] = chave
-        _MES_ATUAL_RECONCILIADO_CACHE["valor"] = valor
+    if valor is not None:
+        with _MES_ATUAL_RECONCILIADO_LOCK:
+            _MES_ATUAL_RECONCILIADO_CACHE["chave"] = chave
+            _MES_ATUAL_RECONCILIADO_CACHE["valor"] = valor
 
     return valor
 
