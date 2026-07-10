@@ -7568,6 +7568,7 @@ export default function AgingEstoquePage() {
   )
   const [, setLoadingResumo] = useState(!resumoInicial)
   const [loadingItens, setLoadingItens] = useState(!itensInicial)
+  const [paginacaoCompleta, setPaginacaoCompleta] = useState(false)
   const [loadingDetalhe, setLoadingDetalhe] = useState(false)
   const [error, setError] = useState("")
   const [page, setPage] = useState(1)
@@ -7900,6 +7901,7 @@ export default function AgingEstoquePage() {
   useEffect(() => {
     let mounted = true
     setLoadingItens(true)
+    setPaginacaoCompleta(false)
     setError("")
 
     // Performance reunião v94:
@@ -7956,7 +7958,10 @@ export default function AgingEstoquePage() {
         setLoadingItens(false)
 
         const totalPaginasBackend = Math.max(1, Number(primeiraPagina.total_pages || 1))
-        if (totalPaginasBackend <= 1) return
+        if (totalPaginasBackend <= 1) {
+          setPaginacaoCompleta(true)
+          return
+        }
 
         // Não dispara 20/40 páginas em paralelo. Isso era uma das causas da tela travar.
         // Para filtro/busca, normalmente a primeira página já traz todo o recorte.
@@ -8000,11 +8005,13 @@ export default function AgingEstoquePage() {
           page: 1,
           page_size: PAGE_SIZE,
         })
+        setPaginacaoCompleta(true)
       } catch (err: unknown) {
         if (!mounted) return
         console.warn("Falha transitória ao carregar itens de estoque", err)
         setError("")
         setLoadingItens(false)
+        setPaginacaoCompleta(true)
       }
     }
 
@@ -8398,7 +8405,15 @@ export default function AgingEstoquePage() {
   }, [itensFiltradosLocal])
 
   const kpiCarregandoSemBase = loadingItens && itens.length === 0
-  const usarMetricasTabelaLocal = itens.length > 0 || Boolean(activeFilter)
+  // v115: antes, assim que a 1ª página chegava (itens.length > 0), os cards
+  // de Ruptura/Críticos/Excesso já trocavam pro cálculo local -- só que a 1ª
+  // página é parcial (100 itens de, por ex., 178 no total), e quando as
+  // páginas seguintes terminavam de carregar em segundo plano, o cálculo
+  // local mudava de novo com o conjunto completo. Isso fazia os cards
+  // "piscarem" enquanto a tabela ainda estava terminando de carregar.
+  // Agora espera paginacaoCompleta (todo o lote de páginas já chegou) antes
+  // de trocar pro cálculo local, evitando esse número intermediário incorreto.
+  const usarMetricasTabelaLocal = (itens.length > 0 && paginacaoCompleta) || Boolean(activeFilter)
   const valorKpiNumero = (localValue: number, backendValue?: number | null, compact = false) => {
     if (kpiCarregandoSemBase) return "—"
     const valor = usarMetricasTabelaLocal ? localValue : Number(backendValue || 0)

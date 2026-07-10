@@ -219,6 +219,11 @@ def debug_sd2_historico_codigo(codigo: str):
     }
 
 
+_CACHE_VERSION_TTL_SEGUNDOS = 60
+_CACHE_VERSION_MEMO: Dict[str, Any] = {"criado_em": 0.0, "payload": None}
+_CACHE_VERSION_LOCK = Lock()
+
+
 @router.get("/cache-version")
 def cache_version_aging_estoque():
     """
@@ -227,7 +232,26 @@ def cache_version_aging_estoque():
     O front usa esta chave para invalidar cache visual/local sempre que muda
     alguma base que afeta estoque, demanda ou entradas. Isso evita que uma
     pessoa veja número antigo em outra janela/navegador depois de upload.
+
+    Cache curto (60s): as consultas "pega a linha mais recente" abaixo usam
+    .order(...).limit(1) sem critério de desempate explícito. Se alguma
+    tabela tiver mais de uma linha empatada no mesmo timestamp mais recente
+    (comum em upload em lote), o banco pode devolver uma linha diferente a
+    cada chamada -- fazendo essa versão "flutuar" entre 2 valores mesmo sem
+    dado novo nenhum. Como o front consulta isso a cada 30s e recalcula tudo
+    quando a versão muda, esse flutuar sozinho causava o card oscilar entre
+    dois números (ex.: 100 e 178 itens) mesmo com o mesmo cache de base.
+    Com o valor memorizado por 60s, chamadas próximas sempre recebem a MESMA
+    versão -- upload novo de verdade ainda é detectado, só com até 60s de
+    atraso a mais, o que é uma troca segura por parar de oscilar.
     """
+    agora = time.time()
+
+    with _CACHE_VERSION_LOCK:
+        memo = _CACHE_VERSION_MEMO
+        if memo.get("payload") is not None and (agora - float(memo.get("criado_em") or 0)) <= _CACHE_VERSION_TTL_SEGUNDOS:
+            return memo["payload"]
+
     def safe(fn, default):
         try:
             return fn() or default
@@ -250,7 +274,7 @@ def cache_version_aging_estoque():
         f"dia:{date.today().isoformat()}",
     ])
 
-    return {
+    payload = {
         "version": versao,
         "versao": versao,
         "backend_versao": VERSAO_AGING_ESTOQUE,
@@ -260,6 +284,12 @@ def cache_version_aging_estoque():
         "marker_parametros": marker_parametros,
         "marker_benzotop": marker_benzotop,
     }
+
+    with _CACHE_VERSION_LOCK:
+        _CACHE_VERSION_MEMO["criado_em"] = agora
+        _CACHE_VERSION_MEMO["payload"] = payload
+
+    return payload
 
 
 def preaquecer_todos_caches_aging_estoque(force_refresh: bool = False) -> Dict[str, Any]:
@@ -609,7 +639,45 @@ def _select_all(query, page_size: int = 1000):
     return todos
 
 
-def _latest_consumo_snapshot():
+# ────────────────────────────────────────────────────────────
+# Cache curto (60s) pros marcadores "pega a linha mais recente" usados na
+# chave de cache da base pesada (_build_produtos_oficiais_fast_cached,
+# _build_insumos_fast_cached, _build_base_cached) e no /cache-version.
+#
+# Esses marcadores usam .order(coluna, desc=True).limit(1) sem critério de
+# desempate explícito. Se alguma tabela tiver mais de uma linha empatada no
+# mesmo timestamp mais recente (comum em upload em lote), o Postgres pode
+# devolver uma linha diferente a cada chamada -- fazendo a chave de cache
+# "flutuar" entre 2 valores mesmo sem nenhum dado novo. Como a chave muda,
+# _cache_base_valido acha que precisa reconstruir, e cada reconstrução pode
+# considerar um snapshot ligeiramente diferente -- causando o card oscilar
+# entre números diferentes (ex.: 100 e 178 itens) para o mesmo filtro.
+#
+# Com esse cache curto, todas as chamadas dentro da mesma janela de 60s
+# recebem o MESMO valor -- upload novo de verdade ainda é detectado, só com
+# até 60s de atraso a mais, troca segura por parar de oscilar.
+_MARCADOR_CURTO_CACHE: Dict[str, tuple[float, Any]] = {}
+_MARCADOR_CURTO_LOCK = Lock()
+_MARCADOR_CURTO_TTL_SEGUNDOS = 60
+
+
+def _marcador_com_cache_curto(chave: str, func):
+    agora = time.time()
+
+    with _MARCADOR_CURTO_LOCK:
+        cached = _MARCADOR_CURTO_CACHE.get(chave)
+        if cached is not None and (agora - cached[0]) <= _MARCADOR_CURTO_TTL_SEGUNDOS:
+            return cached[1]
+
+    valor = func()
+
+    with _MARCADOR_CURTO_LOCK:
+        _MARCADOR_CURTO_CACHE[chave] = (agora, valor)
+
+    return valor
+
+
+def _latest_consumo_snapshot_impl():
     res = (
         supabase.table("f_consumo_materiais")
         .select("data_snapshot")
@@ -621,7 +689,11 @@ def _latest_consumo_snapshot():
     return res.data[0]["data_snapshot"] if res.data else None
 
 
-def _latest_sb8_snapshot():
+def _latest_consumo_snapshot():
+    return _marcador_com_cache_curto("latest_consumo_snapshot", _latest_consumo_snapshot_impl)
+
+
+def _latest_sb8_snapshot_impl():
     """Marcador do último upload da SB8 usado para invalidar cache.
 
     Antes o cache usava apenas data_ref. Quando a SB8 era reenviada no mesmo
@@ -649,7 +721,11 @@ def _latest_sb8_snapshot():
         return None
 
 
-def _latest_benzotop_liberacao_snapshot():
+def _latest_sb8_snapshot():
+    return _marcador_com_cache_curto("latest_sb8_snapshot", _latest_sb8_snapshot_impl)
+
+
+def _latest_benzotop_liberacao_snapshot_impl():
     """Marcador do último upload da planilha de liberação Benzotop.
 
     A Gestão PA/MR usa cache pesado; quando a planilha CAPACIDADE X FORECAST
@@ -675,6 +751,10 @@ def _latest_benzotop_liberacao_snapshot():
         return f"{data_ref}|{upload_id}|{created_at}"
     except Exception:
         return "sem_benzotop"
+
+
+def _latest_benzotop_liberacao_snapshot():
+    return _marcador_com_cache_curto("latest_benzotop_liberacao_snapshot", _latest_benzotop_liberacao_snapshot_impl)
 
 
 
@@ -743,7 +823,7 @@ def _buscar_consumo_latest():
         )
 
 
-def _latest_parametros_estoque_atualizacao():
+def _latest_parametros_estoque_atualizacao_impl():
     """
     Retorna a maior data de atualização entre as tabelas de Lead Time e MOQ.
 
@@ -771,6 +851,12 @@ def _latest_parametros_estoque_atualizacao():
 
     datas = [d for d in datas if d]
     return max(datas) if datas else None
+
+
+def _latest_parametros_estoque_atualizacao():
+    return _marcador_com_cache_curto(
+        "latest_parametros_estoque_atualizacao", _latest_parametros_estoque_atualizacao_impl
+    )
 
 
 def _buscar_parametros_estoque(codigos: List[str]):
@@ -5147,7 +5233,7 @@ def _buscar_rodadas_mps_mais_atuais_por_mes() -> tuple[Dict[tuple[int, int], Dic
         "tentativas": tentativas,
     }
 
-def _latest_mps_cache_marker() -> str:
+def _latest_mps_cache_marker_impl() -> str:
     """Marcador simples para invalidar cache quando o MPS mudar."""
     try:
         res = (
@@ -5166,6 +5252,10 @@ def _latest_mps_cache_marker() -> str:
         return f"{row.get('ano')}-{row.get('mes')}-v{row.get('versao')}-{row.get('criado_em')}-{row.get('id')}"
     except Exception:
         return "mps_indisponivel"
+
+
+def _latest_mps_cache_marker() -> str:
+    return _marcador_com_cache_curto("latest_mps_cache_marker", _latest_mps_cache_marker_impl)
 
 
 def _codigo_mps_linha(row: Dict[str, Any]) -> str:
