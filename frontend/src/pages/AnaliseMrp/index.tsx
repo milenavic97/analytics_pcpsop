@@ -580,6 +580,7 @@ type SortKey =
   | "desvio_ritmo_pct"
   | "gap_volume"
   | "consumo_durante_lt"
+  | "faturamento_ytd_valor"
 
 type NumericColumnKind = "number" | "currency" | "days" | "months" | "percent"
 
@@ -609,14 +610,13 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; 
   { key: "estoque_mais_pedidos_valor", label: "Estoque + quar. + entradas R$", kind: "currency", group: "financeiro" },
   { key: "maior_media_valor", label: "Média R$", kind: "currency", group: "financeiro" },
   { key: "estoque_ideal_valor", label: "Ideal R$", kind: "currency", group: "financeiro" },
+  { key: "faturamento_ytd_valor", label: "Faturamento (ano)", kind: "currency", group: "financeiro" },
 ]
 
 const COLUNAS_PADRAO_PA_MR = [
   "status",
   "curva_a",
   "tipo",
-  "unid",
-  "segmento",
   "mercado",
   "saldo",
   "saldo_quarentena",
@@ -626,9 +626,7 @@ const COLUNAS_PADRAO_PA_MR = [
   "cobertura_meses_atual",
   "cobertura_meses_futura",
   "dias_em_estoque",
-  "estoque_atual_valor",
-  "pedidos_abertos_valor",
-  "estoque_mais_pedidos_valor",
+  "faturamento_ytd_valor",
 ]
 
 const COLUNAS_INSUMOS_OPCOES: { key: string; label: string; align?: "left" | "center" | "right"; width?: string; tooltip?: string }[] = [
@@ -717,6 +715,16 @@ const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
 }
 
 const GESTAO_ESTOQUE_LAST_STATE_KEY = "pcp_gestao_estoque_last_state_v86"
+
+function alternarValorMultiSelecao(atual: string | undefined, valor: string): string | undefined {
+  const selecionados = new Set((atual || "").split(",").map((v) => v.trim()).filter(Boolean))
+  if (selecionados.has(valor)) {
+    selecionados.delete(valor)
+  } else {
+    selecionados.add(valor)
+  }
+  return selecionados.size > 0 ? Array.from(selecionados).join(",") : undefined
+}
 
 type GestaoEstoqueLastState = {
   visaoEstoque?: VisaoEstoque
@@ -6766,16 +6774,30 @@ function FiltrosEstoquePanel({
 
         <label>
           <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Curva</span>
-          <select
-            value={filtro?.curva_a || "TODOS"}
-            onChange={(e) => onChange("curva_a", e.target.value === "TODOS" ? undefined : e.target.value)}
-            className={selectClass}
-            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-            title="Curva ABC calculada por faturamento dos últimos 12 meses, separada por linha de negócio."
+          <div
+            className="flex h-10 items-center gap-1.5 rounded-xl border bg-white px-2"
+            style={{ borderColor: "var(--border)" }}
+            title="Curva ABC calculada por faturamento dos últimos 12 meses, separada por linha de negócio. Clique pra selecionar mais de uma."
           >
-            <option value="TODOS">Todas</option>
-            {(opcoes?.curva_a || []).map((valor) => <option key={valor} value={valor}>{valor}</option>)}
-          </select>
+            {(opcoes?.curva_a || ["A", "B", "C"]).map((valor) => {
+              const selecionadas = new Set((filtro?.curva_a || "").split(",").map((v) => v.trim()).filter(Boolean))
+              const ativo = selecionadas.has(valor)
+              return (
+                <button
+                  key={valor}
+                  type="button"
+                  onClick={() => onChange("curva_a", alternarValorMultiSelecao(filtro?.curva_a, valor))}
+                  className="flex h-7 flex-1 items-center justify-center rounded-lg text-xs font-bold transition"
+                  style={{
+                    background: ativo ? "#163B63" : "transparent",
+                    color: ativo ? "#FFFFFF" : "var(--text-secondary)",
+                  }}
+                >
+                  {valor}
+                </button>
+              )
+            })}
+          </div>
         </label>
 
         <label>
@@ -7430,7 +7452,7 @@ function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
   if (filtro.busca) partes.push(`Busca: ${filtro.busca}`)
   if (filtro.tipo_negocio) partes.push(`Linha: ${filtro.tipo_negocio}`)
   if (filtro.grupo) partes.push(`Grupo: ${filtro.grupo}`)
-  if (filtro.curva_a) partes.push(`Curva: ${filtro.curva_a}`)
+  if (filtro.curva_a) partes.push(`Curva: ${filtro.curva_a.split(",").join(" + ")}`)
   if (filtro.status) partes.push(STATUS_LABEL[filtro.status] || filtro.status)
   if (filtro.status_portfolio) partes.push(`Portfólio: ${filtro.status_portfolio}`)
   if (filtro.descontinuado) partes.push(`Descontinuado: ${filtro.descontinuado === "SIM" ? "Sim" : "Não"}`)
@@ -9113,18 +9135,30 @@ export default function AgingEstoquePage() {
 
             <label className="min-w-[110px] flex-1">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Curva</span>
-              <select
-                value={activeFilter?.curva_a || "TODOS"}
-                onChange={(e) => atualizarFiltroCampo("curva_a", e.target.value === "TODOS" ? undefined : e.target.value)}
-                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
-                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
-                title="Curva ABC calculada por faturamento dos últimos 12 meses, separada por linha de negócio."
+              <div
+                className="flex h-10 items-center gap-1.5 rounded-xl border bg-white px-2"
+                style={{ borderColor: "var(--border)" }}
+                title="Curva ABC calculada por faturamento dos últimos 12 meses, separada por linha de negócio. Clique pra selecionar mais de uma."
               >
-                <option value="TODOS">Todas</option>
-                {(opcoesFiltros.curva_a || []).map((valor) => (
-                  <option key={valor} value={valor}>{valor}</option>
-                ))}
-              </select>
+                {(opcoesFiltros.curva_a || ["A", "B", "C"]).map((valor) => {
+                  const selecionadas = new Set((activeFilter?.curva_a || "").split(",").map((v) => v.trim()).filter(Boolean))
+                  const ativo = selecionadas.has(valor)
+                  return (
+                    <button
+                      key={valor}
+                      type="button"
+                      onClick={() => atualizarFiltroCampo("curva_a", alternarValorMultiSelecao(activeFilter?.curva_a, valor))}
+                      className="flex h-7 flex-1 items-center justify-center rounded-lg text-xs font-bold transition"
+                      style={{
+                        background: ativo ? "#163B63" : "transparent",
+                        color: ativo ? "#FFFFFF" : "var(--text-secondary)",
+                      }}
+                    >
+                      {valor}
+                    </button>
+                  )
+                })}
+              </div>
             </label>
 
             <label className="min-w-[145px] flex-1">
