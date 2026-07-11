@@ -1683,6 +1683,8 @@ export interface AgingEstoqueItem {
   consumo_mes_atual?: number
   previsto_vs_consumido_pct?: number
   previsao_consumo_alerta?: number
+  forecast_futuro?: { ano: number; mes: number; periodo?: string; demanda: number }[]
+  entradas_previstas_serie?: { ano: number; mes: number; periodo?: string; entradas_previstas: number }[]
 }
 
 export interface AgingResumo {
@@ -2222,4 +2224,3 @@ export async function recalcularOpsCache(filtros: { mes_ref: string; leadtime_co
     { method: "POST" }
   )
 }
-

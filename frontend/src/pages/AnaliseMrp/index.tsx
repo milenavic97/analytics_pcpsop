@@ -581,6 +581,10 @@ type SortKey =
   | "gap_volume"
   | "consumo_durante_lt"
   | "faturamento_ytd_valor"
+  | "demanda_mes_1"
+  | "demanda_mes_2"
+  | "entradas_mes_1"
+  | "entradas_mes_2"
 
 type NumericColumnKind = "number" | "currency" | "days" | "months" | "percent"
 
@@ -611,6 +615,10 @@ const NUMERIC_COLUMNS: { key: SortKey; label: string; kind?: NumericColumnKind; 
   { key: "maior_media_valor", label: "Média R$", kind: "currency", group: "financeiro" },
   { key: "estoque_ideal_valor", label: "Ideal R$", kind: "currency", group: "financeiro" },
   { key: "faturamento_ytd_valor", label: "Faturamento (ano)", kind: "currency", group: "financeiro" },
+  { key: "demanda_mes_1", label: "Previsão mês+1", group: "risco" },
+  { key: "demanda_mes_2", label: "Previsão mês+2", group: "risco" },
+  { key: "entradas_mes_1", label: "Entradas mês+1", group: "estoque" },
+  { key: "entradas_mes_2", label: "Entradas mês+2", group: "estoque" },
 ]
 
 const COLUNAS_PADRAO_PA_MR = [
@@ -623,6 +631,10 @@ const COLUNAS_PADRAO_PA_MR = [
   "qtd_pedidos_abertos",
   "estoque_mais_pedidos",
   "demanda_mes_atual",
+  "demanda_mes_1",
+  "demanda_mes_2",
+  "entradas_mes_1",
+  "entradas_mes_2",
   "cobertura_meses_atual",
   "cobertura_meses_futura",
   "dias_em_estoque",
@@ -1008,6 +1020,35 @@ function toNumberSafe(value: unknown, defaultValue = 0) {
 
 function getNum(item: AgingEstoqueItem, key: string) {
   return toNumberSafe((item as AgingEstoqueItem & Record<string, unknown>)[key], 0)
+}
+
+function getMesAnoOffset(offset: number): { ano: number; mes: number } {
+  const hoje = new Date()
+  let mes = hoje.getMonth() + 1 + offset
+  let ano = hoje.getFullYear()
+  while (mes > 12) {
+    mes -= 12
+    ano += 1
+  }
+  while (mes < 1) {
+    mes += 12
+    ano -= 1
+  }
+  return { ano, mes }
+}
+
+function getDemandaMesOffset(item: AgingEstoqueItem, offset: number): number | null {
+  const { ano, mes } = getMesAnoOffset(offset)
+  const serie = item.forecast_futuro || []
+  const ponto = serie.find((p) => p.ano === ano && p.mes === mes)
+  return ponto ? Number(ponto.demanda || 0) : null
+}
+
+function getEntradasMesOffset(item: AgingEstoqueItem, offset: number): number | null {
+  const { ano, mes } = getMesAnoOffset(offset)
+  const serie = item.entradas_previstas_serie || []
+  const ponto = serie.find((p) => p.ano === ano && p.mes === mes)
+  return ponto ? Number(ponto.entradas_previstas || 0) : null
 }
 
 function getEstoqueAtualReal(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
@@ -1466,6 +1507,10 @@ function getValorNumericoTabela(item: AgingEstoqueItem, key: SortKey, isTabelaPr
   if (key === "demanda_mes_atual") return getPrevisaoMesAtual(item)
   if (key === "previsto_vs_consumido_pct") return getPercentualConsumoPrevisto(item)
   if (key === "desvio_ritmo_pct") return getDesvioRitmoPct(item)
+  if (key === "demanda_mes_1") return getDemandaMesOffset(item, 1) ?? 0
+  if (key === "demanda_mes_2") return getDemandaMesOffset(item, 2) ?? 0
+  if (key === "entradas_mes_1") return getEntradasMesOffset(item, 1) ?? 0
+  if (key === "entradas_mes_2") return getEntradasMesOffset(item, 2) ?? 0
 
   if (isTabelaProdutos) {
     if (key === "saldo") return getEstoqueAtualReal(item)
