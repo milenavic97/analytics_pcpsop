@@ -265,6 +265,13 @@ async def calcular_curva_abc_manual(perfil: dict = Depends(usuario_logado)):
     return calcular_curva_abc.calcular_curva_abc()
 
 
+# TEMPORÁRIO -- REMOVER: só pra testar hoje sem precisar de token no
+# navegador. Sem autenticação de propósito, só enquanto testamos.
+@app.get("/integracao/curva-abc/teste-temporario-remover")
+async def calcular_curva_abc_teste_temporario():
+    return calcular_curva_abc.calcular_curva_abc()
+
+
 # ────────────────────────────────────────────────────────────
 # Documentação da API — mesma proteção das demais rotas.
 # Precisa estar logado (qualquer usuário) para ver /docs, /redoc
