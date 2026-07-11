@@ -780,6 +780,15 @@ def _buscar_posicao_estoque_latest_por_codigos(codigos: List[str]) -> Dict[str, 
             query = supabase.table("f_consumo_materiais").select("*").in_("codigo", chunk)
             if snapshot:
                 query = query.eq("data_snapshot", snapshot)
+            # Desempate determinístico: se por acaso existir mais de uma linha
+            # pro mesmo código no mesmo snapshot (upload duplicado/reprocessado),
+            # sem isso o Postgres podia devolver em ordem diferente a cada
+            # chamada -- e o dedup abaixo ("primeira que aparecer") pegava ora
+            # uma linha, ora outra, fazendo Estoque atual/Quarentena mudarem
+            # sozinhos entre uma consulta e outra (inclusive em computadores
+            # diferentes ao mesmo tempo). Ordenando por id decrescente, a
+            # "primeira" é sempre a de inserção mais recente, sempre a mesma.
+            query = query.order("id", desc=True)
             rows = _select_all(query)
         except Exception:
             rows = []
@@ -810,9 +819,16 @@ def _buscar_consumo_latest():
         query = supabase.table("f_consumo_materiais").select("*")
 
         if snapshot:
-            rows = _select_all(query.eq("data_snapshot", snapshot))
-        else:
-            rows = _select_all(query)
+            query = query.eq("data_snapshot", snapshot)
+
+        # Mesmo desempate de _buscar_posicao_estoque_latest_por_codigos: sem
+        # ORDER BY, linha duplicada do mesmo código no mesmo snapshot podia
+        # vir em ordem diferente a cada chamada, e quem monta o dict por
+        # código a partir daqui (dedup "por último/primeiro que aparecer")
+        # acabava pegando uma linha diferente seguindo essa ordem instável.
+        query = query.order("id", desc=True)
+
+        rows = _select_all(query)
 
         return rows, snapshot
 
@@ -3167,18 +3183,41 @@ def _buscar_ultimo_saldo_sb8(
 
     tipos_por_codigo = tipos_por_codigo or {}
 
-    try:
-        rows = _select_all_estoque_saldo_por_codigos(
-            list(codigos_set),
-            "*",
-        )
-        # Não filtra pela maior data_ref global da SB8. Em alguns uploads,
-        # data_ref vem como data do lote/movimento, não como data única do snapshot.
-        # Filtrar pela maior data global derrubava saldos válidos em quarentena
-        # 98, como FELIPRESSINA, que está no arquivo atual mas com data própria do lote.
-        rows = sorted(rows, key=lambda r: str(r.get("data_ref") or r.get("data") or ""))
-    except Exception:
-        rows = []
+    rows: List[Dict[str, Any]] = []
+    for tentativa in range(3):
+        try:
+            rows = _select_all_estoque_saldo_por_codigos(
+                list(codigos_set),
+                "*",
+            )
+            break
+        except Exception:
+            rows = []
+            if tentativa < 2:
+                time.sleep(1)
+
+    # Antes: pegava, por código, a maior data_ref entre as linhas que tinham
+    # valor diferente de zero -- se um item saiu da quarentena hoje (upload de
+    # hoje não tem mais linha dele no armazém 98), essa lógica "achava" um
+    # upload de dias atrás com valor e mostrava ele como se fosse atual.
+    # Agora usa o upload_id do envio mais recente da SB8 como critério: só
+    # entra no cálculo (normal ou quarentena) quem pertence a esse upload
+    # exato. Se não tem hoje, é zero -- sem cair pra histórico. Isso não
+    # quebra o caso da FELIPRESSINA (comentário antigo abaixo): aquele
+    # problema era acontecer no MESMO upload só que com data_ref do lote
+    # diferente de hoje -- filtrar por upload_id não olha data_ref nenhuma,
+    # só "essa linha pertence ao envio mais recente ou não".
+    snapshot_sb8 = _latest_sb8_snapshot() or ""
+    upload_id_mais_recente = snapshot_sb8.split("|", 1)[1] if "|" in snapshot_sb8 else None
+
+    # Não filtra pela maior data_ref global da SB8. Em alguns uploads,
+    # data_ref vem como data do lote/movimento, não como data única do snapshot.
+    # Filtrar pela maior data global derrubava saldos válidos em quarentena
+    # 98, como FELIPRESSINA, que está no arquivo atual mas com data própria do lote.
+    rows = sorted(rows, key=lambda r: str(r.get("data_ref") or r.get("data") or ""))
+
+    if upload_id_mais_recente:
+        rows = [r for r in rows if str(r.get("upload_id") or "") == upload_id_mais_recente]
 
     saldo_por_codigo_dia: Dict[str, Dict[str, Dict[str, float]]] = defaultdict(
         lambda: defaultdict(lambda: {
@@ -3202,7 +3241,12 @@ def _buscar_ultimo_saldo_sb8(
         if not data_ref:
             continue
 
-        data_key = data_ref.isoformat()
+        # Já filtramos pelas linhas do upload mais recente acima -- não faz
+        # mais sentido separar por data_ref do lote aqui (um código pode ter
+        # lotes com datas diferentes de entrada em quarentena, todos válidos
+        # hoje). Some tudo numa chave só. Se não tiver upload_id disponível
+        # (fallback raro), mantém o agrupamento por data de antes.
+        data_key = "atual" if upload_id_mais_recente else data_ref.isoformat()
         armazem = _normalizar_armazem_estoque(row)
         saldo_bruto = _saldo_lote_bruto(row)
         empenho = _valor_empenho_lote(row)
@@ -3265,19 +3309,45 @@ def _buscar_ultimo_saldo_sb8(
             }
         )
 
-        data_ref_geral = max([d for d in [ultima_data_normal, ultima_data_quarentena] if d])
+        data_ref_upload_atual = snapshot_sb8.split("|", 1)[0] if "|" in snapshot_sb8 else None
+
+        ultima_data_normal_reportada = (
+            data_ref_upload_atual if (upload_id_mais_recente and ultima_data_normal == "atual") else ultima_data_normal
+        )
+        ultima_data_quarentena_reportada = (
+            data_ref_upload_atual
+            if (upload_id_mais_recente and ultima_data_quarentena == "atual")
+            else ultima_data_quarentena
+        )
+
+        data_ref_geral = max([d for d in [ultima_data_normal_reportada, ultima_data_quarentena_reportada] if d])
+
+        armazens_normais_codigo = _armazens_sb8_normais_por_tipo(tipos_por_codigo.get(codigo))
+
+        # Decisão de negócio confirmada: para PA/MR/PPS (armazém 04/07), o
+        # "Estoque atual" é o saldo BRUTO da SB8, sem descontar empenho --
+        # mesma regra aplicada em _buscar_saldo_sb8_exato_produtos, pra não
+        # ter dois caminhos de cálculo divergentes pro mesmo campo (era
+        # exatamente essa divergência que fazia o valor "piscar" dependendo
+        # de qual dos dois caminhos atendia a requisição). Para MP/ME/MI
+        # (armazém 01) mantém o líquido, que não fez parte dessa decisão.
+        saldo_para_tela = (
+            valores_normal["saldo_bruto"]
+            if armazens_normais_codigo == {"04", "07"}
+            else valores_normal["saldo"]
+        )
 
         resultado[codigo] = {
-            "saldo": _round(valores_normal["saldo"], 4),
+            "saldo": _round(saldo_para_tela, 4),
             "saldo_bruto": _round(valores_normal["saldo_bruto"], 4),
             "empenho": _round(valores_normal["empenho"], 4),
             "saldo_quarentena": _round(valores_quarentena["quarentena"], 4),
             "quarentena_bruta": _round(valores_quarentena["quarentena_bruta"], 4),
             "empenho_quarentena": _round(valores_quarentena["empenho_quarentena"], 4),
             "data_ref": data_ref_geral,
-            "data_ref_saldo": ultima_data_normal,
-            "data_ref_quarentena": ultima_data_quarentena,
-            "armazens_normais": sorted(_armazens_sb8_normais_por_tipo(tipos_por_codigo.get(codigo))),
+            "data_ref_saldo": ultima_data_normal_reportada,
+            "data_ref_quarentena": ultima_data_quarentena_reportada,
+            "armazens_normais": sorted(armazens_normais_codigo),
             "armazem_quarentena": "98",
         }
 
@@ -3366,13 +3436,26 @@ def _buscar_saldo_sb8_exato_produtos(codigos: List[str]) -> Dict[str, Dict[str, 
     if not codigos_set:
         return {}
 
-    try:
-        rows = _select_all_estoque_saldo_por_codigos(
-            list(codigos_set),
-            "*",
-        )
-    except Exception:
-        rows = []
+    rows: List[Dict[str, Any]] = []
+    for tentativa in range(3):
+        try:
+            rows = _select_all_estoque_saldo_por_codigos(
+                list(codigos_set),
+                "*",
+            )
+            break
+        except Exception:
+            rows = []
+            if tentativa < 2:
+                time.sleep(1)
+
+    # Mesma correção de _buscar_ultimo_saldo_sb8: filtra pelo upload mais
+    # recente da SB8 antes de somar, pra código sem linha hoje (ex.: saiu da
+    # quarentena) dar zero em vez de repescar upload de dias atrás.
+    snapshot_sb8 = _latest_sb8_snapshot() or ""
+    upload_id_mais_recente = snapshot_sb8.split("|", 1)[1] if "|" in snapshot_sb8 else None
+    if upload_id_mais_recente:
+        rows = [r for r in rows if str(r.get("upload_id") or "") == upload_id_mais_recente]
 
     # Acumula por código + data_ref para evitar somar snapshots distintos.
     por_codigo_data: Dict[str, Dict[str, Dict[str, Any]]] = defaultdict(
@@ -3404,7 +3487,11 @@ def _buscar_saldo_sb8_exato_produtos(codigos: List[str]) -> Dict[str, Dict[str, 
                 row.get("data"),
             )
         )
-        data_key = data_ref.isoformat() if data_ref else "sem_data_ref"
+        # Já filtrado pelo upload mais recente acima -- some tudo numa chave
+        # só em vez de separar por data_ref do lote (ver comentário em
+        # _buscar_ultimo_saldo_sb8). Sem upload_id disponível, mantém o
+        # agrupamento por data de antes.
+        data_key = "atual" if upload_id_mais_recente else (data_ref.isoformat() if data_ref else "sem_data_ref")
 
         armazem = _normalizar_armazem_estoque(row)
         saldo_bruto = _saldo_lote_bruto(row)
@@ -3496,13 +3583,30 @@ def _buscar_saldo_sb8_exato_produtos(codigos: List[str]) -> Dict[str, Dict[str, 
         saldo_disp = _to_float(valores_normal.get("saldo"))
         saldo_bruto = _to_float(valores_normal.get("saldo_bruto"))
         empenho = _to_float(valores_normal.get("empenho"))
+        # Decisão de negócio confirmada: "Estoque atual" de PA/MR/PPS é o saldo
+        # BRUTO da SB8 (soma direta dos armazéns 04/07), sem descontar empenho.
+        # Antes usava o disponível líquido (bruto - empenho por lote, com piso
+        # em 0 por lote) -- além de não ser o valor que a área quer ver aqui,
+        # esse cálculo por lote já vinha divergindo do simples "bruto - empenho
+        # total" em casos reais (ex.: Benzotop 52749: bruto 85.071, empenho
+        # 600, mas o líquido por lote dava 84.751 em vez de 84.471).
         saldo_calculado = max(0.0, saldo_bruto - empenho)
-        saldo_final = max(saldo_disp, saldo_calculado)
+        saldo_final = saldo_bruto
 
-        datas_validas = [d for d in [ultima_data_normal, ultima_data_quarentena] if d and d != "sem_data_ref"]
+        data_ref_upload_atual = snapshot_sb8.split("|", 1)[0] if "|" in snapshot_sb8 else None
+        ultima_data_normal_reportada = (
+            data_ref_upload_atual if (upload_id_mais_recente and ultima_data_normal == "atual") else ultima_data_normal
+        )
+        ultima_data_quarentena_reportada = (
+            data_ref_upload_atual
+            if (upload_id_mais_recente and ultima_data_quarentena == "atual")
+            else ultima_data_quarentena
+        )
+
+        datas_validas = [d for d in [ultima_data_normal_reportada, ultima_data_quarentena_reportada] if d and d != "sem_data_ref"]
         data_ref_geral = max(datas_validas) if datas_validas else None
-        data_ref_saldo = None if ultima_data_normal in {None, "sem_data_ref"} else ultima_data_normal
-        data_ref_quarentena = None if ultima_data_quarentena in {None, "sem_data_ref"} else ultima_data_quarentena
+        data_ref_saldo = None if ultima_data_normal_reportada in {None, "sem_data_ref"} else ultima_data_normal_reportada
+        data_ref_quarentena = None if ultima_data_quarentena_reportada in {None, "sem_data_ref"} else ultima_data_quarentena_reportada
 
         tem_linha_saldo_0407 = bool(valores_normal.get("tem_linha_saldo_0407"))
         tem_linha_quarentena_98 = bool(valores_quarentena.get("tem_linha_quarentena_98"))
@@ -8739,6 +8843,8 @@ def _filtrar_itens(
     transferencia_bravi: Optional[str] = None,
     modelo_fornecimento: Optional[str] = None,
     grupo_gerencial: Optional[str] = None,
+    grupo: Optional[str] = None,
+    curva_a: Optional[str] = None,
     classificacao_cadastro: Optional[str] = "MAPEADOS",
     semaforo: Optional[str] = None,
     status_plano: Optional[str] = None,
@@ -8813,6 +8919,18 @@ def _filtrar_itens(
         filtrados = [
             i for i in filtrados
             if str(i.get("grupo_gerencial") or "") == grupo_gerencial
+        ]
+
+    if grupo and grupo != "TODOS":
+        filtrados = [
+            i for i in filtrados
+            if str(i.get("grupo") or "") == grupo
+        ]
+
+    if curva_a and curva_a != "TODOS":
+        filtrados = [
+            i for i in filtrados
+            if str(i.get("curva_a") or "").strip().upper() == curva_a.strip().upper()
         ]
 
     if semaforo and semaforo != "TODOS":
@@ -8916,6 +9034,10 @@ def _opcoes_filtro(itens):
         "transferencia_bravi": ["Sim", "Não"],
         "modelo_fornecimento": valores("modelo_fornecimento"),
         "grupo_gerencial": valores("grupo_gerencial"),
+        "grupo": valores("grupo"),
+        # Fixo: sempre as 3 curvas, mesmo que algum item ainda esteja
+        # "A classificar" (esse não entra na lista, só A/B/C de verdade).
+        "curva_a": ["A", "B", "C"],
         "classificacao_cadastro": ["MAPEADOS", "DIMENSAO", "BOM", "NAO_CLASSIFICADOS", "TODOS"],
     }
 
@@ -9794,6 +9916,9 @@ def _buscar_consumo_latest_por_codigos(codigos: List[str]) -> tuple[List[Dict[st
             query = supabase.table("f_consumo_materiais").select("*").in_("codigo", chunk)
             if snapshot:
                 query = query.eq("data_snapshot", snapshot)
+            # Mesmo desempate determinístico das outras buscas de consumo:
+            # ver comentário em _buscar_posicao_estoque_latest_por_codigos.
+            query = query.order("id", desc=True)
             rows.extend(_select_all(query))
         except Exception:
             continue
@@ -10133,7 +10258,7 @@ def _buscar_consumo_latest_por_busca_light_v27(busca: Optional[str], limite: int
             query = supabase.table("f_consumo_materiais").select("*")
             if snapshot:
                 query = query.eq("data_snapshot", snapshot)
-            res = query.ilike(coluna, f"%{valor}%").limit(limite).execute()
+            res = query.order("id", desc=True).ilike(coluna, f"%{valor}%").limit(limite).execute()
             add_rows(res.data or [])
         except Exception:
             # Algumas bases antigas podem não ter todos os campos de descrição.
@@ -10146,7 +10271,7 @@ def _buscar_consumo_latest_por_busca_light_v27(busca: Optional[str], limite: int
             query = supabase.table("f_consumo_materiais").select("*")
             if snapshot:
                 query = query.eq("data_snapshot", snapshot)
-            res = query.eq("codigo", codigo).limit(limite).execute()
+            res = query.order("id", desc=True).eq("codigo", codigo).limit(limite).execute()
             add_rows(res.data or [])
         except Exception:
             return
@@ -10172,7 +10297,7 @@ def _buscar_consumo_latest_por_busca_light_v27(busca: Optional[str], limite: int
             query = supabase.table("f_consumo_materiais").select("*")
             if snapshot:
                 query = query.eq("data_snapshot", snapshot)
-            res = query.or_(or_filtro).limit(limite).execute()
+            res = query.order("id", desc=True).or_(or_filtro).limit(limite).execute()
             add_rows(res.data or [])
         except Exception:
             # Fallback: se o .or_ falhar (ex.: base antiga sem alguma coluna),
@@ -10187,6 +10312,7 @@ def _buscar_consumo_latest_por_busca_light_v27(busca: Optional[str], limite: int
             query = supabase.table("f_consumo_materiais").select("*")
             if snapshot:
                 query = query.eq("data_snapshot", snapshot)
+            query = query.order("id", desc=True)
             rows = _select_all(query)
             filtrados = []
             for row in rows or []:
@@ -11644,6 +11770,8 @@ def itens_aging(
     transferencia_bravi: Optional[str] = Query(None),
     modelo_fornecimento: Optional[str] = Query(None),
     grupo_gerencial: Optional[str] = Query(None),
+    grupo: Optional[str] = Query(None),
+    curva_a: Optional[str] = Query(None),
     classificacao_cadastro: Optional[str] = Query("MAPEADOS"),
     semaforo: Optional[str] = Query(None),
     status_plano: Optional[str] = Query(None),
@@ -11725,6 +11853,8 @@ def itens_aging(
             transferencia_bravi=transferencia_bravi,
             modelo_fornecimento=modelo_fornecimento,
             grupo_gerencial=grupo_gerencial,
+            grupo=grupo,
+            curva_a=curva_a,
             classificacao_cadastro=classificacao_cadastro,
             semaforo=semaforo,
             status_plano=status_plano,

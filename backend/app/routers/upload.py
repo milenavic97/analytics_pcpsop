@@ -1253,6 +1253,44 @@ BASES_ESPECIAIS.update({
 
 
 
+def _recalcular_cache_aging_estoque_background(base_id: str, log_id: str | None = None) -> None:
+    """
+    Recalcula os caches da Gestão de Estoque (produtos, insumos, base completa)
+    logo depois que um upload termina com sucesso -- sem esperar o próximo
+    ciclo da thread de aquecimento em background (até 5 min de atraso).
+
+    Motivo: sem isso, existe uma janela de até 5 min em que a fonte de dado já
+    está atualizada (upload concluído) mas a conta pesada da tela ainda não
+    foi refeita -- e nada avisa o navegador disso, porque a "versão" que ele
+    monitora já reflete a data do upload, não se o cache já foi reconstruído.
+    Quem abrisse a tela nessa janela via número desatualizado, sem nenhum
+    aviso, e só um F5 na hora certa "corrigia" por coincidência.
+
+    Roda em background (chamado via BackgroundTasks), não bloqueia a resposta
+    do upload. Se falhar, só loga -- nunca derruba o upload em si.
+    """
+    try:
+        from app.routers.aging_estoque import preaquecer_todos_caches_aging_estoque
+
+        resultado = preaquecer_todos_caches_aging_estoque(force_refresh=True)
+
+        if log_id:
+            try:
+                supabase.table("upload_log").update({
+                    "cache_aging_estoque_status": "sucesso" if resultado.get("ok") else "sucesso_com_avisos",
+                }).eq("id", log_id).execute()
+            except Exception:
+                pass
+    except Exception as e:
+        if log_id:
+            try:
+                supabase.table("upload_log").update({
+                    "cache_aging_estoque_status": f"erro: {str(e)[:200]}",
+                }).eq("id", log_id).execute()
+            except Exception:
+                pass
+
+
 async def _recalcular_cache_ordens_background(base_id: str, log_id: str | None = None) -> dict:
     """
     Atualiza o snapshot de Ordens no backend depois que a Programação mensal entra.
@@ -1303,6 +1341,22 @@ async def _recalcular_cache_ordens_background(base_id: str, log_id: str | None =
 # Upload principal
 # ─────────────────────────────────────────────────────────────
 
+TAMANHO_MAXIMO_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
+def _sanitizar_nome_arquivo(nome: str) -> str:
+    """
+    Remove separadores de caminho e caracteres fora do esperado pra um nome
+    de arquivo, antes de usar no storage_path. Sem isso, um nome de arquivo
+    com "/" ou ".." nele podia interferir no caminho salvo no Storage.
+    """
+    nome = (nome or "arquivo").strip()
+    nome = nome.replace("/", "_").replace("\\", "_")
+    nome = re.sub(r"\.\.+", ".", nome)
+    nome = re.sub(r"[^A-Za-z0-9._\-]", "_", nome)
+    return nome[:200] or "arquivo"
+
+
 @router.post("/{base_id}")
 async def upload_base(
     base_id: str,
@@ -1324,7 +1378,17 @@ async def upload_base(
 
     conteudo = await file.read()
 
-    storage_path = f"{base_id}/{uuid.uuid4()}_{file.filename}"
+    if len(conteudo) > TAMANHO_MAXIMO_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Arquivo maior que o limite de "
+                f"{TAMANHO_MAXIMO_UPLOAD_BYTES // (1024 * 1024)}MB."
+            ),
+        )
+
+    nome_arquivo_seguro = _sanitizar_nome_arquivo(file.filename)
+    storage_path = f"{base_id}/{uuid.uuid4()}_{nome_arquivo_seguro}"
 
     try:
         supabase.storage.from_("uploads").upload(storage_path, conteudo)
@@ -1412,6 +1476,16 @@ async def upload_base(
             cache_ordens_status = "agendado_background"
             background_tasks.add_task(
                 _recalcular_cache_ordens_background,
+                base_id,
+                log_id,
+            )
+
+        # Roda pra qualquer base, não só as de estoque: mais barato disparar
+        # um recálculo a mais de vez em quando do que deixar alguém ver
+        # número desatualizado depois de um upload sem perceber.
+        if status_final == "sucesso":
+            background_tasks.add_task(
+                _recalcular_cache_aging_estoque_background,
                 base_id,
                 log_id,
             )

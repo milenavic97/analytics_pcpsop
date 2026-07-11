@@ -2501,8 +2501,103 @@ def get_atendimento_sku():
     }
 
 
+# Em vez de um tempo fixo, a invalidação do cache acompanha a última
+# atualização das bases que realmente alimentam esse painel (SD3/liberações
+# reais, apontamento de produção, desvios/NC, MPS/Gantt). Se nenhuma delas
+# mudou desde o último cálculo, reaproveita -- não importa há quanto tempo
+# foi. Se qualquer uma mudar (ex.: você sobe uma SD3 nova), a versão muda e
+# recalcula na próxima chamada. A checagem de versão em si é barata (só
+# MAX(criado_em) em cada tabela), mas ainda cacheamos por 20s pra não bater
+# nelas a cada request.
+_RASTREAMENTO_LOTES_VERSAO_CACHE_TTL_SEGUNDOS = 20
+_RASTREAMENTO_LOTES_VERSAO_CACHE: dict = {"criado_em": 0.0, "versao": None}
+_RASTREAMENTO_LOTES_VERSAO_LOCK = Lock()
+
+# Guarda-chuva de segurança: mesmo com a versão estável, não deixa o cache
+# viver pra sempre (cobre o caso raro de alguma fonte de dado mudar por um
+# caminho que não rastreamos aqui).
+_RASTREAMENTO_LOTES_CACHE_TTL_SEGUNDOS = 30 * 60
+
+
+def _versao_dados_rastreamento_lotes() -> str:
+    agora = time.time()
+
+    with _RASTREAMENTO_LOTES_VERSAO_LOCK:
+        cache = _RASTREAMENTO_LOTES_VERSAO_CACHE
+        if cache.get("versao") is not None and (agora - float(cache.get("criado_em") or 0)) <= _RASTREAMENTO_LOTES_VERSAO_CACHE_TTL_SEGUNDOS:
+            return cache["versao"]
+
+    partes = [
+        _ultima_atualizacao_tabela("f_sd3_entradas", "criado_em") or "-",
+        _ultima_atualizacao_tabela("f_apontamentos", "criado_em") or "-",
+        _ultima_atualizacao_tabela("desvios_snapshots", "criado_em") or "-",
+        _ultima_atualizacao_tabela("f_mrp_rodadas", "criado_em") or "-",
+        _ultima_atualizacao_tabela("f_mrp_etapas", "criado_em") or "-",
+    ]
+    versao = "|".join(partes)
+
+    with _RASTREAMENTO_LOTES_VERSAO_LOCK:
+        _RASTREAMENTO_LOTES_VERSAO_CACHE["criado_em"] = agora
+        _RASTREAMENTO_LOTES_VERSAO_CACHE["versao"] = versao
+
+    return versao
+
+
+_RASTREAMENTO_LOTES_CACHE: dict = {}
+_RASTREAMENTO_LOTES_LOCK = Lock()
+
+
 @router.get("/rastreamento-lotes")
 def get_rastreamento_lotes(
+    mes: int | None = Query(default=None, ge=1, le=12),
+    ano: int | None = Query(default=None),
+):
+    """
+    Wrapper com cache em cima de _calcular_rastreamento_lotes_impl, que é
+    pesada (~2200 linhas, várias consultas). Sem isso, cada pessoa que abre
+    a Overview quase ao mesmo tempo paga o cálculo do zero de novo.
+
+    A invalidação acompanha a última atualização das bases que alimentam
+    esse painel (SD3/liberações reais, apontamento, desvios/NC, MPS/Gantt),
+    não um tempo fixo -- ver _versao_dados_rastreamento_lotes. Enquanto
+    nenhuma dessas bases mudar, reaproveita o mesmo resultado; assim que
+    alguma mudar (ex.: você sobe uma SD3 nova), recalcula na próxima chamada.
+    Isso também deixa a thread de aquecimento em background e o uso real
+    sempre "se encontrarem": o cache não expira sozinho no meio do caminho.
+    """
+    mes_ref = mes if mes is not None else _mes_atual()
+    ano_ref = ano if ano is not None else _ano_atual()
+    versao = _versao_dados_rastreamento_lotes()
+    chave = f"{ano_ref}-{mes_ref}-{versao}"
+    agora = time.time()
+
+    with _RASTREAMENTO_LOTES_LOCK:
+        cache = _RASTREAMENTO_LOTES_CACHE.get(chave)
+        if cache is not None and (agora - cache[0]) <= _RASTREAMENTO_LOTES_CACHE_TTL_SEGUNDOS:
+            return cache[1]
+
+    resultado = _calcular_rastreamento_lotes_impl(mes, ano)
+
+    with _RASTREAMENTO_LOTES_LOCK:
+        _RASTREAMENTO_LOTES_CACHE[chave] = (agora, resultado)
+
+        # A chave inclui a versão dos dados, então uma mudança de versão
+        # sempre gera uma entrada nova -- sem limpar as antigas, o dicionário
+        # cresceria sem limite ao longo de dias/semanas. Faxina oportunista:
+        # só roda quando o dict já está grande, e só remove o que já venceu
+        # pelo guarda-chuva de segurança.
+        if len(_RASTREAMENTO_LOTES_CACHE) > 50:
+            expirados = [
+                k for k, (criado_em, _) in _RASTREAMENTO_LOTES_CACHE.items()
+                if (agora - criado_em) > _RASTREAMENTO_LOTES_CACHE_TTL_SEGUNDOS
+            ]
+            for k in expirados:
+                _RASTREAMENTO_LOTES_CACHE.pop(k, None)
+
+    return resultado
+
+
+def _calcular_rastreamento_lotes_impl(
     mes: int | None = Query(default=None, ge=1, le=12),
     ano: int | None = Query(default=None),
 ):

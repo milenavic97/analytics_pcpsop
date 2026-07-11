@@ -26,8 +26,15 @@ from app.routers import (
     liberacao_executiva,
 )
 from app.auth import usuario_logado
+from app import integracao_cogtive
+from app import calcular_curva_abc
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("uvicorn.error")
+
+TZ_BR = ZoneInfo("America/Sao_Paulo")
+HORARIOS_SYNC_COGTIVE = {0, 6, 12, 18}
 
 # ────────────────────────────────────────────────────────────
 # Aquecimento automático do cache da Gestão de Estoque.
@@ -82,6 +89,96 @@ def _agendar_preaquecimento_cache() -> None:
     )
     thread.start()
 
+
+# ────────────────────────────────────────────────────────────
+# Sincronização automática de apontamentos com a API da Cogtive.
+#
+# Substitui o processo manual (entrar na Cogtive, extrair, subir o
+# arquivo) -- roda sozinha 3x por dia (6h, 12h e 18h, horário de
+# Brasília), buscando o ano inteiro até hoje e substituindo os meses
+# cobertos, igual ao upload manual faz hoje.
+#
+# Se COGTIVE_API_TOKEN não estiver configurado, a sincronização
+# simplesmente não roda (sem quebrar o resto do sistema) -- ver
+# app/integracao_cogtive.py.
+def _loop_sincronizacao_cogtive() -> None:
+    time.sleep(10)
+    ultimo_horario_rodado: tuple[str, int] | None = None
+
+    while True:
+        try:
+            agora = datetime.now(TZ_BR)
+            chave_horario = (agora.date().isoformat(), agora.hour)
+
+            if agora.hour in HORARIOS_SYNC_COGTIVE and chave_horario != ultimo_horario_rodado:
+                escopo_completo = agora.hour == 6
+                resultado = integracao_cogtive.sincronizar_apontamentos_cogtive(escopo_completo=escopo_completo)
+                if resultado.get("ok"):
+                    logger.warning(
+                        "Sincronização Cogtive concluída: %s apontamentos inseridos, %s ignorados sem lote.",
+                        resultado.get("total_inseridos"),
+                        resultado.get("ignorados_sem_lote"),
+                    )
+                else:
+                    logger.warning("Sincronização Cogtive não rodou: %s", resultado.get("motivo"))
+                ultimo_horario_rodado = chave_horario
+        except Exception as e:
+            logger.warning("Falha na sincronização automática da Cogtive: %s", str(e)[:300])
+
+        time.sleep(5 * 60)
+
+
+def _agendar_sincronizacao_cogtive() -> None:
+    thread = threading.Thread(
+        target=_loop_sincronizacao_cogtive,
+        name="sincronizacao-cogtive",
+        daemon=True,
+    )
+    thread.start()
+
+
+# ────────────────────────────────────────────────────────────
+# Cálculo automático da Curva ABC por faturamento (ver
+# app/calcular_curva_abc.py). Não roda todo dia -- classificação ABC
+# não muda tão rápido assim. Verifica a cada poucas horas se já passou
+# 6 meses desde a última execução (registrada em upload_log); se sim,
+# recalcula. Se nunca rodou ainda, roda na hora, na primeira checagem.
+INTERVALO_CHECAGEM_CURVA_ABC_SEGUNDOS = 6 * 60 * 60
+
+
+def _rodar_calculo_curva_abc_com_log() -> None:
+    resultado = calcular_curva_abc.calcular_curva_abc()
+    if resultado.get("ok"):
+        logger.warning(
+            "Curva ABC recalculada: %s códigos classificados (%s).",
+            resultado.get("total_classificados"),
+            resultado.get("por_curva"),
+        )
+    else:
+        logger.warning("Cálculo de Curva ABC não rodou: %s", resultado.get("motivo"))
+
+
+def _loop_calculo_curva_abc() -> None:
+    time.sleep(15)
+
+    while True:
+        try:
+            if calcular_curva_abc.deve_recalcular_curva_abc(meses_minimos=6):
+                _rodar_calculo_curva_abc_com_log()
+        except Exception as e:
+            logger.warning("Falha no cálculo automático de Curva ABC: %s", str(e)[:300])
+
+        time.sleep(INTERVALO_CHECAGEM_CURVA_ABC_SEGUNDOS)
+
+
+def _agendar_calculo_curva_abc() -> None:
+    thread = threading.Thread(
+        target=_loop_calculo_curva_abc,
+        name="calculo-curva-abc",
+        daemon=True,
+    )
+    thread.start()
+
 # docs_url/redoc_url/openapi_url desligados aqui: recriamos os três abaixo
 # exigindo login, em vez de deixar o FastAPI publicá-los sem proteção.
 app = FastAPI(
@@ -97,11 +194,9 @@ app.add_middleware(
     allow_origins=[
         "https://analyticspcp.com.br",
         "https://www.analyticspcp.com.br",
-        "https://dfl-dashboard.vercel.app",
         "http://localhost:5173",
         "http://localhost:3000",
     ],
-    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -141,6 +236,33 @@ def iniciar_preaquecimento_cache_em_background():
     # deploy/restart do Fly). Não bloqueia o startup do app -- a API já
     # começa a responder mesmo enquanto o primeiro build pesado roda.
     _agendar_preaquecimento_cache()
+    _agendar_sincronizacao_cogtive()
+    _agendar_calculo_curva_abc()
+
+
+@app.post("/integracao/cogtive/sincronizar-agora")
+async def sincronizar_cogtive_manual(
+    escopo_completo: bool = True,
+    perfil: dict = Depends(usuario_logado),
+):
+    """
+    Dispara a sincronização com a Cogtive na hora, sem esperar o próximo
+    horário agendado (6h/12h/18h). Útil pra testar ou forçar atualização.
+
+    escopo_completo=true (padrão): ano inteiro. escopo_completo=false:
+    só mês atual + anterior (mais rápido).
+    """
+    resultado = integracao_cogtive.sincronizar_apontamentos_cogtive(escopo_completo=escopo_completo)
+    return resultado
+
+
+@app.post("/integracao/curva-abc/calcular-agora")
+async def calcular_curva_abc_manual(perfil: dict = Depends(usuario_logado)):
+    """
+    Dispara o cálculo da Curva ABC na hora, sem esperar o horário
+    agendado (5h). Útil pra testar.
+    """
+    return calcular_curva_abc.calcular_curva_abc()
 
 
 # ────────────────────────────────────────────────────────────
