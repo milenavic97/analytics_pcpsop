@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 import logging
 import threading
 import time
@@ -252,7 +253,10 @@ async def sincronizar_cogtive_manual(
     escopo_completo=true (padrão): ano inteiro. escopo_completo=false:
     só mês atual + anterior (mais rápido).
     """
-    resultado = integracao_cogtive.sincronizar_apontamentos_cogtive(escopo_completo=escopo_completo)
+    resultado = await run_in_threadpool(
+        integracao_cogtive.sincronizar_apontamentos_cogtive,
+        escopo_completo=escopo_completo,
+    )
     return resultado
 
 
@@ -262,14 +266,21 @@ async def calcular_curva_abc_manual(perfil: dict = Depends(usuario_logado)):
     Dispara o cálculo da Curva ABC na hora, sem esperar o horário
     agendado (5h). Útil pra testar.
     """
-    return calcular_curva_abc.calcular_curva_abc()
+    return await run_in_threadpool(calcular_curva_abc.calcular_curva_abc)
 
 
 # TEMPORÁRIO -- REMOVER: só pra testar hoje sem precisar de token no
 # navegador. Sem autenticação de propósito, só enquanto testamos.
 @app.get("/integracao/curva-abc/teste-temporario-remover")
 async def calcular_curva_abc_teste_temporario():
-    return calcular_curva_abc.calcular_curva_abc()
+    return await run_in_threadpool(calcular_curva_abc.calcular_curva_abc)
+
+
+# TEMPORÁRIO -- REMOVER: mesma ideia, força o cache pesado da Gestão de
+# Estoque a recarregar agora, sem precisar de token no navegador.
+@app.get("/integracao/forcar-cache-estoque-teste-temporario-remover")
+async def forcar_cache_estoque_teste_temporario():
+    return await run_in_threadpool(aging_estoque.preaquecer_todos_caches_aging_estoque, force_refresh=True)
 
 
 # ────────────────────────────────────────────────────────────

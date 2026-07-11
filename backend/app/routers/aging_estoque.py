@@ -8928,9 +8928,10 @@ def _filtrar_itens(
         ]
 
     if curva_a and curva_a != "TODOS":
+        curvas_selecionadas = {c.strip().upper() for c in curva_a.split(",") if c.strip()}
         filtrados = [
             i for i in filtrados
-            if str(i.get("curva_a") or "").strip().upper() == curva_a.strip().upper()
+            if str(i.get("curva_a") or "").strip().upper() in curvas_selecionadas
         ]
 
     if semaforo and semaforo != "TODOS":

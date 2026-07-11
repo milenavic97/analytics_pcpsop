@@ -14,6 +14,11 @@ Regra (validada com o time em 11/07/2026):
   - PPS fica como uma linha só, sem separar por Bravi/terceirizado
     (esses continuam identificáveis pela coluna transferencia_bravi,
     só não formam grupo próprio pra fins de ABC).
+  - Sem tipo_negocio mapeado, infere a linha pelo nome do produto
+    (Benzotop/anestésico injetável conhecido/senão PPS) -- só pra
+    códigos que já são relevantes (tipo_negocio bate OU já teve venda
+    registrada), nunca pro catálogo inteiro de matéria-prima.
+  - Sem faturamento nos últimos 12 meses = Curva C direto.
 """
 
 from datetime import date, datetime, timezone
@@ -26,6 +31,26 @@ logger = logging.getLogger("uvicorn.error")
 
 LINHAS_CALCULADAS = {"Anestésicos Injetáveis", "PPS", "Benzotop"}
 MESES_JANELA = 12
+
+# Quando tipo_negocio não está preenchido em d_produtos, infere a linha pelo
+# nome do produto -- baseado nos princípios ativos/marcas de anestésico
+# injetável já conhecidos no catálogo. Qualquer coisa com "BENZOTOP" no nome
+# é Benzotop. O que sobrar (agulhas, kits, resinas, etc.) cai em PPS, que já
+# é a linha "guarda-chuva" comercial nesse catálogo (a maioria dos itens
+# mapeados hoje já está em PPS).
+PALAVRAS_ANESTESICO_INJETAVEL = [
+    "ALPHACAINE", "ARTICAINE", "ARTICAINA", "MEPIADRE", "MEPISV",
+    "PRILONEST", "LIDOCAINA", "MEPIVACAINA", "PRILOCAINA", "BUPIVACAINA",
+]
+
+
+def _inferir_linha_por_nome(desc_produto: str) -> str:
+    nome = (desc_produto or "").upper()
+    if "BENZOTOP" in nome:
+        return "Benzotop"
+    if any(palavra in nome for palavra in PALAVRAS_ANESTESICO_INJETAVEL):
+        return "Anestésicos Injetáveis"
+    return "PPS"
 
 
 def _select_all(query, page_size: int = 1000):
@@ -65,21 +90,27 @@ def calcular_curva_abc() -> dict:
     hoje = date.today()
     chaves_validas = _meses_da_janela(hoje)
 
-    # 1) Cadastro: tipo_negocio + status por código.
+    # 1) Cadastro: tipo_negocio + status + descrição por código.
     produtos_rows = _select_all(
         supabase.table("d_produtos").select(
-            "cod_produto, tipo_negocio, status_portfolio, status_original"
+            "cod_produto, desc_produto, tipo_negocio, status_portfolio, status_original"
         )
     )
 
-    tipo_negocio_por_codigo: dict[str, str] = {}
+    linha_por_codigo: dict[str, str] = {}
+    tipo_negocio_original_por_codigo: dict[str, str] = {}
     descontinuado_por_codigo: dict[str, bool] = {}
+    desc_produto_por_codigo: dict[str, str] = {}
 
     for row in produtos_rows:
         codigo = str(row.get("cod_produto") or "").strip()
         if not codigo:
             continue
-        tipo_negocio_por_codigo[codigo] = str(row.get("tipo_negocio") or "").strip()
+
+        tipo_negocio = str(row.get("tipo_negocio") or "").strip()
+        tipo_negocio_original_por_codigo[codigo] = tipo_negocio
+        desc_produto_por_codigo[codigo] = str(row.get("desc_produto") or "")
+
         status_txt = f"{row.get('status_portfolio') or ''} {row.get('status_original') or ''}".upper()
         descontinuado_por_codigo[codigo] = "DESCONT" in status_txt
 
@@ -99,20 +130,40 @@ def calcular_curva_abc() -> dict:
             continue
         faturamento_por_codigo[codigo] += _to_float(row.get("vlr_total"))
 
-    # 3) Agrupa por linha de negócio, só as 3 que calculamos ABC.
+    # Escopo relevante: só quem já tem tipo_negocio batendo com uma das 3
+    # linhas, OU quem já teve alguma venda registrada em f_sd2_saidas (sinal
+    # de que é item comercial de verdade, não matéria-prima/insumo puro).
+    # Sem essa restrição, os ~46 mil códigos de d_produtos (a maioria nunca
+    # vendida direto) cairiam todo mundo em PPS por padrão -- errado.
+    codigos_relevantes = {
+        codigo for codigo, tn in tipo_negocio_original_por_codigo.items()
+        if tn in LINHAS_CALCULADAS
+    } | set(faturamento_por_codigo.keys())
+
+    for codigo in codigos_relevantes:
+        tipo_negocio = tipo_negocio_original_por_codigo.get(codigo, "")
+        linha_por_codigo[codigo] = (
+            tipo_negocio if tipo_negocio in LINHAS_CALCULADAS
+            else _inferir_linha_por_nome(desc_produto_por_codigo.get(codigo, ""))
+        )
+
+    # 3) Agrupa por linha de negócio. Códigos sem faturamento no período
+    # viram C direto (sem entrar na conta de Pareto, que não faz sentido
+    # sem valor pra ranquear).
     por_linha: dict[str, list[tuple[str, float]]] = defaultdict(list)
-    for codigo, valor in faturamento_por_codigo.items():
-        if valor <= 0:
-            continue
+    classificacao_final: dict[str, str] = {}
+
+    for codigo, linha in linha_por_codigo.items():
         if descontinuado_por_codigo.get(codigo):
             continue
-        linha = tipo_negocio_por_codigo.get(codigo)
-        if linha not in LINHAS_CALCULADAS:
-            continue
-        por_linha[linha].append((codigo, valor))
 
-    # 4) Classifica dentro de cada linha.
-    classificacao_final: dict[str, str] = {}
+        valor = faturamento_por_codigo.get(codigo, 0.0)
+        if valor > 0:
+            por_linha[linha].append((codigo, valor))
+        else:
+            classificacao_final[codigo] = "C"
+
+    # 4) Classifica quem tem faturamento, dentro de cada linha.
 
     for linha, itens in por_linha.items():
         itens_ordenados = sorted(itens, key=lambda x: x[1], reverse=True)
@@ -139,20 +190,21 @@ def calcular_curva_abc() -> dict:
     if not classificacao_final:
         return {"ok": False, "motivo": "Nenhum código classificado (sem faturamento ou sem tipo_negocio mapeado)."}
 
-    # 5) Grava em d_produtos.abc_ytm em lotes.
-    registros = [
-        {"cod_produto": codigo, "abc_ytm": curva}
-        for codigo, curva in classificacao_final.items()
-    ]
-
+    # 5) Grava em d_produtos.abc_ytm -- update direto, nunca insert.
+    # Todo código aqui já veio de d_produtos (produtos_rows, lá em cima),
+    # então a linha sempre já existe -- não precisa (e não deve) tentar
+    # criar linha nova. upsert() com payload parcial tentava inserir
+    # quando o on_conflict não resolvia certo, e falhava por causa de
+    # outras colunas obrigatórias que não estavam nesse payload parcial.
     erros = []
-    tamanho_lote = 500
-    for i in range(0, len(registros), tamanho_lote):
-        lote = registros[i:i + tamanho_lote]
+    atualizados = 0
+    for codigo, curva in classificacao_final.items():
         try:
-            supabase.table("d_produtos").upsert(lote, on_conflict="cod_produto").execute()
+            supabase.table("d_produtos").update({"abc_ytm": curva}).eq("cod_produto", codigo).execute()
+            atualizados += 1
         except Exception as e:
-            erros.append(str(e)[:200])
+            if len(erros) < 5:
+                erros.append(f"{codigo}: {str(e)[:150]}")
 
     contagem_por_curva = defaultdict(int)
     for curva in classificacao_final.values():
@@ -171,11 +223,16 @@ def calcular_curva_abc() -> dict:
     except Exception as e:
         logger.warning("Falha ao registrar execução da Curva ABC em upload_log: %s", str(e)[:200])
 
+    contagem_por_linha_final: dict[str, int] = defaultdict(int)
+    for codigo in classificacao_final:
+        contagem_por_linha_final[linha_por_codigo.get(codigo, "?")] += 1
+
     return {
         "ok": len(erros) == 0,
         "total_classificados": len(classificacao_final),
+        "total_atualizados_no_banco": atualizados,
         "por_curva": dict(contagem_por_curva),
-        "por_linha": {linha: len(itens) for linha, itens in por_linha.items()},
+        "por_linha": dict(contagem_por_linha_final),
         "erros": erros[:5],
     }
 
