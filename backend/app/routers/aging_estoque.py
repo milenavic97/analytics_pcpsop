@@ -6770,13 +6770,25 @@ def _buscar_forecast_futuro_por_codigo(
             r for r in programacao_rows
             if (_to_int(r.get("ano")), _to_int(r.get("mes"))) >= (hoje.year, hoje.month)
         ]
-        _, demanda_explodida_mps = _explodir_forecast_multinivel(
+        demanda_direta_mps, demanda_explodida_mps = _explodir_forecast_multinivel(
             source_rows_insumos,
             codigos_interesse=codigos_set,
         )
+        # Códigos PI/ME programados direto no Gantt (ex.: 40295) não são
+        # componente de ninguém aqui - a demanda deles É a própria soma
+        # L1+L2 do Gantt (equivalente ao "Envase" do MPS em Excel), não o
+        # resultado de uma explosão de BOM. Sem isso, esses códigos nunca
+        # aparecem em demanda_explodida (só aparecem como raiz, nunca como
+        # filho), e a demanda futura deles fica zerada.
+        for chave, valor in demanda_direta_mps.items():
+            if chave[0] in codigos_set:
+                demanda_explodida_mps[chave] = valor
     else:
         source_rows_insumos = forecast_rows_all
-        demanda_explodida_mps = demanda_explodida_sop
+        demanda_explodida_mps = dict(demanda_explodida_sop)
+        for chave, valor in demanda_direta.items():
+            if chave[0] in codigos_set:
+                demanda_explodida_mps[chave] = valor
         origem_insumos = "forecast_sop_bom_fallback_sem_programacao_v1"
 
     meses_insumos_programacao = sorted({
@@ -6903,10 +6915,13 @@ def _buscar_demanda_mes_atual(codigos: List[str]):
     # e evita zerar a demanda de um insumo quando o intermediário da BOM (PI)
     # aparece na programação com um mês próprio diferente do mês do PA final
     # que efetivamente puxa a demanda no mês atual.
-    _, demanda_explodida_completa = _explodir_forecast_multinivel(
+    demanda_direta_completa, demanda_explodida_completa = _explodir_forecast_multinivel(
         programacao_rows,
         codigos_interesse=codigos_set,
     )
+    for chave, valor in demanda_direta_completa.items():
+        if chave[0] in codigos_set:
+            demanda_explodida_completa[chave] = valor
     demanda_explodida = {
         chave: valor
         for chave, valor in demanda_explodida_completa.items()
@@ -9552,10 +9567,13 @@ def _forecast_explodido_bom(codigo_comp: str):
         programacao_rows = _buscar_forecast_sop_rows()
         origem = "forecast_sop_bom_fallback_sem_programacao_v1"
 
-    _, demanda_explodida = _explodir_forecast_multinivel(
+    demanda_direta, demanda_explodida = _explodir_forecast_multinivel(
         programacao_rows,
         codigos_interesse={codigo_norm},
     )
+    for chave, valor in demanda_direta.items():
+        if chave[0] == codigo_norm:
+            demanda_explodida[chave] = valor
 
     serie = defaultdict(float)
 
