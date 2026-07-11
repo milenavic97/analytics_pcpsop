@@ -1045,6 +1045,24 @@ function getMesAnoOffset(offset: number): { ano: number; mes: number } {
   return { ano, mes }
 }
 
+const MESES_ABREV_COLUNA_DINAMICA = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
+
+function formatMesAnoAbrevColuna(offset: number): string {
+  const { ano, mes } = getMesAnoOffset(offset)
+  return `${MESES_ABREV_COLUNA_DINAMICA[mes - 1]}/${String(ano).slice(-2)}`
+}
+
+// Troca o rótulo estático "mês+1"/"mês+2" pelo mês/ano real (ex.: "ago/26"),
+// recalculado a cada render — assim o cabeçalho anda sozinho todo mês,
+// sem precisar editar o array de colunas.
+function getLabelColunaDinamico(key: string, labelPadrao: string): string {
+  if (key === "demanda_mes_1") return `Previsão ${formatMesAnoAbrevColuna(1)}`
+  if (key === "demanda_mes_2") return `Previsão ${formatMesAnoAbrevColuna(2)}`
+  if (key === "entradas_mes_1") return `Entradas ${formatMesAnoAbrevColuna(1)}`
+  if (key === "entradas_mes_2") return `Entradas ${formatMesAnoAbrevColuna(2)}`
+  return labelPadrao
+}
+
 function getDemandaMesOffset(item: AgingEstoqueItem, offset: number): number | null {
   const { ano, mes } = getMesAnoOffset(offset)
   const serie = item.forecast_futuro || []
@@ -9348,7 +9366,7 @@ export default function AgingEstoquePage() {
                             onChange={() => toggleColunaInsumo(col.key)}
                             className="h-4 w-4 rounded border-slate-300"
                           />
-                          <span>{col.label}</span>
+                          <span>{getLabelColunaDinamico(col.key, col.label)}</span>
                         </label>
                       ))}
                     </div>
@@ -9377,25 +9395,26 @@ export default function AgingEstoquePage() {
                     const ordenavel = colunasInsumosOrdenaveis.has(col.key)
                     const ativo = sortKey === col.key
                     const seta = ativo ? (sortDirection === "asc" ? "↑" : "↓") : "↕"
+                    const labelDinamico = getLabelColunaDinamico(col.key, col.label)
 
                     return (
                       <th
                         key={col.key}
                         className={`${col.width || "w-[110px]"} px-3 py-3 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : ""}`}
-                        title={col.tooltip || col.label}
+                        title={col.tooltip || labelDinamico}
                       >
                         {ordenavel ? (
                           <button
                             type="button"
                             onClick={() => handleSort(col.key as SortKey)}
                             className={`inline-flex w-full items-center gap-1 rounded-md text-[11px] font-bold leading-tight text-white/95 transition hover:text-white ${col.align === "right" ? "justify-end text-right" : col.align === "center" ? "justify-center text-center" : "justify-start text-left"}`}
-                            title={col.tooltip ? `${col.label}: ${col.tooltip}` : `Ordenar por ${col.label}`}
+                            title={col.tooltip ? `${labelDinamico}: ${col.tooltip}` : `Ordenar por ${labelDinamico}`}
                           >
-                            <span className="whitespace-normal">{col.label}</span>
+                            <span className="whitespace-normal">{labelDinamico}</span>
                             <span className={ativo ? "text-white" : "text-white/55"}>{seta}</span>
                           </button>
                         ) : (
-                          col.label
+                          labelDinamico
                         )}
                       </th>
                     )
@@ -9681,7 +9700,7 @@ export default function AgingEstoquePage() {
                           onChange={() => toggleColunaTabela(col.key)}
                           className="h-4 w-4 rounded border-slate-300"
                         />
-                        <span>{col.label}</span>
+                        <span>{getLabelColunaDinamico(col.key, col.label)}</span>
                       </label>
                     ))}
                   </div>
@@ -9716,7 +9735,7 @@ export default function AgingEstoquePage() {
                 {isColunaVisivel("mercado") && <th className="px-2 py-2">Mercado</th>}
                 {isColunaVisivel("saldo_origem") && <th className="px-2 py-2">Origem saldo</th>}
                 {isColunaVisivel("data_saldo_origem") && <th className="px-2 py-2">Data saldo</th>}
-                {colunasTabela.map((col) => <SortableTh key={col.key} label={col.label} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
+                {colunasTabela.map((col) => <SortableTh key={col.key} label={getLabelColunaDinamico(col.key, col.label)} column={col.key} sortKey={sortKey} sortDirection={sortDirection} onSort={handleSort} />)}
               </tr>
             </thead>
             <tbody>
