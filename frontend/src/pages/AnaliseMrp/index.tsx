@@ -1400,11 +1400,16 @@ function getCoberturaBaseProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalh
 }
 
 function getCoberturaAtualProduto(item: AgingEstoqueItem | AgingEstoqueItemDetalhe | null | undefined) {
-  const backendStatus = getCampoNumericoSeExiste(item, "cobertura_meses_status")
-  if (backendStatus !== null) return backendStatus
-
+  // Cobertura oficial: estoque atual frente à demanda/forecast futuro,
+  // caminhando mês a mês (mesma lógica que já alimenta "Dias estoque" --
+  // ver _calcular_cobertura_demanda_futura no backend). Antes, "Cob. atual"
+  // priorizava um campo diferente (cobertura_meses_status, só o mês atual),
+  // o que fazia esse número divergir de "Dias estoque" pro mesmo item.
   const backend = getCampoNumericoSeExiste(item, "cobertura_meses_atual")
   if (backend !== null) return backend
+
+  const backendStatus = getCampoNumericoSeExiste(item, "cobertura_meses_status")
+  if (backendStatus !== null) return backendStatus
 
   return getCoberturaStatusDashboard(item)
 }
@@ -8719,6 +8724,8 @@ export default function AgingEstoquePage() {
         busca: activeFilter?.busca,
         status: activeFilter?.status,
         tipo_negocio: activeFilter?.tipo_negocio,
+        grupo: activeFilter?.grupo,
+        curva_a: activeFilter?.curva_a,
         status_portfolio: activeFilter?.status_portfolio,
         descontinuado: activeFilter?.descontinuado,
         transferencia_bravi: activeFilter?.transferencia_bravi,
@@ -8765,6 +8772,7 @@ export default function AgingEstoquePage() {
         "unid",
         "segmento",
         "mercado",
+        "curva_a",
         "macro_negocio",
         "tipo_negocio",
         "familia",
