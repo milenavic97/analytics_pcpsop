@@ -401,10 +401,13 @@ function calcularProjecaoLiberacoesOficial(
 
     if (numeroMes < mesAtual) {
       totalReal += entrada
-    } else if (numeroMes === mesAtual) {
-      // Mês atual oficial = SD3 MTD total vindo da conciliação do Rastreamento.
-      totalReal += Number(mes.entradas_real_mes_atual ?? entrada ?? 0)
     } else {
+      // Mês atual (em andamento) e meses futuros entram como previsto pelo
+      // plano do mês inteiro -- antes, o mês atual usava só a fração já
+      // realizada (entradas_real_mes_atual), o que descartava o "resto do
+      // mês" da conta e deixava esse card ~15 mil cx menor do que o modal
+      // "Liberações Reais + Previstas", que sempre contou o mês atual
+      // inteiro como previsto.
       totalPrevisto += entrada
     }
   })
