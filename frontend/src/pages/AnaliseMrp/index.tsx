@@ -41,7 +41,7 @@ import {
   uploadBase,
 } from "@/services/api"
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 15
 const DASHBOARD_PAGE_SIZE = 500
 const EXPORT_PAGE_SIZE = 5000
 
@@ -385,6 +385,8 @@ function getAgingItensDireto(params: {
   busca?: string
   status?: string
   tipo_negocio?: string
+  grupo?: string
+  curva_a?: string
   status_portfolio?: string
   descontinuado?: string
   transferencia_bravi?: string
@@ -404,6 +406,8 @@ function getAgingItensDireto(params: {
     busca: params.busca,
     status: params.status,
     tipo_negocio: params.tipo_negocio,
+    grupo: params.grupo,
+    curva_a: params.curva_a,
     status_portfolio: params.status_portfolio,
     transferencia_bravi: params.transferencia_bravi,
     descontinuado: params.descontinuado,
@@ -682,6 +686,8 @@ type FiltroTabelaEstoque = {
   busca?: string
   status?: string
   tipo_negocio?: string
+  grupo?: string
+  curva_a?: string
   status_portfolio?: string
   descontinuado?: string
   transferencia_bravi?: string
@@ -698,6 +704,8 @@ const filtroKey = (filtro: FiltroTabelaEstoque | null) => {
     filtro.busca || "",
     filtro.status || "",
     filtro.tipo_negocio || "",
+    filtro.grupo || "",
+    filtro.curva_a || "",
     filtro.status_portfolio || "",
     filtro.descontinuado || "",
     filtro.transferencia_bravi || "",
@@ -827,6 +835,8 @@ interface AgingResumoResponse {
     transferencia_bravi?: string[]
     modelo_fornecimento?: string[]
     grupo_gerencial?: string[]
+    grupo?: string[]
+    curva_a?: string[]
     classificacao_cadastro?: string[]
   }
   top_excesso?: AgingEstoqueItem[]
@@ -864,6 +874,8 @@ interface AgingItensResponse {
     transferencia_bravi?: string[]
     modelo_fornecimento?: string[]
     grupo_gerencial?: string[]
+    grupo?: string[]
+    curva_a?: string[]
     classificacao_cadastro?: string[]
   }
 }
@@ -6704,7 +6716,7 @@ function FiltrosEstoquePanel({
       </div>
 
       <div
-        className="grid grid-cols-1 items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(320px,2fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(160px,1fr)]"
+        className="grid grid-cols-1 items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(260px,2fr)_repeat(6,minmax(140px,1fr))]"
         style={{ borderColor: "var(--border)" }}
       >
         <label>
@@ -6724,6 +6736,46 @@ function FiltrosEstoquePanel({
             className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
             style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
           />
+        </label>
+
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Linha</span>
+          <select
+            value={filtro?.tipo_negocio || "TODOS"}
+            onChange={(e) => onChange("tipo_negocio", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            <option value="TODOS">Todas</option>
+            {(opcoes?.tipo_negocio || []).map((valor) => <option key={valor} value={valor}>{valor}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Grupo</span>
+          <select
+            value={filtro?.grupo || "TODOS"}
+            onChange={(e) => onChange("grupo", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          >
+            <option value="TODOS">Todos</option>
+            {(opcoes?.grupo || []).map((valor) => <option key={valor} value={valor}>{valor}</option>)}
+          </select>
+        </label>
+
+        <label>
+          <span className={labelClass} style={{ color: "var(--text-secondary)" }}>Curva</span>
+          <select
+            value={filtro?.curva_a || "TODOS"}
+            onChange={(e) => onChange("curva_a", e.target.value === "TODOS" ? undefined : e.target.value)}
+            className={selectClass}
+            style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+            title="Curva ABC calculada por faturamento dos últimos 12 meses, separada por linha de negócio."
+          >
+            <option value="TODOS">Todas</option>
+            {(opcoes?.curva_a || []).map((valor) => <option key={valor} value={valor}>{valor}</option>)}
+          </select>
         </label>
 
         <label>
@@ -7355,7 +7407,7 @@ function limparValorFiltro(value?: string) {
 
 function filtroVazio(filtro: FiltroTabelaEstoque | null) {
   if (!filtro) return true
-  return !filtro.busca && !filtro.status && !filtro.tipo_negocio && !filtro.status_portfolio && !filtro.descontinuado && !filtro.transferencia_bravi && !filtro.classificacao_cadastro && !filtro.semaforo && !filtro.status_plano && !filtro.alerta_previsao
+  return !filtro.busca && !filtro.status && !filtro.tipo_negocio && !filtro.grupo && !filtro.curva_a && !filtro.status_portfolio && !filtro.descontinuado && !filtro.transferencia_bravi && !filtro.classificacao_cadastro && !filtro.semaforo && !filtro.status_plano && !filtro.alerta_previsao
 }
 
 function labelAlertaPrevisaoFiltro(escopo: EscopoEstoque) {
@@ -7377,6 +7429,8 @@ function labelFiltroTabela(filtro: FiltroTabelaEstoque | null) {
   if (filtro.label && filtro.label !== "Filtro personalizado") partes.push(filtro.label)
   if (filtro.busca) partes.push(`Busca: ${filtro.busca}`)
   if (filtro.tipo_negocio) partes.push(`Linha: ${filtro.tipo_negocio}`)
+  if (filtro.grupo) partes.push(`Grupo: ${filtro.grupo}`)
+  if (filtro.curva_a) partes.push(`Curva: ${filtro.curva_a}`)
   if (filtro.status) partes.push(STATUS_LABEL[filtro.status] || filtro.status)
   if (filtro.status_portfolio) partes.push(`Portfólio: ${filtro.status_portfolio}`)
   if (filtro.descontinuado) partes.push(`Descontinuado: ${filtro.descontinuado === "SIM" ? "Sim" : "Não"}`)
@@ -7859,16 +7913,22 @@ export default function AgingEstoquePage() {
   useEffect(() => {
     let mounted = true
 
-    // Hotfix v99:
-    // Na aba Gestão de Estoque, a tabela/busca não pode depender do endpoint
-    // /aging-estoque/resumo. Esse endpoint monta agregados do escopo inteiro e,
-    // em Insumos, segura a tela em "Buscando itens" quando o cache da máquina
-    // está frio.
+    // Hotfix v99 (histórico): a busca de /aging-estoque/resumo tinha sido
+    // desligada na aba Gestão de Estoque porque, com cache frio, esse
+    // endpoint podia travar a tela em "Buscando itens" (principalmente em
+    // Insumos). V116: religada, porque agora o cache fica aquecido sozinho
+    // por uma thread de background no servidor (ver preaquecer_todos_caches_
+    // aging_estoque) -- então esse endpoint deve responder rápido na grande
+    // maioria das vezes. Buscar isso é importante pra os cards (Ruptura,
+    // Críticos, Excesso etc.) refletirem a BASE INTEIRA, não só os itens que
+    // já carregaram na tabela local (que em escopos grandes, tipo Insumos,
+    // pode ser só uma fração do total).
     //
-    // Resultado esperado:
-    // - Gestão + busca/filtro: chama somente /aging-estoque/itens, já filtrado;
-    // - Dashboard: continua carregando os agregados normalmente.
-    if (visaoEstoque !== "dashboard") {
+    // Quando há filtro/busca ativo (activeFilter), o resumo sem filtro não
+    // serve pros cards -- nesses casos o cálculo local (sobre os itens já
+    // filtrados pelo próprio backend em /itens) continua sendo a fonte certa,
+    // então nem vale a pena buscar o resumo.
+    if (activeFilter) {
       setLoadingResumo(false)
       return () => { mounted = false }
     }
@@ -7877,7 +7937,7 @@ export default function AgingEstoquePage() {
     setError("")
     getAgingResumoDireto({
       escopo: escopoEstoque,
-      classificacao_cadastro: activeFilter?.classificacao_cadastro || classificacaoPadraoPorEscopo(escopoEstoque),
+      classificacao_cadastro: classificacaoPadraoPorEscopo(escopoEstoque),
       force_refresh: undefined,
       _t: refreshTick ? refreshTick : undefined,
     })
@@ -7895,7 +7955,7 @@ export default function AgingEstoquePage() {
         if (mounted) setLoadingResumo(false)
       })
     return () => { mounted = false }
-  }, [refreshTick, escopoEstoque, activeFilter?.classificacao_cadastro, visaoEstoque])
+  }, [refreshTick, escopoEstoque, activeFilter?.classificacao_cadastro, Boolean(activeFilter), visaoEstoque])
 
 
   useEffect(() => {
@@ -7936,6 +7996,8 @@ export default function AgingEstoquePage() {
           busca: filtroBackend?.busca,
           status: filtroBackend?.status,
           tipo_negocio: filtroBackend?.tipo_negocio,
+          grupo: filtroBackend?.grupo,
+          curva_a: filtroBackend?.curva_a,
           status_portfolio: filtroBackend?.status_portfolio,
           transferencia_bravi: filtroBackend?.transferencia_bravi,
           descontinuado: filtroBackend?.descontinuado,
@@ -8405,15 +8467,16 @@ export default function AgingEstoquePage() {
   }, [itensFiltradosLocal])
 
   const kpiCarregandoSemBase = loadingItens && itens.length === 0
-  // v115: antes, assim que a 1ª página chegava (itens.length > 0), os cards
-  // de Ruptura/Críticos/Excesso já trocavam pro cálculo local -- só que a 1ª
-  // página é parcial (100 itens de, por ex., 178 no total), e quando as
-  // páginas seguintes terminavam de carregar em segundo plano, o cálculo
-  // local mudava de novo com o conjunto completo. Isso fazia os cards
-  // "piscarem" enquanto a tabela ainda estava terminando de carregar.
-  // Agora espera paginacaoCompleta (todo o lote de páginas já chegou) antes
-  // de trocar pro cálculo local, evitando esse número intermediário incorreto.
-  const usarMetricasTabelaLocal = (itens.length > 0 && paginacaoCompleta) || Boolean(activeFilter)
+  // v116: o resumo do backend (fetch reativado acima) é calculado sobre a
+  // BASE INTEIRA do escopo, sempre -- é a fonte mais correta quando não tem
+  // filtro ativo. Só cai pro cálculo local (itens já carregados na tabela)
+  // quando: (a) tem filtro/busca ativo (o resumo sem filtro não serve, e
+  // nesse caso os itens já vêm filtrados certos do backend), ou (b) o
+  // resumo ainda não chegou -- nesse caso usa o local como aproximação
+  // temporária, só depois que a paginação em segundo plano tiver terminado
+  // (paginacaoCompleta), pra não piscar número parcial enquanto carrega.
+  const resumoValido = Boolean(resumo) && !activeFilter
+  const usarMetricasTabelaLocal = !resumoValido && ((itens.length > 0 && paginacaoCompleta) || Boolean(activeFilter))
   const valorKpiNumero = (localValue: number, backendValue?: number | null, compact = false) => {
     if (kpiCarregandoSemBase) return "—"
     const valor = usarMetricasTabelaLocal ? localValue : Number(backendValue || 0)
@@ -9019,6 +9082,52 @@ export default function AgingEstoquePage() {
 
 
             <label className="min-w-[145px] flex-1">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Linha</span>
+              <select
+                value={activeFilter?.tipo_negocio || "TODOS"}
+                onChange={(e) => atualizarFiltroCampo("tipo_negocio", e.target.value === "TODOS" ? undefined : e.target.value)}
+                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="TODOS">Todas</option>
+                {(opcoesFiltros.tipo_negocio || []).map((valor) => (
+                  <option key={valor} value={valor}>{valor}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="min-w-[145px] flex-1">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Grupo</span>
+              <select
+                value={activeFilter?.grupo || "TODOS"}
+                onChange={(e) => atualizarFiltroCampo("grupo", e.target.value === "TODOS" ? undefined : e.target.value)}
+                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="TODOS">Todos</option>
+                {(opcoesFiltros.grupo || []).map((valor) => (
+                  <option key={valor} value={valor}>{valor}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="min-w-[110px] flex-1">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Curva</span>
+              <select
+                value={activeFilter?.curva_a || "TODOS"}
+                onChange={(e) => atualizarFiltroCampo("curva_a", e.target.value === "TODOS" ? undefined : e.target.value)}
+                className="h-10 w-full rounded-xl border bg-white px-3 text-sm font-medium outline-none transition focus:ring-2 focus:ring-[#163B63]/20"
+                style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+                title="Curva ABC calculada por faturamento dos últimos 12 meses, separada por linha de negócio."
+              >
+                <option value="TODOS">Todas</option>
+                {(opcoesFiltros.curva_a || []).map((valor) => (
+                  <option key={valor} value={valor}>{valor}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="min-w-[145px] flex-1">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Status estoque</span>
               <select
                 value={activeFilter?.status || "TODOS"}
@@ -9166,6 +9275,7 @@ export default function AgingEstoquePage() {
             <table className="w-full table-fixed border-separate border-spacing-0 text-xs" style={{ minWidth: larguraMinimaTabelaInsumos }}>
               <thead>
                 <tr className="text-left text-white" style={{ background: "#163B63" }}>
+                  <th className="w-[48px] px-3 py-3 text-right">#</th>
                   <th className="w-[90px] px-3 py-3">Código</th>
                   <th className="w-[240px] px-3 py-3">Descrição</th>
                   {colunasInsumosTabela.map((col) => {
@@ -9198,13 +9308,14 @@ export default function AgingEstoquePage() {
                 </tr>
               </thead>
               <tbody>
-                {itensOrdenados.map((item) => (
+                {itensOrdenados.map((item, idx) => (
                   <tr
                     key={item.codigo}
                     className="cursor-pointer border-b transition hover:bg-slate-100"
                     style={{ borderColor: itemTemAlertaConsumoPrevisao(item) ? "rgba(220,38,38,0.28)" : "var(--border)", background: selected?.codigo === item.codigo ? "rgba(22,59,99,0.07)" : itemTemAlertaConsumoPrevisao(item) ? "rgba(220,38,38,0.025)" : undefined }}
                     onClick={() => abrirDetalhe(item)}
                   >
+                    <td className="px-3 py-2 text-right text-[11px]" style={{ color: "var(--text-secondary)" }}>{(pageSeguro - 1) * PAGE_SIZE + idx + 1}</td>
                     <td className="px-3 py-2 font-bold">{item.codigo}</td>
                     <td className="px-3 py-2" title={item.produto || ""}>
                       <div className="max-w-[220px] truncate font-semibold">{item.produto || "—"}</div>
@@ -9497,8 +9608,9 @@ export default function AgingEstoquePage() {
           <table className="w-full table-fixed border-separate border-spacing-0 text-xs" style={{ minWidth: larguraMinimaTabela }}>
             <thead className="sticky top-0 z-20 text-left text-[11px] uppercase tracking-wide text-white shadow-sm" style={{ background: "#163B63" }}>
               <tr>
-                <th className="sticky left-0 z-30 w-[82px] min-w-[82px] px-3 py-2" style={{ background: "#163B63" }}>Código</th>
-                <th className="sticky left-[82px] z-30 w-[220px] min-w-[220px] px-3 py-2" style={{ background: "#163B63" }}>
+                <th className="sticky left-0 z-30 w-[40px] min-w-[40px] px-2 py-2 text-right" style={{ background: "#163B63" }}>#</th>
+                <th className="sticky left-[40px] z-30 w-[82px] min-w-[82px] px-3 py-2" style={{ background: "#163B63" }}>Código</th>
+                <th className="sticky left-[122px] z-30 w-[220px] min-w-[220px] px-3 py-2" style={{ background: "#163B63" }}>
                   {renderFiltroDescricao()}
                 </th>
                 {isColunaVisivel("status") && <th className="px-2 py-2">Status</th>}
@@ -9513,7 +9625,7 @@ export default function AgingEstoquePage() {
               </tr>
             </thead>
             <tbody>
-              {itensOrdenados.map((item) => {
+              {itensOrdenados.map((item, idx) => {
                 const itemEx = item as AgingEstoqueItem & Record<string, unknown>
                 const alertaPrevisao = itemTemAlertaConsumoPrevisao(item)
 
@@ -9528,13 +9640,19 @@ export default function AgingEstoquePage() {
                     onClick={() => abrirDetalhe(item)}
                   >
                     <td
-                      className="sticky left-0 z-10 w-[82px] min-w-[82px] whitespace-nowrap border-r px-3 py-2 text-xs font-bold"
+                      className="sticky left-0 z-10 w-[40px] min-w-[40px] whitespace-nowrap border-r px-2 py-2 text-right text-[11px]"
+                      style={{ color: "var(--text-secondary)", borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "#EFF6FF" : "#FFFFFF" }}
+                    >
+                      {(pageSeguro - 1) * PAGE_SIZE + idx + 1}
+                    </td>
+                    <td
+                      className="sticky left-[40px] z-10 w-[82px] min-w-[82px] whitespace-nowrap border-r px-3 py-2 text-xs font-bold"
                       style={{ color: "var(--text-primary)", borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "#EFF6FF" : "#FFFFFF" }}
                     >
                       {item.codigo}
                     </td>
                     <td
-                      className="sticky left-[82px] z-10 w-[220px] min-w-[220px] border-r px-3 py-2 text-xs"
+                      className="sticky left-[122px] z-10 w-[220px] min-w-[220px] border-r px-3 py-2 text-xs"
                       style={{ borderColor: "var(--border)", background: selected?.codigo === item.codigo ? "#EFF6FF" : "#FFFFFF" }}
                     >
                       <div className="max-w-[190px] truncate font-medium" style={{ color: "var(--text-primary)" }} title={item.produto || ""}>{item.produto || "—"}</div>

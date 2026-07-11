@@ -2910,19 +2910,15 @@ def process_estoque_saldo(conteudo: bytes, filename: str) -> Tuple[int, list]:
 
             saldo_disponivel = max(saldo_bruto - empenhado, 0.0)
 
-            # Regra segura para Bravi/industrialização externa:
-            # no armazém 10 o PI pode estar totalmente empenhado, mas ainda assim
-            # representa volume físico em transferência/terceiro que precisa ser
-            # lido pela Gestão de Estoques como entrada operacional do PA.
-            # Para não alterar a lógica existente dos demais armazéns, só mantemos
-            # linha com disponível zero quando for armazém 10 com saldo bruto > 0.
-            manter_pi_bravi_transferencia = (
-                armazem_norm == "10"
-                and saldo_bruto > 0
-                and empenhado > 0
-            )
-
-            if saldo_disponivel <= 0 and not manter_pi_bravi_transferencia:
+            # Antes, um lote 100% empenhado (saldo_disponivel = 0) era
+            # descartado inteiro -- inclusive o saldo BRUTO dele, que é
+            # estoque físico real só que reservado. Isso fazia o total
+            # bruto da SB8 vir menor do que o arquivo de origem (ex.:
+            # Benzotop 52749: arquivo tinha 85.071 no armazém 04, só
+            # 84.751 chegavam no banco -- a diferença eram lotes
+            # totalmente empenhados sendo descartados aqui). Agora só
+            # descarta lote com bruto zerado/negativo (vazio de verdade).
+            if saldo_bruto <= 0:
                 continue
 
             data_validade = None
