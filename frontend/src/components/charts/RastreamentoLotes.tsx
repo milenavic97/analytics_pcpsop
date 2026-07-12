@@ -1910,73 +1910,64 @@ const textoPercentualV1 = (valor: number) =>
                   background: "var(--border)",
                 }}
               >
-                <div className="min-h-[116px] bg-white p-4">
-                  <div className="mb-2.5 flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: "#1D4ED817" }}>
-                    <Target size={16} style={{ color: "#1D4ED8" }} />
+                <div className="min-h-[92px] bg-white p-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 min-w-10 items-center justify-center rounded-xl" style={{ background: "#1D4ED817" }}>
+                    <Target size={20} strokeWidth={2.25} style={{ color: "#1D4ED8" }} />
                   </div>
-                  <div className="mb-1">
+                  <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
                       Planejado V1
                     </p>
+                    <p className="text-lg font-bold leading-tight" style={{ color: "var(--text-primary)" }}>
+                      {fmt(mesPrevistoV1)} cx
+                    </p>
+                    <p className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
+                      {fmtTubetes(mesPrevistoV1)} tubetes · V1 congelada
+                    </p>
                   </div>
-                  <p className="text-2xl font-bold leading-none" style={{ color: "var(--text-primary)" }}>
-                    {fmt(mesPrevistoV1)} cx
-                  </p>
-                  <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    {fmtTubetes(mesPrevistoV1)} tubetes
-                  </p>
-                  <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                    V1 congelada
-                  </p>
                 </div>
 
-                <div className="min-h-[116px] bg-white p-4">
-                  <div className="mb-2.5 flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: "#0F766E17" }}>
-                    <RefreshCw size={16} style={{ color: "#0F766E" }} />
+                <div className="min-h-[92px] bg-white p-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 min-w-10 items-center justify-center rounded-xl" style={{ background: "#0F766E17" }}>
+                    <RefreshCw size={20} strokeWidth={2.25} style={{ color: "#0F766E" }} />
                   </div>
-                  <div className="mb-1">
+                  <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
                       Plano atualizado
                     </p>
+                    <p className="text-lg font-bold leading-tight" style={{ color: "#0F766E" }}>
+                      {fmt(mesPlanoAtualTendencia)} cx
+                    </p>
+                    <p className="truncate text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
+                      Real {fmt(mesRealizado)} cx + saldo {fmt(mesSaldoTendencia)} cx
+                    </p>
                   </div>
-                  <p className="text-2xl font-bold leading-none" style={{ color: "#0F766E" }}>
-                    {fmt(mesPlanoAtualTendencia)} cx
-                  </p>
-                  <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    {fmtTubetes(mesPlanoAtualTendencia)} tubetes
-                  </p>
-                  <p className="mt-1 truncate text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                    Real {fmt(mesRealizado)} cx + saldo {fmt(mesSaldoTendencia)} cx
-                  </p>
                 </div>
 
                 <div
-                  className="min-h-[116px] p-4"
+                  className="min-h-[92px] p-4 flex items-center gap-3"
                   style={{
                     background: mesDiferencaVsV1 > 0 ? "rgba(254,242,242,0.95)" : "rgba(240,253,244,0.95)",
                     boxShadow: "inset 0 0 0 1px " + (mesDiferencaVsV1 > 0 ? "rgba(239,68,68,0.22)" : "rgba(34,197,94,0.22)"),
                   }}
                 >
                   <div
-                    className="mb-2.5 flex h-8 w-8 items-center justify-center rounded-lg"
+                    className="flex h-10 w-10 min-w-10 items-center justify-center rounded-xl"
                     style={{ background: mesDiferencaVsV1 > 0 ? "#DC262617" : "#16A34A17" }}
                   >
-                    <TrendingDown size={16} style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A" }} />
+                    <TrendingDown size={20} strokeWidth={2.25} style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A" }} />
                   </div>
-                  <div className="mb-1">
+                  <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
                       Diferença vs V1
                     </p>
+                    <p className="text-lg font-bold leading-tight" style={{ color: mesDiferencaVsV1 > 0 ? "#B91C1C" : "#15803D" }}>
+                      {mesDiferencaVsV1 > 0 ? "-" : mesDiferencaVsV1 < 0 ? "+" : ""}{fmt(Math.abs(mesDiferencaVsV1))} cx
+                    </p>
+                    <p className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
+                      {fmtTubetes(Math.abs(mesDiferencaVsV1))} tubetes · Líquido vs V1
+                    </p>
                   </div>
-                  <p className="text-2xl font-bold leading-none" style={{ color: mesDiferencaVsV1 > 0 ? "#B91C1C" : "#15803D" }}>
-                    {mesDiferencaVsV1 > 0 ? "-" : mesDiferencaVsV1 < 0 ? "+" : ""}{fmt(Math.abs(mesDiferencaVsV1))} cx
-                  </p>
-                  <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    {fmtTubetes(Math.abs(mesDiferencaVsV1))} tubetes
-                  </p>
-                  <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                    Líquido vs V1
-                  </p>
                 </div>
 
                 {perdasMes.map((k) => (
@@ -1992,30 +1983,27 @@ const textoPercentualV1 = (valor: number) =>
                       setApenasAtrasados(false);
                       setSelecionados(new Set());
                     }}
-                    className="min-h-[116px] bg-white p-4 text-left transition-all hover:bg-slate-50"
+                    className="min-h-[92px] bg-white p-4 text-left transition-all hover:bg-slate-50 flex items-center gap-3"
                     style={{
                       boxShadow: filtroEtapa === k.filtro ? `inset 0 0 0 2px ${k.color}` : "none",
                       opacity: k.value === 0 ? 0.45 : 1,
                       cursor: "pointer",
                     }}
                   >
-                    <div className="mb-2.5 flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: `${k.color}17` }}>
-                      <k.icon size={16} style={{ color: k.color }} />
+                    <div className="flex h-10 w-10 min-w-10 items-center justify-center rounded-xl" style={{ background: `${k.color}17` }}>
+                      <k.icon size={20} strokeWidth={2.25} style={{ color: k.color }} />
                     </div>
-                    <div className="mb-1">
+                    <div>
                       <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
                         {k.label}
                       </p>
+                      <p className="text-lg font-bold leading-tight" style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}>
+                        {fmt(k.value)} cx
+                      </p>
+                      <p className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
+                        {fmtTubetes(k.value)} tubetes · {textoPercentualV1(k.value)}
+                      </p>
                     </div>
-                    <p className="text-2xl font-bold leading-none" style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}>
-                      {fmt(k.value)} cx
-                    </p>
-                    <p className="mt-2 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                      {fmtTubetes(k.value)} tubetes
-                    </p>
-                    <p className="mt-1 text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                      {textoPercentualV1(k.value)}
-                    </p>
                   </button>
                 ))}
               </div>
@@ -2103,37 +2091,39 @@ const textoPercentualV1 = (valor: number) =>
                     cursor: k.value === 0 ? "default" : "pointer",
                   }}
                 >
-                  <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: `${k.color}17` }}>
-                    <k.icon size={16} style={{ color: k.color }} />
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 min-w-9 items-center justify-center rounded-xl" style={{ background: `${k.color}17` }}>
+                    <k.icon size={18} strokeWidth={2.25} style={{ color: k.color }} />
                   </div>
-                  <div className="mb-1">
+                  <div>
                     <p
-                      className="text-[11px] font-semibold uppercase tracking-wider"
+                      className="text-[10px] font-bold uppercase tracking-wider"
                       style={{ color: "var(--text-secondary)" }}
                     >
                       {k.label}
                     </p>
-                  </div>
-                  <div className="flex items-baseline gap-1.5">
-                    <p
-                      className="text-xl font-bold"
-                      style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}
-                    >
-                      {fmt(k.value)} cx
-                    </p>
-                    {Boolean((k as any).emDesvio) && (
-                      <span
-                        title={`${fmt((k as any).emDesvio)} cx em desvio aberto`}
-                        className="whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-                        style={{ background: "rgba(220,38,38,0.12)", color: "#DC2626" }}
+                    <div className="flex items-baseline gap-1.5">
+                      <p
+                        className="text-lg font-bold leading-tight"
+                        style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}
                       >
-                        {fmt((k as any).emDesvio)} desvio
-                      </span>
-                    )}
+                        {fmt(k.value)} cx
+                      </p>
+                      {Boolean((k as any).emDesvio) && (
+                        <span
+                          title={`${fmt((k as any).emDesvio)} cx em desvio aberto`}
+                          className="whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                          style={{ background: "rgba(220,38,38,0.12)", color: "#DC2626" }}
+                        >
+                          {fmt((k as any).emDesvio)} desvio
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
+                      {fmtTubetes(k.value)} tubetes
+                    </p>
                   </div>
-                  <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    {fmtTubetes(k.value)} tubetes
-                  </p>
+                </div>
                 </button>
               ))}
             </div>
