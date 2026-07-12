@@ -2102,23 +2102,29 @@ const textoPercentualV1 = (valor: number) =>
                       {k.label}
                     </p>
                   </div>
-                  <p
-                    className="text-xl font-bold"
-                    style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}
-                  >
-                    {fmt(k.value)} cx
-                  </p>
+                  <div className="flex items-baseline gap-1.5">
+                    <p
+                      className="text-xl font-bold"
+                      style={{ color: k.value > 0 ? k.color : "var(--text-secondary)" }}
+                    >
+                      {fmt(k.value)} cx
+                    </p>
+                    {Boolean((k as any).emDesvio) && (
+                      <span
+                        title={`${fmt((k as any).emDesvio)} cx em desvio aberto`}
+                        className="whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                        style={{ background: "rgba(180,83,9,0.12)", color: "#B45309" }}
+                      >
+                        {fmt((k as any).emDesvio)} desvio
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
                     {fmtTubetes(k.value)} tubetes
                   </p>
                   <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
                     {(k as any).percentualTexto ?? textoPercentualAcompanhamento(k.value)}
                   </p>
-                  {Boolean((k as any).emDesvio) && (
-                    <p className="mt-0.5 text-[11px] font-semibold" style={{ color: "#B45309" }}>
-                      {fmt((k as any).emDesvio)} cx em desvio
-                    </p>
-                  )}
                 </button>
               ))}
             </div>
