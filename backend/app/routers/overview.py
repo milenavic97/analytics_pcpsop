@@ -1157,6 +1157,23 @@ _MES_ATUAL_RECONCILIADO_CACHE: dict = {"chave": None, "valor": None}
 _MES_ATUAL_RECONCILIADO_LOCK = Lock()
 
 
+def _versao_reconciliacao_mes_atual() -> str:
+    """
+    Versão leve dos dados que afetam o valor reconciliado do mês atual.
+
+    Antes, a chave desse cache era só "{ano}-{mes}" -- sem nenhuma noção de
+    versão de dado. Isso fazia o valor "Plano atualizado" (usado na barra do
+    mês atual do gráfico Demanda vs Disponibilidade) ficar congelado com o
+    valor de antes de um upload novo de SD3 até a thread de aquecimento em
+    background rodar de novo (que pode demorar), mesmo com o Rastreamento de
+    Lotes já mostrando o dado certo (esse sim, versionado corretamente desde
+    o fix em _versao_dados_rastreamento_lotes). Reaproveita a mesma fonte de
+    versão (upload_log) já usada lá.
+    """
+    versions = _rastreamento_upload_versions()
+    return "|".join(f"{base}:{versions.get(base) or '-'}" for base in RASTREAMENTO_CACHE_BASES)
+
+
 def atualizar_cache_reconciliacao_mes_atual() -> Optional[float]:
     """
     Recalcula e guarda o valor reconciliado do mês atual (só em memória,
@@ -1176,7 +1193,7 @@ def atualizar_cache_reconciliacao_mes_atual() -> Optional[float]:
     só de LEITURA (sem escrita extra no banco), aceitando que o painel de
     lotes continue esquentando do jeito antigo, a correr esse risco.
     """
-    chave = f"{_ano_atual()}-{_mes_atual()}"
+    chave = f"{_ano_atual()}-{_mes_atual()}-{_versao_reconciliacao_mes_atual()}"
     valor = None
 
     for tentativa in range(3):
@@ -1200,8 +1217,9 @@ def atualizar_cache_reconciliacao_mes_atual() -> Optional[float]:
 
 def _ler_cache_reconciliacao_mes_atual() -> Optional[float]:
     """Leitura pura, sem calcular nada -- segura pra chamar de dentro de
-    qualquer requisição (é só um dict.get())."""
-    chave_esperada = f"{_ano_atual()}-{_mes_atual()}"
+    qualquer requisição (é só um dict.get()). Agora exige que a versão dos
+    dados bata também, não só ano/mês -- ver _versao_reconciliacao_mes_atual."""
+    chave_esperada = f"{_ano_atual()}-{_mes_atual()}-{_versao_reconciliacao_mes_atual()}"
     with _MES_ATUAL_RECONCILIADO_LOCK:
         if _MES_ATUAL_RECONCILIADO_CACHE.get("chave") != chave_esperada:
             return None
