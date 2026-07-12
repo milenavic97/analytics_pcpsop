@@ -1570,6 +1570,9 @@ const textoPercentualV1 = (valor: number) =>
   // total além do previsto.
   const gapPorStatusAcompanhamento = apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes;
   const totalEmDesvioAcompanhamento = gapPorStatusAcompanhamento.desvio_aberto;
+  const qtdLotesEmDesvioAcompanhamento = (data?.lotes ?? []).filter(
+    (l) => Boolean(l.em_desvio) && etapaFisicaLote(l) !== null,
+  ).length;
 
   // Ajuste de arredondamento: cada card já vem arredondado individualmente
   // (na origem, back ou fallback dos lotes), então a soma pode ficar 1 cx
@@ -1611,7 +1614,7 @@ const textoPercentualV1 = (valor: number) =>
   })();
   const tituloAcompanhamento = apenasAtrasados
     ? "Lotes previstos até hoje pela V1"
-    : "Mês completo — V1 vs plano atual";
+    : "Onde os lotes estão agora";
   const textoResumoAcompanhamento = apenasAtrasados
     ? `Planejado até hoje: ${fmt(mtdPrevistoV1)} cx — liberado: ${fmt(mtdLiberado)} cx — diferença: ${fmt(mtdGap)} cx`
     : `V1 do mês: ${fmt(mesPrevistoV1)} cx — plano atualizado: ${fmt(mesPlanoAtualTendencia)} cx — diferença: ${fmt(Math.abs(mesDiferencaVsV1))} cx`;
@@ -2042,15 +2045,13 @@ const textoPercentualV1 = (valor: number) =>
                         setSelecionados(new Set());
                         if (!acompanhamentoHojeAberto) setAcompanhamentoHojeAberto(true);
                       }}
-                      className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition"
-                      style={{
-                        borderColor: filtroEtapa === "DESVIO" ? "#FCA5A5" : "rgba(255,255,255,0.2)",
-                        background: filtroEtapa === "DESVIO" ? "rgba(248,113,113,0.22)" : "rgba(255,255,255,0.08)",
-                        color: "#FCA5A5",
-                      }}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold underline decoration-dotted decoration-1 underline-offset-4 transition hover:decoration-solid"
+                      style={{ color: "#FCA5A5" }}
                     >
-                      <AlertTriangle size={12} />
-                      {fmt(totalEmDesvioAcompanhamento)} cx em desvio
+                      <AlertTriangle size={13} strokeWidth={2.25} />
+                      {qtdLotesEmDesvioAcompanhamento === 1
+                        ? "1 lote em desvio"
+                        : `${qtdLotesEmDesvioAcompanhamento} lotes em desvio`}
                     </button>
                   )}
                   <button
