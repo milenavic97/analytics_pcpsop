@@ -1930,6 +1930,22 @@ function renderValorColunaInsumo(item: AgingEstoqueItem, key: string): ReactNode
       return fmtCurrency(getNum(item, "pedidos_abertos_valor"), 2)
     case "estoque_mais_pedidos_valor":
       return fmtCurrency(getNum(item, "estoque_mais_pedidos_valor"), 2)
+    case "demanda_mes_1": {
+      const valor = getDemandaMesOffset(item, 1)
+      return valor === null ? "—" : fmtQuantidadeOperacional(valor)
+    }
+    case "demanda_mes_2": {
+      const valor = getDemandaMesOffset(item, 2)
+      return valor === null ? "—" : fmtQuantidadeOperacional(valor)
+    }
+    case "entradas_mes_1": {
+      const valor = getEntradasMesOffset(item, 1)
+      return valor === null ? "—" : fmtQuantidadeOperacional(valor)
+    }
+    case "entradas_mes_2": {
+      const valor = getEntradasMesOffset(item, 2)
+      return valor === null ? "—" : fmtQuantidadeOperacional(valor)
+    }
     default:
       return "—"
   }
