@@ -4886,7 +4886,7 @@ def _calcular_rastreamento_lotes_impl(
 # - Os endpoints antigos continuam existindo para modais/detalhes/fallback.
 
 OVERVIEW_CACHE_CHAVE = "overview_anestesicos"
-OVERVIEW_CACHE_LOGIC_VERSION = "overview-cache-v3-strict-no-stale"
+OVERVIEW_CACHE_LOGIC_VERSION = "overview-cache-v4-reconciliacao-mes-atual-versionada"
 
 OVERVIEW_CACHE_BASES = [
     "d_produtos",
