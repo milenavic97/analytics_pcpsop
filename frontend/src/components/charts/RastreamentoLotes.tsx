@@ -43,7 +43,10 @@ interface LoteRastreamento {
   qtd_produzida_cx: number;
   qtd_liberada_cx: number;
   qtd_gap_cx?: number;
+  qtd_gap_cx_float?: number;
   qtd_perda_rendimento_cx?: number;
+  qtd_perda_rendimento_cx_float?: number;
+  qtd_prevista_cx_float?: number;
   considerar_previsto_ate_hoje?: boolean;
   sku_pa: string | null;
   data_lib: string | null;
@@ -1196,29 +1199,48 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   };
 
   const calcularStatusOperacionalPelosLotes = (somentePrevistoAteHoje: boolean): GapPorEtapaNormalizado => {
-    const totais = normalizarGapPorEtapa();
+    // Acumula em float e só arredonda o total no final -- somar valores JÁ
+    // arredondados por lote (como fazia antes com previstoCx/perdaRendimentoCx)
+    // pode divergir 1 cx do valor oficial, o mesmo tipo de erro de acúmulo de
+    // arredondamento que já foi corrigido no backend (qtd_gap_cx_float /
+    // qtd_perda_rendimento_cx_float). Usa os campos em float quando existirem,
+    // com fallback pros campos antigos pra não quebrar em respostas antigas do backend.
+    const acumulado = {
+      reprovacao_desvio: 0,
+      desvio_aberto: 0,
+      atraso_producao: 0,
+      rendimento: 0,
+      embalagem: 0,
+      envase: 0,
+      lavagem: 0,
+      nao_iniciado: 0,
+    };
 
     for (const lote of data?.lotes ?? []) {
       if (somentePrevistoAteHoje && !lote.considerar_previsto_ate_hoje) continue;
 
       const status = statusPrincipalLote(lote);
-      const previstoCx = Math.round(Number(lote.qtd_prevista_cx || 0));
-      const liberadoCx = Math.round(Number(lote.qtd_liberada_cx || 0));
-      const perdaRendimentoCx = Math.round(
-        Number(lote.qtd_perda_rendimento_cx ?? Math.max(previstoCx - liberadoCx, 0)),
+      const previstoCxFloat = Number(lote.qtd_prevista_cx_float ?? lote.qtd_prevista_cx ?? 0);
+      const liberadoCxFloat = Number(lote.qtd_liberada_cx ?? 0);
+      const perdaRendimentoCxFloat = Number(
+        lote.qtd_perda_rendimento_cx_float
+          ?? lote.qtd_perda_rendimento_cx
+          ?? Math.max(previstoCxFloat - liberadoCxFloat, 0),
       );
 
-      if (status === "REPROVACAO_DESVIO") totais.reprovacao_desvio += previstoCx;
-      else if (status === "DESVIO") totais.desvio_aberto += previstoCx;
-      else if (status === "ATRASO_PRODUCAO") totais.atraso_producao += previstoCx;
-      else if (status === "RENDIMENTO") totais.rendimento += perdaRendimentoCx;
-      else if (status === "EMBALAGEM") totais.embalagem += previstoCx;
-      else if (status === "ENVASE") totais.envase += previstoCx;
-      else if (status === "LAVAGEM") totais.lavagem += previstoCx;
-      else if (status === "NAO_INICIADO") totais.nao_iniciado += previstoCx;
+      if (status === "REPROVACAO_DESVIO") acumulado.reprovacao_desvio += previstoCxFloat;
+      else if (status === "DESVIO") acumulado.desvio_aberto += previstoCxFloat;
+      else if (status === "ATRASO_PRODUCAO") acumulado.atraso_producao += previstoCxFloat;
+      else if (status === "RENDIMENTO") acumulado.rendimento += perdaRendimentoCxFloat;
+      else if (status === "EMBALAGEM") acumulado.embalagem += previstoCxFloat;
+      else if (status === "ENVASE") acumulado.envase += previstoCxFloat;
+      else if (status === "LAVAGEM") acumulado.lavagem += previstoCxFloat;
+      else if (status === "NAO_INICIADO") acumulado.nao_iniciado += previstoCxFloat;
     }
 
-    return recalcularTotalGapPorEtapa(totais);
+    // normalizarGapPorEtapa já arredonda cada campo (uma vez, no total) e
+    // recalcula o total somado -- não precisa passar por recalcularTotalGapPorEtapa de novo.
+    return normalizarGapPorEtapa(acumulado);
   };
 
   const statusOperacionalMesPelosLotes = useMemo(
@@ -1234,7 +1256,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const perdaProducaoReprogramadosSimples = useMemo(() => {
     const valorBackend = Math.round(Number(data?.perda_producao_reprogramados_simples ?? 0));
 
-    const valorPelosLotes = (data?.lotes ?? []).reduce((acc, lote) => {
+    const valorPelosLotesFloat = (data?.lotes ?? []).reduce((acc, lote) => {
       if (loteEhReprovacaoOuDescarte(lote)) return acc;
 
       const ehPerdaProducao =
@@ -1244,9 +1266,10 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
       if (!ehPerdaProducao) return acc;
 
-      const qtd = Math.round(Number(lote.qtd_gap_cx ?? lote.qtd_prevista_cx ?? 0));
+      const qtd = Number(lote.qtd_gap_cx_float ?? lote.qtd_gap_cx ?? lote.qtd_prevista_cx_float ?? lote.qtd_prevista_cx ?? 0);
       return acc + qtd;
     }, 0);
+    const valorPelosLotes = Math.round(valorPelosLotesFloat);
 
     return Math.max(valorBackend, valorPelosLotes);
   }, [data?.perda_producao_reprogramados_simples, data?.lotes]);
