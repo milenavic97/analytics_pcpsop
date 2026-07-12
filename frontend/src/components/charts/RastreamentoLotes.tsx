@@ -1578,15 +1578,31 @@ const textoPercentualV1 = (valor: number) =>
       percentualTexto: textoPercentualLiberado,
     },
     ...montarStatusCards(apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes),
+    // Card só informativo: total em desvio aberto somando as 4 etapas.
+    // NÃO entra na soma/reconciliação com o previsto (isso já está embutido
+    // nos cards de etapa) -- é só pra bater o olho rápido em quantas caixas,
+    // no total, estão em algum desvio aberto agora, sem importar a etapa.
+    {
+      label: "Em desvio aberto (total)",
+      value: (apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes).desvio_aberto,
+      color: "#B45309",
+      icon: AlertTriangle,
+      filtro: "DESVIO",
+      informativo: true,
+    },
   ];
 
   // Ajuste de arredondamento: cada card já vem arredondado individualmente
   // (na origem, back ou fallback dos lotes), então a soma pode ficar 1 cx
   // acima/abaixo do previsto total. Em vez de deixar essa sobra aparecer só
   // "boiando", jogamos ela no card de maior volume (normalmente "Não
-  // iniciados" ou "Em desvio aberto") -- lá 1 cx não muda leitura nenhuma,
-  // e a soma dos cards sempre bate com o previsto total.
-  const somaCardsAcompanhamento = statusAcompanhamentoBruto.reduce((acc, c) => acc + c.value, 0);
+  // iniciados") -- lá 1 cx não muda leitura nenhuma, e a soma dos cards
+  // sempre bate com o previsto total. O card informativo (total em desvio)
+  // fica de fora tanto da soma quanto de ser alvo do ajuste, porque o valor
+  // dele já está contado dentro dos cards de etapa -- somar ele de novo aqui
+  // inflaria o total além do previsto.
+  const cardsParaSoma = statusAcompanhamentoBruto.filter((c) => !(c as any).informativo);
+  const somaCardsAcompanhamento = cardsParaSoma.reduce((acc, c) => acc + c.value, 0);
   const deltaArredondamentoAcompanhamento =
     totalPrevistoAcompanhamento > 0
       ? Math.round(totalPrevistoAcompanhamento) - Math.round(somaCardsAcompanhamento)
@@ -1595,8 +1611,9 @@ const textoPercentualV1 = (valor: number) =>
   const statusAcompanhamento = (() => {
     if (deltaArredondamentoAcompanhamento === 0) return statusAcompanhamentoBruto;
     const indiceMaior = statusAcompanhamentoBruto.reduce(
-      (melhorIdx, c, idx, arr) => (c.value > arr[melhorIdx].value ? idx : melhorIdx),
-      0,
+      (melhorIdx, c, idx, arr) =>
+        !(c as any).informativo && c.value > arr[melhorIdx].value ? idx : melhorIdx,
+      statusAcompanhamentoBruto.findIndex((c) => !(c as any).informativo),
     );
     return statusAcompanhamentoBruto.map((c, idx) =>
       idx === indiceMaior ? { ...c, value: Math.max(c.value + deltaArredondamentoAcompanhamento, 0) } : c,
