@@ -4250,6 +4250,7 @@ def _calcular_rastreamento_lotes_impl(
             "grupo": grupo,
             "qtd_prevista_tb": qtd_prevista_tb,
             "qtd_prevista_cx": qtd_prevista_cx,
+            "qtd_prevista_cx_float": qtd_prevista_cx_float,
             "qtd_produzida_tb": qtd_produzida_tb,
             "qtd_produzida_cx": qtd_produzida_cx,
             "qtd_liberada_cx": qtd_liberada_cx,
@@ -4532,7 +4533,7 @@ def _calcular_rastreamento_lotes_impl(
         lote_mes = normaliza_lote(r_mes.get("lote"))
         if not lote_mes:
             continue
-        v1_mes_map[lote_mes] = v1_mes_map.get(lote_mes, 0.0) + _to_float(r_mes.get("qtd_prevista_cx"))
+        v1_mes_map[lote_mes] = v1_mes_map.get(lote_mes, 0.0) + _to_float(r_mes.get("qtd_prevista_cx_float", r_mes.get("qtd_prevista_cx")))
         resultado_por_lote[lote_mes] = r_mes
 
     tendencia_mes_map: dict[str, float] = {}
