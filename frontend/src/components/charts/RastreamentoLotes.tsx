@@ -1614,7 +1614,7 @@ const textoPercentualV1 = (valor: number) =>
   })();
   const tituloAcompanhamento = apenasAtrasados
     ? "Lotes previstos até hoje pela V1"
-    : "Onde os lotes estão agora";
+    : `Acompanhamento lotes: ${MES_LABELS[mesSelecionado - 1]}/${anoSelecionado}`;
   const textoResumoAcompanhamento = apenasAtrasados
     ? `Planejado até hoje: ${fmt(mtdPrevistoV1)} cx — liberado: ${fmt(mtdLiberado)} cx — diferença: ${fmt(mtdGap)} cx`
     : `V1 do mês: ${fmt(mesPrevistoV1)} cx — plano atualizado: ${fmt(mesPlanoAtualTendencia)} cx — diferença: ${fmt(Math.abs(mesDiferencaVsV1))} cx`;
@@ -2026,7 +2026,7 @@ const textoPercentualV1 = (valor: number) =>
 
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">
-                      Acompanhamento de lotes
+                      Status operacional
                     </p>
                     <h3 className="text-base font-bold text-white">
                       {tituloAcompanhamento}
@@ -2045,10 +2045,13 @@ const textoPercentualV1 = (valor: number) =>
                         setSelecionados(new Set());
                         if (!acompanhamentoHojeAberto) setAcompanhamentoHojeAberto(true);
                       }}
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold underline decoration-dotted decoration-1 underline-offset-4 transition hover:decoration-solid"
-                      style={{ color: "#FCA5A5" }}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-bold transition hover:bg-red-50"
+                      style={{
+                        boxShadow: filtroEtapa === "DESVIO" ? "inset 0 0 0 2px #DC2626" : "inset 0 0 0 1px rgba(0,0,0,0.06)",
+                        color: "#1F2937",
+                      }}
                     >
-                      <AlertTriangle size={13} strokeWidth={2.25} />
+                      <AlertTriangle size={14} strokeWidth={2.5} style={{ color: "#DC2626" }} />
                       {qtdLotesEmDesvioAcompanhamento === 1
                         ? "1 lote em desvio"
                         : `${qtdLotesEmDesvioAcompanhamento} lotes em desvio`}
