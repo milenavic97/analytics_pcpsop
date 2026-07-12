@@ -7,6 +7,7 @@ import {
   XCircle,
   Clock,
   Target,
+  Lock,
   Package,
   Waves,
   Droplet,
@@ -1913,9 +1914,10 @@ const textoPercentualV1 = (valor: number) =>
                   background: "var(--border)",
                 }}
               >
-                <div className="min-h-[92px] bg-white p-4 flex items-center gap-3">
+                <div className="relative min-h-[92px] overflow-hidden bg-white p-4 flex items-center gap-3">
+                  <Lock size={64} strokeWidth={1.5} style={{ position: "absolute", right: -10, bottom: -14, color: "#1D4ED8", opacity: 0.06, pointerEvents: "none" }} />
                   <div className="flex h-10 w-10 min-w-10 items-center justify-center rounded-xl" style={{ background: "#1D4ED817" }}>
-                    <Target size={20} strokeWidth={2.25} style={{ color: "#1D4ED8" }} />
+                    <Lock size={20} strokeWidth={2.25} style={{ color: "#1D4ED8" }} />
                   </div>
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
@@ -1930,7 +1932,8 @@ const textoPercentualV1 = (valor: number) =>
                   </div>
                 </div>
 
-                <div className="min-h-[92px] bg-white p-4 flex items-center gap-3">
+                <div className="relative min-h-[92px] overflow-hidden bg-white p-4 flex items-center gap-3">
+                  <RefreshCw size={64} strokeWidth={1.5} style={{ position: "absolute", right: -10, bottom: -14, color: "#0F766E", opacity: 0.06, pointerEvents: "none" }} />
                   <div className="flex h-10 w-10 min-w-10 items-center justify-center rounded-xl" style={{ background: "#0F766E17" }}>
                     <RefreshCw size={20} strokeWidth={2.25} style={{ color: "#0F766E" }} />
                   </div>
@@ -1948,12 +1951,13 @@ const textoPercentualV1 = (valor: number) =>
                 </div>
 
                 <div
-                  className="min-h-[92px] p-4 flex items-center gap-3"
+                  className="relative min-h-[92px] overflow-hidden p-4 flex items-center gap-3"
                   style={{
                     background: mesDiferencaVsV1 > 0 ? "rgba(254,242,242,0.95)" : "rgba(240,253,244,0.95)",
                     boxShadow: "inset 0 0 0 1px " + (mesDiferencaVsV1 > 0 ? "rgba(239,68,68,0.22)" : "rgba(34,197,94,0.22)"),
                   }}
                 >
+                  <TrendingDown size={64} strokeWidth={1.5} style={{ position: "absolute", right: -10, bottom: -14, color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A", opacity: 0.07, pointerEvents: "none" }} />
                   <div
                     className="flex h-10 w-10 min-w-10 items-center justify-center rounded-xl"
                     style={{ background: mesDiferencaVsV1 > 0 ? "#DC262617" : "#16A34A17" }}
@@ -1986,13 +1990,14 @@ const textoPercentualV1 = (valor: number) =>
                       setApenasAtrasados(false);
                       setSelecionados(new Set());
                     }}
-                    className="min-h-[92px] bg-white p-4 text-left transition-all hover:bg-slate-50 flex items-center gap-3"
+                    className="relative min-h-[92px] overflow-hidden bg-white p-4 text-left transition-all hover:bg-slate-50 flex items-center gap-3"
                     style={{
                       boxShadow: filtroEtapa === k.filtro ? `inset 0 0 0 2px ${k.color}` : "none",
                       opacity: k.value === 0 ? 0.45 : 1,
                       cursor: "pointer",
                     }}
                   >
+                    <k.icon size={64} strokeWidth={1.5} style={{ position: "absolute", right: -10, bottom: -14, color: k.color, opacity: 0.06, pointerEvents: "none" }} />
                     <div className="flex h-10 w-10 min-w-10 items-center justify-center rounded-xl" style={{ background: `${k.color}17` }}>
                       <k.icon size={20} strokeWidth={2.25} style={{ color: k.color }} />
                     </div>
@@ -2085,16 +2090,17 @@ const textoPercentualV1 = (valor: number) =>
                     setFiltroEmbalado("");
                     setSelecionados(new Set());
                   }}
-                  className="px-4 py-3 text-left transition-all"
+                  className="relative overflow-hidden px-4 py-3 text-left transition-all"
                   style={{
                     background:
                       filtroEtapa === k.filtro
-                        ? "var(--bg-primary)"
-                        : "#FFFFFF",
+                        ? "#EFF6FF"
+                        : "#FAFBFD",
                     opacity: k.value === 0 ? 0.35 : 1,
                     cursor: k.value === 0 ? "default" : "pointer",
                   }}
                 >
+                <k.icon size={60} strokeWidth={1.5} style={{ position: "absolute", right: -10, bottom: -14, color: k.color, opacity: 0.06, pointerEvents: "none" }} />
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 min-w-9 items-center justify-center rounded-xl" style={{ background: `${k.color}17` }}>
                     <k.icon size={18} strokeWidth={2.25} style={{ color: k.color }} />
