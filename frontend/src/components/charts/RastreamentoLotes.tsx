@@ -1506,28 +1506,11 @@ const textoPercentualV1 = (valor: number) =>
 
   const mesCardsCount = 3 + perdasMes.length;
 
+  // Só as etapas físicas aqui -- reprovação/desvio, atraso de produção e
+  // rendimento já aparecem na fileira sempre visível (perdasMes) logo acima
+  // deste painel, com o mesmo clique-pra-filtrar. Repetir esses 3 cards aqui
+  // dentro era pura duplicação visual.
   const montarStatusCards = (base: GapPorEtapaNormalizado) => [
-    {
-      label: "Perda reprovação/desvio",
-      value: base.reprovacao_desvio,
-      color: "#92400E",
-      icon: AlertTriangle,
-      filtro: "REPROVACAO_DESVIO",
-    },
-    {
-      label: "Perda produção",
-      value: base.atraso_producao,
-      color: "#DC2626",
-      icon: Clock,
-      filtro: "ATRASO_PRODUCAO",
-    },
-    {
-      label: "Perda rendimento",
-      value: base.rendimento,
-      color: "#6B7280",
-      icon: TrendingDown,
-      filtro: "RENDIMENTO",
-    },
     {
       label: "Embalados não liberados",
       value: base.embalagem,
@@ -1578,42 +1561,49 @@ const textoPercentualV1 = (valor: number) =>
       percentualTexto: textoPercentualLiberado,
     },
     ...montarStatusCards(apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes),
-    // Card só informativo: total em desvio aberto somando as 4 etapas.
-    // NÃO entra na soma/reconciliação com o previsto (isso já está embutido
-    // nos cards de etapa) -- é só pra bater o olho rápido em quantas caixas,
-    // no total, estão em algum desvio aberto agora, sem importar a etapa.
-    {
-      label: "Em desvio aberto (total)",
-      value: (apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes).desvio_aberto,
-      color: "#B45309",
-      icon: AlertTriangle,
-      filtro: "DESVIO",
-      informativo: true,
-    },
   ];
+
+  // Total em desvio aberto (soma das 4 etapas) -- não é mais um card na
+  // grade, virou um aviso discreto no cabeçalho do painel (ver render mais
+  // abaixo). Continua fora da soma/reconciliação com o previsto, porque já
+  // está embutido dentro dos cards de etapa -- somar de novo aqui infla o
+  // total além do previsto.
+  const gapPorStatusAcompanhamento = apenasAtrasados ? gapPorStatusMtd : gapPorStatusMes;
+  const totalEmDesvioAcompanhamento = gapPorStatusAcompanhamento.desvio_aberto;
 
   // Ajuste de arredondamento: cada card já vem arredondado individualmente
   // (na origem, back ou fallback dos lotes), então a soma pode ficar 1 cx
   // acima/abaixo do previsto total. Em vez de deixar essa sobra aparecer só
   // "boiando", jogamos ela no card de maior volume (normalmente "Não
   // iniciados") -- lá 1 cx não muda leitura nenhuma, e a soma dos cards
-  // sempre bate com o previsto total. O card informativo (total em desvio)
-  // fica de fora tanto da soma quanto de ser alvo do ajuste, porque o valor
-  // dele já está contado dentro dos cards de etapa -- somar ele de novo aqui
-  // inflaria o total além do previsto.
-  const cardsParaSoma = statusAcompanhamentoBruto.filter((c) => !(c as any).informativo);
-  const somaCardsAcompanhamento = cardsParaSoma.reduce((acc, c) => acc + c.value, 0);
+  // sempre bate com o previsto total.
+  //
+  // Importante: este painel só mostra Liberados + as 4 etapas físicas.
+  // Reprovação/desvio, atraso de produção e rendimento saíram daqui (já
+  // aparecem na fileira sempre visível acima) -- por isso o "previsto" de
+  // referência para ESTES cards precisa descontar essas 3 fatias do V1
+  // total, senão a comparação acha uma "sobra" enorme (o tamanho das 3
+  // categorias removidas) e distorce o card de maior volume tentando
+  // absorver isso como se fosse um simples arredondamento de 1 cx.
+  const totalPrevistoCardsFisicos = Math.max(
+    totalPrevistoAcompanhamento
+      - gapPorStatusAcompanhamento.reprovacao_desvio
+      - gapPorStatusAcompanhamento.atraso_producao
+      - gapPorStatusAcompanhamento.rendimento,
+    0,
+  );
+
+  const somaCardsAcompanhamento = statusAcompanhamentoBruto.reduce((acc, c) => acc + c.value, 0);
   const deltaArredondamentoAcompanhamento =
-    totalPrevistoAcompanhamento > 0
-      ? Math.round(totalPrevistoAcompanhamento) - Math.round(somaCardsAcompanhamento)
+    totalPrevistoCardsFisicos > 0
+      ? Math.round(totalPrevistoCardsFisicos) - Math.round(somaCardsAcompanhamento)
       : 0;
 
   const statusAcompanhamento = (() => {
     if (deltaArredondamentoAcompanhamento === 0) return statusAcompanhamentoBruto;
     const indiceMaior = statusAcompanhamentoBruto.reduce(
-      (melhorIdx, c, idx, arr) =>
-        !(c as any).informativo && c.value > arr[melhorIdx].value ? idx : melhorIdx,
-      statusAcompanhamentoBruto.findIndex((c) => !(c as any).informativo),
+      (melhorIdx, c, idx, arr) => (c.value > arr[melhorIdx].value ? idx : melhorIdx),
+      0,
     );
     return statusAcompanhamentoBruto.map((c, idx) =>
       idx === indiceMaior ? { ...c, value: Math.max(c.value + deltaArredondamentoAcompanhamento, 0) } : c,
@@ -2043,6 +2033,27 @@ const textoPercentualV1 = (valor: number) =>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  {totalEmDesvioAcompanhamento > 0 && (
+                    <button
+                      type="button"
+                      title="Filtrar lotes em desvio aberto"
+                      onClick={() => {
+                        setFiltroEtapa(filtroEtapa === "DESVIO" ? "" : "DESVIO");
+                        setFiltroEmbalado("");
+                        setSelecionados(new Set());
+                        if (!acompanhamentoHojeAberto) setAcompanhamentoHojeAberto(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition"
+                      style={{
+                        borderColor: filtroEtapa === "DESVIO" ? "#FDE68A" : "rgba(255,255,255,0.2)",
+                        background: filtroEtapa === "DESVIO" ? "rgba(253,230,138,0.18)" : "rgba(255,255,255,0.08)",
+                        color: "#FDE68A",
+                      }}
+                    >
+                      <AlertTriangle size={12} />
+                      {fmt(totalEmDesvioAcompanhamento)} cx em desvio
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setAcompanhamentoHojeAberto((v) => !v)}
@@ -2071,7 +2082,7 @@ const textoPercentualV1 = (valor: number) =>
             </div>
 
             <div
-              className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-9"
+              className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-5"
               style={{ background: "var(--border)" }}
             >
               {statusAcompanhamento.map((k) => (
@@ -2121,9 +2132,6 @@ const textoPercentualV1 = (valor: number) =>
                   </div>
                   <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
                     {fmtTubetes(k.value)} tubetes
-                  </p>
-                  <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
-                    {(k as any).percentualTexto ?? textoPercentualAcompanhamento(k.value)}
                   </p>
                 </button>
               ))}
