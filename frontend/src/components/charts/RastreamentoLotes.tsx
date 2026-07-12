@@ -1911,8 +1911,10 @@ const textoPercentualV1 = (valor: number) =>
                 }}
               >
                 <div className="min-h-[116px] bg-white p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Target size={14} style={{ color: "#1D4ED8" }} />
+                  <div className="mb-2.5 flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: "#1D4ED817" }}>
+                    <Target size={16} style={{ color: "#1D4ED8" }} />
+                  </div>
+                  <div className="mb-1">
                     <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
                       Planejado V1
                     </p>
@@ -1929,8 +1931,10 @@ const textoPercentualV1 = (valor: number) =>
                 </div>
 
                 <div className="min-h-[116px] bg-white p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <RefreshCw size={14} style={{ color: "#0F766E" }} />
+                  <div className="mb-2.5 flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: "#0F766E17" }}>
+                    <RefreshCw size={16} style={{ color: "#0F766E" }} />
+                  </div>
+                  <div className="mb-1">
                     <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
                       Plano atualizado
                     </p>
@@ -1953,8 +1957,13 @@ const textoPercentualV1 = (valor: number) =>
                     boxShadow: "inset 0 0 0 1px " + (mesDiferencaVsV1 > 0 ? "rgba(239,68,68,0.22)" : "rgba(34,197,94,0.22)"),
                   }}
                 >
-                  <div className="mb-3 flex items-center gap-2">
-                    <TrendingDown size={14} style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A" }} />
+                  <div
+                    className="mb-2.5 flex h-8 w-8 items-center justify-center rounded-lg"
+                    style={{ background: mesDiferencaVsV1 > 0 ? "#DC262617" : "#16A34A17" }}
+                  >
+                    <TrendingDown size={16} style={{ color: mesDiferencaVsV1 > 0 ? "#DC2626" : "#16A34A" }} />
+                  </div>
+                  <div className="mb-1">
                     <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
                       Diferença vs V1
                     </p>
@@ -1990,8 +1999,10 @@ const textoPercentualV1 = (valor: number) =>
                       cursor: "pointer",
                     }}
                   >
-                    <div className="mb-3 flex items-center gap-2">
-                      <k.icon size={14} style={{ color: k.color }} />
+                    <div className="mb-2.5 flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: `${k.color}17` }}>
+                      <k.icon size={16} style={{ color: k.color }} />
+                    </div>
+                    <div className="mb-1">
                       <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
                         {k.label}
                       </p>
@@ -2045,9 +2056,9 @@ const textoPercentualV1 = (valor: number) =>
                       }}
                       className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition"
                       style={{
-                        borderColor: filtroEtapa === "DESVIO" ? "#FDE68A" : "rgba(255,255,255,0.2)",
-                        background: filtroEtapa === "DESVIO" ? "rgba(253,230,138,0.18)" : "rgba(255,255,255,0.08)",
-                        color: "#FDE68A",
+                        borderColor: filtroEtapa === "DESVIO" ? "#FCA5A5" : "rgba(255,255,255,0.2)",
+                        background: filtroEtapa === "DESVIO" ? "rgba(248,113,113,0.22)" : "rgba(255,255,255,0.08)",
+                        color: "#FCA5A5",
                       }}
                     >
                       <AlertTriangle size={12} />
@@ -2069,18 +2080,6 @@ const textoPercentualV1 = (valor: number) =>
 
             {acompanhamentoHojeAberto && (
               <>
-            <div
-              className="border-b px-5 py-3"
-              style={{ borderColor: "var(--border)", background: "#FFFFFF" }}
-            >
-              <p className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                {textoResumoAcompanhamento}
-              </p>
-              <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                {textoApoioAcompanhamento}
-              </p>
-            </div>
-
             <div
               className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-5"
               style={{ background: "var(--border)" }}
@@ -2104,8 +2103,10 @@ const textoPercentualV1 = (valor: number) =>
                     cursor: k.value === 0 ? "default" : "pointer",
                   }}
                 >
-                  <div className="mb-1 flex items-center gap-1.5">
-                    <k.icon size={12} style={{ color: k.color }} />
+                  <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: `${k.color}17` }}>
+                    <k.icon size={16} style={{ color: k.color }} />
+                  </div>
+                  <div className="mb-1">
                     <p
                       className="text-[11px] font-semibold uppercase tracking-wider"
                       style={{ color: "var(--text-secondary)" }}
@@ -2124,7 +2125,7 @@ const textoPercentualV1 = (valor: number) =>
                       <span
                         title={`${fmt((k as any).emDesvio)} cx em desvio aberto`}
                         className="whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-                        style={{ background: "rgba(180,83,9,0.12)", color: "#B45309" }}
+                        style={{ background: "rgba(220,38,38,0.12)", color: "#DC2626" }}
                       >
                         {fmt((k as any).emDesvio)} desvio
                       </span>
@@ -2157,130 +2158,6 @@ const textoPercentualV1 = (valor: number) =>
             className="text-[10px] font-semibold uppercase tracking-wider"
             style={{ color: "var(--text-secondary)" }}
           >
-            Grupo
-          </label>
-
-          <select
-            value={filtroGrupo}
-            onChange={(e) => {
-              setFiltroGrupo(e.target.value);
-              setSelecionados(new Set());
-            }}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{
-              background: "var(--bg-secondary)",
-              borderColor: "var(--border)",
-              color: "var(--text-primary)",
-              minWidth: 160,
-            }}
-          >
-            <option value="">Todos os grupos</option>
-            {grupos.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label
-            className="text-[10px] font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Visão do plano
-          </label>
-
-          <select
-            value={filtroVisaoPlano}
-            onChange={(e) => {
-              setFiltroVisaoPlano(e.target.value);
-              setSelecionados(new Set());
-            }}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{
-              background: "var(--bg-secondary)",
-              borderColor: "var(--border)",
-              color: "var(--text-primary)",
-              minWidth: 190,
-            }}
-          >
-            <option value="">V1 do mês</option>
-            <option value="MANTIDOS">Mantidos no mês atual</option>
-            <option value="REPROGRAMADOS">Reprogramados</option>
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label
-            className="text-[10px] font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Status/causa
-          </label>
-
-          <select
-            value={filtroEtapa}
-            onChange={(e) => {
-              setFiltroEtapa(e.target.value);
-              setFiltroEmbalado("");
-              setSelecionados(new Set());
-            }}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{
-              background: "var(--bg-secondary)",
-              borderColor: "var(--border)",
-              color: "var(--text-primary)",
-              minWidth: 160,
-            }}
-          >
-            <option value="">Todos os status</option>
-            <option value="LIBERADO">Liberado</option>
-            <option value="REPROVACAO_DESVIO">Perda reprovação/desvio</option>
-            <option value="DESVIO">Em desvio aberto</option>
-            <option value="ATRASO_PRODUCAO">Perda produção</option>
-            <option value="RENDIMENTO">Perda rendimento</option>
-            <option value="EMBALAGEM">Embalados não liberados</option>
-            <option value="ENVASE">Envasados não embalados</option>
-            <option value="LAVAGEM">Lavados não envasados</option>
-            <option value="NAO_INICIADO">Não iniciados</option>
-            <option value="ATRASADO">Atrasados</option>
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label
-            className="text-[10px] font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Passou embalagem?
-          </label>
-
-          <select
-            value={filtroEmbalado}
-            onChange={(e) => {
-              setFiltroEmbalado(e.target.value);
-              setSelecionados(new Set());
-            }}
-            className="rounded-lg border px-3 py-2 text-sm outline-none"
-            style={{
-              background: "var(--bg-secondary)",
-              borderColor: "var(--border)",
-              color: "var(--text-primary)",
-              minWidth: 130,
-            }}
-          >
-            <option value="">Todos</option>
-            <option value="SIM">Sim</option>
-            <option value="NAO">Não</option>
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label
-            className="text-[10px] font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
             Período
           </label>
 
@@ -2301,30 +2178,6 @@ const textoPercentualV1 = (valor: number) =>
             <option value="MES_COMPLETO">Mês completo</option>
             <option value="ATE_HOJE">Previsto até hoje</option>
           </select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label
-            className="text-[10px] font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Retém por lote (cx)
-          </label>
-
-          <input
-            type="number"
-            step="0.1"
-            min="0"
-            value={retemPorLote}
-            onChange={(e) => setRetemPorLote(Number(e.target.value || 0))}
-            className="rounded-lg border px-3 py-2 text-sm font-semibold outline-none"
-            style={{
-              background: "var(--bg-secondary)",
-              borderColor: "var(--border)",
-              color: "var(--text-primary)",
-              width: 130,
-            }}
-          />
         </div>
 
         <button
