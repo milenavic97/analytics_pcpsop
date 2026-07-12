@@ -4074,7 +4074,8 @@ def _calcular_rastreamento_lotes_impl(
             continue
 
         grupo = str(r.get("grupo_produto") or "").strip()
-        qtd_prevista_cx = round(_to_float(r.get("qtd_prevista")))
+        qtd_prevista_cx_float = _to_float(r.get("qtd_prevista"))
+        qtd_prevista_cx = round(qtd_prevista_cx_float)
         qtd_prevista_tb = qtd_prevista_cx * TUBETES_POR_CAIXA
 
         data_lib = data_str(r.get("data_lib"))
@@ -4094,6 +4095,13 @@ def _calcular_rastreamento_lotes_impl(
         qtd_liberada_cx = round(qtd_liberada_cx_float)
         check_liberado = qtd_liberada_cx_float > 0
         qtd_gap_cx = max(qtd_prevista_cx - qtd_liberada_cx, 0)
+        # Mantém uma versão em float do gap (sem arredondar por lote) para os
+        # cards que somam vários lotes de uma vez ("Embalados não liberados",
+        # "Perda Rendimento" etc.) -- somar valores JÁ arredondados por lote
+        # pode divergir em 1 cx do total real, exatamente o mesmo tipo de
+        # acúmulo de round() que já foi corrigido em mtd_cx_liberado/
+        # total_cx_liberado. Ver _soma_gap_status/_soma_mes_gap_status abaixo.
+        qtd_gap_cx_float = max(qtd_prevista_cx_float - qtd_liberada_cx_float, 0.0)
 
         desvios = desvios_lote_map.get(lote, [])
         desvio = desvio_principal(desvios)
@@ -4187,6 +4195,13 @@ def _calcular_rastreamento_lotes_impl(
             if check_liberado
             else 0
         )
+        # Mesmo racional do qtd_gap_cx_float acima: versão em float, sem
+        # arredondar por lote, para os cards que somam vários lotes.
+        qtd_perda_rendimento_cx_float = (
+            max(qtd_prevista_cx_float - qtd_liberada_cx_float, 0.0)
+            if check_liberado
+            else 0.0
+        )
         perda_rendimento = qtd_perda_rendimento_cx > 0
 
         # Para o filtro e alerta "Previsto até hoje", vale literalmente a data prevista V1.
@@ -4239,7 +4254,9 @@ def _calcular_rastreamento_lotes_impl(
             "qtd_produzida_cx": qtd_produzida_cx,
             "qtd_liberada_cx": qtd_liberada_cx,
             "qtd_gap_cx": qtd_gap_cx,
+            "qtd_gap_cx_float": qtd_gap_cx_float,
             "qtd_perda_rendimento_cx": qtd_perda_rendimento_cx,
+            "qtd_perda_rendimento_cx_float": qtd_perda_rendimento_cx_float,
             "considerar_previsto_ate_hoje": considerar_previsto_ate_hoje,
             "sku_pa": sku_pa or None,
             "linha": r.get("linha"),
@@ -4325,7 +4342,7 @@ def _calcular_rastreamento_lotes_impl(
     # mas ele deve aparecer só na causa prioritária.
     def _soma_gap_status(status: str) -> float:
         return sum(
-            r["qtd_gap_cx"]
+            r["qtd_gap_cx_float"]
             for r in lotes_mtd
             if r.get("status_gap") == status
             and not r.get("check_liberado")
@@ -4341,7 +4358,7 @@ def _calcular_rastreamento_lotes_impl(
     mtd_atraso_producao = _soma_gap_status("Atraso de produção")
 
     mtd_perda_rendimento = sum(
-        r.get("qtd_perda_rendimento_cx", 0)
+        r.get("qtd_perda_rendimento_cx_float", 0.0)
         for r in lotes_mtd
         if r.get("status_gap") == "Perda por rendimento"
     )
@@ -4417,7 +4434,7 @@ def _calcular_rastreamento_lotes_impl(
 
     def _soma_mes_gap_status(status: str) -> float:
         return sum(
-            r["qtd_gap_cx"]
+            r["qtd_gap_cx_float"]
             for r in lotes_mes
             if r.get("status_gap") == status
             and not r.get("check_liberado")
@@ -4427,7 +4444,7 @@ def _calcular_rastreamento_lotes_impl(
     mes_desvio_aberto = _soma_mes_gap_status("Em desvio")
     mes_atraso_producao = _soma_mes_gap_status("Atraso de produção")
     mes_perda_rendimento = sum(
-        r.get("qtd_perda_rendimento_cx", 0)
+        r.get("qtd_perda_rendimento_cx_float", 0.0)
         for r in lotes_mes
         if r.get("status_gap") == "Perda por rendimento"
     )
