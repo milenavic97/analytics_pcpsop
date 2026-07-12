@@ -2527,14 +2527,20 @@ def _versao_dados_rastreamento_lotes() -> str:
         if cache.get("versao") is not None and (agora - float(cache.get("criado_em") or 0)) <= _RASTREAMENTO_LOTES_VERSAO_CACHE_TTL_SEGUNDOS:
             return cache["versao"]
 
-    partes = [
-        _ultima_atualizacao_tabela("f_sd3_entradas", "criado_em") or "-",
-        _ultima_atualizacao_tabela("f_apontamentos", "criado_em") or "-",
-        _ultima_atualizacao_tabela("desvios_snapshots", "criado_em") or "-",
-        _ultima_atualizacao_tabela("f_mrp_rodadas", "criado_em") or "-",
-        _ultima_atualizacao_tabela("f_mrp_etapas", "criado_em") or "-",
-    ]
-    versao = "|".join(partes)
+    # Antes: lia direto f_sd3_entradas/f_apontamentos/desvios_snapshots pela
+    # coluna "criado_em" via _ultima_atualizacao_tabela. Só que f_sd3_entradas
+    # não tem coluna criado_em (o insert em etl/processors.py só grava
+    # produto/descr_prod/lote/quantidade/armazem/grupo/dt_emissao/custo), e
+    # "desvios_snapshots" nem é o nome real da tabela de desvios (é
+    # f_desvios_lotes). Como _ultima_atualizacao_tabela engole qualquer
+    # exceção e devolve None, essas duas partes da versão ficavam travadas em
+    # "-" para sempre -- ou seja, subir uma SD3 nova NUNCA mudava a versão, e
+    # o cache do Rastreamento de Lotes só via dado novo depois do TTL de 30min
+    # estourar (nunca na hora, mesmo clicando em "Atualizar").
+    # Troca para a mesma fonte já correta usada por /rastreamento-lotes-cache/versao:
+    # upload_log (base_id/processado_em), com mrp_rodadas/mrp_etapas lidos direto.
+    versions = _rastreamento_upload_versions()
+    versao = "|".join(f"{base}:{versions.get(base) or '-'}" for base in RASTREAMENTO_CACHE_BASES)
 
     with _RASTREAMENTO_LOTES_VERSAO_LOCK:
         _RASTREAMENTO_LOTES_VERSAO_CACHE["criado_em"] = agora
