@@ -245,9 +245,13 @@ interface RastreamentoData {
     atraso_producao?: number;
     rendimento?: number;
     embalagem?: number;
+    embalagem_em_desvio?: number;
     envase?: number;
+    envase_em_desvio?: number;
     lavagem?: number;
+    lavagem_em_desvio?: number;
     nao_iniciado?: number;
+    nao_iniciado_em_desvio?: number;
   };
   total_cx_previsto: number;
   total_cx_liberado: number;
@@ -266,9 +270,13 @@ interface RastreamentoData {
     atraso_producao?: number;
     rendimento?: number;
     embalagem: number;
+    embalagem_em_desvio?: number;
     envase: number;
+    envase_em_desvio?: number;
     lavagem: number;
+    lavagem_em_desvio?: number;
     nao_iniciado: number;
+    nao_iniciado_em_desvio?: number;
   };
   mtd_resumo_liberacao?: ResumoLiberacao;
   lotes_fora_gantt?: LoteForaGantt[];
@@ -1091,6 +1099,36 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     return "NAO_INICIADO";
   }
 
+  // Etapa física do lote, independente de estar ou não em desvio aberto --
+  // mesmo critério usado no backend (_etapa_fisica_lote) e no recálculo de
+  // fallback acima. Um lote embalado que caiu em desvio continua contando
+  // como "embalado" pro filtro/card dessa etapa; a etiqueta de desvio na
+  // linha da tabela continua aparecendo, só não vira uma categoria à parte.
+  function etapaFisicaLote(l: LoteRastreamento): string | null {
+    if (l.check_liberado) return null;
+    if (loteEhReprovacaoOuDescarte(l)) return null;
+    if (l.atraso_producao || l.reprogramado || l.status_gap === "Atraso de produção") return null;
+    if (l.check_embalagem) return "EMBALAGEM";
+    if (l.check_envase) return "ENVASE";
+    if (l.check_lavagem) return "LAVAGEM";
+    return "NAO_INICIADO";
+  }
+
+  const ETAPAS_FISICAS = new Set(["EMBALAGEM", "ENVASE", "LAVAGEM", "NAO_INICIADO"]);
+
+  // Casamento do lote com o filtro "STATUS/CAUSA" selecionado.
+  // - Causas fechadas/prioritárias (reprovação, atraso, rendimento, liberado)
+  //   continuam exclusivas, igual antes.
+  // - "DESVIO" agora significa "está em desvio aberto", sem importar em qual
+  //   etapa -- pode aparecer junto com qualquer uma das 4 etapas físicas.
+  // - As 4 etapas físicas casam pelo estágio real do lote, esteja ele em
+  //   desvio ou não -- é isso que faz o card bater com a tabela.
+  function loteCorrespondeAoFiltro(l: LoteRastreamento, filtro: string): boolean {
+    if (filtro === "DESVIO") return Boolean(l.em_desvio) && etapaFisicaLote(l) !== null;
+    if (ETAPAS_FISICAS.has(filtro)) return etapaFisicaLote(l) === filtro;
+    return statusPrincipalLote(l) === filtro;
+  }
+
   const lotesFiltradosBase = (data?.lotes ?? []).filter((l) => {
     if (apenasAtrasados && !l.considerar_previsto_ate_hoje) return false;
     if (filtroGrupo && l.grupo !== filtroGrupo) return false;
@@ -1102,7 +1140,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     if (filtroEmbalado === "NAO" && l.check_embalagem) return false;
 
     if (filtroEtapa === "ATRASADO" && (!l.atrasado || l.check_liberado)) return false;
-    if (filtroEtapa && filtroEtapa !== "ATRASADO" && statusPrincipalLote(l) !== filtroEtapa) return false;
+    if (filtroEtapa && filtroEtapa !== "ATRASADO" && !loteCorrespondeAoFiltro(l, filtroEtapa)) return false;
 
     return true;
   });
@@ -1113,9 +1151,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     atraso_producao: number;
     rendimento: number;
     embalagem: number;
+    embalagem_em_desvio: number;
     envase: number;
+    envase_em_desvio: number;
     lavagem: number;
+    lavagem_em_desvio: number;
     nao_iniciado: number;
+    nao_iniciado_em_desvio: number;
     outros: number;
     total: number;
   };
@@ -1126,21 +1168,26 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     const totais = {
       reprovacao_desvio: Math.round(Number(etapa?.reprovacao_desvio ?? 0)),
       // Compatibilidade: algumas respostas do backend ainda vêm como `desvio`.
-      // No card/tabela, isso representa "Em desvio aberto".
+      // Isso agora é só informativo (soma dos "_em_desvio" abaixo) -- não
+      // entra mais somado à parte no total, pra não contar o mesmo lote 2x
+      // (uma vez na etapa física dele, outra em "desvio aberto").
       desvio_aberto: Math.round(Number(etapa?.desvio_aberto ?? etapa?.desvio ?? 0)),
       atraso_producao: Math.round(Number(etapa?.atraso_producao ?? 0)),
       rendimento: Math.round(Number(etapa?.rendimento ?? 0)),
       embalagem: Math.round(Number(etapa?.embalagem ?? 0)),
+      embalagem_em_desvio: Math.round(Number((etapa as any)?.embalagem_em_desvio ?? 0)),
       envase: Math.round(Number(etapa?.envase ?? 0)),
+      envase_em_desvio: Math.round(Number((etapa as any)?.envase_em_desvio ?? 0)),
       lavagem: Math.round(Number(etapa?.lavagem ?? 0)),
+      lavagem_em_desvio: Math.round(Number((etapa as any)?.lavagem_em_desvio ?? 0)),
       nao_iniciado: Math.round(Number(etapa?.nao_iniciado ?? 0)),
+      nao_iniciado_em_desvio: Math.round(Number((etapa as any)?.nao_iniciado_em_desvio ?? 0)),
       outros: Math.round(Number(etapa?.outros ?? 0)),
       total: 0,
     };
 
     totais.total =
       totais.reprovacao_desvio +
-      totais.desvio_aberto +
       totais.atraso_producao +
       totais.rendimento +
       totais.embalagem +
@@ -1156,7 +1203,6 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     ...base,
     total:
       base.reprovacao_desvio +
-      base.desvio_aberto +
       base.atraso_producao +
       base.rendimento +
       base.embalagem +
@@ -1190,9 +1236,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       // fallback só evita card zerado quando o backend não manda a quebra.
       desvio_aberto: base.desvio_aberto > 0 ? base.desvio_aberto : fallbackLotes.desvio_aberto,
       embalagem: base.embalagem > 0 ? base.embalagem : fallbackLotes.embalagem,
+      embalagem_em_desvio: base.embalagem > 0 ? base.embalagem_em_desvio : fallbackLotes.embalagem_em_desvio,
       envase: base.envase > 0 ? base.envase : fallbackLotes.envase,
+      envase_em_desvio: base.envase > 0 ? base.envase_em_desvio : fallbackLotes.envase_em_desvio,
       lavagem: base.lavagem > 0 ? base.lavagem : fallbackLotes.lavagem,
+      lavagem_em_desvio: base.lavagem > 0 ? base.lavagem_em_desvio : fallbackLotes.lavagem_em_desvio,
       nao_iniciado: base.nao_iniciado > 0 ? base.nao_iniciado : fallbackLotes.nao_iniciado,
+      nao_iniciado_em_desvio: base.nao_iniciado > 0 ? base.nao_iniciado_em_desvio : fallbackLotes.nao_iniciado_em_desvio,
     };
 
     return recalcularTotalGapPorEtapa(combinado);
@@ -1205,21 +1255,30 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     // arredondamento que já foi corrigido no backend (qtd_gap_cx_float /
     // qtd_perda_rendimento_cx_float). Usa os campos em float quando existirem,
     // com fallback pros campos antigos pra não quebrar em respostas antigas do backend.
+    //
+    // Etapa física (embalagem/envase/lavagem/não iniciado) agora é calculada
+    // independente de estar ou não em desvio aberto -- mesmo ajuste feito no
+    // backend (_etapa_fisica_lote). Antes, um lote já embalado que caísse em
+    // desvio virava só "em desvio" e sumia do card de "Embalados não
+    // liberados", fazendo esse card parecer menor do que a etapa real.
     const acumulado = {
       reprovacao_desvio: 0,
       desvio_aberto: 0,
       atraso_producao: 0,
       rendimento: 0,
       embalagem: 0,
+      embalagem_em_desvio: 0,
       envase: 0,
+      envase_em_desvio: 0,
       lavagem: 0,
+      lavagem_em_desvio: 0,
       nao_iniciado: 0,
+      nao_iniciado_em_desvio: 0,
     };
 
     for (const lote of data?.lotes ?? []) {
       if (somentePrevistoAteHoje && !lote.considerar_previsto_ate_hoje) continue;
 
-      const status = statusPrincipalLote(lote);
       const previstoCxFloat = Number(lote.qtd_prevista_cx_float ?? lote.qtd_prevista_cx ?? 0);
       const liberadoCxFloat = Number(lote.qtd_liberada_cx ?? 0);
       const perdaRendimentoCxFloat = Number(
@@ -1228,14 +1287,34 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           ?? Math.max(previstoCxFloat - liberadoCxFloat, 0),
       );
 
-      if (status === "REPROVACAO_DESVIO") acumulado.reprovacao_desvio += previstoCxFloat;
-      else if (status === "DESVIO") acumulado.desvio_aberto += previstoCxFloat;
-      else if (status === "ATRASO_PRODUCAO") acumulado.atraso_producao += previstoCxFloat;
-      else if (status === "RENDIMENTO") acumulado.rendimento += perdaRendimentoCxFloat;
-      else if (status === "EMBALAGEM") acumulado.embalagem += previstoCxFloat;
-      else if (status === "ENVASE") acumulado.envase += previstoCxFloat;
-      else if (status === "LAVAGEM") acumulado.lavagem += previstoCxFloat;
-      else if (status === "NAO_INICIADO") acumulado.nao_iniciado += previstoCxFloat;
+      if (loteEhReprovacaoOuDescarte(lote)) {
+        acumulado.reprovacao_desvio += previstoCxFloat;
+        continue;
+      }
+      if (lote.atraso_producao || lote.reprogramado || lote.status_gap === "Atraso de produção") {
+        acumulado.atraso_producao += previstoCxFloat;
+        continue;
+      }
+      if (lote.check_liberado) {
+        if (lote.perda_rendimento) acumulado.rendimento += perdaRendimentoCxFloat;
+        continue;
+      }
+
+      const emDesvio = Boolean(lote.em_desvio);
+      if (lote.check_embalagem) {
+        acumulado.embalagem += previstoCxFloat;
+        if (emDesvio) acumulado.embalagem_em_desvio += previstoCxFloat;
+      } else if (lote.check_envase) {
+        acumulado.envase += previstoCxFloat;
+        if (emDesvio) acumulado.envase_em_desvio += previstoCxFloat;
+      } else if (lote.check_lavagem) {
+        acumulado.lavagem += previstoCxFloat;
+        if (emDesvio) acumulado.lavagem_em_desvio += previstoCxFloat;
+      } else {
+        acumulado.nao_iniciado += previstoCxFloat;
+        if (emDesvio) acumulado.nao_iniciado_em_desvio += previstoCxFloat;
+      }
+      if (emDesvio) acumulado.desvio_aberto += previstoCxFloat;
     }
 
     // normalizarGapPorEtapa já arredonda cada campo (uma vez, no total) e
@@ -1285,10 +1364,14 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       outros: perdas?.outros,
       desvio_aberto: etapas?.desvio_aberto ?? etapas?.desvio,
       embalagem: etapas?.embalagem,
+      embalagem_em_desvio: etapas?.embalagem_em_desvio,
       envase: etapas?.envase,
+      envase_em_desvio: etapas?.envase_em_desvio,
       lavagem: etapas?.lavagem,
+      lavagem_em_desvio: etapas?.lavagem_em_desvio,
       nao_iniciado: etapas?.nao_iniciado,
-    });
+      nao_iniciado_em_desvio: etapas?.nao_iniciado_em_desvio,
+    } as any);
 
     const combinado = aplicarFallbackOperacionalDosLotes(baseMes, statusOperacionalMesPelosLotes);
 
@@ -1446,15 +1529,9 @@ const textoPercentualV1 = (valor: number) =>
       filtro: "RENDIMENTO",
     },
     {
-      label: "Em desvio aberto",
-      value: base.desvio_aberto,
-      color: "#B45309",
-      icon: AlertTriangle,
-      filtro: "DESVIO",
-    },
-    {
       label: "Embalados não liberados",
       value: base.embalagem,
+      emDesvio: base.embalagem_em_desvio,
       color: "#EA580C",
       icon: Package,
       filtro: "EMBALAGEM",
@@ -1462,6 +1539,7 @@ const textoPercentualV1 = (valor: number) =>
     {
       label: "Envasados não embalados",
       value: base.envase,
+      emDesvio: base.envase_em_desvio,
       color: "#2563EB",
       icon: Waves,
       filtro: "ENVASE",
@@ -1469,6 +1547,7 @@ const textoPercentualV1 = (valor: number) =>
     {
       label: "Lavados não envasados",
       value: base.lavagem,
+      emDesvio: base.lavagem_em_desvio,
       color: "#0891B2",
       icon: Droplet,
       filtro: "LAVAGEM",
@@ -1476,6 +1555,7 @@ const textoPercentualV1 = (valor: number) =>
     {
       label: "Não iniciados",
       value: base.nao_iniciado,
+      emDesvio: base.nao_iniciado_em_desvio,
       color: "#CA8A04",
       icon: Droplets,
       filtro: "NAO_INICIADO",
@@ -2017,6 +2097,11 @@ const textoPercentualV1 = (valor: number) =>
                   <p className="mt-0.5 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
                     {(k as any).percentualTexto ?? textoPercentualAcompanhamento(k.value)}
                   </p>
+                  {Boolean((k as any).emDesvio) && (
+                    <p className="mt-0.5 text-[11px] font-semibold" style={{ color: "#B45309" }}>
+                      {fmt((k as any).emDesvio)} cx em desvio
+                    </p>
+                  )}
                 </button>
               ))}
             </div>

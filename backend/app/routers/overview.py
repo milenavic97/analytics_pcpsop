@@ -4349,6 +4349,42 @@ def _calcular_rastreamento_lotes_impl(
             and not r.get("check_liberado")
         )
 
+    # Etapa física do lote (embalagem/envase/lavagem/não iniciado), calculada
+    # de forma independente de estar ou não em desvio aberto -- diferente do
+    # status_gap (usado pro badge/filtro de cada linha na tabela), que hoje
+    # classifica um lote em desvio aberto só como "Em desvio", escondendo em
+    # qual etapa ele realmente está. Um lote já embalado que caiu em desvio
+    # continua contando como "embalado" pros cards por etapa; o card mostra
+    # à parte quantos daquela etapa estão em desvio.
+    def _etapa_fisica_lote(item: dict) -> str | None:
+        if item.get("check_liberado"):
+            return None
+        if item.get("desvio_reprovacao"):
+            return None
+        if item.get("reprogramado") or item.get("atraso_producao"):
+            return None
+        if item.get("check_embalagem"):
+            return "embalagem"
+        if item.get("check_envase"):
+            return "envase"
+        if item.get("check_lavagem"):
+            return "lavagem"
+        return "nao_iniciado"
+
+    def _soma_etapa_fisica(lotes: list[dict], etapa: str, apenas_em_desvio: bool = False) -> float:
+        total = 0.0
+        for item in lotes:
+            if _etapa_fisica_lote(item) != etapa:
+                continue
+            if apenas_em_desvio and not item.get("em_desvio"):
+                continue
+            total += _to_float(
+                item.get("qtd_gap_cx_float")
+                if item.get("qtd_gap_cx_float") is not None
+                else item.get("qtd_prevista_cx_float", item.get("qtd_prevista_cx", 0))
+            )
+        return total
+
     mtd_reprovacao_desvio = _soma_gap_status("Reprovação/desvio")
     mtd_desvio_aberto = _soma_gap_status("Em desvio")
 
@@ -4364,10 +4400,25 @@ def _calcular_rastreamento_lotes_impl(
         if r.get("status_gap") == "Perda por rendimento"
     )
 
-    mtd_embalagem = _soma_gap_status("Em embalagem")
-    mtd_envase = _soma_gap_status("Em envase")
-    mtd_lavagem = _soma_gap_status("Em lavagem")
-    mtd_nao_iniciado = _soma_gap_status("Não iniciado")
+    mtd_embalagem = _soma_etapa_fisica(lotes_mtd, "embalagem")
+    mtd_embalagem_em_desvio = _soma_etapa_fisica(lotes_mtd, "embalagem", apenas_em_desvio=True)
+    mtd_envase = _soma_etapa_fisica(lotes_mtd, "envase")
+    mtd_envase_em_desvio = _soma_etapa_fisica(lotes_mtd, "envase", apenas_em_desvio=True)
+    mtd_lavagem = _soma_etapa_fisica(lotes_mtd, "lavagem")
+    mtd_lavagem_em_desvio = _soma_etapa_fisica(lotes_mtd, "lavagem", apenas_em_desvio=True)
+    mtd_nao_iniciado = _soma_etapa_fisica(lotes_mtd, "nao_iniciado")
+    mtd_nao_iniciado_em_desvio = _soma_etapa_fisica(lotes_mtd, "nao_iniciado", apenas_em_desvio=True)
+
+    # Total "em desvio aberto" agora é só informativo (soma das 4 etapas acima
+    # que também estão em desvio) -- não entra mais somado à parte na
+    # reconciliação, pra não contar o mesmo lote duas vezes (uma na etapa,
+    # outra em "desvio aberto").
+    mtd_desvio_aberto = (
+        mtd_embalagem_em_desvio
+        + mtd_envase_em_desvio
+        + mtd_lavagem_em_desvio
+        + mtd_nao_iniciado_em_desvio
+    )
 
     # Total oficial do alerta:
     # Faltam = previsto até hoje - liberado até hoje.
@@ -4381,7 +4432,6 @@ def _calcular_rastreamento_lotes_impl(
     # exatamente com o alerta superior.
     mtd_cx_gap_operacional_bruto = round(
         mtd_reprovacao_desvio
-        + mtd_desvio_aberto
         + mtd_atraso_producao
         + mtd_perda_rendimento
         + mtd_embalagem
@@ -4420,7 +4470,6 @@ def _calcular_rastreamento_lotes_impl(
 
     mtd_cx_gap_operacional = round(
         mtd_reprovacao_desvio
-        + mtd_desvio_aberto
         + mtd_atraso_producao
         + mtd_perda_rendimento
         + mtd_embalagem
@@ -4442,17 +4491,31 @@ def _calcular_rastreamento_lotes_impl(
         )
 
     mes_reprovacao_desvio = _soma_mes_gap_status("Reprovação/desvio")
-    mes_desvio_aberto = _soma_mes_gap_status("Em desvio")
     mes_atraso_producao = _soma_mes_gap_status("Atraso de produção")
     mes_perda_rendimento = sum(
         r.get("qtd_perda_rendimento_cx_float", 0.0)
         for r in lotes_mes
         if r.get("status_gap") == "Perda por rendimento"
     )
-    mes_embalagem = _soma_mes_gap_status("Em embalagem")
-    mes_envase = _soma_mes_gap_status("Em envase")
-    mes_lavagem = _soma_mes_gap_status("Em lavagem")
-    mes_nao_iniciado = _soma_mes_gap_status("Não iniciado")
+    mes_embalagem = _soma_etapa_fisica(lotes_mes, "embalagem")
+    mes_embalagem_em_desvio = _soma_etapa_fisica(lotes_mes, "embalagem", apenas_em_desvio=True)
+    mes_envase = _soma_etapa_fisica(lotes_mes, "envase")
+    mes_envase_em_desvio = _soma_etapa_fisica(lotes_mes, "envase", apenas_em_desvio=True)
+    mes_lavagem = _soma_etapa_fisica(lotes_mes, "lavagem")
+    mes_lavagem_em_desvio = _soma_etapa_fisica(lotes_mes, "lavagem", apenas_em_desvio=True)
+    mes_nao_iniciado = _soma_etapa_fisica(lotes_mes, "nao_iniciado")
+    mes_nao_iniciado_em_desvio = _soma_etapa_fisica(lotes_mes, "nao_iniciado", apenas_em_desvio=True)
+
+    # Idem ao mtd_desvio_aberto acima: agora é só informativo, soma das 4
+    # etapas que também estão em desvio -- não entra somado à parte em
+    # nenhuma reconciliação (mes_cx_perdas_brutas_vs_v1/mes_cx_diferenca_vs_v1
+    # já nem usam mes_desvio_aberto, só as causas fechadas + rendimento).
+    mes_desvio_aberto = (
+        mes_embalagem_em_desvio
+        + mes_envase_em_desvio
+        + mes_lavagem_em_desvio
+        + mes_nao_iniciado_em_desvio
+    )
 
     # Plano atual puro = total da versão atual para o mês analisado.
     # Tendência atual = tudo que já liberou na SD3 + o que a versão atual ainda prevê
@@ -4847,9 +4910,13 @@ def _calcular_rastreamento_lotes_impl(
             "atraso_producao": round(mes_atraso_producao),
             "rendimento": round(mes_perda_rendimento),
             "embalagem": round(mes_embalagem),
+            "embalagem_em_desvio": round(mes_embalagem_em_desvio),
             "envase": round(mes_envase),
+            "envase_em_desvio": round(mes_envase_em_desvio),
             "lavagem": round(mes_lavagem),
+            "lavagem_em_desvio": round(mes_lavagem_em_desvio),
             "nao_iniciado": round(mes_nao_iniciado),
+            "nao_iniciado_em_desvio": round(mes_nao_iniciado_em_desvio),
         },
 
         "total_cx_previsto": total_cx_previsto,
@@ -4874,9 +4941,13 @@ def _calcular_rastreamento_lotes_impl(
             "atraso_producao": round(mtd_atraso_producao),
             "rendimento": round(mtd_perda_rendimento),
             "embalagem": round(mtd_embalagem),
+            "embalagem_em_desvio": round(mtd_embalagem_em_desvio),
             "envase": round(mtd_envase),
+            "envase_em_desvio": round(mtd_envase_em_desvio),
             "lavagem": round(mtd_lavagem),
+            "lavagem_em_desvio": round(mtd_lavagem_em_desvio),
             "nao_iniciado": round(mtd_nao_iniciado),
+            "nao_iniciado_em_desvio": round(mtd_nao_iniciado_em_desvio),
         },
 
         "lotes_fora_gantt": lotes_fora_gantt,
