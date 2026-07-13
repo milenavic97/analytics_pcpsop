@@ -1688,9 +1688,9 @@ export function OverviewPage() {
 
           <div className="mt-4 rounded-2xl border bg-white shadow-sm" style={{ borderColor: "var(--border)" }}>
             <div className="px-5 pt-4 text-center">
-              <p className="text-[13px] font-black uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
-                Causas da variação anual
-              </p>
+              <h3 className="text-base font-medium md:text-xl" style={{ margin: 0, color: "var(--text-secondary)" }}>
+                Causas da variação <strong>anual</strong>
+              </h3>
             </div>
 
             {waterfallSteps.length > 0 ? (
