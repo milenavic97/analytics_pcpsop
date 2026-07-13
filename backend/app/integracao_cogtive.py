@@ -14,10 +14,12 @@ do ano inteiro e deixa o sistema sobrescrever.
 from datetime import date, datetime, timezone
 import time
 import logging
+import uuid
 
 import httpx
 
 from app.config import settings
+from app.database import supabase
 from app.routers.upload import _delete_apontamentos_mes, _inicio_fim_mes
 from etl.processors import _chunk_insert
 
@@ -217,12 +219,33 @@ def sincronizar_apontamentos_cogtive(escopo_completo: bool = True) -> dict:
         deletes.append(_delete_apontamentos_mes(hoje.year, mes_ref))
 
     erros_insert = _chunk_insert("f_apontamentos", registros)
+    total_inseridos = len(registros) - len(erros_insert)
+
+    # Registra a sincronização em upload_log -- mesma tabela que o upload
+    # manual usa. É daqui que a Overview/Rastreamento de Lotes lê o relógio
+    # "Dados de produção atualizados em"; sem esse registro, esse relógio
+    # nunca avançava sozinho, mesmo com a sincronização automática rodando
+    # de verdade a cada ciclo (só um upload manual antigo aparecia ali).
+    try:
+        supabase.table("upload_log").insert({
+            "id": str(uuid.uuid4()),
+            "base_id": "apontamentos",
+            "nome_arquivo": "Sincronização automática Cogtive",
+            "status": "sucesso" if not erros_insert else "erro_parcial",
+            "total_inserido": total_inseridos,
+            "erros": (erros_insert or [])[:20],
+        }).execute()
+    except Exception as e:
+        # Nunca deixa uma falha aqui derrubar a sincronização em si -- o
+        # dado já foi gravado em f_apontamentos, só o registro de log que
+        # não entrou.
+        logger.warning("Falha ao registrar sincronização Cogtive em upload_log: %s", str(e)[:300])
 
     return {
         "ok": True,
         "escopo_completo": escopo_completo,
         "total_api": total_api,
-        "total_inseridos": len(registros) - len(erros_insert),
+        "total_inseridos": total_inseridos,
         "ignorados_sem_lote": ignorados_sem_lote,
         "erros_insert": erros_insert[:5],
         "meses_substituidos": [f"{hoje.year}-{str(m).zfill(2)}" for m in range(primeiro_mes_substituido, hoje.month + 1)],
