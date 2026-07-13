@@ -2,9 +2,17 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Any
 from app.database import supabase
-from app.auth import usuario_logado as _usuario_logado
+from app.config import settings
+from app.auth import (
+    usuario_logado as _usuario_logado,
+    usuario_logado_permitir_pendente_mfa as _usuario_logado_pendente_mfa,
+)
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
+
+
+class ResolverLoginBody(BaseModel):
+    usuario: str = Field(..., min_length=1)
 
 
 # Permissões/telas disponíveis na ferramenta.
@@ -69,9 +77,52 @@ def _exigir_admin(authorization: str | None) -> dict[str, Any]:
     return perfil
 
 
+@router.post("/resolver-login")
+def resolver_login(body: ResolverLoginBody):
+    """
+    Traduz um "usuário" (apelido de login) para o e-mail cadastrado, para
+    a tela de login poder aceitar tanto e-mail quanto apelido sem precisar
+    de nenhuma lista de e-mail fixa no código do frontend (o bundle do
+    frontend é público -- ninguém deveria conseguir ler e-mail de pessoa
+    ali dentro).
+
+    Rota pública de propósito (roda antes do login existir). Devolve
+    sempre 200 com "email": null quando não encontra nada, em vez de um
+    404 -- assim dá pra distinguir um pouco menos "esse usuário existe"
+    de "esse usuário não existe" olhando só o status HTTP. Não é
+    proteção total contra enumeração de usuário (uma característica
+    inerente a qualquer login por apelido), mas evita o problema mais
+    grave, que era o vazamento de e-mail real no código-fonte público.
+    """
+    usuario_norm = body.usuario.strip().lower()
+
+    if "@" in usuario_norm:
+        # Já parece um e-mail -- não precisa resolver nada, e não faz
+        # sentido consultar a tabela de apelidos por um e-mail.
+        return {"email": usuario_norm}
+
+    try:
+        res = (
+            supabase.table("usuarios_app")
+            .select("email, ativo")
+            .eq("usuario", usuario_norm)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return {"email": None}
+
+    linha = (res.data or [None])[0]
+
+    if not linha or not linha.get("ativo", True):
+        return {"email": None}
+
+    return {"email": linha.get("email")}
+
+
 @router.get("/me")
 def get_me(authorization: str | None = Header(default=None)):
-    perfil = _usuario_logado(authorization)
+    perfil = _usuario_logado_pendente_mfa(authorization)
 
     return {
         "id": perfil.get("id"),
@@ -82,6 +133,13 @@ def get_me(authorization: str | None = Header(default=None)):
         "perfil": perfil.get("perfil"),
         "ativo": perfil.get("ativo"),
         "permissoes": perfil.get("permissoes") or [],
+        "mfa_ativo": bool(perfil.get("_mfa_verificado")),
+        # Diz ao frontend (MfaGate) se o cadastro do segundo fator está
+        # sendo exigido agora (settings.mfa_obrigatorio, controlado por
+        # variável de ambiente, sem precisar de deploy). Vem sempre nessa
+        # rota porque ela usa usuario_logado_permitir_pendente_mfa -- ou
+        # seja, responde mesmo pra quem ainda não cadastrou nada.
+        "mfa_obrigatorio": settings.mfa_obrigatorio,
     }
 
 
