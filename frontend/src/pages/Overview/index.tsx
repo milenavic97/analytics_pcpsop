@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import {
   DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package, CalendarDays, ChevronDown, ChevronUp,
   Gauge, Sparkles, ArrowLeft, AlertTriangle,
@@ -951,46 +951,50 @@ export function OverviewPage() {
   const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(cacheInicial?.mtdCxLiberado ?? 0)
   const [mtdLiberacaoOficial, setMtdLiberacaoOficial] = useState<RastreamentoMtdLoadPayload | null>(null)
 
+  const jaBuscouPerdasDesvioAnoRef = useRef(false)
+
   useEffect(() => {
-    if (versaoOverview !== "executivo" || perdasDesvioAnoCx !== null || carregandoPerdasDesvioAno) return
+    // Reescrito do zero pra eliminar de vez a race condition anterior:
+    // sem "ativo"/cleanup cancelando a busca, sem estado de loading na
+    // lista de dependências. Um ref garante que só dispara uma vez, e um
+    // timeout de 15s garante que NUNCA fica preso em "Carregando..." pra
+    // sempre, não importa o que aconteça (erro de rede, auth travado etc.).
+    if (versaoOverview !== "executivo") return
+    if (jaBuscouPerdasDesvioAnoRef.current) return
+    jaBuscouPerdasDesvioAnoRef.current = true
 
-    let ativo = true
     const ano = new Date().getFullYear()
-
     setCarregandoPerdasDesvioAno(true)
-    ;(async () => {
-      try {
+
+    const buscaComTimeout = Promise.race([
+      (async () => {
         const authHeaders = await getAuthHeaders()
         const response = await fetch(
           `${API_BASE}/overview/lotes-descartados-ano?ano=${ano}&_t=${Date.now()}`,
           { headers: { ...authHeaders } },
         )
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const json = await response.json()
+        return response.json()
+      })(),
+      new Promise((_, reject) => window.setTimeout(() => reject(new Error("timeout de 15s")), 15000)),
+    ])
 
+    buscaComTimeout
+      .then((json: any) => {
         const itens = Array.isArray(json?.itens) ? json.itens : []
-        const totalCx = Number(json?.total_cx || 0)
-        const totalLotes = Number(json?.qtd_lotes || itens.length || 0)
-
-        if (ativo) {
-          setPerdasDesvioAnoCx(Math.round(totalCx))
-          setPerdasDesvioAnoLotes(Math.round(totalLotes))
-          setPerdasDesvioAnoItens(itens)
-        }
-      } catch {
-        if (ativo) {
-          setPerdasDesvioAnoCx(0)
-          setPerdasDesvioAnoLotes(0)
-        }
-      } finally {
-        if (ativo) setCarregandoPerdasDesvioAno(false)
-      }
-    })()
-
-    return () => {
-      ativo = false
-    }
-  }, [versaoOverview, perdasDesvioAnoCx, carregandoPerdasDesvioAno])
+        setPerdasDesvioAnoCx(Math.round(Number(json?.total_cx || 0)))
+        setPerdasDesvioAnoLotes(Math.round(Number(json?.qtd_lotes || itens.length || 0)))
+        setPerdasDesvioAnoItens(itens)
+      })
+      .catch((erro: unknown) => {
+        console.error("Falha ao buscar Perdas por desvio (ano):", erro)
+        setPerdasDesvioAnoCx(0)
+        setPerdasDesvioAnoLotes(0)
+      })
+      .finally(() => {
+        setCarregandoPerdasDesvioAno(false)
+      })
+  }, [versaoOverview])
 
   useEffect(() => {
     limparCachesOperacionaisLocaisUmaVez()
