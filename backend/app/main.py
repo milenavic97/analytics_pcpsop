@@ -272,14 +272,14 @@ async def calcular_curva_abc_manual(perfil: dict = Depends(usuario_logado)):
 # TEMPORÁRIO -- REMOVER: só pra testar hoje sem precisar de token no
 # navegador. Sem autenticação de propósito, só enquanto testamos.
 @app.get("/integracao/curva-abc/teste-temporario-remover")
-async def calcular_curva_abc_teste_temporario():
+async def calcular_curva_abc_teste_temporario(perfil: dict = Depends(usuario_logado)):
     return await run_in_threadpool(calcular_curva_abc.calcular_curva_abc)
 
 
 # TEMPORÁRIO -- REMOVER: mesma ideia, força o cache pesado da Gestão de
 # Estoque a recarregar agora, sem precisar de token no navegador.
 @app.get("/integracao/forcar-cache-estoque-teste-temporario-remover")
-async def forcar_cache_estoque_teste_temporario():
+async def forcar_cache_estoque_teste_temporario(perfil: dict = Depends(usuario_logado)):
     return await run_in_threadpool(aging_estoque.preaquecer_todos_caches_aging_estoque, force_refresh=True)
 
 
