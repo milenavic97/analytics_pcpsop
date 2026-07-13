@@ -3886,8 +3886,10 @@ def _calcular_rastreamento_lotes_impl(
         desvios_lote_map.setdefault(lote_desvio, []).append(desvio_item)
 
     # Histórico qualificado:
-    # mantém somente reprovação/descarte que já saiu dos desvios atuais.
-    # Isso explica perda definitiva sem manter "em desvio" antigo vivo.
+    # mantém reprovação/descarte encontrado em qualquer snapshot do ano,
+    # mesmo que o lote também tenha um desvio diferente aberto na posição
+    # atual -- os dois fatos convivem, e desvio_reprovacao (mais abaixo)
+    # já garante que reprovação/descarte tem prioridade sobre "Em desvio".
     chaves_historicas_reprovacao: set[tuple[str, str, str, str]] = set()
 
     for r in rows_desvios_historico:
@@ -3904,10 +3906,15 @@ def _calcular_rastreamento_lotes_impl(
         if chave in chaves_atuais or chave in chaves_historicas_reprovacao:
             continue
 
-        # Se o mesmo lote já aparece nos desvios atuais, não duplica histórico antigo.
-        # A linha atual já vai definir se é em desvio, reprovado, descartado etc.
-        if lote_desvio in desvios_lote_map:
-            continue
+        # Se o mesmo lote já tem exatamente esse desvio na fotografia atual,
+        # não duplica (chave já cobre isso acima). Só isso é motivo de pular --
+        # não pulamos mais só porque o lote aparece na base atual por outro
+        # motivo: um lote pode ter um desvio novo aberto hoje e, ao mesmo
+        # tempo, já ter sido oficialmente reprovado/descartado no passado.
+        # Os dois são fatos verdadeiros e o lote precisa contar como
+        # reprovação/descarte de qualquer forma (ver desvio_reprovacao logo
+        # abaixo, que já prioriza corretamente "Reprovação/desvio" sobre
+        # "Em desvio" quando ambos existem).
 
         chaves_historicas_reprovacao.add(chave)
 
@@ -5768,7 +5775,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
     versions = _rastreamento_upload_versions()
 
     partes = [
-        "rastreamento-cache-v8-mrp-versionado",
+        "rastreamento-cache-v9-reprovacao-historica-convive-com-desvio-atual",
         f"ano:{ano_ref}",
         f"mes:{mes_ref}",
         # O rastreamento tem MTD/previsto até hoje; por isso muda na virada do dia.
