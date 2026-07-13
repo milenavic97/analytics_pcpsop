@@ -1130,6 +1130,10 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   //   desvio ou não -- é isso que faz o card bater com a tabela.
   function loteCorrespondeAoFiltro(l: LoteRastreamento, filtro: string): boolean {
     if (filtro === "DESVIO") return Boolean(l.em_desvio) && etapaFisicaLote(l) !== null;
+    // "Liberados" representa todo lote já entregue -- não pode perder a
+    // contagem só porque também teve variação de rendimento ou desvio
+    // aberto (o que é comum). Bate direto no estado físico, igual as etapas.
+    if (filtro === "LIBERADO") return Boolean(l.check_liberado);
     if (ETAPAS_FISICAS.has(filtro)) return etapaFisicaLote(l) === filtro;
     return statusPrincipalLote(l) === filtro;
   }
