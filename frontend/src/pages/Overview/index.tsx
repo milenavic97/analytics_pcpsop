@@ -870,7 +870,7 @@ function ModalPerdasDesvioAno({
         <div className="flex items-start justify-between gap-4 border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
-              Perdas por desvio (ano)
+              Perdas por reprovação de lote
             </p>
             <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>
               Lotes descartados/reprovados — Jan até hoje
@@ -1638,9 +1638,9 @@ export function OverviewPage() {
                 destaque: true,
               },
               {
-                label: "Perdas por desvio (ano)",
+                label: "Perdas por reprovação de lote",
                 value: perdasDesvioAnoCx != null ? `${fmt(perdasDesvioAnoCx)} cx` : (carregandoPerdasDesvioAno ? "Carregando..." : "—"),
-                sub: perdasDesvioAnoLotes != null ? `${perdasDesvioAnoLotes} lote${perdasDesvioAnoLotes === 1 ? "" : "s"} descartado${perdasDesvioAnoLotes === 1 ? "" : "s"}` : "Jan até hoje",
+                sub: perdasDesvioAnoCx != null ? `${fmt(tubetes(perdasDesvioAnoCx))} tubetes` : "Jan até hoje",
                 icon: AlertTriangle,
                 color: "#DC2626",
                 onClick: perdasDesvioAnoCx != null ? () => setModalPerdasDesvioAno(true) : undefined,

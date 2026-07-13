@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { TrendingUp } from "lucide-react"
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -81,7 +82,7 @@ const COR_ENTRADA_PREVISTA = "#BFC5CD"
 const COR_ENTRADA_PREVISTA_L2 = "#D8DCE2"
 const COR_SAIDA_REAL = "#4F8F75"
 const COR_SAIDA_REAL_MES_ATUAL = "#2F7D5F"
-const COR_FORECAST = "#EF5A5A"
+const COR_FORECAST = "#DC2626"
 const COR_GRID = "#E5E7EB"
 const COR_TEXTO = "#6B7280"
 
@@ -173,10 +174,15 @@ const EntradaRealMesAtualLabel = ({ x, y, width, height, value }: any) => {
 const DisponibilidadeTotalLabel = ({ x, y, width, value }: any) => {
   const total = Number(value || 0)
   if (total <= 0) return null
+  const text = fmt(total)
+  const boxWidth = Math.max(40, text.length * 6.5 + 12)
   return (
-    <text x={x + width / 2} y={y - 10} textAnchor="middle" fontSize={10} fontWeight={700} fill="#5B6472">
-      {fmt(total)}
-    </text>
+    <g>
+      <rect x={x + width / 2 - boxWidth / 2} y={y - 24} width={boxWidth} height={17} rx={6} fill="#EEF1F6" />
+      <text x={x + width / 2} y={y - 11.5} textAnchor="middle" fontSize={10} fontWeight={800} fill="#3D4657">
+        {text}
+      </text>
+    </g>
   )
 }
 
@@ -187,11 +193,14 @@ const LineLabel =
     if (!value || Number(value) <= 0) return null
     if (onlyCurrentDataKey && payload?.[onlyCurrentDataKey] === null) return null
     const text = fmt(value)
-    const width = Math.max(42, text.length * 7 + 12)
+    const width = Math.max(46, text.length * 7 + 16)
     return (
       <g>
-        <rect x={x - width / 2} y={y - 28} width={width} height={22} rx={5} fill={color} />
-        <text x={x} y={y - 13} textAnchor="middle" fontSize={10} fontWeight={700} fill="#FFFFFF">
+        <rect
+          x={x - width / 2} y={y - 29} width={width} height={22} rx={8}
+          fill="#FFFFFF" stroke={color} strokeWidth={1.4}
+        />
+        <text x={x} y={y - 14} textAnchor="middle" fontSize={10} fontWeight={800} fill={color}>
           {text}
         </text>
       </g>
@@ -410,7 +419,13 @@ export function DemandaDisponibilidadeChart({ initialData }: { initialData?: Dis
 
   return (
     <div className="card p-4 md:p-6">
-      <div className="mb-4 text-center">
+      <div className="mb-4 flex items-center justify-center gap-2.5">
+        <div
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl"
+          style={{ background: "rgba(39,51,109,0.09)" }}
+        >
+          <TrendingUp size={16} strokeWidth={2.25} style={{ color: COR_ESTOQUE }} />
+        </div>
         <h3 className="text-base font-medium md:text-xl" style={{ margin: 0, color: "var(--text-secondary)" }}>
           Demanda vs. Disponibilidade <strong>mensal</strong>
         </h3>
