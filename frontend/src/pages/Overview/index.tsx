@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import {
   DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package, CalendarDays, ChevronDown, ChevronUp,
-  Gauge, Sparkles, ArrowLeft,
+  Gauge, Sparkles, ArrowLeft, AlertTriangle,
 } from "lucide-react"
 
 import { DisponibilidadeModal } from "@/components/charts/DisponibilidadeModal"
@@ -1139,64 +1139,15 @@ export function OverviewPage() {
   const gapDispVsFatCaixas = projLibOficial && orcadoFat ? disponibilidadeAnual - orcadoFat.total_caixas : 0
   const corDispVsFat = pctDispVsFat >= 100 ? "#16A34A" : pctDispVsFat >= 95 ? "#F59E0B" : pctDispVsFat > 0 ? "#DC2626" : "var(--text-primary)"
 
-  // Cascata anual (Executivo): mesma soma "V1 - causas = atual" já validada
-  // hoje mês a mês, só que agregada pelos 12 meses -- não uma fórmula nova.
+  // Cascata anual (Executivo): removida por enquanto -- em vez de esperar o
+  // waterfall completo (V1/reprovação/rendimento/atraso residual), ficou só
+  // o card "Perdas por desvio (ano)" abaixo, que reaproveita a mesma soma
+  // já validada de mes_perdas_vs_v1_por_causa.reprovacao_desvio. O resto
+  // (rendimento líquido, atraso/ajuste de plano residual) fica pra retomar
+  // numa próxima entrega, quando a cascata completa carregar rápido o
+  // suficiente pra reunião.
   const plano1BaseAnualCx = orcadoLibPlano1JanV3.total_caixas + estoqueJan
   const diferencaDispVsOrcadaCx = disponibilidadeAnual - plano1BaseAnualCx
-  const waterfallSteps: WaterfallStep[] = useMemo(() => {
-    if (!causasAnuais || !projLibOficial) return []
-
-    // Mesma fórmula validada hoje mês a mês, só que anual:
-    // V1 - atual = reprovação + atraso/ajuste + perda rend. - ganho rend.
-    // "Atraso de produção / Ajuste de plano" é o residual -- tudo que sobra
-    // depois de tirar as duas causas já fechadas/auditáveis. A abertura fina
-    // dessa parte (quanto é atraso real de produção vs ajuste de calendário,
-    // cruzando com a Cogtive) fica pra uma próxima entrega, como combinado.
-    const diferencaAnualCx = plano1BaseAnualCx - disponibilidadeAnual
-    const rendimentoLiquidoCx = causasAnuais.ganhoRendimento - causasAnuais.perdaRendimento
-    const atrasoAjustePlanoCx = diferencaAnualCx - causasAnuais.reprovacao - causasAnuais.perdaRendimento + causasAnuais.ganhoRendimento
-
-    const steps: WaterfallStep[] = [
-      { id: "plano1", label: "Disp. anual orçada", kind: "total", value: plano1BaseAnualCx, tone: "navy" },
-    ]
-
-    if (causasAnuais.reprovacao > 0) {
-      steps.push({
-        id: "reprovacao",
-        label: "Reprov. lote",
-        kind: "delta",
-        value: -causasAnuais.reprovacao,
-        tone: "orange",
-        lotes: causasAnuais.lotesReprovacao.length || undefined,
-      })
-    }
-
-    if (rendimentoLiquidoCx !== 0) {
-      steps.push({
-        id: "rendimento",
-        label: rendimentoLiquidoCx >= 0 ? "Ganho rend." : "Perda rend.",
-        kind: "delta",
-        value: rendimentoLiquidoCx,
-        tone: rendimentoLiquidoCx >= 0 ? "green" : "gray",
-        lotes: causasAnuais.lotesRendimento.length || undefined,
-      })
-    }
-
-    if (Math.abs(atrasoAjustePlanoCx) > 0) {
-      steps.push({
-        id: "atraso-ajuste-plano",
-        label: "Atraso produção / Ajuste de plano",
-        kind: "delta",
-        value: -atrasoAjustePlanoCx,
-        tone: atrasoAjustePlanoCx > 0 ? "red" : "green",
-      })
-    }
-
-    steps.push({ id: "atual", label: "Disp. atual", kind: "total", value: disponibilidadeAnual, tone: "teal" })
-
-    return steps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [causasAnuais, plano1BaseAnualCx, disponibilidadeAnual, projLibOficial])
 
   return (
     <div className="min-h-screen space-y-6 p-3 md:space-y-8 md:p-6">
@@ -1377,6 +1328,14 @@ export function OverviewPage() {
                 onClick: undefined,
                 destaque: true,
               },
+              {
+                label: "Perdas por desvio (ano)",
+                value: causasAnuais ? `${fmt(causasAnuais.reprovacao)} cx` : (carregandoCausasAnuais ? "Carregando..." : "—"),
+                sub: causasAnuais ? `${causasAnuais.lotesReprovacao.length} lote${causasAnuais.lotesReprovacao.length === 1 ? "" : "s"} reprovado${causasAnuais.lotesReprovacao.length === 1 ? "" : "s"}` : "Jan até o mês atual",
+                icon: AlertTriangle,
+                color: "#DC2626",
+                onClick: causasAnuais ? () => setModalCascataStep("reprovacao") : undefined,
+              },
             ].map((k, idx) => (
               <button
                 key={k.label}
@@ -1416,36 +1375,6 @@ export function OverviewPage() {
                 </div>
               </button>
             ))}
-          </div>
-
-          <div className="mt-4 rounded-2xl border bg-white shadow-sm" style={{ borderColor: "var(--border)" }}>
-            <div className="px-5 pt-4 text-center">
-              <p className="text-[13px] font-black uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
-                Causas da variação anual
-              </p>
-            </div>
-
-            {waterfallSteps.length > 0 ? (
-              <WaterfallChart
-                steps={waterfallSteps}
-                maxReference={orcadoFat?.total_caixas || 0}
-                onStepClick={(id) => setModalCascataStep(id === "reprovacao" ? "reprovacao" : id === "rendimento" ? "rendimento" : null)}
-              />
-            ) : (
-              <div className="px-6 pb-5 pt-4">
-                <div
-                  className="flex items-center gap-3 rounded-2xl border px-4 py-3"
-                  style={{ borderColor: "var(--border)", background: "#F8FAFC" }}
-                >
-                  <div className="h-2 w-2 shrink-0 rounded-full bg-slate-300" style={{ animation: carregandoCausasAnuais ? "pulse 1.5s ease-in-out infinite" : undefined }} />
-                  <p className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
-                    {carregandoCausasAnuais
-                      ? "Buscando as causas do ano (uma chamada só)..."
-                      : "Sem causas classificadas o suficiente para montar a cascata ainda."}
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
         </section>
       )}
