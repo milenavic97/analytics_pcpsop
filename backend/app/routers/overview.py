@@ -2622,6 +2622,140 @@ def get_rastreamento_lotes(
     return resultado
 
 
+# Lista oficial de lotes descartados de 2026, validada manualmente pelo PCP
+# (mesma lista usada na Liberação Executiva -- essa parte específica dela é
+# rápida e correta, porque não é um cálculo, é um dado fixo já conferido).
+# Copiada de liberacao_executiva.py de propósito: aqui reaproveitamos só essa
+# lista + uma busca simples na SD3, nunca o resto daquele módulo (que usa
+# tabelas de snapshot auditado instáveis).
+LOTES_DESCARTE_OFICIAL_2026: list[dict] = [
+    {"lote": "2512C2080", "nc": "NC 2026 012", "titulo": "[MED] MEPIADRE - Teor de Cloridrato de mepivacaína abaixo da especificação", "qtd_raw": 104500},
+    {"lote": "2601F2010", "nc": "NC 2026 038", "titulo": "[MED] - ARTICAINE - Linha 2 - Ausência de Monitoramento Ambiental", "qtd_raw": 137500},
+    {"lote": "2603F1010", "nc": "NC 2026 090", "titulo": "[MED] ARTICAINE - Resultado fora de tendência", "qtd_raw": None},
+    {"lote": "2603F1011", "nc": "NC 2026 090", "titulo": "[MED] ARTICAINE - Resultado fora de tendência", "qtd_raw": None},
+    {"lote": "2603F1012", "nc": "NC 2026 090", "titulo": "[MED] ARTICAINE - Resultado fora de tendência", "qtd_raw": None},
+    {"lote": "2603F1013", "nc": "NC 2026 090", "titulo": "[MED] ARTICAINE - Resultado fora de tendência", "qtd_raw": None},
+    {"lote": "2604D1041", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
+    {"lote": "2604D1042", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
+    {"lote": "2604K1005", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
+    {"lote": "2604F1024", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
+    {"lote": "2604F1025", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
+    {"lote": "2604F2026", "nc": "", "titulo": "[MED] - Descarte", "qtd_raw": None},
+    {"lote": "2605F1032", "nc": "", "titulo": "[MED] - Descarte", "qtd_raw": None},
+    {"lote": "2605F2033", "nc": "", "titulo": "[MED] - Descarte", "qtd_raw": None},
+]
+
+
+def _normalizar_lote_desvio_simples(value: Any) -> str:
+    texto = str(value or "").strip().upper()
+    if texto.endswith(".0"):
+        texto = texto[:-2]
+    invalidos = {"", "-", "--", "N/A", "NA", "NAN", "NONE", "NULL"}
+    return "" if texto in invalidos else texto
+
+
+def _qtd_oficial_descarte_cx_simples(value: Any) -> int | None:
+    qtd = _to_float(value, default=0.0)
+    if qtd <= 0:
+        return None
+    if qtd > 10000:
+        return round(qtd / 500.0)
+    return round(qtd)
+
+
+def _qtd_sd3_por_lote_simples(ano: int, lotes: set[str]) -> dict[str, float]:
+    """
+    Busca rápida na SD3, escopada só aos ~14 lotes da lista oficial -- não é
+    uma varredura pesada, é uma consulta filtrada por lote + ano.
+    """
+    lotes_norm = {l for l in lotes if l}
+    if not lotes_norm:
+        return {}
+
+    try:
+        rows = _select_all(
+            supabase.table("f_sd3_entradas")
+            .select("*")
+            .eq("ano", ano)
+            .in_("lote", sorted(lotes_norm))
+        )
+    except Exception:
+        rows = []
+
+    resultado: dict[str, float] = {}
+    for row in rows:
+        lote = _normalizar_lote_desvio_simples(row.get("lote"))
+        if lote not in lotes_norm:
+            continue
+
+        qtd = _to_float(
+            row.get("quantidade")
+            or row.get("qtd")
+            or row.get("qtd_movimento")
+            or row.get("quantidade_liberada")
+            or row.get("qtd_liberada")
+            or row.get("qtd_entrada")
+            or row.get("qtd_cx")
+            or row.get("caixas")
+        )
+        if qtd <= 0:
+            continue
+
+        qtd_cx = round(qtd / 500.0) if qtd > 10000 else round(qtd)
+        resultado[lote] = resultado.get(lote, 0.0) + qtd_cx
+
+    return resultado
+
+
+@router.get("/lotes-descartados-ano")
+def get_lotes_descartados_ano(ano: int | None = Query(default=None)):
+    """
+    Card "Perdas por desvio (ano)" da versão Executivo -- rápido e correto de
+    propósito. Reaproveita só a parte da Liberação Executiva que já provou
+    acertar e ser rápida (a lista oficial validada pelo PCP + SD3), nunca o
+    resto daquele módulo (que usa tabelas de snapshot auditado instáveis).
+
+    Anos sem lista oficial cadastrada (só 2026 por enquanto) voltam vazio.
+    """
+    ano_ref = ano or date.today().year
+
+    if ano_ref != 2026:
+        return {"ano": ano_ref, "total_cx": 0, "qtd_lotes": 0, "itens": []}
+
+    lotes_norm = {_normalizar_lote_desvio_simples(item.get("lote")) for item in LOTES_DESCARTE_OFICIAL_2026}
+    lotes_norm.discard("")
+
+    qtd_sd3 = _qtd_sd3_por_lote_simples(ano_ref, lotes_norm)
+
+    itens: list[dict[str, Any]] = []
+    total_cx = 0
+
+    for item in LOTES_DESCARTE_OFICIAL_2026:
+        lote = _normalizar_lote_desvio_simples(item.get("lote"))
+        nc = str(item.get("nc") or "").strip()
+        titulo = str(item.get("titulo") or "").strip()
+
+        qtd_cx = round(qtd_sd3.get(lote, 0.0))
+        if qtd_cx <= 0:
+            qtd_cx = _qtd_oficial_descarte_cx_simples(item.get("qtd_raw")) or 600
+
+        total_cx += qtd_cx
+        itens.append({
+            "lote": lote,
+            "nc": nc,
+            "motivo": titulo,
+            "destino": "Reprovado - Destino: Descarte",
+            "qtd_cx": qtd_cx,
+        })
+
+    return {
+        "ano": ano_ref,
+        "total_cx": round(total_cx),
+        "qtd_lotes": len(itens),
+        "itens": itens,
+    }
+
+
 @router.get("/causas-anuais")
 def get_overview_causas_anuais(
     ano: int | None = Query(default=None),

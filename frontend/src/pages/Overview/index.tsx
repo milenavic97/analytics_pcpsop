@@ -460,18 +460,15 @@ interface RastreamentoMtdLoadPayload {
   fonte: "mtd_resumo_liberacao" | "fallback"
 }
 
-// Formato de cada item de /desvios/historico-anual (agrupado por NC/serial) --
-// mesmo endpoint já usado pela página de Desvios, rápido, sem recalcular
-// rastreamento nenhum.
+// Formato de cada item de /overview/lotes-descartados-ano -- lista oficial
+// validada pelo PCP (mesma fonte rápida e correta já usada na Liberação
+// Executiva pra essa parte específica) + quantidade da SD3.
 interface ItemDesvioAno {
-  serial: string
-  titulo?: string | null
+  lote: string
+  nc?: string | null
+  motivo?: string | null
   destino?: string | null
-  setor?: string | null
-  dias_desvio?: number | null
-  qtd_lotes: number
-  lotes_texto?: string | null
-  qtd_prevista_total: number
+  qtd_cx: number
 }
 
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
@@ -884,8 +881,8 @@ function ModalPerdasDesvioAno({
               <thead style={{ background: "#F8FAFC" }}>
                 <tr>
                   <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>NC</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Lote</th>
                   <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Motivo</th>
-                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Lotes</th>
                   <th className="px-3 py-2 text-right text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Caixas</th>
                   <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Destino</th>
                 </tr>
@@ -895,11 +892,11 @@ function ModalPerdasDesvioAno({
                   <tr><td className="px-3 py-4 text-center" style={{ color: "var(--text-secondary)" }} colSpan={5}>Nenhum lote descartado/reprovado no período.</td></tr>
                 )}
                 {itens.map((item) => (
-                  <tr key={item.serial} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
-                    <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{item.serial}</td>
-                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{item.titulo || "—"}</td>
-                    <td className="max-w-[280px] px-3 py-2" style={{ color: "var(--text-secondary)" }}>{item.lotes_texto || "—"}</td>
-                    <td className="px-3 py-2 text-right font-bold whitespace-nowrap" style={{ color: "#DC2626" }}>{fmt(item.qtd_prevista_total)} cx</td>
+                  <tr key={item.lote} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+                    <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{item.nc || "—"}</td>
+                    <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{item.lote}</td>
+                    <td className="max-w-[360px] px-3 py-2" style={{ color: "var(--text-secondary)" }}>{item.motivo || "—"}</td>
+                    <td className="px-3 py-2 text-right font-bold whitespace-nowrap" style={{ color: "#DC2626" }}>{fmt(item.qtd_cx)} cx</td>
                     <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{item.destino || "—"}</td>
                   </tr>
                 ))}
@@ -965,15 +962,15 @@ export function OverviewPage() {
       try {
         const authHeaders = await getAuthHeaders()
         const response = await fetch(
-          `${API_BASE}/desvios/historico-anual?ano=${ano}&destino=Descartado&_t=${Date.now()}`,
+          `${API_BASE}/overview/lotes-descartados-ano?ano=${ano}&_t=${Date.now()}`,
           { headers: { ...authHeaders } },
         )
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const json = await response.json()
 
-        const itens = Array.isArray(json?.data) ? json.data : []
-        const totalCx = itens.reduce((acc: number, item: any) => acc + Number(item?.qtd_prevista_total || 0), 0)
-        const totalLotes = itens.reduce((acc: number, item: any) => acc + Number(item?.qtd_lotes || 0), 0)
+        const itens = Array.isArray(json?.itens) ? json.itens : []
+        const totalCx = Number(json?.total_cx || 0)
+        const totalLotes = Number(json?.qtd_lotes || itens.length || 0)
 
         if (ativo) {
           setPerdasDesvioAnoCx(Math.round(totalCx))
