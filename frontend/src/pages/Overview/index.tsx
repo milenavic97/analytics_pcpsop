@@ -787,11 +787,14 @@ type CausasAnuaisResumo = {
 }
 
 async function fetchCausasAnuaisReais(ano: number, mesAtual: number): Promise<CausasAnuaisResumo> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), 45000)
+
   try {
     const authHeaders = await getAuthHeaders()
     const response = await fetch(
       `${API_BASE}/overview/causas-anuais?ano=${ano}&mes_atual=${mesAtual}&_t=${Date.now()}`,
-      { headers: { ...authHeaders } },
+      { headers: { ...authHeaders }, signal: controller.signal },
     )
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const json = await response.json()
@@ -815,6 +818,8 @@ async function fetchCausasAnuaisReais(ano: number, mesAtual: number): Promise<Ca
       lotesReprovacao: [],
       lotesRendimento: [],
     }
+  } finally {
+    window.clearTimeout(timeoutId)
   }
 }
 
@@ -1230,7 +1235,7 @@ export function OverviewPage() {
             <button
               type="button"
               onClick={() => setVersaoOverview((v) => (v === "classico" ? "executivo" : "classico"))}
-              title="Versão em teste do layout — ainda não comunicada ao time"
+              title="Clique para testar a nova versão"
               className="inline-flex items-center gap-1.5 rounded-2xl border px-3.5 py-2 text-xs font-bold shadow-sm transition"
               style={
                 versaoOverview === "classico"
@@ -1370,6 +1375,7 @@ export function OverviewPage() {
                 icon: Gauge,
                 color: corDispVsFat === "var(--text-primary)" ? "#6B7280" : corDispVsFat,
                 onClick: undefined,
+                destaque: true,
               },
             ].map((k, idx) => (
               <button
@@ -1377,8 +1383,12 @@ export function OverviewPage() {
                 type="button"
                 disabled={!k.onClick}
                 onClick={k.onClick}
-                className="relative overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-sm transition hover:shadow-md hover:bg-slate-50"
-                style={{ borderColor: "var(--border)", cursor: k.onClick ? "pointer" : "default" }}
+                className="relative overflow-hidden rounded-2xl border p-4 text-left shadow-sm transition hover:shadow-md"
+                style={
+                  (k as any).destaque
+                    ? { borderColor: k.color, borderWidth: 1.5, background: `${k.color}0D`, cursor: k.onClick ? "pointer" : "default" }
+                    : { borderColor: "var(--border)", background: "#FFFFFF", cursor: k.onClick ? "pointer" : "default" }
+                }
               >
                 <k.icon
                   size={56}
