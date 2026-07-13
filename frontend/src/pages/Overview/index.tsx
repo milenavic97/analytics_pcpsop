@@ -157,9 +157,9 @@ function topRoundedRectPath(x: number, y: number, width: number, height: number,
 // temos esse detalhe reaproveitado, então os steps não são clicáveis).
 function WaterfallChart({ steps, maxReference, onStepClick }: { steps: WaterfallStep[]; maxReference: number; onStepClick?: (id: string) => void }) {
   const width = 1080
-  const height = 236
-  const margin = { top: 30, right: 34, bottom: 54, left: 74 }
-  const plotHeight = 134
+  const height = 175
+  const margin = { top: 22, right: 34, bottom: 42, left: 74 }
+  const plotHeight = 95
   const plotWidth = width - margin.left - margin.right
 
   const totalBarWidth = 36

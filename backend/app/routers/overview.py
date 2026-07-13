@@ -2622,28 +2622,14 @@ def get_rastreamento_lotes(
     return resultado
 
 
-# Lista oficial de lotes descartados de 2026, validada manualmente pelo PCP
-# (mesma lista usada na Liberação Executiva -- essa parte específica dela é
-# rápida e correta, porque não é um cálculo, é um dado fixo já conferido).
-# Copiada de liberacao_executiva.py de propósito: aqui reaproveitamos só essa
-# lista + uma busca simples na SD3, nunca o resto daquele módulo (que usa
-# tabelas de snapshot auditado instáveis).
-LOTES_DESCARTE_OFICIAL_2026: list[dict] = [
-    {"lote": "2512C2080", "nc": "NC 2026 012", "titulo": "[MED] MEPIADRE - Teor de Cloridrato de mepivacaína abaixo da especificação", "qtd_raw": 104500},
-    {"lote": "2601F2010", "nc": "NC 2026 038", "titulo": "[MED] - ARTICAINE - Linha 2 - Ausência de Monitoramento Ambiental", "qtd_raw": 137500},
-    {"lote": "2603F1010", "nc": "NC 2026 090", "titulo": "[MED] ARTICAINE - Resultado fora de tendência", "qtd_raw": None},
-    {"lote": "2603F1011", "nc": "NC 2026 090", "titulo": "[MED] ARTICAINE - Resultado fora de tendência", "qtd_raw": None},
-    {"lote": "2603F1012", "nc": "NC 2026 090", "titulo": "[MED] ARTICAINE - Resultado fora de tendência", "qtd_raw": None},
-    {"lote": "2603F1013", "nc": "NC 2026 090", "titulo": "[MED] ARTICAINE - Resultado fora de tendência", "qtd_raw": None},
-    {"lote": "2604D1041", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
-    {"lote": "2604D1042", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
-    {"lote": "2604K1005", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
-    {"lote": "2604F1024", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
-    {"lote": "2604F1025", "nc": "NC 2026 129", "titulo": "[MED] - Indicador Biológico - ineficiência no processo de esterilização", "qtd_raw": None},
-    {"lote": "2604F2026", "nc": "", "titulo": "[MED] - Descarte", "qtd_raw": None},
-    {"lote": "2605F1032", "nc": "", "titulo": "[MED] - Descarte", "qtd_raw": None},
-    {"lote": "2605F2033", "nc": "", "titulo": "[MED] - Descarte", "qtd_raw": None},
-]
+# Nada de lista fixa por ano: o card "Perdas por desvio (ano)" agora busca
+# ao vivo, direto da mesma função que já alimenta a tela "Histórico de
+# desvios do ano" (desvios.py) -- ela já junta TODOS os snapshots do ano
+# (não só o mais recente), então pega certinho os desvios fechados também,
+# não só os que ainda aparecem na foto atual. Sem chamada HTTP: é a mesma
+# função Python, chamada direto (sem risco de import circular -- desvios.py
+# não importa nada de overview.py).
+from app.routers import desvios as _desvios_router  # noqa: E402
 
 
 def _normalizar_lote_desvio_simples(value: Any) -> str:
@@ -2665,8 +2651,8 @@ def _qtd_oficial_descarte_cx_simples(value: Any) -> int | None:
 
 def _qtd_sd3_por_lote_simples(ano: int, lotes: set[str]) -> dict[str, float]:
     """
-    Busca rápida na SD3, escopada só aos ~14 lotes da lista oficial -- não é
-    uma varredura pesada, é uma consulta filtrada por lote + ano.
+    Busca rápida na SD3, escopada só aos lotes informados -- não é uma
+    varredura pesada, é uma consulta filtrada por lote + ano.
     """
     lotes_norm = {l for l in lotes if l}
     if not lotes_norm:
@@ -2710,43 +2696,66 @@ def _qtd_sd3_por_lote_simples(ano: int, lotes: set[str]) -> dict[str, float]:
 @router.get("/lotes-descartados-ano")
 def get_lotes_descartados_ano(ano: int | None = Query(default=None)):
     """
-    Card "Perdas por desvio (ano)" da versão Executivo -- rápido e correto de
-    propósito. Reaproveita só a parte da Liberação Executiva que já provou
-    acertar e ser rápida (a lista oficial validada pelo PCP + SD3), nunca o
-    resto daquele módulo (que usa tabelas de snapshot auditado instáveis).
+    Card "Perdas por desvio (ano)" da versão Executivo -- automático agora,
+    sem lista fixa por ano. Reaproveita a mesma agregação que já alimenta a
+    tela "Histórico de desvios do ano" (desvios.py -- junta TODOS os
+    snapshots do ano, não só o atual, então pega desvio fechado também) e
+    filtra pelos grupos com destino Descartado, pegando a união dos lotes
+    (um lote não conta duas vezes mesmo se aparecer em mais de um desvio).
 
-    Anos sem lista oficial cadastrada (só 2026 por enquanto) voltam vazio.
+    Quantidade: tenta SD3 (liberado real) primeiro; se o lote ainda não foi
+    liberado (SD3 vazio), usa a quantidade prevista que o próprio histórico
+    de desvios já carrega por lote; se nem isso, cai pro padrão de 600 cx.
     """
     ano_ref = ano or date.today().year
 
-    if ano_ref != 2026:
+    try:
+        historico = _desvios_router._montar_historico_anual_base(ano_ref)
+    except Exception:
         return {"ano": ano_ref, "total_cx": 0, "qtd_lotes": 0, "itens": []}
 
-    lotes_norm = {_normalizar_lote_desvio_simples(item.get("lote")) for item in LOTES_DESCARTE_OFICIAL_2026}
-    lotes_norm.discard("")
+    grupos = historico.get("data") or []
 
-    qtd_sd3 = _qtd_sd3_por_lote_simples(ano_ref, lotes_norm)
+    lotes_info: dict[str, dict[str, Any]] = {}
+    for grupo in grupos:
+        destino_txt = str(grupo.get("destino") or "").strip().upper()
+        if "DESCART" not in destino_txt:
+            continue
+
+        serial = str(grupo.get("serial") or "").strip()
+        nc = "" if serial in {"", "-"} else serial
+        titulo = str(grupo.get("titulo") or "").strip()
+
+        for lote_info in (grupo.get("lotes") or []):
+            lote = _normalizar_lote_desvio_simples(lote_info.get("lote"))
+            if not lote or lote in lotes_info:
+                continue
+            lotes_info[lote] = {
+                "nc": nc,
+                "motivo": titulo,
+                "qtd_prevista": lote_info.get("qtd_prevista"),
+            }
+
+    qtd_sd3 = _qtd_sd3_por_lote_simples(ano_ref, set(lotes_info.keys()))
 
     itens: list[dict[str, Any]] = []
     total_cx = 0
 
-    for item in LOTES_DESCARTE_OFICIAL_2026:
-        lote = _normalizar_lote_desvio_simples(item.get("lote"))
-        nc = str(item.get("nc") or "").strip()
-        titulo = str(item.get("titulo") or "").strip()
-
+    for lote, info in lotes_info.items():
         qtd_cx = round(qtd_sd3.get(lote, 0.0))
         if qtd_cx <= 0:
-            qtd_cx = _qtd_oficial_descarte_cx_simples(item.get("qtd_raw")) or 600
+            qtd_cx = _qtd_oficial_descarte_cx_simples(info.get("qtd_prevista")) or 600
 
         total_cx += qtd_cx
         itens.append({
             "lote": lote,
-            "nc": nc,
-            "motivo": titulo,
+            "nc": info["nc"],
+            "motivo": info["motivo"],
             "destino": "Reprovado - Destino: Descarte",
             "qtd_cx": qtd_cx,
         })
+
+    itens.sort(key=lambda x: -_to_float(x.get("qtd_cx")))
 
     return {
         "ano": ano_ref,
