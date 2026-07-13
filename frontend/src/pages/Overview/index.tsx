@@ -1142,10 +1142,8 @@ export function OverviewPage() {
         <section className="fade-in">
           <p className="card-label mb-3">Indicadores — visão executiva</p>
           <div
-            className="grid gap-px overflow-hidden rounded-2xl border"
+            className="grid gap-4"
             style={{
-              borderColor: "var(--border)",
-              background: "var(--border)",
               gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
             }}
           >
@@ -1204,8 +1202,8 @@ export function OverviewPage() {
                 type="button"
                 disabled={!k.onClick}
                 onClick={k.onClick}
-                className="relative overflow-hidden bg-white p-4 text-left transition hover:bg-slate-50"
-                style={{ cursor: k.onClick ? "pointer" : "default" }}
+                className="relative overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-sm transition hover:shadow-md hover:bg-slate-50"
+                style={{ borderColor: "var(--border)", cursor: k.onClick ? "pointer" : "default" }}
               >
                 <k.icon
                   size={56}
