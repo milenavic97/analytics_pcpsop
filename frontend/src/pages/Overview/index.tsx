@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import {
   DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package, CalendarDays, ChevronDown, ChevronUp,
+  Gauge, Percent, LayoutGrid, Rows3,
 } from "lucide-react"
 
 import { DisponibilidadeModal } from "@/components/charts/DisponibilidadeModal"
@@ -429,6 +430,11 @@ function calcularProjecaoLiberacoesOficial(
 export function OverviewPage() {
   const [cacheInicial] = useState<OverviewPageSnapshot | null>(() => readOverviewPageCache())
 
+  // Seletor Clássico/Executivo -- em teste, não comunicado ainda ao time.
+  // Default sempre "classico": ninguém deve ver a versão nova sem escolher.
+  // Não persiste entre sessões de propósito (cada abertura começa no Clássico).
+  const [versaoOverview, setVersaoOverview] = useState<"classico" | "executivo">("classico")
+
   const [modalLib, setModalLib]               = useState(false)
   const [modalFatOrc, setModalFatOrc]         = useState(false)
   const [modalFatProj, setModalFatProj]       = useState(false)
@@ -720,26 +726,69 @@ export function OverviewPage() {
             Overview - Anestésicos Injetáveis
           </h1>
 
-          <div className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 shadow-sm">
-            <CalendarDays className="h-4 w-4 text-slate-500" />
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 shadow-sm">
+              <CalendarDays className="h-4 w-4 text-slate-500" />
 
-            <span className="text-sm font-medium text-slate-700">
-              Dados atualizados em:
-            </span>
-
-            <span className="text-sm text-slate-500">
-{ultimaAtualizacao ? formatarDataHoraAtualizacao(ultimaAtualizacao) : "--"}
-            </span>
-
-            {atualizandoAutomatico && (
-              <span className="ml-2 text-xs font-semibold text-blue-500">
-                verificando atualização...
+              <span className="text-sm font-medium text-slate-700">
+                Dados atualizados em:
               </span>
-            )}
+
+              <span className="text-sm text-slate-500">
+{ultimaAtualizacao ? formatarDataHoraAtualizacao(ultimaAtualizacao) : "--"}
+              </span>
+
+              {atualizandoAutomatico && (
+                <span className="ml-2 text-xs font-semibold text-blue-500">
+                  verificando atualização...
+                </span>
+              )}
+            </div>
+
+            {/* Seletor de versão -- discreto, em teste. Alterna só o layout dos
+                cards e do gráfico de Demanda vs Disponibilidade; Rastreamento
+                de Lotes e os modais continuam exatamente os mesmos nas duas. */}
+            <div
+              className="inline-flex items-center gap-0.5 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"
+              title="Versão em teste do layout — ainda não comunicada ao time"
+            >
+              <button
+                type="button"
+                onClick={() => setVersaoOverview("classico")}
+                className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition"
+                style={{
+                  background: versaoOverview === "classico" ? "#EFF6FF" : "transparent",
+                  color: versaoOverview === "classico" ? "#1D4ED8" : "var(--text-secondary)",
+                }}
+              >
+                <Rows3 size={13} strokeWidth={2.25} />
+                Clássico
+              </button>
+              <button
+                type="button"
+                onClick={() => setVersaoOverview("executivo")}
+                className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition"
+                style={{
+                  background: versaoOverview === "executivo" ? "#EFF6FF" : "transparent",
+                  color: versaoOverview === "executivo" ? "#1D4ED8" : "var(--text-secondary)",
+                }}
+              >
+                <LayoutGrid size={13} strokeWidth={2.25} />
+                Executivo
+                <span
+                  className="ml-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+                  style={{ background: "#FEF3C7", color: "#92400E" }}
+                >
+                  Beta
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
+      {versaoOverview === "classico" && (
+        <>
       {/* Faturamento */}
       <section>
         <p className="card-label mb-3 fade-in fade-in-1">Faturamento</p>
@@ -788,6 +837,119 @@ export function OverviewPage() {
           </div>
         </div>
       </section>
+        </>
+      )}
+
+      {versaoOverview === "executivo" && (
+        <section className="fade-in">
+          <p className="card-label mb-3">Indicadores — visão executiva</p>
+          <div
+            className="grid gap-px overflow-hidden rounded-2xl border"
+            style={{
+              borderColor: "var(--border)",
+              background: "var(--border)",
+              gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+            }}
+          >
+            {[
+              {
+                label: "Orçado faturamento",
+                value: orcadoFat ? `${fmt(orcadoFat.total_caixas)} cx` : "—",
+                sub: orcadoFat ? `${fmt(tubetes(orcadoFat.total_caixas))} tubetes` : "—",
+                icon: DollarSign,
+                color: "#2563EB",
+                onClick: () => setModalFatOrc(true),
+              },
+              {
+                label: "Faturamento real + S&OP",
+                value: projFat ? `${fmt(projFat.total_projetado)} cx` : "—",
+                sub: projFat ? `${fmt(tubetes(projFat.total_projetado))} tubetes` : "aguardando base",
+                icon: BarChart3,
+                color: "#16A34A",
+                onClick: projFat ? () => setModalFatProj(true) : undefined,
+              },
+              {
+                label: "% Atingimento faturamento",
+                value: projFat && pctFat > 0 ? `${pctFat.toFixed(1).replace(".", ",")}%` : "—",
+                sub: projFat && ultimoMesFat ? `fechado até ${ultimoMesFat}/26` : "—",
+                icon: Percent,
+                color: corPctFat === "var(--text-primary)" ? "#6B7280" : corPctFat,
+                onClick: undefined,
+              },
+              {
+                label: "Orçado liberações anual",
+                value: `${fmt(orcadoLibPlano1JanV3.total_caixas)} cx`,
+                sub: `${fmt(orcadoLibPlano1JanV3.total_tubetes)} tubetes`,
+                icon: PackageCheck,
+                color: "#7C3AED",
+                onClick: () => setModalLib(true),
+              },
+              {
+                label: "Liberações reais + previstas",
+                value: projLibOficial ? `${fmt(projLibOficial.total_projetado)} cx` : "—",
+                sub: projLibOficial ? `${fmt(tubetes(projLibOficial.total_projetado))} tubetes` : "aguardando base",
+                icon: Package,
+                color: "#EA580C",
+                onClick: projLibOficial ? () => setModalLibProj(true) : undefined,
+              },
+              {
+                label: "% Liberações vs orçado",
+                value: projLibOficial && pctLib > 0 ? `${pctLib.toFixed(1).replace(".", ",")}%` : "—",
+                sub: projLibOficial && ultimoMesLib ? `fechado até ${ultimoMesLib}/26` : "—",
+                icon: Percent,
+                color: corPctLib === "var(--text-primary)" ? "#6B7280" : corPctLib,
+                onClick: undefined,
+              },
+              {
+                label: "Disponibilidade / orçado fat.",
+                value: pctDispVsFat > 0 ? `${pctDispVsFat.toFixed(1).replace(".", ",")}%` : "—",
+                sub: projLibOficial ? `${fmt(disponibilidadeAnual)} cx disponível` : "—",
+                icon: Gauge,
+                color: corDispVsFat === "var(--text-primary)" ? "#6B7280" : corDispVsFat,
+                onClick: undefined,
+              },
+            ].map((k, idx) => (
+              <button
+                key={k.label}
+                type="button"
+                disabled={!k.onClick}
+                onClick={k.onClick}
+                className="relative overflow-hidden bg-white p-4 text-left transition hover:bg-slate-50"
+                style={{ cursor: k.onClick ? "pointer" : "default" }}
+              >
+                <k.icon
+                  size={56}
+                  strokeWidth={1.5}
+                  style={{ position: "absolute", right: -8, bottom: -12, color: k.color, opacity: 0.06, pointerEvents: "none" }}
+                />
+                <div className="flex items-center gap-3">
+                  <div
+                    className="flex h-10 w-10 min-w-10 items-center justify-center rounded-xl"
+                    style={{ background: `${k.color}17`, animationDelay: `${idx * 60}ms` }}
+                  >
+                    <k.icon size={20} strokeWidth={2.25} style={{ color: k.color }} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                      {k.label}
+                    </p>
+                    <p className="truncate text-lg font-bold leading-tight" style={{ color: "var(--text-primary)" }}>
+                      {k.value}
+                    </p>
+                    <p className="truncate text-[11px] font-medium" style={{ color: "var(--text-muted, var(--text-secondary))" }}>
+                      {k.sub}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+            Cascata "Causas da Variação Anual" — em construção, chega numa próxima entrega.
+          </p>
+        </section>
+      )}
 
       {/* Demanda vs Disponibilidade */}
       <section className="fade-in fade-in-4">
