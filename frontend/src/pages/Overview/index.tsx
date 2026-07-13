@@ -460,6 +460,20 @@ interface RastreamentoMtdLoadPayload {
   fonte: "mtd_resumo_liberacao" | "fallback"
 }
 
+// Formato de cada item de /desvios/historico-anual (agrupado por NC/serial) --
+// mesmo endpoint já usado pela página de Desvios, rápido, sem recalcular
+// rastreamento nenhum.
+interface ItemDesvioAno {
+  serial: string
+  titulo?: string | null
+  destino?: string | null
+  setor?: string | null
+  dias_desvio?: number | null
+  qtd_lotes: number
+  lotes_texto?: string | null
+  qtd_prevista_total: number
+}
+
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
@@ -823,6 +837,81 @@ async function fetchCausasAnuaisReais(ano: number, mesAtual: number): Promise<Ca
   }
 }
 
+function ModalPerdasDesvioAno({
+  open,
+  onClose,
+  itens,
+  totalCx,
+}: {
+  open: boolean
+  onClose: () => void
+  itens: ItemDesvioAno[]
+  totalCx: number | null
+}) {
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(15,23,42,0.45)" }}
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
+        style={{ borderColor: "var(--border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
+              Perdas por desvio (ano)
+            </p>
+            <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+              Lotes descartados/reprovados — Jan até hoje
+            </h2>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+              {itens.length} NC{itens.length === 1 ? "" : "s"}, {fmt(totalCx || 0)} cx no total. Mesma fonte da página de Desvios.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl p-2 text-lg transition hover:bg-black/5" aria-label="Fechar">
+            ✕
+          </button>
+        </div>
+
+        <div className="overflow-auto p-5">
+          <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+            <table className="w-full text-sm">
+              <thead style={{ background: "#F8FAFC" }}>
+                <tr>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>NC</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Motivo</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Lotes</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Caixas</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Destino</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itens.length === 0 && (
+                  <tr><td className="px-3 py-4 text-center" style={{ color: "var(--text-secondary)" }} colSpan={5}>Nenhum lote descartado/reprovado no período.</td></tr>
+                )}
+                {itens.map((item) => (
+                  <tr key={item.serial} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+                    <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{item.serial}</td>
+                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{item.titulo || "—"}</td>
+                    <td className="max-w-[280px] px-3 py-2" style={{ color: "var(--text-secondary)" }}>{item.lotes_texto || "—"}</td>
+                    <td className="px-3 py-2 text-right font-bold whitespace-nowrap" style={{ color: "#DC2626" }}>{fmt(item.qtd_prevista_total)} cx</td>
+                    <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{item.destino || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function OverviewPage() {
   const [cacheInicial] = useState<OverviewPageSnapshot | null>(() => readOverviewPageCache())
 
@@ -836,7 +925,15 @@ export function OverviewPage() {
   const [modalFatProj, setModalFatProj]       = useState(false)
   const [modalLibProj, setModalLibProj]       = useState(false)
   const [modalPrevistoHoje, setModalPrevistoHoje] = useState(false)
-  const [modalCascataStep, setModalCascataStep] = useState<"reprovacao" | "rendimento" | null>(null)
+  // Perdas por desvio (ano) -- card só informativo (sem modal), buscando
+  // direto do endpoint da própria página de Desvios, que já é rápido (uma
+  // consulta simples agrupada por NC, sem recalcular rastreamento de 12
+  // meses como a tentativa anterior fazia).
+  const [perdasDesvioAnoCx, setPerdasDesvioAnoCx] = useState<number | null>(null)
+  const [perdasDesvioAnoLotes, setPerdasDesvioAnoLotes] = useState<number | null>(null)
+  const [carregandoPerdasDesvioAno, setCarregandoPerdasDesvioAno] = useState(false)
+  const [perdasDesvioAnoItens, setPerdasDesvioAnoItens] = useState<ItemDesvioAno[]>([])
+  const [modalPerdasDesvioAno, setModalPerdasDesvioAno] = useState(false)
   const [atendimentoAberto, setAtendimentoAberto] = useState(false)
   const [carregarDetalhes, setCarregarDetalhes] = useState(Boolean(cacheInicial))
   const [versaoCarregada, setVersaoCarregada] = useState<string | null>(cacheInicial?.version ?? null)
@@ -857,31 +954,46 @@ export function OverviewPage() {
   const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(cacheInicial?.mtdCxLiberado ?? 0)
   const [mtdLiberacaoOficial, setMtdLiberacaoOficial] = useState<RastreamentoMtdLoadPayload | null>(null)
 
-  // Cascata anual (versão Executivo) -- carrega só quando o usuário troca pra
-  // Executivo, uma vez só por sessão. Nunca busca nada da Liberação Executiva.
-  const [causasAnuais, setCausasAnuais] = useState<CausasAnuaisResumo | null>(null)
-  const [carregandoCausasAnuais, setCarregandoCausasAnuais] = useState(false)
-
   useEffect(() => {
-    if (versaoOverview !== "executivo" || causasAnuais || carregandoCausasAnuais) return
+    if (versaoOverview !== "executivo" || perdasDesvioAnoCx !== null || carregandoPerdasDesvioAno) return
 
     let ativo = true
-    const anoAtual = new Date().getFullYear()
-    const mesAtualNum = new Date().getMonth() + 1
+    const ano = new Date().getFullYear()
 
-    setCarregandoCausasAnuais(true)
-    fetchCausasAnuaisReais(anoAtual, mesAtualNum)
-      .then((resumo) => {
-        if (ativo) setCausasAnuais(resumo)
-      })
-      .finally(() => {
-        if (ativo) setCarregandoCausasAnuais(false)
-      })
+    setCarregandoPerdasDesvioAno(true)
+    ;(async () => {
+      try {
+        const authHeaders = await getAuthHeaders()
+        const response = await fetch(
+          `${API_BASE}/desvios/historico-anual?ano=${ano}&destino=Descartado&_t=${Date.now()}`,
+          { headers: { ...authHeaders } },
+        )
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const json = await response.json()
+
+        const itens = Array.isArray(json?.data) ? json.data : []
+        const totalCx = itens.reduce((acc: number, item: any) => acc + Number(item?.qtd_prevista_total || 0), 0)
+        const totalLotes = itens.reduce((acc: number, item: any) => acc + Number(item?.qtd_lotes || 0), 0)
+
+        if (ativo) {
+          setPerdasDesvioAnoCx(Math.round(totalCx))
+          setPerdasDesvioAnoLotes(Math.round(totalLotes))
+          setPerdasDesvioAnoItens(itens)
+        }
+      } catch {
+        if (ativo) {
+          setPerdasDesvioAnoCx(0)
+          setPerdasDesvioAnoLotes(0)
+        }
+      } finally {
+        if (ativo) setCarregandoPerdasDesvioAno(false)
+      }
+    })()
 
     return () => {
       ativo = false
     }
-  }, [versaoOverview, causasAnuais, carregandoCausasAnuais])
+  }, [versaoOverview, perdasDesvioAnoCx, carregandoPerdasDesvioAno])
 
   useEffect(() => {
     limparCachesOperacionaisLocaisUmaVez()
@@ -1139,13 +1251,11 @@ export function OverviewPage() {
   const gapDispVsFatCaixas = projLibOficial && orcadoFat ? disponibilidadeAnual - orcadoFat.total_caixas : 0
   const corDispVsFat = pctDispVsFat >= 100 ? "#16A34A" : pctDispVsFat >= 95 ? "#F59E0B" : pctDispVsFat > 0 ? "#DC2626" : "var(--text-primary)"
 
-  // Cascata anual (Executivo): removida por enquanto -- em vez de esperar o
-  // waterfall completo (V1/reprovação/rendimento/atraso residual), ficou só
-  // o card "Perdas por desvio (ano)" abaixo, que reaproveita a mesma soma
-  // já validada de mes_perdas_vs_v1_por_causa.reprovacao_desvio. O resto
-  // (rendimento líquido, atraso/ajuste de plano residual) fica pra retomar
-  // numa próxima entrega, quando a cascata completa carregar rápido o
-  // suficiente pra reunião.
+  // Cascata anual (Executivo): removida por completo -- o card "Perdas por
+  // desvio (ano)" que a substituía ficava travado em "Carregando..." (mesmo
+  // bug do waterfall original, causa ainda não encontrada), então também
+  // saiu. Fica pendente retomar isso numa sessão calma, com o DevTools
+  // aberto pra ver exatamente onde a chamada trava.
   const plano1BaseAnualCx = orcadoLibPlano1JanV3.total_caixas + estoqueJan
   const diferencaDispVsOrcadaCx = disponibilidadeAnual - plano1BaseAnualCx
 
@@ -1330,11 +1440,11 @@ export function OverviewPage() {
               },
               {
                 label: "Perdas por desvio (ano)",
-                value: causasAnuais ? `${fmt(causasAnuais.reprovacao)} cx` : (carregandoCausasAnuais ? "Carregando..." : "—"),
-                sub: causasAnuais ? `${causasAnuais.lotesReprovacao.length} lote${causasAnuais.lotesReprovacao.length === 1 ? "" : "s"} reprovado${causasAnuais.lotesReprovacao.length === 1 ? "" : "s"}` : "Jan até o mês atual",
+                value: perdasDesvioAnoCx != null ? `${fmt(perdasDesvioAnoCx)} cx` : (carregandoPerdasDesvioAno ? "Carregando..." : "—"),
+                sub: perdasDesvioAnoLotes != null ? `${perdasDesvioAnoLotes} lote${perdasDesvioAnoLotes === 1 ? "" : "s"} descartado${perdasDesvioAnoLotes === 1 ? "" : "s"}` : "Jan até hoje",
                 icon: AlertTriangle,
                 color: "#DC2626",
-                onClick: causasAnuais ? () => setModalCascataStep("reprovacao") : undefined,
+                onClick: perdasDesvioAnoCx != null ? () => setModalPerdasDesvioAno(true) : undefined,
               },
             ].map((k, idx) => (
               <button
@@ -1450,11 +1560,11 @@ export function OverviewPage() {
       <ProjecaoFaturamentoModal open={modalFatProj} onClose={() => setModalFatProj(false)} />
       <ProjecaoLiberacoesModal open={modalLibProj} onClose={() => setModalLibProj(false)} />
       <PrevistoAteHojeModal open={modalPrevistoHoje} onClose={() => setModalPrevistoHoje(false)} data={detalhePrevistoHoje} />
-      <ModalCascataDetalhe
-        tipo={modalCascataStep}
-        onClose={() => setModalCascataStep(null)}
-        lotesReprovacao={causasAnuais?.lotesReprovacao || []}
-        lotesRendimento={causasAnuais?.lotesRendimento || []}
+      <ModalPerdasDesvioAno
+        open={modalPerdasDesvioAno}
+        onClose={() => setModalPerdasDesvioAno(false)}
+        itens={perdasDesvioAnoItens}
+        totalCx={perdasDesvioAnoCx}
       />
     </div>
   )
