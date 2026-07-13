@@ -19,7 +19,6 @@ import { CalendarioParadasPage } from "./pages/calendario-paradas"
 
 import { Layout } from "./components/layout/Layout"
 import { ProtectedRoute } from "./components/ProtectedRoute"
-import { MfaGate } from "./components/MfaGate"
 import { prefetchAppData } from "./services/api"
 
 export default function App() {
@@ -37,15 +36,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
 
-          <Route
-            element={
-              <ProtectedRoute>
-                <MfaGate>
-                  <Layout />
-                </MfaGate>
-              </ProtectedRoute>
-            }
-          >
+          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/overview" element={<OverviewPage />} />
             <Route path="/liberacao-executiva" element={<LiberacaoExecutiva />} />
             <Route path="/producao/*" element={<ProducaoPage />} />
