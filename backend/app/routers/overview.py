@@ -3,7 +3,7 @@ from app.database import supabase
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from threading import Lock
-from typing import Optional
+from typing import Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
 import re
