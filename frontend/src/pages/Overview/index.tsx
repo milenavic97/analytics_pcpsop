@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import {
   DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package, CalendarDays, ChevronDown, ChevronUp,
-  Gauge, Percent, LayoutGrid, Rows3,
+  Gauge, Percent, Sparkles, ArrowLeft,
 } from "lucide-react"
 
 import { DisponibilidadeModal } from "@/components/charts/DisponibilidadeModal"
@@ -18,6 +18,14 @@ import {
   getOverviewResumoVersao,
   type OverviewResumoResponse,
 } from "@/services/api"
+import { getAuthHeaders } from "../../lib/authHeaders"
+
+const API_BASE = String(
+  import.meta.env.VITE_API_URL ||
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_BASE ||
+  "https://dfl-sop-api.fly.dev",
+).replace(/\/$/, "")
 
 const TUBETES_POR_CAIXA = 500
 
@@ -91,6 +99,186 @@ function formatarDataHoraAtualizacao(value?: string | null) {
 }
 
 const MES_LABELS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+
+// --- Cascata "Causas da Variação Anual" (versão Executivo) ---------------
+// O DESENHO (WaterfallChart/getToneStyles/topRoundedRectPath) foi adaptado do
+// componente puramente visual da Liberação Executiva (recebe steps prontos,
+// não busca dado nenhum sozinho). Os NÚMEROS, porém, NUNCA vêm de lá -- vêm
+// do mesmo endpoint estável já corrigido hoje (/overview/rastreamento-lotes-cache),
+// somando o causas-por-mês (mes_perdas_vs_v1_por_causa) de cada mês já
+// fechado do ano, em vez de tratar só o mês atual como se fosse o ano inteiro.
+type Tone = "blue" | "navy" | "purple" | "teal" | "red" | "orange" | "gray" | "green" | "slate"
+
+type WaterfallStep = {
+  id: string
+  label: string
+  kind: "total" | "delta"
+  value: number
+  tone: Tone
+  lotes?: number
+}
+
+function fmtLotesQtd(lotes?: number) {
+  if (lotes == null || Number.isNaN(Number(lotes))) return ""
+  const valor = Math.round(Math.abs(Number(lotes || 0)))
+  return `${fmt(valor)} ${valor === 1 ? "lote" : "lotes"}`
+}
+
+function getToneStyles(tone: Tone) {
+  const tones: Record<Tone, { iconBg: string; iconColor: string; valueColor: string; barColor: string }> = {
+    blue: { iconBg: "#EEF4FF", iconColor: "#2563EB", valueColor: "#1D4ED8", barColor: "#2563EB" },
+    navy: { iconBg: "#EAF1F8", iconColor: "#1F4164", valueColor: "#1F4164", barColor: "#1F4164" },
+    purple: { iconBg: "#F3E8FF", iconColor: "#7C3AED", valueColor: "#7C3AED", barColor: "#7C3AED" },
+    teal: { iconBg: "#E6FFFB", iconColor: "#0F766E", valueColor: "#0F766E", barColor: "#0F766E" },
+    red: { iconBg: "#FEF2F2", iconColor: "#DC2626", valueColor: "#DC2626", barColor: "#DC2626" },
+    orange: { iconBg: "#FFF7ED", iconColor: "#C2410C", valueColor: "#C2410C", barColor: "#C2410C" },
+    gray: { iconBg: "#F3F4F6", iconColor: "#64748B", valueColor: "#475569", barColor: "#64748B" },
+    green: { iconBg: "#ECFDF5", iconColor: "#16A34A", valueColor: "#16A34A", barColor: "#16A34A" },
+    slate: { iconBg: "#F1F5F9", iconColor: "#334155", valueColor: "#334155", barColor: "#334155" },
+  }
+  return tones[tone]
+}
+
+function topRoundedRectPath(x: number, y: number, width: number, height: number, radius = 4) {
+  const r = Math.max(0, Math.min(radius, width / 2, height))
+  return [
+    `M ${x} ${y + height}`,
+    `L ${x} ${y + r}`,
+    `Q ${x} ${y} ${x + r} ${y}`,
+    `L ${x + width - r} ${y}`,
+    `Q ${x + width} ${y} ${x + width} ${y + r}`,
+    `L ${x + width} ${y + height}`,
+    "Z",
+  ].join(" ")
+}
+
+// Versão somente-leitura do WaterfallChart -- sem clique/modal por enquanto
+// (a Liberação Executiva abre detalhe de lote ao clicar; aqui ainda não
+// temos esse detalhe reaproveitado, então os steps não são clicáveis).
+function WaterfallChart({ steps, maxReference }: { steps: WaterfallStep[]; maxReference: number }) {
+  const width = 1080
+  const height = 236
+  const margin = { top: 30, right: 34, bottom: 54, left: 74 }
+  const plotHeight = 134
+  const plotWidth = width - margin.left - margin.right
+
+  const totalBarWidth = 36
+  const stepWidth = 28
+  const minDeltaVisualHeight = 1.2
+
+  type ProcessedStep = WaterfallStep & { index: number; before: number; after: number; displayValue: number }
+
+  let running = 0
+  const bars: ProcessedStep[] = steps.map((step, index) => {
+    if (step.kind === "total") {
+      const after = Number(step.value || 0)
+      running = after
+      return { ...step, index, before: 0, after, displayValue: after }
+    }
+    const before = running
+    const delta = Number(step.value || 0)
+    const after = running + delta
+    running = after
+    return { ...step, index, before, after, displayValue: delta }
+  })
+
+  const maxLevel = Math.max(...bars.flatMap((bar) => [bar.before, bar.after]), maxReference, 1)
+  const maxValue = Math.ceil((maxLevel * 1.06) / 5000) * 5000
+  const y = (value: number) => margin.top + ((maxValue - value) / maxValue) * plotHeight
+  const baselineY = y(0)
+  const x = (index: number) => margin.left + (index * plotWidth) / Math.max(bars.length - 1, 1)
+
+  const getConnectorTargetX = (index: number) => {
+    const next = bars[index + 1]
+    if (!next) return x(index)
+    return x(index + 1) - (next.kind === "total" ? totalBarWidth : stepWidth) / 2
+  }
+
+  return (
+    <div className="overflow-x-auto px-4 pb-4 pt-1">
+      <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[1080px]">
+        <rect x="0" y="0" width={width} height={height} rx="18" fill="#FFFFFF" />
+
+        {bars.map((bar, index) => {
+          const isTotal = bar.kind === "total"
+          const isPositiveDelta = !isTotal && bar.displayValue > 0
+          const isNegativeDelta = !isTotal && bar.displayValue < 0
+          const styles = getToneStyles(bar.tone)
+          const next = bars[index + 1]
+          const currentX = x(index)
+          const valueLabel = isTotal
+            ? `${fmt(bar.after)} cx`
+            : `${isPositiveDelta ? "+" : "-"}${fmt(Math.abs(bar.displayValue))} cx`
+
+          if (isTotal) {
+            const yTop = y(bar.after)
+            const barHeight = baselineY - yTop
+            const xx = currentX - totalBarWidth / 2
+            const connectorX1 = currentX + totalBarWidth / 2
+            const connectorX2 = getConnectorTargetX(index)
+
+            return (
+              <g key={bar.id}>
+                <path d={topRoundedRectPath(xx, yTop, totalBarWidth, barHeight, 4)} fill={styles.barColor} opacity="0.92" />
+                {next && (
+                  <line x1={connectorX1} x2={connectorX2} y1={yTop} y2={yTop} stroke="#CBD5E1" strokeWidth="1.4" strokeDasharray="4 5" />
+                )}
+                {bar.lotes != null && (
+                  <text x={currentX} y={yTop - 18} textAnchor="middle" fontSize="8" fontWeight="700" fill="#64748B">
+                    {fmtLotesQtd(bar.lotes)}
+                  </text>
+                )}
+                <text x={currentX} y={yTop - 7} textAnchor="middle" fontSize="10.5" fontWeight="900" fill={styles.valueColor}>
+                  {valueLabel}
+                </text>
+                <text x={currentX} y={height - 19} textAnchor="middle" fontSize="9.5" fontWeight="900" fill="#0F172A">
+                  {bar.label}
+                </text>
+              </g>
+            )
+          }
+
+          const beforeY = y(bar.before)
+          const afterY = y(bar.after)
+          const rawDeltaHeight = Math.abs(beforeY - afterY)
+          const deltaHeight = Math.max(minDeltaVisualHeight, rawDeltaHeight)
+          const top = rawDeltaHeight < minDeltaVisualHeight ? (beforeY + afterY) / 2 - deltaHeight / 2 : Math.min(beforeY, afterY)
+          const xx = currentX - stepWidth / 2
+          const connectorX1 = currentX + stepWidth / 2
+          const connectorX2 = getConnectorTargetX(index)
+
+          return (
+            <g key={bar.id}>
+              <line x1={currentX} x2={currentX} y1={beforeY} y2={afterY} stroke={styles.barColor} strokeWidth="1.1" strokeDasharray="3 4" opacity="0.18" />
+              <path d={topRoundedRectPath(xx, top, stepWidth, deltaHeight, 2.5)} fill={styles.barColor} opacity="0.96" />
+              {next && (
+                <line x1={connectorX1} x2={connectorX2} y1={afterY} y2={afterY} stroke="#CBD5E1" strokeWidth="1.4" strokeDasharray="4 5" />
+              )}
+              {bar.lotes != null && (
+                <text x={currentX} y={isNegativeDelta ? top + deltaHeight + 13 : top - 4} textAnchor="middle" fontSize="8" fontWeight="700" fill="#64748B">
+                  {fmtLotesQtd(bar.lotes)}
+                </text>
+              )}
+              <text
+                x={currentX}
+                y={isNegativeDelta ? top + deltaHeight + 25 : top - 15}
+                textAnchor="middle"
+                fontSize="9.5"
+                fontWeight="900"
+                fill={isPositiveDelta ? "#16A34A" : isNegativeDelta ? "#DC2626" : styles.valueColor}
+              >
+                {valueLabel}
+              </text>
+              <text x={currentX} y={height - 19} textAnchor="middle" fontSize="9.5" fontWeight="900" fill="#0F172A">
+                {bar.label}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
 
 // Orçado oficial de liberações = Plano 1 do ano (MPS Jan/2026 V3), sem estoque inicial.
 // Mantém o card da Overview alinhado com a Liberação Executiva.
@@ -427,6 +615,64 @@ function calcularProjecaoLiberacoesOficial(
   }
 }
 
+// Soma o causas-por-mês (já corrigido hoje, arredondamento em float) de cada
+// mês já fechado/em andamento do ano, buscando o mesmo endpoint estável que
+// alimenta o Rastreamento de Lotes -- NUNCA os endpoints da Liberação
+// Executiva (/liberacao-executiva/causas-anuais etc.), que é a página
+// instável que não deve ser fonte de número nenhum aqui.
+type CausasAnuaisResumo = {
+  atraso: number
+  reprovacao: number
+  perdaRendimento: number
+  ganhoRendimento: number
+  mesesSomados: number
+}
+
+async function fetchCausasAnuaisReais(ano: number, mesAtual: number): Promise<CausasAnuaisResumo> {
+  const authHeaders = await getAuthHeaders()
+
+  const buscas = await Promise.all(
+    Array.from({ length: mesAtual }, async (_, index) => {
+      const mes = index + 1
+      try {
+        const response = await fetch(
+          `${API_BASE}/overview/rastreamento-lotes-cache?mes=${mes}&ano=${ano}&allow_stale=true&_t=${Date.now()}`,
+          { headers: { ...authHeaders } },
+        )
+        if (!response.ok) return null
+        const json = await response.json()
+        return json?.payload || json
+      } catch {
+        return null
+      }
+    }),
+  )
+
+  let atraso = 0
+  let reprovacao = 0
+  let perdaRendimento = 0
+  let ganhoRendimento = 0
+  let mesesSomados = 0
+
+  buscas.forEach((payload) => {
+    if (!payload) return
+    const causas = payload?.mes_perdas_vs_v1_por_causa || {}
+    atraso += Math.abs(Number(causas?.atraso_producao || 0))
+    reprovacao += Math.abs(Number(causas?.reprovacao_desvio || 0))
+    perdaRendimento += Math.abs(Number(causas?.rendimento || 0))
+    ganhoRendimento += Math.abs(Number(causas?.ganho_rendimento || 0))
+    mesesSomados += 1
+  })
+
+  return {
+    atraso: Math.round(atraso),
+    reprovacao: Math.round(reprovacao),
+    perdaRendimento: Math.round(perdaRendimento),
+    ganhoRendimento: Math.round(ganhoRendimento),
+    mesesSomados,
+  }
+}
+
 export function OverviewPage() {
   const [cacheInicial] = useState<OverviewPageSnapshot | null>(() => readOverviewPageCache())
 
@@ -459,6 +705,32 @@ export function OverviewPage() {
   const [mtdCxPrevisto, setMtdCxPrevisto] = useState<number>(cacheInicial?.mtdCxPrevisto ?? 0)
   const [mtdCxLiberado, setMtdCxLiberado] = useState<number>(cacheInicial?.mtdCxLiberado ?? 0)
   const [mtdLiberacaoOficial, setMtdLiberacaoOficial] = useState<RastreamentoMtdLoadPayload | null>(null)
+
+  // Cascata anual (versão Executivo) -- carrega só quando o usuário troca pra
+  // Executivo, uma vez só por sessão. Nunca busca nada da Liberação Executiva.
+  const [causasAnuais, setCausasAnuais] = useState<CausasAnuaisResumo | null>(null)
+  const [carregandoCausasAnuais, setCarregandoCausasAnuais] = useState(false)
+
+  useEffect(() => {
+    if (versaoOverview !== "executivo" || causasAnuais || carregandoCausasAnuais) return
+
+    let ativo = true
+    const anoAtual = new Date().getFullYear()
+    const mesAtualNum = new Date().getMonth() + 1
+
+    setCarregandoCausasAnuais(true)
+    fetchCausasAnuaisReais(anoAtual, mesAtualNum)
+      .then((resumo) => {
+        if (ativo) setCausasAnuais(resumo)
+      })
+      .finally(() => {
+        if (ativo) setCarregandoCausasAnuais(false)
+      })
+
+    return () => {
+      ativo = false
+    }
+  }, [versaoOverview, causasAnuais, carregandoCausasAnuais])
 
   useEffect(() => {
     limparCachesOperacionaisLocaisUmaVez()
@@ -716,6 +988,35 @@ export function OverviewPage() {
   const gapDispVsFatCaixas = projLibOficial && orcadoFat ? disponibilidadeAnual - orcadoFat.total_caixas : 0
   const corDispVsFat = pctDispVsFat >= 100 ? "#16A34A" : pctDispVsFat >= 95 ? "#F59E0B" : pctDispVsFat > 0 ? "#DC2626" : "var(--text-primary)"
 
+  // Cascata anual (Executivo): mesma soma "V1 - causas = atual" já validada
+  // hoje mês a mês, só que agregada pelos 12 meses -- não uma fórmula nova.
+  const plano1BaseAnualCx = orcadoLibPlano1JanV3.total_caixas + estoqueJan
+  const waterfallSteps: WaterfallStep[] = useMemo(() => {
+    if (!causasAnuais || !projLibOficial) return []
+
+    const steps: WaterfallStep[] = [
+      { id: "plano1", label: "Disp. anual orçada", kind: "total", value: plano1BaseAnualCx, tone: "navy" },
+    ]
+
+    if (causasAnuais.atraso > 0) {
+      steps.push({ id: "atraso", label: "Atraso prod.", kind: "delta", value: -causasAnuais.atraso, tone: "red" })
+    }
+    if (causasAnuais.reprovacao > 0) {
+      steps.push({ id: "reprovacao", label: "Reprov. lote", kind: "delta", value: -causasAnuais.reprovacao, tone: "orange" })
+    }
+    if (causasAnuais.perdaRendimento > 0) {
+      steps.push({ id: "rendimento", label: "Perda rend.", kind: "delta", value: -causasAnuais.perdaRendimento, tone: "gray" })
+    }
+    if (causasAnuais.ganhoRendimento > 0) {
+      steps.push({ id: "ganho", label: "Ganho rend.", kind: "delta", value: causasAnuais.ganhoRendimento, tone: "green" })
+    }
+
+    steps.push({ id: "atual", label: "Disp. atual", kind: "total", value: disponibilidadeAnual, tone: "teal" })
+
+    return steps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [causasAnuais, plano1BaseAnualCx, disponibilidadeAnual, projLibOficial])
+
   return (
     <div className="min-h-screen space-y-6 p-3 md:space-y-8 md:p-6">
 
@@ -745,44 +1046,40 @@ export function OverviewPage() {
               )}
             </div>
 
-            {/* Seletor de versão -- discreto, em teste. Alterna só o layout dos
-                cards e do gráfico de Demanda vs Disponibilidade; Rastreamento
-                de Lotes e os modais continuam exatamente os mesmos nas duas. */}
-            <div
-              className="inline-flex items-center gap-0.5 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"
+            {/* Botão único, muda de texto conforme a versão atual -- convida a
+                experimentar em vez de listar duas opções lado a lado.
+                Alterna só o layout dos cards e do gráfico de Demanda vs
+                Disponibilidade; Rastreamento de Lotes e os modais continuam
+                exatamente os mesmos nas duas versões. */}
+            <button
+              type="button"
+              onClick={() => setVersaoOverview((v) => (v === "classico" ? "executivo" : "classico"))}
               title="Versão em teste do layout — ainda não comunicada ao time"
+              className="inline-flex items-center gap-1.5 rounded-2xl border px-3.5 py-2 text-xs font-bold shadow-sm transition"
+              style={
+                versaoOverview === "classico"
+                  ? { borderColor: "#BFDBFE", background: "#EFF6FF", color: "#1D4ED8" }
+                  : { borderColor: "var(--border)", background: "#FFFFFF", color: "var(--text-secondary)" }
+              }
             >
-              <button
-                type="button"
-                onClick={() => setVersaoOverview("classico")}
-                className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition"
-                style={{
-                  background: versaoOverview === "classico" ? "#EFF6FF" : "transparent",
-                  color: versaoOverview === "classico" ? "#1D4ED8" : "var(--text-secondary)",
-                }}
-              >
-                <Rows3 size={13} strokeWidth={2.25} />
-                Clássico
-              </button>
-              <button
-                type="button"
-                onClick={() => setVersaoOverview("executivo")}
-                className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition"
-                style={{
-                  background: versaoOverview === "executivo" ? "#EFF6FF" : "transparent",
-                  color: versaoOverview === "executivo" ? "#1D4ED8" : "var(--text-secondary)",
-                }}
-              >
-                <LayoutGrid size={13} strokeWidth={2.25} />
-                Executivo
-                <span
-                  className="ml-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
-                  style={{ background: "#FEF3C7", color: "#92400E" }}
-                >
-                  Beta
-                </span>
-              </button>
-            </div>
+              {versaoOverview === "classico" ? (
+                <>
+                  <Sparkles size={13} strokeWidth={2.25} />
+                  Nova versão disponível
+                  <span
+                    className="ml-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+                    style={{ background: "#FEF3C7", color: "#92400E" }}
+                  >
+                    Beta
+                  </span>
+                </>
+              ) : (
+                <>
+                  <ArrowLeft size={13} strokeWidth={2.25} />
+                  Voltar para versão anterior
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -945,9 +1242,31 @@ export function OverviewPage() {
             ))}
           </div>
 
-          <p className="mt-2 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-            Cascata "Causas da Variação Anual" — em construção, chega numa próxima entrega.
-          </p>
+          <div className="mt-4 rounded-2xl border bg-white shadow-sm" style={{ borderColor: "var(--border)" }}>
+            <div className="px-5 pt-4 text-center">
+              <p className="text-[13px] font-black uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
+                Causas da variação anual
+              </p>
+            </div>
+
+            {waterfallSteps.length > 0 ? (
+              <WaterfallChart steps={waterfallSteps} maxReference={orcadoFat?.total_caixas || 0} />
+            ) : (
+              <div className="px-6 pb-5 pt-4">
+                <div
+                  className="flex items-center gap-3 rounded-2xl border px-4 py-3"
+                  style={{ borderColor: "var(--border)", background: "#F8FAFC" }}
+                >
+                  <div className="h-2 w-2 shrink-0 rounded-full bg-slate-300" style={{ animation: carregandoCausasAnuais ? "pulse 1.5s ease-in-out infinite" : undefined }} />
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
+                    {carregandoCausasAnuais
+                      ? "Somando as causas mês a mês (mesmo dado do Rastreamento de Lotes)..."
+                      : "Sem causas classificadas o suficiente para montar a cascata ainda."}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       )}
 
