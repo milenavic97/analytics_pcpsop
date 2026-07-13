@@ -18,6 +18,11 @@ type PerfilUsuario = {
   perfil: string
   ativo: boolean
   permissoes: string[]
+  // Autenticação em 2 fatores (ver lib/mfa.ts e components/MfaGate.tsx).
+  // Vêm de GET /usuarios/me -- opcionais aqui só por segurança de tipo
+  // (ex.: se o backend ainda não tiver sido atualizado).
+  mfa_ativo?: boolean
+  mfa_obrigatorio?: boolean
 }
 
 type AuthContextType = {
