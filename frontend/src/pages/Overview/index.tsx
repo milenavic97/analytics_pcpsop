@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import {
   DollarSign, PackageCheck, TrendingUp, TrendingDown, BarChart3, Package, CalendarDays, ChevronDown, ChevronUp,
-  Gauge, Percent, Sparkles, ArrowLeft,
+  Gauge, Sparkles, ArrowLeft,
 } from "lucide-react"
 
 import { DisponibilidadeModal } from "@/components/charts/DisponibilidadeModal"
@@ -991,6 +991,7 @@ export function OverviewPage() {
   // Cascata anual (Executivo): mesma soma "V1 - causas = atual" já validada
   // hoje mês a mês, só que agregada pelos 12 meses -- não uma fórmula nova.
   const plano1BaseAnualCx = orcadoLibPlano1JanV3.total_caixas + estoqueJan
+  const diferencaDispVsOrcadaCx = disponibilidadeAnual - plano1BaseAnualCx
   const waterfallSteps: WaterfallStep[] = useMemo(() => {
     if (!causasAnuais || !projLibOficial) return []
 
@@ -1166,41 +1167,33 @@ export function OverviewPage() {
                 onClick: projFat ? () => setModalFatProj(true) : undefined,
               },
               {
-                label: "% Atingimento faturamento",
-                value: projFat && pctFat > 0 ? `${pctFat.toFixed(1).replace(".", ",")}%` : "—",
-                sub: projFat && ultimoMesFat ? `fechado até ${ultimoMesFat}/26` : "—",
-                icon: Percent,
-                color: corPctFat === "var(--text-primary)" ? "#6B7280" : corPctFat,
-                onClick: undefined,
-              },
-              {
-                label: "Orçado liberações anual",
-                value: `${fmt(orcadoLibPlano1JanV3.total_caixas)} cx`,
-                sub: `${fmt(orcadoLibPlano1JanV3.total_tubetes)} tubetes`,
+                label: "Disponibilidade anual orçada",
+                value: `${fmt(plano1BaseAnualCx)} cx`,
+                sub: `${fmt(tubetes(plano1BaseAnualCx))} tubetes`,
                 icon: PackageCheck,
                 color: "#7C3AED",
                 onClick: () => setModalLib(true),
               },
               {
-                label: "Liberações reais + previstas",
-                value: projLibOficial ? `${fmt(projLibOficial.total_projetado)} cx` : "—",
-                sub: projLibOficial ? `${fmt(tubetes(projLibOficial.total_projetado))} tubetes` : "aguardando base",
+                label: "Disponibilidade atual",
+                value: projLibOficial ? `${fmt(disponibilidadeAnual)} cx` : "—",
+                sub: projLibOficial ? `${fmt(tubetes(disponibilidadeAnual))} tubetes` : "aguardando base",
                 icon: Package,
-                color: "#EA580C",
+                color: "#0F766E",
                 onClick: projLibOficial ? () => setModalLibProj(true) : undefined,
               },
               {
-                label: "% Liberações vs orçado",
-                value: projLibOficial && pctLib > 0 ? `${pctLib.toFixed(1).replace(".", ",")}%` : "—",
-                sub: projLibOficial && ultimoMesLib ? `fechado até ${ultimoMesLib}/26` : "—",
-                icon: Percent,
-                color: corPctLib === "var(--text-primary)" ? "#6B7280" : corPctLib,
+                label: "Diferença vs. disp. orçada",
+                value: projLibOficial ? `${diferencaDispVsOrcadaCx >= 0 ? "+" : "-"}${fmt(Math.abs(diferencaDispVsOrcadaCx))} cx` : "—",
+                sub: projLibOficial ? `${diferencaDispVsOrcadaCx >= 0 ? "+" : "-"}${fmt(tubetes(Math.abs(diferencaDispVsOrcadaCx)))} tubetes` : "—",
+                icon: TrendingDown,
+                color: diferencaDispVsOrcadaCx >= 0 ? "#16A34A" : "#DC2626",
                 onClick: undefined,
               },
               {
-                label: "Disponibilidade / orçado fat.",
+                label: "% Atingimento ao orçado",
                 value: pctDispVsFat > 0 ? `${pctDispVsFat.toFixed(1).replace(".", ",")}%` : "—",
-                sub: projLibOficial ? `${fmt(disponibilidadeAnual)} cx disponível` : "—",
+                sub: "Disponibilidade / orçado",
                 icon: Gauge,
                 color: corDispVsFat === "var(--text-primary)" ? "#6B7280" : corDispVsFat,
                 onClick: undefined,
