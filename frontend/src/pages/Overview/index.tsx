@@ -471,6 +471,15 @@ interface ItemDesvioAno {
   qtd_cx: number
 }
 
+// Formato de cada item de /overview/rendimento-ano -- planejado (Gantt/MPS)
+// vs liberado (SD3), lote a lote, ano inteiro. delta_cx > 0 = ganho, < 0 = perda.
+interface ItemRendimentoAno {
+  lote: string
+  qtd_planejada_cx: number
+  qtd_liberada_cx: number
+  delta_cx: number
+}
+
 interface PrevistoHojeItem { grupo: string; previsto_ate_hoje: number; realizado_mtd: number }
 interface UltimaAtualizacaoPayload { base_id: string; ultima_atualizacao: string | null }
 
@@ -909,6 +918,97 @@ function ModalPerdasDesvioAno({
   )
 }
 
+function ModalRendimentoAno({
+  open,
+  onClose,
+  itens,
+  ganhoCx,
+  perdaCx,
+}: {
+  open: boolean
+  onClose: () => void
+  itens: ItemRendimentoAno[]
+  ganhoCx: number | null
+  perdaCx: number | null
+}) {
+  if (!open) return null
+
+  const lotesGanho = itens.filter((i) => i.delta_cx > 0)
+  const lotesPerda = itens.filter((i) => i.delta_cx < 0)
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(15,23,42,0.45)" }}
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
+        style={{ borderColor: "var(--border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
+              Detalhe da cascata anual
+            </p>
+            <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+              Ganho e perda de rendimento
+            </h2>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+              Planejado no Gantt/MPS vs liberado na SD3, lote a lote (ano até hoje).
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl p-2 text-lg transition hover:bg-black/5" aria-label="Fechar">
+            ✕
+          </button>
+        </div>
+
+        <div className="overflow-auto p-5">
+          <div className="mb-3 grid grid-cols-2 gap-3">
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "#F0FDF4" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Ganho ({lotesGanho.length} lotes)</p>
+              <p className="text-lg font-bold" style={{ color: "#16A34A" }}>+{fmt(ganhoCx || 0)} cx</p>
+            </div>
+            <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "#F9FAFB" }}>
+              <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Perda ({lotesPerda.length} lotes)</p>
+              <p className="text-lg font-bold" style={{ color: "#6B7280" }}>-{fmt(perdaCx || 0)} cx</p>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+            <table className="w-full text-sm">
+              <thead style={{ background: "#F8FAFC" }}>
+                <tr>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Lote</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Previsto (Gantt)</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Liberado (SD3)</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Delta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itens.length === 0 && (
+                  <tr><td className="px-3 py-4 text-center" style={{ color: "var(--text-secondary)" }} colSpan={4}>Nenhum ganho/perda de rendimento no período.</td></tr>
+                )}
+                {itens.map((item) => (
+                  <tr key={item.lote} className="border-t" style={{ borderColor: "var(--border)" }}>
+                    <td className="px-3 py-2 font-semibold" style={{ color: "var(--text-primary)" }}>{item.lote}</td>
+                    <td className="px-3 py-2 text-right" style={{ color: "var(--text-secondary)" }}>{fmt(item.qtd_planejada_cx)} cx</td>
+                    <td className="px-3 py-2 text-right" style={{ color: "var(--text-secondary)" }}>{fmt(item.qtd_liberada_cx)} cx</td>
+                    <td className="px-3 py-2 text-right font-bold" style={{ color: item.delta_cx >= 0 ? "#16A34A" : "#6B7280" }}>
+                      {item.delta_cx >= 0 ? "+" : ""}{fmt(item.delta_cx)} cx
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function OverviewPage() {
   const [cacheInicial] = useState<OverviewPageSnapshot | null>(() => readOverviewPageCache())
 
@@ -993,6 +1093,53 @@ export function OverviewPage() {
       })
       .finally(() => {
         setCarregandoPerdasDesvioAno(false)
+      })
+  }, [versaoOverview])
+
+  const [rendimentoGanhoCx, setRendimentoGanhoCx] = useState<number | null>(null)
+  const [rendimentoPerdaCx, setRendimentoPerdaCx] = useState<number | null>(null)
+  const [rendimentoItens, setRendimentoItens] = useState<ItemRendimentoAno[]>([])
+  const [carregandoRendimentoAno, setCarregandoRendimentoAno] = useState(false)
+  const [modalRendimentoAno, setModalRendimentoAno] = useState(false)
+  const jaBuscouRendimentoAnoRef = useRef(false)
+
+  useEffect(() => {
+    // Mesmo padrão à prova de falhas do card de desvios: ref pra disparar
+    // só uma vez, timeout garantido, sem estado de loading nas dependências.
+    if (versaoOverview !== "executivo") return
+    if (jaBuscouRendimentoAnoRef.current) return
+    jaBuscouRendimentoAnoRef.current = true
+
+    const ano = new Date().getFullYear()
+    setCarregandoRendimentoAno(true)
+
+    const buscaComTimeout = Promise.race([
+      (async () => {
+        const authHeaders = await getAuthHeaders()
+        const response = await fetch(
+          `${API_BASE}/overview/rendimento-ano?ano=${ano}&_t=${Date.now()}`,
+          { headers: { ...authHeaders } },
+        )
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json()
+      })(),
+      new Promise((_, reject) => window.setTimeout(() => reject(new Error("timeout de 15s")), 15000)),
+    ])
+
+    buscaComTimeout
+      .then((json: any) => {
+        const itens = Array.isArray(json?.itens) ? json.itens : []
+        setRendimentoGanhoCx(Math.round(Number(json?.ganho_cx || 0)))
+        setRendimentoPerdaCx(Math.round(Number(json?.perda_cx || 0)))
+        setRendimentoItens(itens)
+      })
+      .catch((erro: unknown) => {
+        console.error("Falha ao buscar Rendimento (ano):", erro)
+        setRendimentoGanhoCx(0)
+        setRendimentoPerdaCx(0)
+      })
+      .finally(() => {
+        setCarregandoRendimentoAno(false)
       })
   }, [versaoOverview])
 
@@ -1252,13 +1399,64 @@ export function OverviewPage() {
   const gapDispVsFatCaixas = projLibOficial && orcadoFat ? disponibilidadeAnual - orcadoFat.total_caixas : 0
   const corDispVsFat = pctDispVsFat >= 100 ? "#16A34A" : pctDispVsFat >= 95 ? "#F59E0B" : pctDispVsFat > 0 ? "#DC2626" : "var(--text-primary)"
 
-  // Cascata anual (Executivo): removida por completo -- o card "Perdas por
-  // desvio (ano)" que a substituía ficava travado em "Carregando..." (mesmo
-  // bug do waterfall original, causa ainda não encontrada), então também
-  // saiu. Fica pendente retomar isso numa sessão calma, com o DevTools
-  // aberto pra ver exatamente onde a chamada trava.
+  // Cascata anual (Executivo): reconstruída com o padrão robusto (ref +
+  // timeout) validado no card de desvios. Reprovação vem do mesmo fetch do
+  // card "Perdas por desvio (ano)" (não busca de novo); Rendimento vem de
+  // /overview/rendimento-ano (Gantt vs SD3, rápido); Atraso de produção /
+  // Ajuste de plano é o residual -- abertura fina disso (cruzar com Cogtive)
+  // continua pendente pra uma próxima entrega, como combinado.
   const plano1BaseAnualCx = orcadoLibPlano1JanV3.total_caixas + estoqueJan
   const diferencaDispVsOrcadaCx = disponibilidadeAnual - plano1BaseAnualCx
+
+  const waterfallSteps: WaterfallStep[] = useMemo(() => {
+    if (perdasDesvioAnoCx == null || rendimentoGanhoCx == null || rendimentoPerdaCx == null || !projLibOficial) {
+      return []
+    }
+
+    const diferencaAnualCx = plano1BaseAnualCx - disponibilidadeAnual
+    const rendimentoLiquidoCx = rendimentoGanhoCx - rendimentoPerdaCx
+    const atrasoAjustePlanoCx = diferencaAnualCx - perdasDesvioAnoCx - rendimentoPerdaCx + rendimentoGanhoCx
+
+    const steps: WaterfallStep[] = [
+      { id: "plano1", label: "Disp. anual orçada", kind: "total", value: plano1BaseAnualCx, tone: "navy" },
+    ]
+
+    if (perdasDesvioAnoCx > 0) {
+      steps.push({
+        id: "reprovacao",
+        label: "Reprov. lote",
+        kind: "delta",
+        value: -perdasDesvioAnoCx,
+        tone: "orange",
+        lotes: perdasDesvioAnoLotes || undefined,
+      })
+    }
+
+    if (rendimentoLiquidoCx !== 0) {
+      steps.push({
+        id: "rendimento",
+        label: rendimentoLiquidoCx >= 0 ? "Ganho rend." : "Perda rend.",
+        kind: "delta",
+        value: rendimentoLiquidoCx,
+        tone: rendimentoLiquidoCx >= 0 ? "green" : "gray",
+      })
+    }
+
+    if (Math.abs(atrasoAjustePlanoCx) > 0) {
+      steps.push({
+        id: "atraso-ajuste-plano",
+        label: "Atraso produção / Ajuste de plano",
+        kind: "delta",
+        value: -atrasoAjustePlanoCx,
+        tone: atrasoAjustePlanoCx > 0 ? "red" : "green",
+      })
+    }
+
+    steps.push({ id: "atual", label: "Disp. atual", kind: "total", value: disponibilidadeAnual, tone: "teal" })
+
+    return steps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perdasDesvioAnoCx, perdasDesvioAnoLotes, rendimentoGanhoCx, rendimentoPerdaCx, plano1BaseAnualCx, disponibilidadeAnual, projLibOficial])
 
   return (
     <div className="min-h-screen space-y-6 p-3 md:space-y-8 md:p-6">
@@ -1487,6 +1685,39 @@ export function OverviewPage() {
               </button>
             ))}
           </div>
+
+          <div className="mt-4 rounded-2xl border bg-white shadow-sm" style={{ borderColor: "var(--border)" }}>
+            <div className="px-5 pt-4 text-center">
+              <p className="text-[13px] font-black uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
+                Causas da variação anual
+              </p>
+            </div>
+
+            {waterfallSteps.length > 0 ? (
+              <WaterfallChart
+                steps={waterfallSteps}
+                maxReference={orcadoFat?.total_caixas || 0}
+                onStepClick={(id) => {
+                  if (id === "reprovacao") setModalPerdasDesvioAno(true)
+                  if (id === "rendimento") setModalRendimentoAno(true)
+                }}
+              />
+            ) : (
+              <div className="px-6 pb-5 pt-4">
+                <div
+                  className="flex items-center gap-3 rounded-2xl border px-4 py-3"
+                  style={{ borderColor: "var(--border)", background: "#F8FAFC" }}
+                >
+                  <div className="h-2 w-2 shrink-0 rounded-full bg-slate-300" style={{ animation: (carregandoPerdasDesvioAno || carregandoRendimentoAno) ? "pulse 1.5s ease-in-out infinite" : undefined }} />
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
+                    {(carregandoPerdasDesvioAno || carregandoRendimentoAno)
+                      ? "Buscando as causas do ano..."
+                      : "Sem causas classificadas o suficiente para montar a cascata ainda."}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       )}
 
@@ -1566,6 +1797,13 @@ export function OverviewPage() {
         onClose={() => setModalPerdasDesvioAno(false)}
         itens={perdasDesvioAnoItens}
         totalCx={perdasDesvioAnoCx}
+      />
+      <ModalRendimentoAno
+        open={modalRendimentoAno}
+        onClose={() => setModalRendimentoAno(false)}
+        itens={rendimentoItens}
+        ganhoCx={rendimentoGanhoCx}
+        perdaCx={rendimentoPerdaCx}
       />
     </div>
   )

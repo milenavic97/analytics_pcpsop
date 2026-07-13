@@ -2756,6 +2756,105 @@ def get_lotes_descartados_ano(ano: int | None = Query(default=None)):
     }
 
 
+def _qtd_sd3_por_lote_ano(ano: int) -> dict[str, float]:
+    """
+    Soma o liberado na SD3 por lote, ano inteiro -- uma consulta só, sem
+    filtrar por lote (evita lista enorme no IN(...) e ainda é rápido).
+    """
+    try:
+        rows = _select_all(
+            supabase.table("f_sd3_entradas")
+            .select("*")
+            .eq("ano", ano)
+        )
+    except Exception:
+        rows = []
+
+    resultado: dict[str, float] = {}
+    for row in rows:
+        lote = _normalizar_lote_desvio_simples(row.get("lote"))
+        if not lote:
+            continue
+
+        qtd = _to_float(
+            row.get("quantidade")
+            or row.get("qtd")
+            or row.get("qtd_movimento")
+            or row.get("quantidade_liberada")
+            or row.get("qtd_liberada")
+            or row.get("qtd_entrada")
+            or row.get("qtd_cx")
+            or row.get("caixas")
+        )
+        if qtd <= 0:
+            continue
+
+        qtd_cx = round(qtd / 500.0) if qtd > 10000 else round(qtd)
+        resultado[lote] = resultado.get(lote, 0.0) + qtd_cx
+
+    return resultado
+
+
+@router.get("/rendimento-ano")
+def get_rendimento_ano(ano: int | None = Query(default=None)):
+    """
+    Card/detalhe de Rendimento (ganho/perda) da versão Executivo -- compara
+    direto quantidade planejada no Gantt/MPS (mesma rodada validada da tela
+    MPS: f_mrp_rodadas + f_mrp_etapas) vs quantidade liberada na SD3, lote a
+    lote, pro ano inteiro. Rápido de propósito: só 2 consultas no total
+    (uma no Gantt, uma na SD3) -- nunca roda o rastreamento de lotes mês a
+    mês, que foi o que travou as tentativas anteriores da cascata.
+    """
+    ano_ref = ano or _ano_atual()
+
+    if ano_ref != _ano_atual():
+        return {"ano": ano_ref, "ganho_cx": 0, "perda_cx": 0, "liquido_cx": 0, "qtd_lotes": 0, "itens": []}
+
+    rodada = _buscar_rodada_mrp_atual()
+    planejado_por_lote = _montar_lotes_mrp_overview(rodada)
+    liberado_por_lote = _qtd_sd3_por_lote_ano(ano_ref)
+
+    itens: list[dict[str, Any]] = []
+    ganho_total = 0.0
+    perda_total = 0.0
+
+    for lote, info in planejado_por_lote.items():
+        qtd_planejada = round(_to_float(info.get("qtd_cx")))
+        qtd_liberada = round(liberado_por_lote.get(lote, 0.0))
+
+        # Só entra na conta se já foi liberado -- lote ainda não liberado não
+        # é ganho nem perda de rendimento, é só "ainda não chegou lá".
+        if qtd_liberada <= 0 or qtd_planejada <= 0:
+            continue
+
+        delta = qtd_liberada - qtd_planejada
+        if delta == 0:
+            continue
+
+        if delta > 0:
+            ganho_total += delta
+        else:
+            perda_total += abs(delta)
+
+        itens.append({
+            "lote": lote,
+            "qtd_planejada_cx": qtd_planejada,
+            "qtd_liberada_cx": qtd_liberada,
+            "delta_cx": delta,
+        })
+
+    itens.sort(key=lambda x: x["delta_cx"])
+
+    return {
+        "ano": ano_ref,
+        "ganho_cx": round(ganho_total),
+        "perda_cx": round(perda_total),
+        "liquido_cx": round(ganho_total - perda_total),
+        "qtd_lotes": len(itens),
+        "itens": itens,
+    }
+
+
 @router.get("/causas-anuais")
 def get_overview_causas_anuais(
     ano: int | None = Query(default=None),
