@@ -155,7 +155,7 @@ function topRoundedRectPath(x: number, y: number, width: number, height: number,
 // Versão somente-leitura do WaterfallChart -- sem clique/modal por enquanto
 // (a Liberação Executiva abre detalhe de lote ao clicar; aqui ainda não
 // temos esse detalhe reaproveitado, então os steps não são clicáveis).
-function WaterfallChart({ steps, maxReference }: { steps: WaterfallStep[]; maxReference: number }) {
+function WaterfallChart({ steps, maxReference, onStepClick }: { steps: WaterfallStep[]; maxReference: number; onStepClick?: (id: string) => void }) {
   const width = 1080
   const height = 236
   const margin = { top: 30, right: 34, bottom: 54, left: 74 }
@@ -247,8 +247,14 @@ function WaterfallChart({ steps, maxReference }: { steps: WaterfallStep[]; maxRe
           const connectorX1 = currentX + stepWidth / 2
           const connectorX2 = getConnectorTargetX(index)
 
+          const clicavel = Boolean(onStepClick) && (bar.id === "reprovacao" || bar.id === "rendimento")
+
           return (
-            <g key={bar.id}>
+            <g
+              key={bar.id}
+              onClick={clicavel ? () => onStepClick?.(bar.id) : undefined}
+              style={{ cursor: clicavel ? "pointer" : "default" }}
+            >
               <line x1={currentX} x2={currentX} y1={beforeY} y2={afterY} stroke={styles.barColor} strokeWidth="1.1" strokeDasharray="3 4" opacity="0.18" />
               <path d={topRoundedRectPath(xx, top, stepWidth, deltaHeight, 2.5)} fill={styles.barColor} opacity="0.96" />
               {next && (
@@ -276,6 +282,132 @@ function WaterfallChart({ steps, maxReference }: { steps: WaterfallStep[]; maxRe
           )
         })}
       </svg>
+    </div>
+  )
+}
+
+function ModalCascataDetalhe({
+  tipo,
+  onClose,
+  lotesReprovacao,
+  lotesRendimento,
+}: {
+  tipo: "reprovacao" | "rendimento" | null
+  onClose: () => void
+  lotesReprovacao: LoteReprovacaoAnual[]
+  lotesRendimento: LoteRendimentoAnual[]
+}) {
+  if (!tipo) return null
+
+  const isReprovacao = tipo === "reprovacao"
+  const totalPerda = lotesReprovacao.reduce((acc, l) => acc + Number(l.qtd_perda_cx || 0), 0)
+  const lotesGanho = lotesRendimento.filter((l) => l.tipo === "ganho")
+  const lotesPerda = lotesRendimento.filter((l) => l.tipo === "perda")
+  const totalGanho = lotesGanho.reduce((acc, l) => acc + Number(l.delta_cx || 0), 0)
+  const totalPerdaRend = lotesPerda.reduce((acc, l) => acc + Math.abs(Number(l.delta_cx || 0)), 0)
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(15,23,42,0.45)" }}
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl"
+        style={{ borderColor: "var(--border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b px-5 py-4" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--text-secondary)" }}>
+              Detalhe da cascata anual
+            </p>
+            <h2 className="mt-1 text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+              {isReprovacao ? "Lotes reprovados / em desvio" : "Ganho e perda de rendimento"}
+            </h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl p-2 text-lg transition hover:bg-black/5" aria-label="Fechar">
+            ✕
+          </button>
+        </div>
+
+        <div className="overflow-auto p-5">
+          {isReprovacao ? (
+            <>
+              <p className="mb-3 text-sm" style={{ color: "var(--text-secondary)" }}>
+                {lotesReprovacao.length} lote{lotesReprovacao.length === 1 ? "" : "s"}, {fmt(totalPerda)} cx no total (ano até o mês atual).
+              </p>
+              <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+                <table className="w-full text-sm">
+                  <thead style={{ background: "#F8FAFC" }}>
+                    <tr>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>NC</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Lote</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Motivo</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Caixas</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Destino</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lotesReprovacao.length === 0 && (
+                      <tr><td className="px-3 py-4 text-center" style={{ color: "var(--text-secondary)" }} colSpan={5}>Nenhum lote reprovado/desvio no período.</td></tr>
+                    )}
+                    {lotesReprovacao.map((l) => (
+                      <tr key={l.lote} className="border-t" style={{ borderColor: "var(--border)" }}>
+                        <td className="px-3 py-2 font-semibold" style={{ color: "var(--text-primary)" }}>{l.nc || "—"}</td>
+                        <td className="px-3 py-2 font-semibold" style={{ color: "var(--text-primary)" }}>{l.lote}</td>
+                        <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{l.motivo || "—"}</td>
+                        <td className="px-3 py-2 text-right font-bold" style={{ color: "#DC2626" }}>{fmt(l.qtd_perda_cx)} cx</td>
+                        <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>{l.destino || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mb-3 grid grid-cols-2 gap-3">
+                <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "#F0FDF4" }}>
+                  <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Ganho ({lotesGanho.length} lotes)</p>
+                  <p className="text-lg font-bold" style={{ color: "#16A34A" }}>+{fmt(totalGanho)} cx</p>
+                </div>
+                <div className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "#F9FAFB" }}>
+                  <p className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Perda ({lotesPerda.length} lotes)</p>
+                  <p className="text-lg font-bold" style={{ color: "#6B7280" }}>-{fmt(totalPerdaRend)} cx</p>
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border)" }}>
+                <table className="w-full text-sm">
+                  <thead style={{ background: "#F8FAFC" }}>
+                    <tr>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Lote</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Previsto (Gantt)</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Liberado (SD3)</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>Delta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lotesRendimento.length === 0 && (
+                      <tr><td className="px-3 py-4 text-center" style={{ color: "var(--text-secondary)" }} colSpan={4}>Nenhum ganho/perda de rendimento no período.</td></tr>
+                    )}
+                    {lotesRendimento.map((l) => (
+                      <tr key={`${l.lote}-${l.tipo}`} className="border-t" style={{ borderColor: "var(--border)" }}>
+                        <td className="px-3 py-2 font-semibold" style={{ color: "var(--text-primary)" }}>{l.lote}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: "var(--text-secondary)" }}>{fmt(l.qtd_prevista_cx)} cx</td>
+                        <td className="px-3 py-2 text-right" style={{ color: "var(--text-secondary)" }}>{fmt(l.qtd_liberada_cx)} cx</td>
+                        <td className="px-3 py-2 text-right font-bold" style={{ color: l.delta_cx >= 0 ? "#16A34A" : "#6B7280" }}>
+                          {l.delta_cx >= 0 ? "+" : ""}{fmt(l.delta_cx)} cx
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -615,61 +747,74 @@ function calcularProjecaoLiberacoesOficial(
   }
 }
 
-// Soma o causas-por-mês (já corrigido hoje, arredondamento em float) de cada
-// mês já fechado/em andamento do ano, buscando o mesmo endpoint estável que
-// alimenta o Rastreamento de Lotes -- NUNCA os endpoints da Liberação
-// Executiva (/liberacao-executiva/causas-anuais etc.), que é a página
-// instável que não deve ser fonte de número nenhum aqui.
+// Soma o causas-por-mês (já corrigido hoje, arredondamento em float) do ano
+// inteiro numa chamada só, via /overview/causas-anuais -- endpoint novo que
+// soma tudo no servidor (mesmo dado/lógica já validado hoje no Rastreamento
+// de Lotes). Antes eram 7 idas e voltas do navegador, uma por mês; agora é 1.
+// NUNCA usa nada de liberacao_executiva.py, que é a página instável.
+type LoteReprovacaoAnual = {
+  lote: string
+  grupo?: string | null
+  produto?: string | null
+  qtd_prevista_cx: number
+  qtd_perda_cx: number
+  nc?: string | null
+  motivo?: string | null
+  setor?: string | null
+  destino?: string | null
+  estado?: string | null
+  dias_desvio?: number | null
+}
+
+type LoteRendimentoAnual = {
+  lote: string
+  tipo: "ganho" | "perda"
+  grupo?: string | null
+  produto?: string | null
+  qtd_prevista_cx: number
+  qtd_liberada_cx: number
+  delta_cx: number
+}
+
 type CausasAnuaisResumo = {
   atraso: number
   reprovacao: number
   perdaRendimento: number
   ganhoRendimento: number
   mesesSomados: number
+  lotesReprovacao: LoteReprovacaoAnual[]
+  lotesRendimento: LoteRendimentoAnual[]
 }
 
 async function fetchCausasAnuaisReais(ano: number, mesAtual: number): Promise<CausasAnuaisResumo> {
-  const authHeaders = await getAuthHeaders()
+  try {
+    const authHeaders = await getAuthHeaders()
+    const response = await fetch(
+      `${API_BASE}/overview/causas-anuais?ano=${ano}&mes_atual=${mesAtual}&_t=${Date.now()}`,
+      { headers: { ...authHeaders } },
+    )
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const json = await response.json()
 
-  const buscas = await Promise.all(
-    Array.from({ length: mesAtual }, async (_, index) => {
-      const mes = index + 1
-      try {
-        const response = await fetch(
-          `${API_BASE}/overview/rastreamento-lotes-cache?mes=${mes}&ano=${ano}&allow_stale=true&_t=${Date.now()}`,
-          { headers: { ...authHeaders } },
-        )
-        if (!response.ok) return null
-        const json = await response.json()
-        return json?.payload || json
-      } catch {
-        return null
-      }
-    }),
-  )
-
-  let atraso = 0
-  let reprovacao = 0
-  let perdaRendimento = 0
-  let ganhoRendimento = 0
-  let mesesSomados = 0
-
-  buscas.forEach((payload) => {
-    if (!payload) return
-    const causas = payload?.mes_perdas_vs_v1_por_causa || {}
-    atraso += Math.abs(Number(causas?.atraso_producao || 0))
-    reprovacao += Math.abs(Number(causas?.reprovacao_desvio || 0))
-    perdaRendimento += Math.abs(Number(causas?.rendimento || 0))
-    ganhoRendimento += Math.abs(Number(causas?.ganho_rendimento || 0))
-    mesesSomados += 1
-  })
-
-  return {
-    atraso: Math.round(atraso),
-    reprovacao: Math.round(reprovacao),
-    perdaRendimento: Math.round(perdaRendimento),
-    ganhoRendimento: Math.round(ganhoRendimento),
-    mesesSomados,
+    return {
+      atraso: 0, // calculado como residual na tela (V1 - atual - reprovação - perda + ganho)
+      reprovacao: Math.round(Number(json?.reprovacao_desvio_cx || 0)),
+      perdaRendimento: Math.round(Number(json?.perda_rendimento_cx || 0)),
+      ganhoRendimento: Math.round(Number(json?.ganho_rendimento_cx || 0)),
+      mesesSomados: Number(json?.meses_somados || 0),
+      lotesReprovacao: Array.isArray(json?.lotes_reprovacao) ? json.lotes_reprovacao : [],
+      lotesRendimento: Array.isArray(json?.lotes_rendimento) ? json.lotes_rendimento : [],
+    }
+  } catch {
+    return {
+      atraso: 0,
+      reprovacao: 0,
+      perdaRendimento: 0,
+      ganhoRendimento: 0,
+      mesesSomados: 0,
+      lotesReprovacao: [],
+      lotesRendimento: [],
+    }
   }
 }
 
@@ -686,6 +831,7 @@ export function OverviewPage() {
   const [modalFatProj, setModalFatProj]       = useState(false)
   const [modalLibProj, setModalLibProj]       = useState(false)
   const [modalPrevistoHoje, setModalPrevistoHoje] = useState(false)
+  const [modalCascataStep, setModalCascataStep] = useState<"reprovacao" | "rendimento" | null>(null)
   const [atendimentoAberto, setAtendimentoAberto] = useState(false)
   const [carregarDetalhes, setCarregarDetalhes] = useState(Boolean(cacheInicial))
   const [versaoCarregada, setVersaoCarregada] = useState<string | null>(cacheInicial?.version ?? null)
@@ -995,21 +1141,50 @@ export function OverviewPage() {
   const waterfallSteps: WaterfallStep[] = useMemo(() => {
     if (!causasAnuais || !projLibOficial) return []
 
+    // Mesma fórmula validada hoje mês a mês, só que anual:
+    // V1 - atual = reprovação + atraso/ajuste + perda rend. - ganho rend.
+    // "Atraso de produção / Ajuste de plano" é o residual -- tudo que sobra
+    // depois de tirar as duas causas já fechadas/auditáveis. A abertura fina
+    // dessa parte (quanto é atraso real de produção vs ajuste de calendário,
+    // cruzando com a Cogtive) fica pra uma próxima entrega, como combinado.
+    const diferencaAnualCx = plano1BaseAnualCx - disponibilidadeAnual
+    const rendimentoLiquidoCx = causasAnuais.ganhoRendimento - causasAnuais.perdaRendimento
+    const atrasoAjustePlanoCx = diferencaAnualCx - causasAnuais.reprovacao - causasAnuais.perdaRendimento + causasAnuais.ganhoRendimento
+
     const steps: WaterfallStep[] = [
       { id: "plano1", label: "Disp. anual orçada", kind: "total", value: plano1BaseAnualCx, tone: "navy" },
     ]
 
-    if (causasAnuais.atraso > 0) {
-      steps.push({ id: "atraso", label: "Atraso prod.", kind: "delta", value: -causasAnuais.atraso, tone: "red" })
-    }
     if (causasAnuais.reprovacao > 0) {
-      steps.push({ id: "reprovacao", label: "Reprov. lote", kind: "delta", value: -causasAnuais.reprovacao, tone: "orange" })
+      steps.push({
+        id: "reprovacao",
+        label: "Reprov. lote",
+        kind: "delta",
+        value: -causasAnuais.reprovacao,
+        tone: "orange",
+        lotes: causasAnuais.lotesReprovacao.length || undefined,
+      })
     }
-    if (causasAnuais.perdaRendimento > 0) {
-      steps.push({ id: "rendimento", label: "Perda rend.", kind: "delta", value: -causasAnuais.perdaRendimento, tone: "gray" })
+
+    if (rendimentoLiquidoCx !== 0) {
+      steps.push({
+        id: "rendimento",
+        label: rendimentoLiquidoCx >= 0 ? "Ganho rend." : "Perda rend.",
+        kind: "delta",
+        value: rendimentoLiquidoCx,
+        tone: rendimentoLiquidoCx >= 0 ? "green" : "gray",
+        lotes: causasAnuais.lotesRendimento.length || undefined,
+      })
     }
-    if (causasAnuais.ganhoRendimento > 0) {
-      steps.push({ id: "ganho", label: "Ganho rend.", kind: "delta", value: causasAnuais.ganhoRendimento, tone: "green" })
+
+    if (Math.abs(atrasoAjustePlanoCx) > 0) {
+      steps.push({
+        id: "atraso-ajuste-plano",
+        label: "Atraso produção / Ajuste de plano",
+        kind: "delta",
+        value: -atrasoAjustePlanoCx,
+        tone: atrasoAjustePlanoCx > 0 ? "red" : "green",
+      })
     }
 
     steps.push({ id: "atual", label: "Disp. atual", kind: "total", value: disponibilidadeAnual, tone: "teal" })
@@ -1241,7 +1416,11 @@ export function OverviewPage() {
             </div>
 
             {waterfallSteps.length > 0 ? (
-              <WaterfallChart steps={waterfallSteps} maxReference={orcadoFat?.total_caixas || 0} />
+              <WaterfallChart
+                steps={waterfallSteps}
+                maxReference={orcadoFat?.total_caixas || 0}
+                onStepClick={(id) => setModalCascataStep(id === "reprovacao" ? "reprovacao" : id === "rendimento" ? "rendimento" : null)}
+              />
             ) : (
               <div className="px-6 pb-5 pt-4">
                 <div
@@ -1251,7 +1430,7 @@ export function OverviewPage() {
                   <div className="h-2 w-2 shrink-0 rounded-full bg-slate-300" style={{ animation: carregandoCausasAnuais ? "pulse 1.5s ease-in-out infinite" : undefined }} />
                   <p className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
                     {carregandoCausasAnuais
-                      ? "Somando as causas mês a mês (mesmo dado do Rastreamento de Lotes)..."
+                      ? "Buscando as causas do ano (uma chamada só)..."
                       : "Sem causas classificadas o suficiente para montar a cascata ainda."}
                   </p>
                 </div>
@@ -1332,6 +1511,12 @@ export function OverviewPage() {
       <ProjecaoFaturamentoModal open={modalFatProj} onClose={() => setModalFatProj(false)} />
       <ProjecaoLiberacoesModal open={modalLibProj} onClose={() => setModalLibProj(false)} />
       <PrevistoAteHojeModal open={modalPrevistoHoje} onClose={() => setModalPrevistoHoje(false)} data={detalhePrevistoHoje} />
+      <ModalCascataDetalhe
+        tipo={modalCascataStep}
+        onClose={() => setModalCascataStep(null)}
+        lotesReprovacao={causasAnuais?.lotesReprovacao || []}
+        lotesRendimento={causasAnuais?.lotesRendimento || []}
+      />
     </div>
   )
 }

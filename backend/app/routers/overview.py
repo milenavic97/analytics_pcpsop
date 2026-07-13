@@ -2621,6 +2621,117 @@ def get_rastreamento_lotes(
     return resultado
 
 
+@router.get("/causas-anuais")
+def get_overview_causas_anuais(
+    ano: int | None = Query(default=None),
+    mes_atual: int | None = Query(default=None, ge=1, le=12),
+):
+    """
+    Cascata "Causas da Variação Anual" (versão Executivo) -- soma direto no
+    servidor, numa chamada só, o que antes o front fazia em N idas e voltas
+    (uma por mês) e só somava depois no navegador. Mesma lógica/dado já
+    validado hoje no Rastreamento de Lotes (mes_perdas_vs_v1_por_causa) --
+    NÃO usa nada de liberacao_executiva.py.
+
+    Regra de negócio (definida com o usuário):
+      - Reprov. lote e Rendimento (perda/ganho) são causas fechadas/auditáveis,
+        cada uma com detalhe por lote pronto pro modal (NC, motivo, setor,
+        destino pra reprovação; previsto vs liberado SD3 pra rendimento).
+      - "Atraso de produção / Ajuste de plano" é o residual: tudo que sobra da
+        diferença anual depois de tirar as duas causas já fechadas. A abertura
+        fina dessa parte (quanto é atraso real de produção parado vs ajuste de
+        calendário/paradas planejadas, cruzando com a Cogtive) fica pra uma
+        próxima entrega -- combinado explicitamente que isso demora mais.
+    """
+    ano_ref = ano or _ano_atual()
+    mes_ref = mes_atual or _mes_atual()
+
+    reprovacao_total = 0.0
+    perda_rendimento_total = 0.0
+    ganho_rendimento_total = 0.0
+    meses_somados = 0
+
+    lotes_reprovacao: dict[str, dict] = {}
+    lotes_rendimento: dict[str, dict] = {}
+
+    for mes in range(1, mes_ref + 1):
+        try:
+            payload = get_rastreamento_lotes(mes=mes, ano=ano_ref)
+        except Exception:
+            continue
+
+        if not isinstance(payload, dict):
+            continue
+
+        causas = payload.get("mes_perdas_vs_v1_por_causa") or {}
+        reprovacao_total += abs(_to_float(causas.get("reprovacao_desvio")))
+        perda_rendimento_total += abs(_to_float(causas.get("rendimento")))
+        ganho_rendimento_total += abs(_to_float(causas.get("ganho_rendimento")))
+        meses_somados += 1
+
+        for item in (payload.get("lotes") or []):
+            lote = item.get("lote")
+            if not lote:
+                continue
+
+            status = str(item.get("status_gap") or "")
+
+            if status == "Reprovação/desvio" and lote not in lotes_reprovacao:
+                lotes_reprovacao[lote] = {
+                    "lote": lote,
+                    "grupo": item.get("grupo"),
+                    "produto": item.get("sku_pa"),
+                    "qtd_prevista_cx": round(_to_float(item.get("qtd_prevista_cx"))),
+                    "qtd_perda_cx": round(_to_float(item.get("qtd_gap_cx"))),
+                    "nc": item.get("desvio_serial"),
+                    "motivo": item.get("desvio_titulo"),
+                    "setor": item.get("desvio_setor"),
+                    "destino": item.get("desvio_destino_consolidado") or item.get("desvio_destino"),
+                    "estado": item.get("desvio_estado"),
+                    "dias_desvio": item.get("desvio_dias"),
+                }
+
+            if status == "Perda por rendimento" and lote not in lotes_rendimento:
+                lotes_rendimento[lote] = {
+                    "lote": lote,
+                    "tipo": "perda",
+                    "grupo": item.get("grupo"),
+                    "produto": item.get("sku_pa"),
+                    "qtd_prevista_cx": round(_to_float(item.get("qtd_prevista_cx"))),
+                    "qtd_liberada_cx": round(_to_float(item.get("qtd_liberada_cx"))),
+                    "delta_cx": -round(abs(_to_float(item.get("qtd_perda_rendimento_cx")))),
+                }
+            elif (
+                _to_float(item.get("qtd_liberada_cx")) > _to_float(item.get("qtd_prevista_cx")) > 0
+                and lote not in lotes_rendimento
+            ):
+                lotes_rendimento[lote] = {
+                    "lote": lote,
+                    "tipo": "ganho",
+                    "grupo": item.get("grupo"),
+                    "produto": item.get("sku_pa"),
+                    "qtd_prevista_cx": round(_to_float(item.get("qtd_prevista_cx"))),
+                    "qtd_liberada_cx": round(_to_float(item.get("qtd_liberada_cx"))),
+                    "delta_cx": round(_to_float(item.get("qtd_liberada_cx")) - _to_float(item.get("qtd_prevista_cx"))),
+                }
+
+    return {
+        "ano": ano_ref,
+        "mes_atual": mes_ref,
+        "meses_somados": meses_somados,
+        "reprovacao_desvio_cx": round(reprovacao_total),
+        "perda_rendimento_cx": round(perda_rendimento_total),
+        "ganho_rendimento_cx": round(ganho_rendimento_total),
+        "qtd_lotes_reprovacao": len(lotes_reprovacao),
+        "lotes_reprovacao": sorted(
+            lotes_reprovacao.values(), key=lambda x: -_to_float(x.get("qtd_perda_cx"))
+        ),
+        "lotes_rendimento": sorted(
+            lotes_rendimento.values(), key=lambda x: _to_float(x.get("delta_cx"))
+        ),
+    }
+
+
 def _calcular_rastreamento_lotes_impl(
     mes: int | None = Query(default=None, ge=1, le=12),
     ano: int | None = Query(default=None),
