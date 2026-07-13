@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from threading import Lock
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
 import re
 import time
@@ -2654,13 +2655,31 @@ def get_overview_causas_anuais(
     lotes_reprovacao: dict[str, dict] = {}
     lotes_rendimento: dict[str, dict] = {}
 
-    for mes in range(1, mes_ref + 1):
-        try:
-            payload = get_rastreamento_lotes(mes=mes, ano=ano_ref)
-        except Exception:
-            continue
+    meses_a_buscar = list(range(1, mes_ref + 1))
+    payloads_por_mes: dict[int, dict] = {}
 
-        if not isinstance(payload, dict):
+    # Busca os meses em paralelo (thread pool) -- são consultas ao Supabase,
+    # que liberam o GIL durante I/O, então isso realmente roda concorrente e
+    # não sequencial. Antes, mesmo já sendo 1 chamada só pro front, o loop
+    # aqui dentro do backend rodava mês a mês, um esperando o outro terminar;
+    # se algum mês estivesse com cache frio, a soma inteira ficava lenta.
+    with ThreadPoolExecutor(max_workers=min(8, len(meses_a_buscar)) or 1) as executor:
+        futuros = {
+            executor.submit(get_rastreamento_lotes, mes=mes, ano=ano_ref): mes
+            for mes in meses_a_buscar
+        }
+        for futuro in as_completed(futuros):
+            mes = futuros[futuro]
+            try:
+                payload = futuro.result()
+            except Exception:
+                continue
+            if isinstance(payload, dict):
+                payloads_por_mes[mes] = payload
+
+    for mes in meses_a_buscar:
+        payload = payloads_por_mes.get(mes)
+        if not payload:
             continue
 
         causas = payload.get("mes_perdas_vs_v1_por_causa") or {}
