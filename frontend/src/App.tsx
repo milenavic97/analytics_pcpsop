@@ -38,19 +38,19 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
 
           <Route element={<ProtectedRoute><MfaGate><Layout /></MfaGate></ProtectedRoute>}>
-            <Route path="/overview" element={<OverviewPage />} />
-            <Route path="/liberacao-executiva" element={<LiberacaoExecutiva />} />
-            <Route path="/producao/*" element={<ProducaoPage />} />
-            <Route path="/faturamento" element={<FaturamentoPage />} />
-            <Route path="/desvios" element={<DesviosPage />} />
-            <Route path="/ordens" element={<OrdensPage />} />
-            <Route path="/mps" element={<Mrp />} />
+            <Route path="/overview" element={<ProtectedRoute permissao="overview"><OverviewPage /></ProtectedRoute>} />
+            <Route path="/liberacao-executiva" element={<ProtectedRoute permissao="liberacao-executiva"><LiberacaoExecutiva /></ProtectedRoute>} />
+            <Route path="/producao/*" element={<ProtectedRoute permissao="producao"><ProducaoPage /></ProtectedRoute>} />
+            <Route path="/faturamento" element={<ProtectedRoute permissao="faturamento"><FaturamentoPage /></ProtectedRoute>} />
+            <Route path="/desvios" element={<ProtectedRoute permissao="desvios"><DesviosPage /></ProtectedRoute>} />
+            <Route path="/ordens" element={<ProtectedRoute permissao="ordens"><OrdensPage /></ProtectedRoute>} />
+            <Route path="/mps" element={<ProtectedRoute permissao="mps"><Mrp /></ProtectedRoute>} />
             <Route path="/mrp" element={<Navigate to="/mps" replace />} />
-            <Route path="/analise-mrp" element={<AnaliseMrpPage />} />
-            <Route path="/calendario-paradas" element={<CalendarioParadasPage />} />
-            <Route path="/dados" element={<DadosPage />} />
-            <Route path="/dados/:baseId" element={<DadosPage />} />
-            <Route path="/configuracoes" element={<ConfiguracoesPage />} />
+            <Route path="/analise-mrp" element={<ProtectedRoute permissao="analise-mrp"><AnaliseMrpPage /></ProtectedRoute>} />
+            <Route path="/calendario-paradas" element={<ProtectedRoute permissao="calendario-paradas"><CalendarioParadasPage /></ProtectedRoute>} />
+            <Route path="/dados" element={<ProtectedRoute permissao="dados"><DadosPage /></ProtectedRoute>} />
+            <Route path="/dados/:baseId" element={<ProtectedRoute permissao="dados"><DadosPage /></ProtectedRoute>} />
+            <Route path="/configuracoes" element={<ProtectedRoute permissao="configuracoes"><ConfiguracoesPage /></ProtectedRoute>} />
           </Route>
 
           <Route path="/" element={<Navigate to="/overview" replace />} />

@@ -3,6 +3,7 @@ import { BarChart3 } from "lucide-react"
 import { clsx } from "clsx"
 
 import { APP_PAGES } from "@/config/pages"
+import { useAuth } from "@/contexts/AuthContext"
 
 type Props = {
   mobileOpen?: boolean
@@ -11,13 +12,20 @@ type Props = {
 
 export function Sidebar({ mobileOpen = false, onCloseMobile }: Props) {
   const { pathname } = useLocation()
+  const { hasPermission } = useAuth()
 
   // Sidebar travada no modo compacto.
   // Não existe mais botão/estado de expansão, para manter o layout executivo sempre limpo.
   const collapsed = true
 
-  // Mostra todas as páginas, sem filtro por permissão por enquanto
-  const pages = APP_PAGES
+  // Mostra só as páginas que a pessoa tem permissão de acessar. Admin
+  // (perfil === "admin") sempre vê tudo -- ver hasPermission em
+  // AuthContext.tsx. Usuário comum sem nenhuma permissão marcada não via
+  // essa diferença antes porque o filtro nunca foi ligado (a ideia inicial
+  // de perfis nunca chegou a ser usada de fato, todo mundo usava o login
+  // admin) -- agora que existe mais de uma conta em uso, o filtro passa a
+  // valer.
+  const pages = APP_PAGES.filter((page) => hasPermission(page.id))
 
   return (
     <>
