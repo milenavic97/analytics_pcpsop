@@ -64,23 +64,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    const res = await fetch(`${API_URL}/usuarios/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    // Tenta algumas vezes antes de desistir. Sem isso, uma instabilidade
+    // passageira do backend (ex.: o processo reiniciando logo depois de um
+    // deploy) fazia a chamada falhar uma única vez e a pessoa via
+    // "Usuário sem perfil configurado" -- mensagem errada, já que o
+    // problema era só de rede/timing, não de cadastro. As tentativas
+    // seguintes normalmente já encontram o backend de pé de novo.
+    const TENTATIVAS = 3
+    const ESPERA_ENTRE_TENTATIVAS_MS = 700
 
-    if (!res.ok) {
-      setPerfil(null)
-      return
+    for (let tentativa = 1; tentativa <= TENTATIVAS; tentativa++) {
+      try {
+        const res = await fetch(`${API_URL}/usuarios/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+
+        if (res.ok) {
+          const perfilApi = await res.json()
+
+          setPerfil({
+            ...perfilApi,
+            permissoes: Array.isArray(perfilApi?.permissoes)
+              ? perfilApi.permissoes
+              : [],
+          })
+          return
+        }
+
+        // 401/403 de verdade (token inválido, usuário sem perfil, inativo)
+        // não melhora tentando de novo -- para na hora.
+        if (res.status === 401 || res.status === 403) {
+          setPerfil(null)
+          return
+        }
+      } catch {
+        // Erro de rede (ex.: backend momentaneamente inacessível) --
+        // segue para a próxima tentativa, se houver.
+      }
+
+      if (tentativa < TENTATIVAS) {
+        await new Promise((resolve) => setTimeout(resolve, ESPERA_ENTRE_TENTATIVAS_MS * tentativa))
+      }
     }
 
-    const perfilApi = await res.json()
-
-    setPerfil({
-      ...perfilApi,
-      permissoes: Array.isArray(perfilApi?.permissoes)
-        ? perfilApi.permissoes
-        : [],
-    })
+    setPerfil(null)
   }
 
   async function refreshPerfil() {
