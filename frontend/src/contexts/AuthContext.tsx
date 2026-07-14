@@ -156,6 +156,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const nextUser = session?.user ?? null
       setUser(nextUser)
 
+      // Volta pro estado "carregando" enquanto busca o perfil deste novo
+      // evento de sessão (ex.: login acabou de acontecer). Sem isso, o
+      // `loading` já estava `false` desde a checagem inicial (feita
+      // ainda na tela de login, sem usuário), então a tela pulava direto
+      // pra "Usuário sem perfil configurado" por uma fração de segundo,
+      // até a resposta de /usuarios/me chegar -- mesmo com o perfil
+      // carregando normalmente por trás.
+      setLoading(true)
+
       carregarPerfil(nextUser).finally(() => {
         setLoading(false)
       })
