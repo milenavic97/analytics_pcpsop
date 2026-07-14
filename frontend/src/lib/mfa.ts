@@ -42,11 +42,39 @@ export async function nivelSeguranca() {
   }
 }
 
-/** Passo 1 do cadastro: gera o QR code e o segredo para digitação manual. */
+/**
+ * Passo 1 do cadastro: gera o QR code e o segredo para digitação manual.
+ *
+ * Antes de pedir um fator novo, limpa qualquer fator TOTP não verificado
+ * que tenha sobrado de uma tentativa anterior (ex.: a pessoa recarregou a
+ * página no meio do cadastro, ou clicou em "Tentar de novo"). Sem isso, o
+ * Supabase rejeita com 422 "mfa_factor_name_conflict" -- o nome amigável
+ * usado antes já existia, mesmo sem nunca ter sido confirmado -- e a
+ * pessoa ficava travada na tela sem conseguir prosseguir nem entender
+ * por quê.
+ */
 export async function iniciarCadastroTotp() {
+  try {
+    const fatoresExistentes = await listarFatores()
+    const pendentes = fatoresExistentes.filter((f) => f.status !== "verified")
+
+    for (const fator of pendentes) {
+      try {
+        await removerFator(fator.id)
+      } catch {
+        // Best-effort: se não conseguir remover um fator pendente
+        // específico, segue tentando o enroll de qualquer forma --
+        // o pior caso é cair no mesmo erro de conflito de nome, que já
+        // era o comportamento anterior a esta correção.
+      }
+    }
+  } catch {
+    // Falha ao listar fatores não deve impedir a tentativa de cadastro.
+  }
+
   const { data, error } = await supabase.auth.mfa.enroll({
     factorType: "totp",
-    friendlyName: `Analytics PCP - ${new Date().toISOString().slice(0, 10)}`,
+    friendlyName: `Analytics PCP - ${Date.now()}`,
   })
 
   if (error) throw error
