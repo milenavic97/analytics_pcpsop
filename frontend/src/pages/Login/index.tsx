@@ -13,9 +13,9 @@ import {
 } from "lucide-react"
 import { supabase } from "../../lib/supabase"
 
-const USUARIOS: Record<string, string> = {
-  adminpcp: "milenavicente1@outlook.com",
-}
+const API_URL =
+  (import.meta as unknown as { env: Record<string, string> }).env
+    .VITE_API_URL || "https://dfl-sop-api.fly.dev"
 
 const AZUL_PCP = "#173A5E"
 
@@ -38,6 +38,47 @@ const FEATURES = [
   },
 ]
 
+/**
+ * Traduz o que a pessoa digitou (e-mail OU apelido de login, ex.:
+ * "adminpcp") para o e-mail real usado no Supabase Auth.
+ *
+ * Antes disso, essa tradução era feita por um mapa fixo no código do
+ * frontend (USUARIOS = { adminpcp: "..." }) -- problema porque o bundle
+ * do frontend é público, então qualquer pessoa conseguia ler o e-mail
+ * real de um usuário abrindo o JS da página no navegador.
+ *
+ * Agora a tradução é feita pelo backend, em POST /usuarios/resolver-login
+ * (ver backend/app/routers/usuarios.py), que consulta a tabela
+ * usuarios_app sem nunca expor esse dado no código-fonte público. Se o
+ * texto digitado já parece um e-mail, nem precisa chamar a rota.
+ */
+async function resolverEmailLogin(usuarioDigitado: string): Promise<string> {
+  if (usuarioDigitado.includes("@")) {
+    return usuarioDigitado
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/usuarios/resolver-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usuario: usuarioDigitado }),
+    })
+
+    if (!res.ok) {
+      return usuarioDigitado
+    }
+
+    const data: { email: string | null } = await res.json()
+    return data.email || usuarioDigitado
+  } catch {
+    // Backend fora do ar ou rede instável: cai para o texto digitado.
+    // O Supabase vai rejeitar do mesmo jeito com "Usuário ou senha
+    // inválidos", sem vazar se o backend estava fora do ar ou se o
+    // usuário não existe.
+    return usuarioDigitado
+  }
+}
+
 export function LoginPage() {
   const [usuario, setUsuario] = useState("")
   const [senha, setSenha] = useState("")
@@ -52,7 +93,7 @@ export function LoginPage() {
     setLoading(true)
 
     const usuarioNormalizado = usuario.trim().toLowerCase()
-    const emailLogin = USUARIOS[usuarioNormalizado] || usuarioNormalizado
+    const emailLogin = await resolverEmailLogin(usuarioNormalizado)
 
     const { error } = await supabase.auth.signInWithPassword({
       email: emailLogin,
