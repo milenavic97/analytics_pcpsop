@@ -344,10 +344,25 @@ function TelaCadastroObrigatorio({
             </p>
 
             {qrCodeSvg && (
-              <div
-                className="flex items-center justify-center rounded-xl border border-slate-200 bg-white p-4"
-                dangerouslySetInnerHTML={{ __html: qrCodeSvg }}
-              />
+              <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white p-4">
+                {/* O Supabase pode devolver o QR code de duas formas dependendo
+                    da versão do SDK: já como uma data URI completa
+                    ("data:image/svg+xml;utf-8,<svg>...") ou como o marcador
+                    <svg> puro. Uma <img src> lida com os dois casos sem
+                    vazar o prefixo "data:..." como texto solto na tela --
+                    problema que aparecia antes com dangerouslySetInnerHTML
+                    quando a resposta já vinha como data URI. */}
+                <img
+                  src={
+                    qrCodeSvg.startsWith("data:")
+                      ? qrCodeSvg
+                      : `data:image/svg+xml;utf-8,${encodeURIComponent(qrCodeSvg)}`
+                  }
+                  alt="QR code para cadastro do segundo fator"
+                  width={200}
+                  height={200}
+                />
+              </div>
             )}
 
             {segredoManual && (
