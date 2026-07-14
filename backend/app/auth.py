@@ -16,21 +16,30 @@ Autenticação em 2 fatores (TOTP)
 --------------------------------
 O cadastro e a verificação do segundo fator acontecem direto no Supabase
 Auth, chamados pelo frontend (supabase.auth.mfa.*) — o backend não precisa
-de rota própria para isso. O papel do backend é só de fiscal, em duas
-frentes:
+de rota própria para isso. O papel do backend é só de fiscal, e as duas
+regras abaixo só valem quando `settings.mfa_obrigatorio` estiver ligado
+("true"). Com a flag desligada (padrão), MFA fica 100% inerte no backend
+-- nenhuma conta é bloqueada, mesmo que já tenha cadastrado um fator TOTP
+pela tela. Isso é intencional: enquanto o rollout no frontend não estiver
+testado e estável, uma conta que verificou um fator não pode ficar travada
+em toda chamada de API sozinha, sem tela de desafio pronta pra resolver
+isso -- foi exatamente esse acoplamento (aal2 exigido incondicionalmente)
+que já derrubou o acesso ao backend inteiro numa tentativa anterior desta
+feature. Ver histórico do repositório para contexto.
+
+Com `settings.mfa_obrigatorio = True`:
 
 1. Se o usuário JÁ tem um fator TOTP verificado, toda chamada à API só é
    aceita se o token da sessão atual for de nível aal2 (ou seja, a pessoa
    realmente completou o desafio do segundo fator nesse login — não só a
-   senha). Isso vale sempre, independente de qualquer configuração.
+   senha).
 
-2. Se `settings.mfa_obrigatorio` estiver ligado, um usuário que ainda não
-   tem NENHUM fator cadastrado é bloqueado (403 "mfa_cadastro_obrigatorio")
-   em qualquer rota — com uma exceção: `usuario_logado_permitir_pendente_mfa`
-   (usada só em GET /usuarios/me), para o frontend sempre conseguir
-   descobrir quem é a pessoa e mandar ela para a tela de cadastro do
-   segundo fator, em vez de ficar preso numa tela em branco sem saber
-   por que perdeu acesso.
+2. Um usuário que ainda não tem NENHUM fator cadastrado é bloqueado (403
+   "mfa_cadastro_obrigatorio") em qualquer rota — com uma exceção:
+   `usuario_logado_permitir_pendente_mfa` (usada só em GET /usuarios/me),
+   para o frontend sempre conseguir descobrir quem é a pessoa e mandar ela
+   para a tela de cadastro do segundo fator, em vez de ficar preso numa
+   tela em branco sem saber por que perdeu acesso.
 """
 
 import base64
@@ -87,9 +96,11 @@ def _validar_sessao(authorization: str | None) -> dict[str, Any]:
     """
     Núcleo da validação, compartilhado pelas duas dependências abaixo:
     - confirma o token contra o Supabase Auth;
-    - se existir um fator MFA verificado para o usuário, exige que a
-      sessão atual esteja em aal2 (ou seja, o segundo fator já foi
-      conferido neste login, não só a senha);
+    - se `settings.mfa_obrigatorio` estiver ligado E existir um fator MFA
+      verificado para o usuário, exige que a sessão atual esteja em aal2
+      (ou seja, o segundo fator já foi conferido neste login, não só a
+      senha). Com a flag desligada, esta checagem é pulada -- ver docstring
+      do módulo para o porquê;
     - busca o perfil em usuarios_app e confere se está ativo.
 
     Não decide sozinho se cadastro de MFA é obrigatório -- isso é feito
@@ -109,7 +120,10 @@ def _validar_sessao(authorization: str | None) -> dict[str, Any]:
     fatores = user.factors or []
     tem_fator_verificado = any(getattr(f, "status", None) == "verified" for f in fatores)
 
-    if tem_fator_verificado and _aal_do_token(token) != "aal2":
+    # Trancado atrás da flag de propósito: enquanto o rollout está
+    # desligado, nenhuma conta pode ser bloqueada por causa de MFA, mesmo
+    # que já tenha um fator verificado cadastrado de um teste anterior.
+    if settings.mfa_obrigatorio and tem_fator_verificado and _aal_do_token(token) != "aal2":
         raise HTTPException(
             status_code=401,
             detail="mfa_aal2_requerido",
