@@ -19,7 +19,10 @@ class ResolverLoginBody(BaseModel):
 # O front também terá uma lista igual em pages.ts.
 PERMISSOES_VALIDAS = {
     "overview",
+    "liberacao-executiva",
     "producao",
+    "faturamento",
+    "desvios",
     "ordens",
     "mps",
     "analise-mrp",
