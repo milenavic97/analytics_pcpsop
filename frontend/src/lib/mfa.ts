@@ -75,6 +75,12 @@ export async function iniciarCadastroTotp() {
   const { data, error } = await supabase.auth.mfa.enroll({
     factorType: "totp",
     friendlyName: `Analytics PCP - ${Date.now()}`,
+    // Sem isso, o Supabase usa o "Site URL" configurado no projeto como
+    // nome exibido no app autenticador (foi assim que apareceu
+    // "www.analyticspcp.com.br" em vez de um nome legível) -- passando
+    // aqui, o nome fica sob nosso controle, independente do que estiver
+    // configurado em Authentication > URL Configuration.
+    issuer: "DFL - Analytics PCP",
   })
 
   if (error) throw error
