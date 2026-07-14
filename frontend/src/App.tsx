@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { AuthProvider } from "./contexts/AuthContext"
 
 import { LoginPage } from "./pages/Login"
+import { RedefinirSenhaPage } from "./pages/RedefinirSenha"
 import { OverviewPage } from "./pages/Overview"
 import { ProducaoPage } from "./pages/Producao"
 import { DadosPage } from "./pages/Dados"
@@ -24,7 +25,9 @@ import { prefetchAppData } from "./services/api"
 
 export default function App() {
   useEffect(() => {
-    if (typeof window !== "undefined" && window.location.pathname === "/login") {
+    const paginasPublicas = ["/login", "/redefinir-senha"]
+
+    if (typeof window !== "undefined" && paginasPublicas.includes(window.location.pathname)) {
       return
     }
 
@@ -36,6 +39,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/redefinir-senha" element={<RedefinirSenhaPage />} />
 
           <Route element={<ProtectedRoute><MfaGate><Layout /></MfaGate></ProtectedRoute>}>
             <Route path="/overview" element={<ProtectedRoute permissao="overview"><OverviewPage /></ProtectedRoute>} />
