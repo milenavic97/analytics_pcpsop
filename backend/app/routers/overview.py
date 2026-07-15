@@ -1796,6 +1796,37 @@ def get_orcado_liberacao():
 
 @router.get("/projecao-liberacoes")
 def get_projecao_liberacoes():
+    """
+    Dados do modal "Liberações Reais + Previstas".
+
+    Antes, esta rota recalculava tudo do zero a cada abertura do modal --
+    inclusive puxando o ano inteiro de f_sd3_entradas linha por linha --
+    mesmo esse MESMO cálculo já sendo feito e cacheado como parte do
+    payload de /overview/resumo (ver _montar_payload_overview_resumo).
+    Isso deixava o modal visivelmente lento, principalmente em horários
+    de maior carga no servidor (ex.: sincronização pesada da Cogtive).
+
+    Agora: se o cache da Overview estiver atual (mesma checagem de
+    versão usada em GET /overview/resumo), serve o campo
+    "projecao_liberacoes" desse cache direto -- sem nenhuma consulta ao
+    banco, resposta quase instantânea. Só recalcula do zero (mesmo
+    resultado de antes, só mais lento) se o cache estiver ausente ou
+    desatualizado -- então a confiabilidade dos números não muda em
+    nada, só passa a ser servida via cache quando o cache já está válido
+    de qualquer forma para a Overview.
+    """
+    versao_base, _versions = _overview_cache_version()
+    cache = _read_cache_overview()
+
+    if cache and cache.get("payload") is not None and cache.get("versao_base") == versao_base:
+        projecao_cacheada = (cache.get("payload") or {}).get("projecao_liberacoes")
+        if projecao_cacheada is not None:
+            return projecao_cacheada
+
+    return _calcular_projecao_liberacoes()
+
+
+def _calcular_projecao_liberacoes() -> dict:
     ultimo_mes_fechado = _mes_atual() - 1
 
     rows_sd3 = _select_all(
@@ -5539,7 +5570,7 @@ async def _montar_payload_overview_resumo() -> dict:
     orcado_faturamento = get_orcado_faturamento(None, None, None, None, None, None)
     projecao_faturamento = get_projecao_faturamento(None, None, None, None, None, None)
     orcado_liberacao = get_orcado_liberacao()
-    projecao_liberacoes = get_projecao_liberacoes()
+    projecao_liberacoes = _calcular_projecao_liberacoes()
     estoque_mensal = get_estoque_mensal(None, None, None, None, None, None)
     disponibilidade_mensal = get_disponibilidade_mensal(
         None, None, None, None, None, None, None, None
