@@ -197,8 +197,8 @@ export function LoginPage() {
                   <div className="flex items-center gap-5">
                     <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white/35 bg-white/[0.16] shadow-[0_14px_34px_rgba(0,0,0,0.22)] backdrop-blur-sm">
                       <Icon
-                        size={30}
-                        strokeWidth={3}
+                        size={28}
+                        strokeWidth={1.75}
                         className="text-white"
                       />
                     </div>
