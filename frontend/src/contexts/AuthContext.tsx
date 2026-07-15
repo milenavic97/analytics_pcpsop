@@ -152,22 +152,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     iniciar()
 
-    const { data } = supabase.auth.onAuthStateChange((_, session) => {
+    const { data } = supabase.auth.onAuthStateChange((evento, session) => {
       const nextUser = session?.user ?? null
       setUser(nextUser)
 
-      // Volta pro estado "carregando" enquanto busca o perfil deste novo
-      // evento de sessão (ex.: login acabou de acontecer). Sem isso, o
-      // `loading` já estava `false` desde a checagem inicial (feita
-      // ainda na tela de login, sem usuário), então a tela pulava direto
-      // pra "Usuário sem perfil configurado" por uma fração de segundo,
-      // até a resposta de /usuarios/me chegar -- mesmo com o perfil
-      // carregando normalmente por trás.
-      setLoading(true)
+      // Só os eventos que representam uma pessoa entrando ou saindo de
+      // verdade merecem mostrar a tela de "Verificando segurança da
+      // sessão..." (necessário pra evitar o flash de "sem perfil" logo
+      // após o login, corrigido antes).
+      //
+      // O Supabase dispara onAuthStateChange também em situações de
+      // rotina que NÃO deveriam interromper a tela -- o principal caso é
+      // "TOKEN_REFRESHED", que acontece sozinho toda vez que a aba volta
+      // a ficar em foco/visível (ex.: a pessoa troca de aba e volta).
+      // Tratar esses eventos como se fossem um login novo fazia a tela
+      // inteira "piscar" e recarregar sempre que a aba ganhava foco de
+      // novo -- sem essa mudança aqui, qualquer navegação (trocar de
+      // aba, voltar pra ferramenta) parecia um recarregamento do zero.
+      const eventoRepresentaLoginOuLogout =
+        evento === "SIGNED_IN" || evento === "SIGNED_OUT" || evento === "INITIAL_SESSION"
 
-      carregarPerfil(nextUser).finally(() => {
-        setLoading(false)
-      })
+      if (eventoRepresentaLoginOuLogout) {
+        setLoading(true)
+        carregarPerfil(nextUser).finally(() => {
+          setLoading(false)
+        })
+      } else {
+        // TOKEN_REFRESHED, USER_UPDATED, etc: atualiza o perfil por trás,
+        // sem nunca mostrar spinner nem travar a tela que a pessoa já
+        // está vendo.
+        carregarPerfil(nextUser).catch(() => {})
+      }
     })
 
     return () => {
