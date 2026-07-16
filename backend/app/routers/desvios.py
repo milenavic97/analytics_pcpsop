@@ -2,7 +2,7 @@ import csv
 import io
 import unicodedata
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Response
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Response, BackgroundTasks
 
 from app.database import supabase
 from etl.processors import process_desvios_lotes
@@ -831,7 +831,7 @@ def limpar_desvios():
 
 
 @router.post("/upload")
-async def upload_desvios(file: UploadFile = File(...)):
+async def upload_desvios(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
     try:
         conteudo = await file.read()
 
@@ -839,6 +839,20 @@ async def upload_desvios(file: UploadFile = File(...)):
             conteudo,
             file.filename or "desvios.xlsx",
         )
+
+        # Mesmo motivo do upload.py: sem isso, o card "Lotes de [mês]" (que
+        # sempre recalcula na hora) já reflete a reprovação/desvio nova, mas
+        # a barra do mês atual no gráfico Demanda vs Disponibilidade só
+        # alcança até 5 minutos depois -- essa rota tem upload próprio,
+        # separado do fluxo genérico de upload.py, então precisava do
+        # mesmo gatilho aqui também.
+        if len(erros) == 0 and background_tasks is not None:
+            from app.routers.upload import _recalcular_cache_reconciliacao_mes_atual_background
+            background_tasks.add_task(
+                _recalcular_cache_reconciliacao_mes_atual_background,
+                "desvios_lotes",
+                None,
+            )
 
         return {
             "ok": len(erros) == 0,

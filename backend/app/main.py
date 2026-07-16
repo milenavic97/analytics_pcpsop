@@ -47,12 +47,23 @@ HORARIOS_SYNC_COGTIVE = {0, 6, 12, 18}
 # ficava na fila do lock esperando a primeira). Isso é o principal motivo
 # da Gestão de Estoque "travar" quando tem gente usando ao mesmo tempo.
 #
-# Rodando esse aquecimento sozinho, em background, a cada poucos minutos,
+# Rodando esse aquecimento sozinho, em background, a cada poucos segundos,
 # quem paga o build pesado é sempre essa thread -- nunca uma requisição de
-# usuário. O intervalo é curto o bastante pra pegar upload novo rápido
-# (a cache_key muda sozinha quando há snapshot novo) e longo o bastante
-# pra não gerar carga extra perceptível no Supabase.
-_PREAQUECIMENTO_INTERVALO_SEGUNDOS = 5 * 60
+# usuário.
+#
+# Intervalo reduzido de 5 min para 30s (era 5*60): a chamada
+# overview.atualizar_cache_reconciliacao_mes_atual() logo abaixo, embora
+# rode a cada volta do loop, só recalcula de verdade quando a versão dos
+# dados muda (get_rastreamento_lotes já faz esse check por dentro) -- ou
+# seja, rodar com mais frequência é barato na maioria das vezes (só
+# confere se mudou algo) e só fica pesado quando realmente há dado novo,
+# que é exatamente quando vale a pena. Isso evita depender de cada
+# endpoint de upload/mutação individual lembrar de avisar essa thread
+# (ver upload.py e desvios.py, que fazem isso também como atalho extra,
+# mas não são a garantia principal) -- qualquer fonte de dado nova
+# (upload, sincronização automática da Cogtive, MRP, etc.) é pega aqui
+# em no máximo 30s, sem precisar caçar cada porta de entrada uma por uma.
+_PREAQUECIMENTO_INTERVALO_SEGUNDOS = 30
 
 
 def _loop_preaquecimento_cache_aging_estoque() -> None:

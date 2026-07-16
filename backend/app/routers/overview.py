@@ -1310,15 +1310,24 @@ def _planejamento_liberacao_mes_atual_ajustado_por_linha() -> dict[str, float]:
         if linha in LINHAS:
             totais[linha] += _to_float(item.get("qtd_cx"))
 
-    # Reconciliação (leitura passiva, sem calcular nada aqui -- ver aviso
-    # acima da definição do cache): se a thread de background já tiver um
-    # valor reconciliado pro mês atual, ajusta o total bruto por linha pra
-    # bater exatamente com o card do Rastreamento de Lotes, jogando a
-    # diferença de arredondamento (normalmente 1 cx) na linha de maior
-    # volume. Se o cache ainda não tiver rodado (app acabou de subir),
-    # segue com o total bruto sem ajuste -- nunca bloqueia, nunca quebra.
+    # Ajuste pro total bater exatamente com o card do Rastreamento de Lotes:
+    # busca ao vivo o mesmo valor que o card usa (mes_cx_plano_atual_tendencia),
+    # em vez de ler um cache separado alimentado só por uma thread em
+    # background. get_rastreamento_lotes() já tem seu próprio cache por
+    # versão de dado (rápido quando nada mudou, recalcula só quando muda de
+    # verdade) -- é o MESMO cache que o card usa, então esse valor nunca
+    # fica "para trás" esperando uma rotina periódica ou um gatilho de
+    # upload específico avisar. A troca de "cache passivo separado" por
+    # "mesma fonte ao vivo" foi decisão consciente depois de mais de uma
+    # lacuna encontrada nesse mecanismo indireto (ver histórico de
+    # atualizar_cache_reconciliacao_mes_atual/_MES_ATUAL_RECONCILIADO_CACHE).
     total_bruto_linhas = sum(totais.values())
-    valor_reconciliado = _ler_cache_reconciliacao_mes_atual()
+    try:
+        rastreamento_atual = get_rastreamento_lotes(mes=None, ano=None)
+        valor_reconciliado = rastreamento_atual.get("mes_cx_plano_atual_tendencia")
+        valor_reconciliado = float(valor_reconciliado) if valor_reconciliado is not None else None
+    except Exception:
+        valor_reconciliado = None
 
     if valor_reconciliado is not None and total_bruto_linhas > 0:
         delta = round(valor_reconciliado) - round(total_bruto_linhas)
