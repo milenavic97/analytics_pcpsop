@@ -641,7 +641,14 @@ export async function getEstoqueMensal(filtros?: OverviewFiltros) {
 }
 
 export async function getDisponibilidadeMensal(filtros?: OverviewFiltrosComPeriodo) {
-  return apiFetch(`/overview/disponibilidade-mensal${buildOverviewQuery(filtros)}`)
+  // apiFetchNoCache (não apiFetch): esse endpoint alimenta a barra do mês
+  // atual do gráfico Demanda vs Disponibilidade, que precisa refletir
+  // reprovação/desvio, atraso de produção e outros ajustes assim que
+  // acontecem. Com apiFetch normal, o navegador guardava a resposta por
+  // até 12h (API_CACHE_STALE_MS) -- nenhuma correção do backend adiantava,
+  // porque o navegador nem chegava a perguntar de novo pro servidor nesse
+  // meio tempo (nem um F5/Ctrl+Shift+R limpa isso, só storage do site).
+  return apiFetchNoCache(`/overview/disponibilidade-mensal${buildOverviewQuery(filtros)}`)
 }
 
 export async function getAtendimentoSku(filtros?: OverviewFiltrosComPeriodo) {
