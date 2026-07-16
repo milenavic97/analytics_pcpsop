@@ -2635,7 +2635,14 @@ def _versao_dados_rastreamento_lotes() -> str:
     # Troca para a mesma fonte já correta usada por /rastreamento-lotes-cache/versao:
     # upload_log (base_id/processado_em), com mrp_rodadas/mrp_etapas lidos direto.
     versions = _rastreamento_upload_versions()
+    # Observações manuais (ver migration 008) não passam pelo upload_log --
+    # sem isso aqui, marcar/remover uma observação num lote nunca mudava
+    # essa versão, e o card/gráfico do mês atual continuavam servindo o
+    # cálculo de antes da edição indefinidamente (em qualquer máquina que
+    # não tivesse recebido o force=true direto do clique em "Salvar").
+    versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
     versao = "|".join(f"{base}:{versions.get(base) or '-'}" for base in RASTREAMENTO_CACHE_BASES)
+    versao = f"{versao}|obs_manuais:{versao_obs_manuais or '-'}"
 
     with _RASTREAMENTO_LOTES_VERSAO_LOCK:
         _RASTREAMENTO_LOTES_VERSAO_CACHE["criado_em"] = agora
@@ -5717,12 +5724,19 @@ def _overview_upload_versions() -> dict[str, str | None]:
 def _overview_cache_version() -> tuple[str, dict[str, str | None]]:
     versions = _overview_upload_versions()
 
+    # Observações manuais (ver migration 008) não passam pelo upload_log --
+    # sem isso aqui, marcar/remover uma observação nunca mudava a "versão"
+    # que essa cache observa, e o gráfico/resumo continuavam servindo o
+    # snapshot de antes da edição indefinidamente.
+    versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
+
     partes = [
         OVERVIEW_CACHE_LOGIC_VERSION,
         f"ano:{_ano_atual()}",
         f"mes:{_mes_atual()}",
         # Mantém MTD/previsto até hoje sensível à virada do dia.
         f"hoje:{_hoje_br().isoformat()}",
+        f"obs_manuais:{versao_obs_manuais or '-'}",
     ]
 
     for base in OVERVIEW_CACHE_BASES:
@@ -6047,6 +6061,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
     mes_ref = mes or _mes_atual()
     ano_ref = ano or _ano_atual()
     versions = _rastreamento_upload_versions()
+    versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
 
     partes = [
         "rastreamento-cache-v9-reprovacao-historica-convive-com-desvio-atual",
@@ -6054,6 +6069,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
         f"mes:{mes_ref}",
         # O rastreamento tem MTD/previsto até hoje; por isso muda na virada do dia.
         f"hoje:{_hoje_br().isoformat()}",
+        f"obs_manuais:{versao_obs_manuais or '-'}",
     ]
 
     for base in RASTREAMENTO_CACHE_BASES:

@@ -1172,6 +1172,10 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     // contagem só porque também teve variação de rendimento ou desvio
     // aberto (o que é comum). Bate direto no estado físico, igual as etapas.
     if (filtro === "LIBERADO") return Boolean(l.check_liberado);
+    // Card "Outras perdas/ajustes": mesmo critério do backend pra entrar
+    // no card (observação manual ativa) -- ver overview.py, "outros" só
+    // conta lote com observacao_manual preenchida.
+    if (filtro === "OBSERVACAO_MANUAL") return Boolean(l.observacao_manual);
     if (ETAPAS_FISICAS.has(filtro)) return etapaFisicaLote(l) === filtro;
     return statusPrincipalLote(l) === filtro;
   }
@@ -1564,7 +1568,7 @@ const textoPercentualV1 = (valor: number) =>
           value: gapPorStatusMes.outros,
           color: "#7C2D12",
           icon: AlertTriangle,
-          filtro: "",
+          filtro: "OBSERVACAO_MANUAL",
         }]
       : []),
   ];
