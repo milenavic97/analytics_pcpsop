@@ -5179,11 +5179,22 @@ def _calcular_rastreamento_lotes_impl(
             )
         )
 
-        # Perda por rendimento é somente perda: caixas previstas V1 menos caixas liberadas.
-        # Ganho de rendimento não entra como negativo nem compensa outras perdas.
+        # Perda por rendimento: caixas previstas V1 menos caixas liberadas
+        # (SD3), OU -- se ainda não liberou, mas já está fisicamente em
+        # quarentena (armazém 98) -- previstas menos o saldo real de
+        # quarentena. O rendimento real já aconteceu fisicamente antes da
+        # liberação formal; sem isso, um lote parado em quarentena com
+        # rendimento abaixo do previsto ficava contando o valor cheio no
+        # Plano Atualizado até a liberação formal entrar na SD3 (quando aí
+        # sim vira liberação real e usa o SD3, não mais a quarentena).
+        # Ganho de rendimento continua só positivo/pós-liberação (linha
+        # separada mais abaixo) -- aqui só a perda.
+        qtd_quarentena_lote = estoque_quarentena_lote.get(lote) if not check_liberado else None
         qtd_perda_rendimento_cx = (
             max(qtd_prevista_cx - qtd_liberada_cx, 0)
             if check_liberado
+            else max(qtd_prevista_cx - round(qtd_quarentena_lote), 0)
+            if qtd_quarentena_lote is not None
             else 0
         )
         # Mesmo racional do qtd_gap_cx_float acima: versão em float, sem
@@ -5191,6 +5202,8 @@ def _calcular_rastreamento_lotes_impl(
         qtd_perda_rendimento_cx_float = (
             max(qtd_prevista_cx_float - qtd_liberada_cx_float, 0.0)
             if check_liberado
+            else max(qtd_prevista_cx_float - qtd_quarentena_lote, 0.0)
+            if qtd_quarentena_lote is not None
             else 0.0
         )
         perda_rendimento = qtd_perda_rendimento_cx > 0
@@ -5594,7 +5607,7 @@ def _calcular_rastreamento_lotes_impl(
     mtd_perda_rendimento = sum(
         r.get("qtd_perda_rendimento_cx_float", 0.0)
         for r in lotes_mtd
-        if r.get("status_gap") == "Perda por rendimento"
+        if r.get("qtd_perda_rendimento_cx_float", 0.0) > 0
     )
 
     mtd_embalagem = _soma_etapa_fisica(lotes_mtd, "embalagem")
@@ -5689,10 +5702,15 @@ def _calcular_rastreamento_lotes_impl(
 
     mes_reprovacao_desvio = _soma_mes_gap_status("Reprovação/desvio")
     mes_atraso_producao = _soma_mes_gap_status("Atraso de produção")
+    # Filtra pelo valor calculado (qtd_perda_rendimento_cx_float > 0), não
+    # pelo texto de status_gap: um lote ainda não liberado, mas já com
+    # perda por quarentena (armazém 98), continua com o status normal dele
+    # (ex.: "Em embalagem") -- só o card de perda de rendimento precisa
+    # saber da perda, não a coluna Status da tabela.
     mes_perda_rendimento = sum(
         r.get("qtd_perda_rendimento_cx_float", 0.0)
         for r in lotes_mes
-        if r.get("status_gap") == "Perda por rendimento"
+        if r.get("qtd_perda_rendimento_cx_float", 0.0) > 0
     )
     mes_embalagem = _soma_etapa_fisica(lotes_mes, "embalagem")
     mes_embalagem_em_desvio = _soma_etapa_fisica(lotes_mes, "embalagem", apenas_em_desvio=True)
