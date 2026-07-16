@@ -1237,146 +1237,85 @@ def _ler_cache_reconciliacao_mes_atual() -> Optional[float]:
 
 def _planejamento_liberacao_mes_atual_ajustado_por_linha() -> dict[str, float]:
     """
-    Valor correto do mês atual para a Overview:
-      - lotes já liberados entram pelo real da SD3 somente se pertencem ao Gantt/MPS do mês;
-      - lotes não liberados entram pelo MPS atual;
-      - perdas de reprovação/desvio são descontadas mesmo se o MPS ainda mantém o bloco cheio.
+    Valor correto do mês atual para a Overview, por linha (L1/L2).
 
-    Essa é a mesma ideia usada no Rastreamento para o card Plano Atualizado.
+    Antes, essa função tinha sua PRÓPRIA leitura de MRP/SD3 (via
+    _montar_lotes_mrp_overview + _sd3_lote_mes_atual_overview), separada da
+    lista oficial de lotes usada pelo Rastreamento de Lotes/card "Plano
+    Atualizado" (get_rastreamento_lotes). As duas fontes divergiam --
+    principalmente pra lotes atrasados de meses anteriores que a tabela
+    oficial "puxa" pro mês atual (via rows_gantt_ano_atual_global) mas que
+    essa função aqui nunca via, porque filtrava estritamente por
+    mes/ano == mês atual na rodada. Isso fazia o total agregado bater
+    (via ajuste por delta), mas a ABERTURA por linha (L1/L2) ficar errada,
+    porque o delta de reconciliação era jogado inteiro numa única linha,
+    mesmo quando a causa real (lote atrasado, observação manual, promoção)
+    era de outra linha.
+
+    Agora deriva a conta por linha da MESMA lista de lotes que
+    get_rastreamento_lotes() usa e retorna (campo "lotes") -- é
+    literalmente a mesma fonte que gera mes_cx_plano_atual_tendencia, então
+    total e composição por linha nunca mais divergem por construção.
     """
     try:
-        rodadas = _select_all(
-            supabase.table("f_mrp_rodadas")
-            .select("*")
-            .eq("ano", _ano_atual())
-            .eq("mes", _mes_atual())
-        )
+        # Mesmo cuidado de sempre: force=False explícito (ver comentário
+        # histórico abaixo, no bloco de fallback) evita o bug de Query(...)
+        # cru quando chamada direto em Python.
+        rastreamento_atual = get_rastreamento_lotes(mes=None, ano=None, force=False)
     except Exception:
-        rodadas = []
+        rastreamento_atual = None
 
-    validas = [r for r in rodadas if r.get("id") and _versao_num(r.get("versao")) > 0]
-    if not validas:
+    if not rastreamento_atual:
         return {}
 
-    rodada_atual_mes = sorted(
-        validas,
-        key=lambda r: (
-            _versao_num(r.get("versao")),
-            str(r.get("criado_em") or r.get("created_at") or ""),
-        ),
-        reverse=True,
-    )[0]
-
-    v1s = [r for r in validas if _versao_num(r.get("versao")) == 1]
-    rodada_v1_mes = sorted(
-        v1s,
-        key=lambda r: str(r.get("criado_em") or r.get("created_at") or ""),
-        reverse=True,
-    )[0] if v1s else None
-
-    atual = _montar_lotes_mrp_overview(rodada_atual_mes)
-    v1 = _montar_lotes_mrp_overview(rodada_v1_mes) if rodada_v1_mes else {}
-
-    atual_mes = {
-        lote: item for lote, item in atual.items()
-        if _to_int(item.get("mes")) == _mes_atual() and _to_int(item.get("ano"), _ano_atual()) == _ano_atual()
-    }
-    v1_mes = {
-        lote: item for lote, item in v1.items()
-        if _to_int(item.get("mes")) == _mes_atual() and _to_int(item.get("ano"), _ano_atual()) == _ano_atual()
-    }
-
-    if not atual_mes and not v1_mes:
+    lotes_do_mes = rastreamento_atual.get("lotes") or []
+    if not lotes_do_mes:
         return {}
 
-    sd3_lote = _sd3_lote_mes_atual_overview()
-    lotes_perda_desvio = _lotes_reprovacao_desvio_overview()
-
-    # Observação manual (migration 008) e promoção de lote (migration 010)
-    # precisam entrar AQUI também, por linha -- sem isso, a exclusão desses
-    # lotes só acontecia no total agregado lá embaixo (via delta), que joga
-    # a diferença inteira numa única linha (a de maior volume), mesmo que o
-    # lote excluído/promovido seja da OUTRA linha. Isso fazia o tooltip
-    # "Abertura por linha" mostrar número errado por linha (o total geral
-    # até batia, só a composição L1/L2 que ficava errada).
-    observacoes_manuais_mes_atual = _lotes_observacoes_manuais_mes(_mes_atual(), _ano_atual())
-    lotes_promovidos_fora_mes_atual = _lotes_promovidos_origem_mes(_mes_atual(), _ano_atual())
-    lotes_promovidos_dentro_mes_atual = _lotes_promovidos_destino_mes(_mes_atual(), _ano_atual())
-
-    lotes_elegiveis_real = set(atual_mes.keys()) | set(v1_mes.keys())
     totais = {linha: 0.0 for linha in LINHAS}
 
-    # 1) Real do mês: só entra quando o lote pertence ao MPS/Gantt do mês.
-    for lote in lotes_elegiveis_real:
-        real = sd3_lote.get(lote, 0.0)
-        if real <= 0:
+    for item in lotes_do_mes:
+        lote = item.get("lote")
+        linha = item.get("linha") if item.get("linha") in LINHAS else _linha_from_lote(lote)
+        if linha not in LINHAS:
             continue
-        item = atual_mes.get(lote) or v1_mes.get(lote)
-        linha = item.get("linha") if item else _linha_from_lote(lote)
-        if linha in LINHAS:
-            totais[linha] += real
 
-    # 2) Saldo planejado da versão atual: só para lote ainda não liberado.
-    #    Se já virou perda por reprovação/desvio, tem observação manual
-    #    ativa, ou foi promovido pra outro mês, desconta do plano mesmo que
-    #    o MPS ainda mantenha o bloco cheio -- cada um pela linha certa.
-    for lote, item in atual_mes.items():
-        if sd3_lote.get(lote, 0.0) > 0:
+        # Observação manual ativa ou promovido pra outro mês: já saiu da
+        # conta padrão do mês (foi pro card "Outros"/pro mês de destino) --
+        # não conta aqui, senão contaria 2x (uma vez em "Outros", outra vez
+        # aqui como se ainda fosse pendência normal do mês).
+        if item.get("observacao_manual") or item.get("promovido_para"):
             continue
-        if lote in lotes_perda_desvio:
-            continue
-        if lote in observacoes_manuais_mes_atual:
-            continue
-        if lote in lotes_promovidos_fora_mes_atual:
-            continue
-        linha = item.get("linha")
-        if linha in LINHAS:
-            totais[linha] += _to_float(item.get("qtd_cx"))
 
-    # 3) Lotes promovidos PRA DENTRO deste mês (migration 010): somam por
-    # linha, igual um lote normal ainda não liberado -- a linha vem do
-    # próprio código do lote, já que ele não está no MPS/Gantt deste mês.
-    for lote, dados_promocao in lotes_promovidos_dentro_mes_atual.items():
-        if sd3_lote.get(lote, 0.0) > 0:
+        # Reprovado/descartado: já é perda contabilizada à parte
+        # (reprovação/desvio), nunca conta como pendência normal do mês.
+        if item.get("desvio_reprovacao"):
             continue
-        linha = _linha_from_lote(lote)
-        if linha in LINHAS:
-            totais[linha] += _to_float(dados_promocao.get("qtd_caixas"))
 
-    # Ajuste pro total bater exatamente com o card do Rastreamento de Lotes:
-    # busca ao vivo o mesmo valor que o card usa (mes_cx_plano_atual_tendencia),
-    # em vez de ler um cache separado alimentado só por uma thread em
-    # background. get_rastreamento_lotes() já tem seu próprio cache por
-    # versão de dado (rápido quando nada mudou, recalcula só quando muda de
-    # verdade) -- é o MESMO cache que o card usa, então esse valor nunca
-    # fica "para trás" esperando uma rotina periódica ou um gatilho de
-    # upload específico avisar. A troca de "cache passivo separado" por
-    # "mesma fonte ao vivo" foi decisão consciente depois de mais de uma
-    # lacuna encontrada nesse mecanismo indireto (ver histórico de
-    # atualizar_cache_reconciliacao_mes_atual/_MES_ATUAL_RECONCILIADO_CACHE).
+        if item.get("check_liberado"):
+            totais[linha] += _to_float(item.get("qtd_liberada_cx"))
+        else:
+            # Cobre tanto o lote normal do mês quanto o promovido PRA DENTRO
+            # (migration 010) -- ambos chegam aqui com qtd_prevista_cx
+            # preenchido corretamente, sem precisar de tratamento especial.
+            totais[linha] += _to_float(item.get("qtd_prevista_cx"))
+
+    # Rede de segurança: se ainda sobrar uma diferença pequena (ex.:
+    # arredondamento, ou alguma causa de "outros" que não é por lote
+    # individual) entre a soma por linha e o valor oficial do card, distribui
+    # PROPORCIONALMENTE entre as linhas com valor -- nunca joga tudo numa
+    # linha só, que foi exatamente o bug que fazia o tooltip "Abertura por
+    # linha" mostrar número de uma linha completamente errado.
     total_bruto_linhas = sum(totais.values())
-    try:
-        # IMPORTANTE: force=False precisa vir explícito aqui. Sem isso, o
-        # parâmetro "force" do endpoint (force: bool = Query(default=False))
-        # recebe o objeto Query(...) cru quando a função é chamada direto em
-        # Python (fora de uma requisição HTTP de verdade, onde o FastAPI
-        # resolveria esse valor pra False) -- e esse objeto é "verdadeiro"
-        # em Python, então "if not force" virava sempre False, ignorando o
-        # cache e recalculando tudo do zero (pesado, ~20-40s+) TODA vez que
-        # esta função rodava. Se aquele cálculo estourasse/demorasse demais,
-        # caía no except abaixo e o ajuste simplesmente não acontecia --
-        # a barra ficava mostrando o total cru do MPS, sem descontar nada.
-        rastreamento_atual = get_rastreamento_lotes(mes=None, ano=None, force=False)
-        valor_reconciliado = rastreamento_atual.get("mes_cx_plano_atual_tendencia")
-        valor_reconciliado = float(valor_reconciliado) if valor_reconciliado is not None else None
-    except Exception:
-        valor_reconciliado = None
+    valor_reconciliado = rastreamento_atual.get("mes_cx_plano_atual_tendencia")
+    valor_reconciliado = float(valor_reconciliado) if valor_reconciliado is not None else None
 
     if valor_reconciliado is not None and total_bruto_linhas > 0:
         delta = round(valor_reconciliado) - round(total_bruto_linhas)
         if delta != 0:
-            linha_maior = max(totais, key=lambda l: totais[l])
-            totais[linha_maior] = max(totais[linha_maior] + delta, 0.0)
+            for linha in LINHAS:
+                parte = delta * (totais[linha] / total_bruto_linhas)
+                totais[linha] = max(totais[linha] + parte, 0.0)
 
     return totais
 
@@ -2668,8 +2607,13 @@ def _versao_dados_rastreamento_lotes() -> str:
     # cálculo de antes da edição indefinidamente (em qualquer máquina que
     # não tivesse recebido o force=true direto do clique em "Salvar").
     versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
+    # Promoções de lote (ver migration 010) têm o mesmo problema: criar ou
+    # remover uma promoção não passa pelo upload_log, então sem isso aqui
+    # o mês de destino (e o de origem) continuavam servindo o cálculo de
+    # antes da promoção indefinidamente.
+    versao_promocoes = _ultima_atualizacao_tabela("f_lotes_promocoes_mes", "criado_em")
     versao = "|".join(f"{base}:{versions.get(base) or '-'}" for base in RASTREAMENTO_CACHE_BASES)
-    versao = f"{versao}|obs_manuais:{versao_obs_manuais or '-'}"
+    versao = f"{versao}|obs_manuais:{versao_obs_manuais or '-'}|promocoes:{versao_promocoes or '-'}"
 
     with _RASTREAMENTO_LOTES_VERSAO_LOCK:
         _RASTREAMENTO_LOTES_VERSAO_CACHE["criado_em"] = agora
@@ -6342,6 +6286,7 @@ def _overview_cache_version() -> tuple[str, dict[str, str | None]]:
     # que essa cache observa, e o gráfico/resumo continuavam servindo o
     # snapshot de antes da edição indefinidamente.
     versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
+    versao_promocoes = _ultima_atualizacao_tabela("f_lotes_promocoes_mes", "criado_em")
 
     partes = [
         OVERVIEW_CACHE_LOGIC_VERSION,
@@ -6350,6 +6295,7 @@ def _overview_cache_version() -> tuple[str, dict[str, str | None]]:
         # Mantém MTD/previsto até hoje sensível à virada do dia.
         f"hoje:{_hoje_br().isoformat()}",
         f"obs_manuais:{versao_obs_manuais or '-'}",
+        f"promocoes:{versao_promocoes or '-'}",
     ]
 
     for base in OVERVIEW_CACHE_BASES:
@@ -6675,6 +6621,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
     ano_ref = ano or _ano_atual()
     versions = _rastreamento_upload_versions()
     versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
+    versao_promocoes = _ultima_atualizacao_tabela("f_lotes_promocoes_mes", "criado_em")
 
     partes = [
         "rastreamento-cache-v9-reprovacao-historica-convive-com-desvio-atual",
@@ -6683,6 +6630,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
         # O rastreamento tem MTD/previsto até hoje; por isso muda na virada do dia.
         f"hoje:{_hoje_br().isoformat()}",
         f"obs_manuais:{versao_obs_manuais or '-'}",
+        f"promocoes:{versao_promocoes or '-'}",
     ]
 
     for base in RASTREAMENTO_CACHE_BASES:
