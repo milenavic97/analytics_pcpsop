@@ -1201,7 +1201,13 @@ def atualizar_cache_reconciliacao_mes_atual() -> Optional[float]:
 
     for tentativa in range(3):
         try:
-            rastreamento = get_rastreamento_lotes(mes=None, ano=None)
+            # Mesmo motivo do fix em _planejamento_liberacao_mes_atual_ajustado_por_linha:
+            # force=False precisa vir explícito, senão essa chamada direta
+            # (fora de uma requisição HTTP) recebe o objeto Query(...) cru
+            # como valor de "force" -- que é "verdadeiro" em Python, fazendo
+            # o cache ser ignorado e recalculando tudo do zero (pesado) a
+            # cada 30s, pra sempre, sem necessidade nenhuma.
+            rastreamento = get_rastreamento_lotes(mes=None, ano=None, force=False)
             valor_bruto = rastreamento.get("mes_cx_plano_atual_tendencia")
             valor = float(valor_bruto) if valor_bruto is not None else None
             break
@@ -1323,7 +1329,17 @@ def _planejamento_liberacao_mes_atual_ajustado_por_linha() -> dict[str, float]:
     # atualizar_cache_reconciliacao_mes_atual/_MES_ATUAL_RECONCILIADO_CACHE).
     total_bruto_linhas = sum(totais.values())
     try:
-        rastreamento_atual = get_rastreamento_lotes(mes=None, ano=None)
+        # IMPORTANTE: force=False precisa vir explícito aqui. Sem isso, o
+        # parâmetro "force" do endpoint (force: bool = Query(default=False))
+        # recebe o objeto Query(...) cru quando a função é chamada direto em
+        # Python (fora de uma requisição HTTP de verdade, onde o FastAPI
+        # resolveria esse valor pra False) -- e esse objeto é "verdadeiro"
+        # em Python, então "if not force" virava sempre False, ignorando o
+        # cache e recalculando tudo do zero (pesado, ~20-40s+) TODA vez que
+        # esta função rodava. Se aquele cálculo estourasse/demorasse demais,
+        # caía no except abaixo e o ajuste simplesmente não acontecia --
+        # a barra ficava mostrando o total cru do MPS, sem descontar nada.
+        rastreamento_atual = get_rastreamento_lotes(mes=None, ano=None, force=False)
         valor_reconciliado = rastreamento_atual.get("mes_cx_plano_atual_tendencia")
         valor_reconciliado = float(valor_reconciliado) if valor_reconciliado is not None else None
     except Exception:
