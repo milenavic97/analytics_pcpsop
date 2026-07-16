@@ -22,6 +22,10 @@ import {
   ChevronDown,
   Search,
   Pencil,
+  Plus,
+  Trash2,
+  ArrowUpCircle,
+  Undo2,
 } from "lucide-react";
 import { clearApiCache, getRastreamentoLotes, getRastreamentoLotesCacheVersao } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -76,6 +80,9 @@ interface LoteRastreamento {
   destino_produto_insumo?: string | null;
   desvio_destino_produto_insumo?: string | null;
   observacao_manual?: string | null;
+  promovido_para?: string | null;
+  promovido_de?: string | null;
+  lote_manual?: boolean;
   qtd_desvios?: number | null;
   desvios?: DesvioInfo[] | null;
   desvio_reprovacao?: boolean;
@@ -750,6 +757,84 @@ async function removerLoteObservacaoManual(lote: string, mes: number, ano: numbe
   if (!res.ok) {
     const detalhe = await res.json().catch(() => null);
     throw new Error(detalhe?.detail || `Erro ao remover observação (${res.status})`);
+  }
+}
+
+async function salvarLoteManualRastreamento(
+  lote: string,
+  mes: number,
+  ano: number,
+  grupo: string,
+  qtdCaixas: number,
+  dataLiberacao: string,
+  motivo: string
+): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/overview/lotes-manuais-rastreamento`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      lote,
+      mes,
+      ano,
+      grupo: grupo || null,
+      qtd_caixas: qtdCaixas,
+      data_liberacao: dataLiberacao || null,
+      motivo: motivo || null,
+    }),
+  });
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null);
+    throw new Error(detalhe?.detail || `Erro ao salvar lote manual (${res.status})`);
+  }
+}
+
+async function removerLoteManualRastreamento(lote: string, mes: number, ano: number): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(
+    `${API_URL}/overview/lotes-manuais-rastreamento/${encodeURIComponent(lote)}?mes=${mes}&ano=${ano}`,
+    { method: "DELETE", headers: authHeaders }
+  );
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null);
+    throw new Error(detalhe?.detail || `Erro ao remover lote manual (${res.status})`);
+  }
+}
+
+async function promoverLoteMesAtual(
+  lote: string,
+  mesOrigem: number,
+  anoOrigem: number,
+  qtdCaixas: number,
+  grupo: string | null
+): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/overview/lotes-promover-mes-atual`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      lote,
+      mes_origem: mesOrigem,
+      ano_origem: anoOrigem,
+      qtd_caixas: qtdCaixas,
+      grupo: grupo || null,
+    }),
+  });
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null);
+    throw new Error(detalhe?.detail || `Erro ao promover lote (${res.status})`);
+  }
+}
+
+async function removerPromocaoLote(lote: string, mesOrigem: number, anoOrigem: number): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(
+    `${API_URL}/overview/lotes-promover-mes-atual/${encodeURIComponent(lote)}?mes_origem=${mesOrigem}&ano_origem=${anoOrigem}`,
+    { method: "DELETE", headers: authHeaders }
+  );
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null);
+    throw new Error(detalhe?.detail || `Erro ao remover promoção (${res.status})`);
   }
 }
 
@@ -1843,6 +1928,108 @@ const textoPercentualV1 = (valor: number) =>
     }
   }
 
+  const [modalLoteManual, setModalLoteManual] = useState(false);
+  const [loteManualForm, setLoteManualForm] = useState({
+    lote: "",
+    grupo: "",
+    caixas: "",
+    dataLiberacao: "",
+    motivo: "",
+  });
+  const [salvandoLoteManual, setSalvandoLoteManual] = useState(false);
+  const [erroLoteManual, setErroLoteManual] = useState<string | null>(null);
+
+  function abrirModalLoteManual() {
+    if (!podeEditarObservacaoManual) return;
+    setLoteManualForm({ lote: "", grupo: "", caixas: "", dataLiberacao: "", motivo: "" });
+    setErroLoteManual(null);
+    setModalLoteManual(true);
+  }
+
+  async function confirmarLoteManual() {
+    if (!data) return;
+    const mesRef = data.mes ?? mesSelecionado;
+    const anoRef = data.ano ?? anoSelecionado;
+    const caixas = Number(loteManualForm.caixas);
+
+    if (!loteManualForm.lote.trim()) {
+      setErroLoteManual("Informe o número do lote.");
+      return;
+    }
+    if (!caixas || caixas <= 0) {
+      setErroLoteManual("Informe uma quantidade de caixas válida.");
+      return;
+    }
+
+    setSalvandoLoteManual(true);
+    setErroLoteManual(null);
+    try {
+      await salvarLoteManualRastreamento(
+        loteManualForm.lote.trim(),
+        mesRef,
+        anoRef,
+        loteManualForm.grupo.trim(),
+        caixas,
+        loteManualForm.dataLiberacao,
+        loteManualForm.motivo.trim()
+      );
+      setModalLoteManual(false);
+      await carregar(true, true);
+    } catch (erro: any) {
+      setErroLoteManual(erro?.message || "Não foi possível salvar o lote.");
+    } finally {
+      setSalvandoLoteManual(false);
+    }
+  }
+
+  async function removerLoteManual(lote: LoteRastreamento) {
+    if (!data || !podeEditarObservacaoManual) return;
+    if (!window.confirm(`Remover o lote manual ${lote.lote}? Ele deixa de contar no mês.`)) return;
+    const mesRef = data.mes ?? mesSelecionado;
+    const anoRef = data.ano ?? anoSelecionado;
+    try {
+      await removerLoteManualRastreamento(lote.lote, mesRef, anoRef);
+      await carregar(true, true);
+    } catch (erro: any) {
+      window.alert(erro?.message || "Não foi possível remover o lote manual.");
+    }
+  }
+
+  async function promoverLote(lote: LoteRastreamento) {
+    if (!data || !podeEditarObservacaoManual) return;
+    const mesRef = data.mes ?? mesSelecionado;
+    const anoRef = data.ano ?? anoSelecionado;
+    const qtd = Number(lote.qtd_prevista_cx || 0);
+    if (
+      !window.confirm(
+        `Promover o lote ${lote.lote} (${qtd} cx) pro mês corrente?\n\n` +
+          `Ele sai da pendência de ${MES_LABELS[mesRef - 1]}/${anoRef} (fica só registrado com a tag ` +
+          `"Promovido") e passa a contar de verdade no Plano Atualizado do mês atual.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await promoverLoteMesAtual(lote.lote, mesRef, anoRef, qtd, lote.grupo || null);
+      await carregar(true, true);
+    } catch (erro: any) {
+      window.alert(erro?.message || "Não foi possível promover o lote.");
+    }
+  }
+
+  async function desfazerPromocaoLote(lote: LoteRastreamento) {
+    if (!data || !podeEditarObservacaoManual) return;
+    const mesRef = data.mes ?? mesSelecionado;
+    const anoRef = data.ano ?? anoSelecionado;
+    if (!window.confirm(`Desfazer a promoção do lote ${lote.lote}? Ele volta a contar no mês original.`)) return;
+    try {
+      await removerPromocaoLote(lote.lote, mesRef, anoRef);
+      await carregar(true, true);
+    } catch (erro: any) {
+      window.alert(erro?.message || "Não foi possível desfazer a promoção.");
+    }
+  }
+
   function calcularRendimento(lote: LoteRastreamento) {
     const planejadoCx = Number(lote.qtd_prevista_cx || 0);
     const liberadoCx = Number(lote.qtd_liberada_cx || 0);
@@ -2313,6 +2500,18 @@ const textoPercentualV1 = (valor: number) =>
           Exportar {selecionados.size > 0 ? `(${selecionados.size})` : ""}
         </button>
 
+        {podeEditarObservacaoManual && (
+          <button
+            onClick={abrirModalLoteManual}
+            className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-black/5"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+            title="Adicionar um lote que o sistema automático não está enxergando"
+          >
+            <Plus size={13} />
+            Adicionar lote
+          </button>
+        )}
+
         <div className="relative">
           <Search
             size={14}
@@ -2595,6 +2794,47 @@ const textoPercentualV1 = (valor: number) =>
                               style={{ color: "var(--text-secondary)" }}
                             >
                               <Pencil size={12} />
+                            </button>
+                          )}
+
+                          {podeEditarObservacaoManual && l.lote_manual && (
+                            <button
+                              type="button"
+                              onClick={() => removerLoteManual(l)}
+                              title="Remover lote adicionado manualmente"
+                              className="shrink-0 rounded p-0.5 transition-colors hover:bg-black/5"
+                              style={{ color: "#B45309" }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+
+                          {podeEditarObservacaoManual &&
+                            !l.check_liberado &&
+                            !l.desvio_reprovacao &&
+                            !l.promovido_para &&
+                            (mesSelecionado !== new Date().getMonth() + 1 ||
+                              anoSelecionado !== new Date().getFullYear()) && (
+                              <button
+                                type="button"
+                                onClick={() => promoverLote(l)}
+                                title="Promover pro mês corrente"
+                                className="shrink-0 rounded p-0.5 transition-colors hover:bg-black/5"
+                                style={{ color: "#0F6E5A" }}
+                              >
+                                <ArrowUpCircle size={12} />
+                              </button>
+                            )}
+
+                          {podeEditarObservacaoManual && l.promovido_para && (
+                            <button
+                              type="button"
+                              onClick={() => desfazerPromocaoLote(l)}
+                              title="Desfazer promoção"
+                              className="shrink-0 rounded p-0.5 transition-colors hover:bg-black/5"
+                              style={{ color: "#B45309" }}
+                            >
+                              <Undo2 size={12} />
                             </button>
                           )}
                         </div>
@@ -3087,6 +3327,178 @@ const textoPercentualV1 = (valor: number) =>
                     {salvandoObservacao ? "Salvando..." : "Salvar"}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {modalLoteManual &&
+        createPortal(
+          <div
+            onClick={(event) => {
+              if (event.target === event.currentTarget && !salvandoLoteManual) setModalLoteManual(false);
+            }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 9999,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+              backdropFilter: "blur(4px)",
+              background: "rgba(0,0,0,0.4)",
+            }}
+          >
+            <div
+              className="fade-in"
+              style={{
+                width: "100%",
+                maxWidth: 480,
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border)",
+                borderRadius: 16,
+                boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  padding: "20px 24px",
+                  borderBottom: "1px solid var(--border)",
+                }}
+              >
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+                  Adicionar lote manualmente
+                </h2>
+                <button
+                  onClick={() => setModalLoteManual(false)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", padding: 4, display: "flex", borderRadius: 6 }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ padding: "20px 24px", display: "grid", gap: 12 }}>
+                <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
+                  Use quando um lote já liberado (ou que vai ser) não aparece aqui porque não está
+                  no Gantt/MPS automático. Ele entra na tabela e soma nas caixas do mês, igual um
+                  lote real.
+                </p>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    Lote
+                  </label>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={loteManualForm.lote}
+                    onChange={(e) => setLoteManualForm((f) => ({ ...f, lote: e.target.value }))}
+                    placeholder="Ex.: 2603C2014"
+                    disabled={salvandoLoteManual}
+                    className="text-sm outline-none"
+                    style={{ width: "100%", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-primary)", padding: "8px 12px" }}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4 }}>
+                      Grupo (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={loteManualForm.grupo}
+                      onChange={(e) => setLoteManualForm((f) => ({ ...f, grupo: e.target.value }))}
+                      placeholder="Ex.: ARTICAINE"
+                      disabled={salvandoLoteManual}
+                      className="text-sm outline-none"
+                      style={{ width: "100%", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-primary)", padding: "8px 12px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4 }}>
+                      Caixas
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={loteManualForm.caixas}
+                      onChange={(e) => setLoteManualForm((f) => ({ ...f, caixas: e.target.value }))}
+                      placeholder="Ex.: 600"
+                      disabled={salvandoLoteManual}
+                      className="text-sm outline-none"
+                      style={{ width: "100%", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-primary)", padding: "8px 12px" }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    Data de liberação (opcional)
+                  </label>
+                  <input
+                    type="date"
+                    value={loteManualForm.dataLiberacao}
+                    onChange={(e) => setLoteManualForm((f) => ({ ...f, dataLiberacao: e.target.value }))}
+                    disabled={salvandoLoteManual}
+                    className="text-sm outline-none"
+                    style={{ width: "100%", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-primary)", padding: "8px 12px" }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    Observação (opcional)
+                  </label>
+                  <textarea
+                    value={loteManualForm.motivo}
+                    onChange={(e) => setLoteManualForm((f) => ({ ...f, motivo: e.target.value }))}
+                    placeholder='Ex.: "Lote fora do MPS, controlado à parte"'
+                    rows={2}
+                    disabled={salvandoLoteManual}
+                    className="text-sm outline-none"
+                    style={{ width: "100%", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)", color: "var(--text-primary)", padding: "8px 12px", resize: "vertical" }}
+                  />
+                </div>
+
+                {erroLoteManual && (
+                  <p style={{ fontSize: 12, color: "#DC2626", margin: 0 }}>{erroLoteManual}</p>
+                )}
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "flex-end",
+                  gap: 8,
+                  padding: "16px 24px",
+                  borderTop: "1px solid var(--border)",
+                  background: "var(--bg-primary)",
+                }}
+              >
+                <button
+                  onClick={() => setModalLoteManual(false)}
+                  disabled={salvandoLoteManual}
+                  className="rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-black/5"
+                  style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmarLoteManual}
+                  disabled={salvandoLoteManual}
+                  className="rounded-lg px-3 py-2 text-xs font-semibold text-white transition-opacity"
+                  style={{ background: "var(--bg-sidebar)", opacity: salvandoLoteManual ? 0.5 : 1 }}
+                >
+                  {salvandoLoteManual ? "Salvando..." : "Adicionar"}
+                </button>
               </div>
             </div>
           </div>,

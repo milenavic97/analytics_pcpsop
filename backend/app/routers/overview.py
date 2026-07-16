@@ -4,7 +4,7 @@ from app.database import supabase
 from app.auth import exigir_admin
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from threading import Lock
+from threading import Lock, Event
 from typing import Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
@@ -1292,6 +1292,17 @@ def _planejamento_liberacao_mes_atual_ajustado_por_linha() -> dict[str, float]:
     sd3_lote = _sd3_lote_mes_atual_overview()
     lotes_perda_desvio = _lotes_reprovacao_desvio_overview()
 
+    # Observação manual (migration 008) e promoção de lote (migration 010)
+    # precisam entrar AQUI também, por linha -- sem isso, a exclusão desses
+    # lotes só acontecia no total agregado lá embaixo (via delta), que joga
+    # a diferença inteira numa única linha (a de maior volume), mesmo que o
+    # lote excluído/promovido seja da OUTRA linha. Isso fazia o tooltip
+    # "Abertura por linha" mostrar número errado por linha (o total geral
+    # até batia, só a composição L1/L2 que ficava errada).
+    observacoes_manuais_mes_atual = _lotes_observacoes_manuais_mes(_mes_atual(), _ano_atual())
+    lotes_promovidos_fora_mes_atual = _lotes_promovidos_origem_mes(_mes_atual(), _ano_atual())
+    lotes_promovidos_dentro_mes_atual = _lotes_promovidos_destino_mes(_mes_atual(), _ano_atual())
+
     lotes_elegiveis_real = set(atual_mes.keys()) | set(v1_mes.keys())
     totais = {linha: 0.0 for linha in LINHAS}
 
@@ -1306,15 +1317,31 @@ def _planejamento_liberacao_mes_atual_ajustado_por_linha() -> dict[str, float]:
             totais[linha] += real
 
     # 2) Saldo planejado da versão atual: só para lote ainda não liberado.
-    #    Se já virou perda por reprovação/desvio, desconta do plano mesmo que o MPS ainda mantenha o bloco cheio.
+    #    Se já virou perda por reprovação/desvio, tem observação manual
+    #    ativa, ou foi promovido pra outro mês, desconta do plano mesmo que
+    #    o MPS ainda mantenha o bloco cheio -- cada um pela linha certa.
     for lote, item in atual_mes.items():
         if sd3_lote.get(lote, 0.0) > 0:
             continue
         if lote in lotes_perda_desvio:
             continue
+        if lote in observacoes_manuais_mes_atual:
+            continue
+        if lote in lotes_promovidos_fora_mes_atual:
+            continue
         linha = item.get("linha")
         if linha in LINHAS:
             totais[linha] += _to_float(item.get("qtd_cx"))
+
+    # 3) Lotes promovidos PRA DENTRO deste mês (migration 010): somam por
+    # linha, igual um lote normal ainda não liberado -- a linha vem do
+    # próprio código do lote, já que ele não está no MPS/Gantt deste mês.
+    for lote, dados_promocao in lotes_promovidos_dentro_mes_atual.items():
+        if sd3_lote.get(lote, 0.0) > 0:
+            continue
+        linha = _linha_from_lote(lote)
+        if linha in LINHAS:
+            totais[linha] += _to_float(dados_promocao.get("qtd_caixas"))
 
     # Ajuste pro total bater exatamente com o card do Rastreamento de Lotes:
     # busca ao vivo o mesmo valor que o card usa (mes_cx_plano_atual_tendencia),
@@ -2654,6 +2681,20 @@ def _versao_dados_rastreamento_lotes() -> str:
 _RASTREAMENTO_LOTES_CACHE: dict = {}
 _RASTREAMENTO_LOTES_LOCK = Lock()
 
+# Deduplicação de chamadas concorrentes: _calcular_rastreamento_lotes_impl é
+# pesada (pode levar de 20s a mais de 1 minuto). Sem isso, se 5-6 chamadas
+# pra chaves iguais chegassem juntas (ex.: a Overview inteira carregando de
+# uma vez, ou a rotina de 30s coincidindo com uso real), cada uma calculava
+# por conta própria, ao mesmo tempo -- foi exatamente isso que derrubou as
+# duas máquinas (memória/CPU esgotando com N cálculos pesados simultâneos
+# pra cima da mesma informação). Agora, só a PRIMEIRA chamada de uma chave
+# calcula de verdade; as outras que chegarem enquanto isso esperam o
+# resultado dela em vez de calcular de novo.
+_RASTREAMENTO_LOTES_EM_ANDAMENTO: dict[str, Event] = {}
+_RASTREAMENTO_LOTES_RESULTADO_EM_ANDAMENTO: dict[str, dict] = {}
+_RASTREAMENTO_LOTES_EM_ANDAMENTO_LOCK = Lock()
+_RASTREAMENTO_LOTES_ESPERA_MAX_SEGUNDOS = 150
+
 
 @router.get("/rastreamento-lotes")
 def get_rastreamento_lotes(
@@ -2694,25 +2735,54 @@ def get_rastreamento_lotes(
             if cache is not None and (agora - cache[0]) <= _RASTREAMENTO_LOTES_CACHE_TTL_SEGUNDOS:
                 return cache[1]
 
-    resultado = _calcular_rastreamento_lotes_impl(mes, ano)
+    # Alguém mais já está calculando essa MESMA chave agora? Espera o
+    # resultado dela em vez de calcular de novo em paralelo.
+    with _RASTREAMENTO_LOTES_EM_ANDAMENTO_LOCK:
+        evento_existente = _RASTREAMENTO_LOTES_EM_ANDAMENTO.get(chave)
+        sou_eu_quem_calcula = evento_existente is None
+        if sou_eu_quem_calcula:
+            evento_existente = Event()
+            _RASTREAMENTO_LOTES_EM_ANDAMENTO[chave] = evento_existente
 
-    with _RASTREAMENTO_LOTES_LOCK:
-        _RASTREAMENTO_LOTES_CACHE[chave] = (agora, resultado)
+    if not sou_eu_quem_calcula:
+        concluiu_a_tempo = evento_existente.wait(timeout=_RASTREAMENTO_LOTES_ESPERA_MAX_SEGUNDOS)
+        if concluiu_a_tempo:
+            resultado_de_outra_chamada = _RASTREAMENTO_LOTES_RESULTADO_EM_ANDAMENTO.get(chave)
+            if resultado_de_outra_chamada is not None:
+                return resultado_de_outra_chamada
+        # Timeout ou a outra chamada falhou sem deixar resultado: cai pro
+        # cálculo normal abaixo como último recurso, em vez de travar pra
+        # sempre esperando algo que não vai vir.
 
-        # A chave inclui a versão dos dados, então uma mudança de versão
-        # sempre gera uma entrada nova -- sem limpar as antigas, o dicionário
-        # cresceria sem limite ao longo de dias/semanas. Faxina oportunista:
-        # só roda quando o dict já está grande, e só remove o que já venceu
-        # pelo guarda-chuva de segurança.
-        if len(_RASTREAMENTO_LOTES_CACHE) > 50:
-            expirados = [
-                k for k, (criado_em, _) in _RASTREAMENTO_LOTES_CACHE.items()
-                if (agora - criado_em) > _RASTREAMENTO_LOTES_CACHE_TTL_SEGUNDOS
-            ]
-            for k in expirados:
-                _RASTREAMENTO_LOTES_CACHE.pop(k, None)
+    try:
+        resultado = _calcular_rastreamento_lotes_impl(mes, ano)
 
-    return resultado
+        with _RASTREAMENTO_LOTES_LOCK:
+            _RASTREAMENTO_LOTES_CACHE[chave] = (agora, resultado)
+
+            # A chave inclui a versão dos dados, então uma mudança de versão
+            # sempre gera uma entrada nova -- sem limpar as antigas, o dicionário
+            # cresceria sem limite ao longo de dias/semanas. Faxina oportunista:
+            # só roda quando o dict já está grande, e só remove o que já venceu
+            # pelo guarda-chuva de segurança.
+            if len(_RASTREAMENTO_LOTES_CACHE) > 50:
+                expirados = [
+                    k for k, (criado_em, _) in _RASTREAMENTO_LOTES_CACHE.items()
+                    if (agora - criado_em) > _RASTREAMENTO_LOTES_CACHE_TTL_SEGUNDOS
+                ]
+                for k in expirados:
+                    _RASTREAMENTO_LOTES_CACHE.pop(k, None)
+
+        if sou_eu_quem_calcula:
+            with _RASTREAMENTO_LOTES_EM_ANDAMENTO_LOCK:
+                _RASTREAMENTO_LOTES_RESULTADO_EM_ANDAMENTO[chave] = resultado
+
+        return resultado
+    finally:
+        if sou_eu_quem_calcula:
+            evento_existente.set()
+            with _RASTREAMENTO_LOTES_EM_ANDAMENTO_LOCK:
+                _RASTREAMENTO_LOTES_EM_ANDAMENTO.pop(chave, None)
 
 
 # Nada de lista fixa por ano: o card "Perdas por desvio (ano)" agora busca
@@ -3126,6 +3196,62 @@ def _lotes_observacoes_manuais_mes(mes: int, ano: int) -> dict[str, str]:
     return resultado
 
 
+def _lotes_promovidos_origem_mes(mes: int, ano: int) -> dict[str, dict]:
+    """Lote normalizado -> {mes_destino, ano_destino} pras promoções em que
+    (mes, ano) é o mês de ORIGEM (ver migration 009). Usado quando a tela
+    está olhando o mês de onde o lote saiu -- ele continua aparecendo ali,
+    só que tagueado como "Promovido para [destino]" e fora da contagem de
+    pendência/atraso daquele mês. Nunca levanta exceção."""
+    try:
+        linhas = _select_all(
+            supabase.table("f_lotes_promocoes_mes")
+            .select("lote, mes_destino, ano_destino")
+            .eq("mes_origem", mes)
+            .eq("ano_origem", ano)
+        )
+    except Exception:
+        return {}
+
+    resultado: dict[str, dict] = {}
+    for linha in linhas:
+        lote = _normaliza_lote_modulo(linha.get("lote"))
+        if lote:
+            resultado[lote] = {
+                "mes_destino": linha.get("mes_destino"),
+                "ano_destino": linha.get("ano_destino"),
+            }
+    return resultado
+
+
+def _lotes_promovidos_destino_mes(mes: int, ano: int) -> dict[str, dict]:
+    """Lote normalizado -> {mes_origem, ano_origem, qtd_caixas, grupo} pras
+    promoções em que (mes, ano) é o mês de DESTINO. Usado quando a tela
+    está olhando o mês pra onde o lote foi promovido -- ele passa a
+    contar de verdade no Plano Atualizado desse mês, como planejamento
+    novo. Nunca levanta exceção."""
+    try:
+        linhas = _select_all(
+            supabase.table("f_lotes_promocoes_mes")
+            .select("lote, mes_origem, ano_origem, qtd_caixas, grupo")
+            .eq("mes_destino", mes)
+            .eq("ano_destino", ano)
+        )
+    except Exception:
+        return {}
+
+    resultado: dict[str, dict] = {}
+    for linha in linhas:
+        lote = _normaliza_lote_modulo(linha.get("lote"))
+        if lote:
+            resultado[lote] = {
+                "mes_origem": linha.get("mes_origem"),
+                "ano_origem": linha.get("ano_origem"),
+                "qtd_caixas": linha.get("qtd_caixas"),
+                "grupo": linha.get("grupo"),
+            }
+    return resultado
+
+
 class LoteObservacaoManualInput(BaseModel):
     lote: str
     mes: int
@@ -3206,6 +3332,248 @@ def remover_lotes_observacao_manual(
     return {"status": "ok"}
 
 
+# ────────────────────────────────────────────────────────────
+# Lotes adicionados manualmente ao Rastreamento (ver migration
+# 009_lotes_manuais_rastreamento.sql para o racional completo).
+# ────────────────────────────────────────────────────────────
+
+def _lotes_manuais_rastreamento_mes(mes: int, ano: int) -> list[dict]:
+    """Lista de lotes adicionados manualmente pro mes/ano pedido. Nunca
+    levanta exceção -- se a tabela falhar por qualquer motivo, o resto do
+    cálculo segue normalmente sem esses lotes."""
+    try:
+        linhas = _select_all(
+            supabase.table("f_lotes_manuais_rastreamento")
+            .select("lote, grupo, qtd_caixas, data_liberacao, motivo")
+            .eq("mes", mes)
+            .eq("ano", ano)
+        )
+    except Exception:
+        return []
+
+    resultado = []
+    for linha in linhas:
+        lote = _normaliza_lote_modulo(linha.get("lote"))
+        qtd = _to_float(linha.get("qtd_caixas"))
+        if lote and qtd > 0:
+            resultado.append({
+                "lote": lote,
+                "grupo": str(linha.get("grupo") or "").strip() or None,
+                "qtd_caixas": qtd,
+                "data_liberacao": linha.get("data_liberacao"),
+                "motivo": linha.get("motivo"),
+            })
+    return resultado
+
+
+class LoteManualRastreamentoInput(BaseModel):
+    lote: str
+    mes: int
+    ano: int
+    grupo: str | None = None
+    qtd_caixas: float
+    data_liberacao: str | None = None
+    motivo: str | None = None
+
+
+@router.post("/lotes-manuais-rastreamento")
+def criar_lote_manual_rastreamento(
+    payload: LoteManualRastreamentoInput,
+    perfil: dict = Depends(exigir_admin),
+):
+    """
+    Adiciona um lote manualmente ao Rastreamento de Lotes do mês/ano
+    informado -- pro caso oposto da observação manual: um lote que o
+    sistema automático (Gantt/MPS/rodada MRP) não está enxergando, mas que
+    já foi/vai ser liberado de verdade. Restrito a admin/permissão de
+    Configurações (ver app/auth.py:exigir_admin).
+
+    Entra como uma linha a mais na tabela "Lotes de [mês]", já marcado
+    como liberado, e soma nas caixas realizadas do mês -- reflete também
+    no card "Plano Atualizado" e na barra do mês atual da Overview.
+    """
+    lote = _normaliza_lote_modulo(payload.lote)
+    if not lote:
+        raise HTTPException(status_code=400, detail="Lote inválido.")
+
+    if payload.qtd_caixas <= 0:
+        raise HTTPException(status_code=400, detail="Quantidade de caixas deve ser maior que zero.")
+
+    if not (1 <= payload.mes <= 12):
+        raise HTTPException(status_code=400, detail="Mês inválido.")
+
+    try:
+        supabase.table("f_lotes_manuais_rastreamento").upsert(
+            {
+                "lote": lote,
+                "mes": payload.mes,
+                "ano": payload.ano,
+                "grupo": (payload.grupo or "").strip() or None,
+                "qtd_caixas": payload.qtd_caixas,
+                "data_liberacao": payload.data_liberacao,
+                "motivo": (payload.motivo or "").strip() or None,
+                "criado_por": perfil.get("email") or perfil.get("usuario") or perfil.get("nome"),
+            },
+            on_conflict="lote,mes,ano",
+        ).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar lote manual: {str(e)[:300]}")
+
+    return {"status": "ok", "lote": lote, "mes": payload.mes, "ano": payload.ano}
+
+
+@router.delete("/lotes-manuais-rastreamento/{lote}")
+def remover_lote_manual_rastreamento(
+    lote: str,
+    mes: int = Query(...),
+    ano: int = Query(...),
+    perfil: dict = Depends(exigir_admin),
+):
+    """Remove um lote adicionado manualmente ao Rastreamento. Restrito a
+    admin/permissão de Configurações (ver app/auth.py:exigir_admin)."""
+    lote_norm = _normaliza_lote_modulo(lote)
+    if not lote_norm:
+        raise HTTPException(status_code=400, detail="Lote inválido.")
+
+    try:
+        (
+            supabase.table("f_lotes_manuais_rastreamento")
+            .delete()
+            .eq("lote", lote_norm)
+            .eq("mes", mes)
+            .eq("ano", ano)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao remover lote manual: {str(e)[:300]}")
+
+    return {"status": "ok"}
+
+
+# ────────────────────────────────────────────────────────────
+# Promoção de lote pro mês corrente (ver migration
+# 010_lotes_promocoes_mes.sql para o racional completo).
+# ────────────────────────────────────────────────────────────
+
+class LotePromoverInput(BaseModel):
+    lote: str
+    mes_origem: int
+    ano_origem: int
+    qtd_caixas: float
+    grupo: str | None = None
+
+
+@router.post("/lotes-promover-mes-atual")
+def promover_lote_mes_atual(
+    payload: LotePromoverInput,
+    perfil: dict = Depends(exigir_admin),
+):
+    """
+    Move a expectativa de entrega de um lote que ficou parado num mês
+    anterior (não liberado, mas também não reprovado/descartado) pro mês
+    corrente. Restrito a admin/permissão de Configurações (ver
+    app/auth.py:exigir_admin).
+
+    Efeito (ver _calcular_rastreamento_lotes_impl):
+      - no mês de ORIGEM: o lote continua na tabela, tagueado como
+        "Promovido para [mês/ano destino]", e sai da contagem de
+        pendência/atraso aberta daquele mês (mesmo card "Outros" da
+        observação manual);
+      - no mês de DESTINO (sempre o mês corrente, calculado aqui -- nunca
+        confia em mes/ano vindo do front pra isso): o lote passa a
+        aparecer também lá e conta de verdade no Plano Atualizado, como
+        planejamento novo.
+
+    O "Planejado V1" (congelado) nunca muda em nenhum dos dois meses --
+    só o Plano Atualizado.
+
+    Bloqueia promoção de lote já reprovado/descartado (ver
+    _lotes_reprovacao_desvio_overview) -- esses são perdas resolvidas,
+    não fazem sentido "voltar à vida" num mês novo.
+    """
+    lote = _normaliza_lote_modulo(payload.lote)
+    if not lote:
+        raise HTTPException(status_code=400, detail="Lote inválido.")
+
+    if not (1 <= payload.mes_origem <= 12):
+        raise HTTPException(status_code=400, detail="Mês de origem inválido.")
+
+    if payload.qtd_caixas <= 0:
+        raise HTTPException(status_code=400, detail="Quantidade de caixas deve ser maior que zero.")
+
+    try:
+        lotes_reprovados_ou_descartados = _lotes_reprovacao_desvio_overview()
+    except Exception:
+        lotes_reprovados_ou_descartados = set()
+
+    if lote in lotes_reprovados_ou_descartados:
+        raise HTTPException(
+            status_code=400,
+            detail="Lote reprovado/descartado não pode ser promovido -- essa perda já está resolvida.",
+        )
+
+    mes_destino = _mes_atual()
+    ano_destino = _ano_atual()
+
+    if payload.mes_origem == mes_destino and payload.ano_origem == ano_destino:
+        raise HTTPException(status_code=400, detail="Lote já está no mês corrente.")
+
+    try:
+        supabase.table("f_lotes_promocoes_mes").upsert(
+            {
+                "lote": lote,
+                "mes_origem": payload.mes_origem,
+                "ano_origem": payload.ano_origem,
+                "mes_destino": mes_destino,
+                "ano_destino": ano_destino,
+                "qtd_caixas": payload.qtd_caixas,
+                "grupo": (payload.grupo or "").strip() or None,
+                "promovido_por": perfil.get("email") or perfil.get("usuario") or perfil.get("nome"),
+            },
+            on_conflict="lote,mes_origem,ano_origem",
+        ).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao promover lote: {str(e)[:300]}")
+
+    return {
+        "status": "ok",
+        "lote": lote,
+        "mes_origem": payload.mes_origem,
+        "ano_origem": payload.ano_origem,
+        "mes_destino": mes_destino,
+        "ano_destino": ano_destino,
+    }
+
+
+@router.delete("/lotes-promover-mes-atual/{lote}")
+def remover_promocao_lote(
+    lote: str,
+    mes_origem: int = Query(...),
+    ano_origem: int = Query(...),
+    perfil: dict = Depends(exigir_admin),
+):
+    """Desfaz a promoção de um lote, devolvendo ele pro mês de origem
+    normal. Restrito a admin/permissão de Configurações (ver
+    app/auth.py:exigir_admin)."""
+    lote_norm = _normaliza_lote_modulo(lote)
+    if not lote_norm:
+        raise HTTPException(status_code=400, detail="Lote inválido.")
+
+    try:
+        (
+            supabase.table("f_lotes_promocoes_mes")
+            .delete()
+            .eq("lote", lote_norm)
+            .eq("mes_origem", mes_origem)
+            .eq("ano_origem", ano_origem)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao remover promoção: {str(e)[:300]}")
+
+    return {"status": "ok"}
+
+
 def _calcular_rastreamento_lotes_impl(
     mes: int | None = Query(default=None, ge=1, le=12),
     ano: int | None = Query(default=None),
@@ -3261,6 +3629,22 @@ def _calcular_rastreamento_lotes_impl(
     observacoes_manuais_mes: dict[str, str] = {}
     if mes_analise == _mes_atual() and ano_analise == _ano_atual():
         observacoes_manuais_mes = _lotes_observacoes_manuais_mes(mes_analise, ano_analise)
+
+    # Lotes adicionados manualmente (ver migration 009 e os endpoints
+    # POST/DELETE /overview/lotes-manuais-rastreamento logo acima desta
+    # função). Ao contrário da observação manual, não é restrito ao mês
+    # corrente -- faz sentido cadastrar num mês fechado também, ex.: um
+    # lote liberado que só entrou na planilha de controle depois.
+    lotes_manuais_mes = _lotes_manuais_rastreamento_mes(mes_analise, ano_analise)
+    lotes_manuais_por_codigo = {item["lote"]: item for item in lotes_manuais_mes}
+
+    # Promoções de lote pro mês corrente (ver migration 010 e os endpoints
+    # POST/DELETE /overview/lotes-promover-mes-atual). Duas direções, não é
+    # a mesma coisa: um lote pode ter sido promovido PRA FORA deste mes/ano
+    # (era daqui, foi pra outro mês -- some da pendência daqui) ou PRA
+    # DENTRO deste mes/ano (veio de outro mês -- passa a contar aqui).
+    lotes_promovidos_para_fora = _lotes_promovidos_origem_mes(mes_analise, ano_analise)
+    lotes_promovidos_para_dentro = _lotes_promovidos_destino_mes(mes_analise, ano_analise)
 
     ESTADOS_DESVIO_FECHADOS = {
         "CONCLUIDO",
@@ -4929,7 +5313,191 @@ def _calcular_rastreamento_lotes_impl(
             item["data_lib"] = None
             item["data_lib_display"] = None
 
+        # Promoção pro mês corrente (ver migration 010): o lote saiu daqui,
+        # continua aparecendo na tabela só pra registro/consulta, mas com
+        # uma tag fixa em vez do status normal -- a exclusão da pendência
+        # de verdade acontece mais abaixo, junto do ajuste do plano atual.
+        promocao_saida = lotes_promovidos_para_fora.get(lote)
+        if promocao_saida and sd3_lote_map.get(lote, 0.0) <= 0:
+            mes_dest = promocao_saida.get("mes_destino")
+            ano_dest = promocao_saida.get("ano_destino")
+            tag_promovido = (
+                f"Promovido para {MES_LABELS[int(mes_dest) - 1]}/{ano_dest}"
+                if mes_dest and ano_dest else "Promovido para outro mês"
+            )
+            item["promovido_para"] = tag_promovido
+            item["desvio_destino_consolidado"] = tag_promovido
+            item["destino"] = tag_promovido
+            item["destino_produto_insumo"] = tag_promovido
+            item["data_lib"] = None
+            item["data_lib_display"] = None
+
         resultado.append(item)
+
+    # Lotes adicionados manualmente (ver migration 009): entram como uma
+    # linha a mais, já marcados como liberados -- não vieram do Gantt/MPS,
+    # então usam um item "sintético" com os campos que a tela/agregações
+    # realmente precisam, o resto fica None/False (não se aplica a um
+    # lote fora do plano automático).
+    for lote_manual, dados_manual in lotes_manuais_por_codigo.items():
+        qtd_cx = round(dados_manual["qtd_caixas"])
+        data_lib_manual = dados_manual.get("data_liberacao")
+        item_manual = {
+            "lote": lote_manual,
+            "grupo": dados_manual.get("grupo"),
+            "qtd_prevista_tb": qtd_cx * TUBETES_POR_CAIXA,
+            "qtd_prevista_cx": qtd_cx,
+            "qtd_prevista_cx_float": dados_manual["qtd_caixas"],
+            "qtd_produzida_tb": qtd_cx * TUBETES_POR_CAIXA,
+            "qtd_produzida_cx": qtd_cx,
+            "qtd_liberada_cx": qtd_cx,
+            "qtd_gap_cx": 0,
+            "qtd_gap_cx_float": 0.0,
+            "qtd_perda_rendimento_cx": 0,
+            "qtd_perda_rendimento_cx_float": 0.0,
+            "considerar_previsto_ate_hoje": True,
+            "sku_pa": None,
+            "linha": None,
+            "data_lib": data_lib_manual,
+            "data_lib_display": data_lib_manual,
+            "data_inicio": None,
+            "data_fim": None,
+            "check_lavagem": True,
+            "check_envase": True,
+            "check_embalagem": True,
+            "check_liberado": True,
+            "atrasado": False,
+            "equipamento_atual": None,
+            "ordem_op": None,
+            "em_desvio": False,
+            "qtd_desvios": 0,
+            "desvios": [],
+            "desvio_seriais": [],
+            "desvio_serial": None,
+            "desvio_titulo": None,
+            "desvio_estado": None,
+            "desvio_dias": None,
+            "desvio_setor": None,
+            "desvio_destino": None,
+            "desvio_destino_consolidado": dados_manual.get("motivo") or "Adicionado manualmente",
+            "desvio_reprovacao": False,
+            "desvio_historico_fechado": False,
+            "desvio_fonte": None,
+            "reprogramado": False,
+            "atraso_producao": False,
+            "perda_rendimento": False,
+            "status_gap": "Liberado (adicionado manualmente)",
+            "motivo_gap": dados_manual.get("motivo") or "Lote adicionado manualmente ao rastreamento.",
+            "data_lib_atual": None,
+            "data_fim_atual": None,
+            "mes_previsto_atual": mes_analise,
+            "ano_previsto_atual": ano_analise,
+            "esta_no_plano_atual_mes": False,
+            "qtd_prevista_atual_cx": 0,
+            "qtd_tendencia_atual_cx": qtd_cx,
+            "rodada_atual_id": None,
+            "rodada_atual_mes": None,
+            "rodada_atual_versao": None,
+            "fonte_baseline": "manual",
+            "rodada_id": None,
+            "rodada_mes": None,
+            "rodada_versao": None,
+            "lote_manual": True,
+            "destino": dados_manual.get("motivo") or "Adicionado manualmente",
+            "destino_produto_insumo": dados_manual.get("motivo") or "Adicionado manualmente",
+        }
+        item_manual["status_operacional"] = status_operacional_lote(item_manual)
+        resultado.append(item_manual)
+
+        # Soma direto no mapa de SD3 (mesma fonte que mes_cx_realizado e
+        # total_cx_liberado já leem mais abaixo) -- assim o lote manual
+        # conta como "real" pro mês sem precisar duplicar lógica de
+        # agregação em vários lugares separados.
+        sd3_lote_map[lote_manual] = sd3_lote_map.get(lote_manual, 0.0) + dados_manual["qtd_caixas"]
+
+    # Promoção pro mês corrente (ver migration 010): lote que veio de outro
+    # mês (não liberado, mas também não reprovado/descartado -- checado na
+    # criação da promoção) entra como item sintético, do mesmo jeito que
+    # lote manual acima, só que continua PENDENTE (não conta como já
+    # liberado -- ele ainda precisa ser produzido/liberado de verdade,
+    # só que agora dentro da expectativa deste mês em vez do mês antigo).
+    for lote_promovido, dados_promocao in lotes_promovidos_para_dentro.items():
+        if lote_promovido in lotes_manuais_por_codigo:
+            continue  # já coberto como lote manual, evita duplicar linha
+
+        qtd_cx_promovido = round(_to_float(dados_promocao.get("qtd_caixas")))
+        mes_orig = dados_promocao.get("mes_origem")
+        ano_orig = dados_promocao.get("ano_origem")
+        tag_promovido_de = (
+            f"Promovido de {MES_LABELS[int(mes_orig) - 1]}/{ano_orig}"
+            if mes_orig and ano_orig else "Promovido de outro mês"
+        )
+        item_promovido = {
+            "lote": lote_promovido,
+            "grupo": dados_promocao.get("grupo"),
+            "qtd_prevista_tb": qtd_cx_promovido * TUBETES_POR_CAIXA,
+            "qtd_prevista_cx": qtd_cx_promovido,
+            "qtd_prevista_cx_float": _to_float(dados_promocao.get("qtd_caixas")),
+            "qtd_produzida_tb": 0,
+            "qtd_produzida_cx": 0,
+            "qtd_liberada_cx": 0,
+            "qtd_gap_cx": 0,
+            "qtd_gap_cx_float": 0.0,
+            "qtd_perda_rendimento_cx": 0,
+            "qtd_perda_rendimento_cx_float": 0.0,
+            "considerar_previsto_ate_hoje": True,
+            "sku_pa": None,
+            "linha": None,
+            "data_lib": None,
+            "data_lib_display": None,
+            "data_inicio": None,
+            "data_fim": None,
+            "check_lavagem": False,
+            "check_envase": False,
+            "check_embalagem": False,
+            "check_liberado": False,
+            "atrasado": False,
+            "equipamento_atual": None,
+            "ordem_op": None,
+            "em_desvio": False,
+            "qtd_desvios": 0,
+            "desvios": [],
+            "desvio_seriais": [],
+            "desvio_serial": None,
+            "desvio_titulo": None,
+            "desvio_estado": None,
+            "desvio_dias": None,
+            "desvio_setor": None,
+            "desvio_destino": None,
+            "desvio_destino_consolidado": tag_promovido_de,
+            "desvio_reprovacao": False,
+            "desvio_historico_fechado": False,
+            "desvio_fonte": None,
+            "reprogramado": False,
+            "atraso_producao": False,
+            "perda_rendimento": False,
+            "status_gap": tag_promovido_de,
+            "motivo_gap": f"Lote {tag_promovido_de.lower()}.",
+            "data_lib_atual": None,
+            "data_fim_atual": None,
+            "mes_previsto_atual": mes_analise,
+            "ano_previsto_atual": ano_analise,
+            "esta_no_plano_atual_mes": True,
+            "qtd_prevista_atual_cx": qtd_cx_promovido,
+            "qtd_tendencia_atual_cx": qtd_cx_promovido,
+            "rodada_atual_id": None,
+            "rodada_atual_mes": None,
+            "rodada_atual_versao": None,
+            "fonte_baseline": "promovido",
+            "rodada_id": None,
+            "rodada_mes": None,
+            "rodada_versao": None,
+            "promovido_de": tag_promovido_de,
+            "destino": tag_promovido_de,
+            "destino_produto_insumo": tag_promovido_de,
+        }
+        item_promovido["status_operacional"] = status_operacional_lote(item_promovido)
+        resultado.append(item_promovido)
 
     _marcar("fim_loop_lotes")
 
@@ -5153,6 +5721,19 @@ def _calcular_rastreamento_lotes_impl(
             continue
         plano_atual_mes_map[lote_atual] = plano_atual_mes_map.get(lote_atual, 0.0) + _to_float(r_atual.get("qtd_prevista"))
 
+    # Promoção pro mês corrente (ver migration 010), lado DESTINO: soma a
+    # quantidade do lote promovido no plano atual deste mês, como se fosse
+    # planejamento novo -- flui pelas mesmas contas de saldo/pendência
+    # daqui pra baixo, sem precisar de ajuste especial (só entra igual
+    # qualquer outro lote ainda não liberado do mês). Pula quem também é
+    # lote manual (já contado como real via sd3_lote_map, evita somar 2x).
+    for lote_promovido, dados_promocao in lotes_promovidos_para_dentro.items():
+        if lote_promovido in lotes_manuais_por_codigo:
+            continue
+        plano_atual_mes_map[lote_promovido] = plano_atual_mes_map.get(lote_promovido, 0.0) + _to_float(
+            dados_promocao.get("qtd_caixas")
+        )
+
     # "Ativa" = ainda sem produção real lançada no mês (observacoes_manuais_mes
     # já foi buscado lá no início da função, antes do loop de lotes, pra dar
     # tempo de tagueado cada item); assim que o lote liberar de verdade
@@ -5163,15 +5744,25 @@ def _calcular_rastreamento_lotes_impl(
         if sd3_lote_map.get(lote, 0.0) <= 0
     }
 
+    # Promoção pro mês corrente (ver migration 010), lado ORIGEM: mesmo
+    # racional da observação manual -- "ativa" enquanto o lote ainda não
+    # tiver produção real lançada no mês de origem. Reaproveita o mesmo
+    # card "Outros" (é literalmente isso: saiu da conta padrão do mês por
+    # um motivo que não é reprovação/atraso/rendimento padrão).
+    lotes_promovidos_para_fora_ativos = {
+        lote for lote in lotes_promovidos_para_fora
+        if sd3_lote_map.get(lote, 0.0) <= 0
+    }
+
     # Quantidade que sai do plano atual (saldo/atraso) e vai para o card
     # "Outros" -- some da conta normal antes de qualquer soma/saldo usar
     # plano_atual_mes_map daqui pra baixo, então cobre tanto o "plano atual
     # puro" quanto o saldo bruto de uma vez só.
     mes_cx_outros_card = round(sum(
         plano_atual_mes_map.get(lote, 0.0)
-        for lote in lotes_com_observacao_manual_ativa
+        for lote in lotes_com_observacao_manual_ativa | lotes_promovidos_para_fora_ativos
     ))
-    for lote in lotes_com_observacao_manual_ativa:
+    for lote in lotes_com_observacao_manual_ativa | lotes_promovidos_para_fora_ativos:
         plano_atual_mes_map.pop(lote, None)
 
     # Real usado na visão mensal: somente liberações de lotes ligados ao Gantt/MPS
@@ -5179,7 +5770,11 @@ def _calcular_rastreamento_lotes_impl(
     # não entram nesta conciliação, para o número bater com a régua operacional.
     lotes_v1_mes_set = {normaliza_lote(r.get("lote")) for r in lotes_mes if normaliza_lote(r.get("lote"))}
     lotes_plano_atual_mes_set = set(plano_atual_mes_map.keys())
-    lotes_real_elegiveis_mes = lotes_v1_mes_set | lotes_plano_atual_mes_set
+    # Lotes manuais (ver migration 009) não vêm do Gantt/MPS, então não
+    # entrariam em nenhum dos dois conjuntos acima -- sem isso aqui,
+    # mes_cx_realizado ignoraria a soma que já colocamos em sd3_lote_map
+    # lá no fim do loop principal.
+    lotes_real_elegiveis_mes = lotes_v1_mes_set | lotes_plano_atual_mes_set | set(lotes_manuais_por_codigo.keys())
 
     mes_cx_realizado = round(sum(
         _to_float(qtd_real)
@@ -5496,11 +6091,24 @@ def _calcular_rastreamento_lotes_impl(
     # valor final (inclusive a blindagem do atraso de produção acima e o
     # card "Outros" de observações manuais), para os números sempre
     # fecharem entre si.
+    # Lotes adicionados manualmente (ver migration 009): somam nas caixas
+    # realizadas do mês (feito lá no fim do loop principal, via
+    # sd3_lote_map), mas o TOTAL "Plano Atualizado" só sobe de verdade se
+    # também entrar aqui na fórmula -- mesmo mecanismo do ganho de
+    # rendimento (é subtraído, e subtrair um valor aumenta o total final),
+    # só que num campo próprio, pra não misturar com o significado de
+    # "ganho de rendimento" (rendimento de produção, um conceito diferente
+    # de "lote fora do sistema automático que já foi liberado").
+    mes_cx_lotes_manuais_card = round(sum(
+        dados_manual["qtd_caixas"] for dados_manual in lotes_manuais_por_codigo.values()
+    ))
+
     mes_cx_diferenca_vs_v1 = round(
         mes_cx_reprovacao_desvio_card
         + mes_cx_atraso_producao_card
         + mes_cx_perda_rendimento_card
         - mes_cx_ganho_rendimento
+        - mes_cx_lotes_manuais_card
         + mes_cx_outros_card
     )
     mes_cx_plano_atual_tendencia = mes_cx_previsto_v1 - mes_cx_diferenca_vs_v1
@@ -5556,11 +6164,16 @@ def _calcular_rastreamento_lotes_impl(
             "rendimento": mes_cx_perda_rendimento_card,
             "ganho_rendimento": mes_cx_ganho_rendimento,
             "outros": mes_cx_outros_card,
+            "lotes_manuais": mes_cx_lotes_manuais_card,
         },
         "mes_cx_outros_card": mes_cx_outros_card,
+        "mes_cx_lotes_manuais_card": mes_cx_lotes_manuais_card,
         "lotes_observacao_manual": [
             {"lote": lote, "motivo": observacoes_manuais_mes[lote]}
             for lote in lotes_com_observacao_manual_ativa
+        ],
+        "lotes_manuais_rastreamento": [
+            {"lote": lote, **dados} for lote, dados in lotes_manuais_por_codigo.items()
         ],
         # Mantém o detalhamento operacional do mês para compatibilidade e auditoria.
         "mes_gap_por_etapa": {
