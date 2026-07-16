@@ -3084,6 +3084,18 @@ def get_overview_causas_anuais(
 # 008_lotes_observacoes_manuais.sql para o racional completo).
 # ────────────────────────────────────────────────────────────
 
+def _normaliza_lote_modulo(value) -> str:
+    """
+    Cópia, no nível do módulo, da mesma normalização de lote usada dentro
+    de _calcular_rastreamento_lotes_impl (que define sua própria
+    normaliza_lote local, só visível ali dentro). Os endpoints de
+    observação manual (abaixo) e _lotes_observacoes_manuais_mes precisam
+    dessa função antes daquele ponto do arquivo -- causou um NameError em
+    produção (normaliza_lote não definida) até essa cópia existir.
+    """
+    return str(value or "").strip().upper()
+
+
 def _lotes_observacoes_manuais_mes(mes: int, ano: int) -> dict[str, str]:
     """Lote normalizado -> motivo da observação manual, só para mes/ano
     pedidos. Nunca levanta exceção -- se a tabela falhar por qualquer
@@ -3100,7 +3112,7 @@ def _lotes_observacoes_manuais_mes(mes: int, ano: int) -> dict[str, str]:
 
     resultado: dict[str, str] = {}
     for linha in linhas:
-        lote = normaliza_lote(linha.get("lote"))
+        lote = _normaliza_lote_modulo(linha.get("lote"))
         motivo = str(linha.get("motivo") or "").strip()
         if lote and motivo:
             resultado[lote] = motivo
@@ -3131,7 +3143,7 @@ def criar_lotes_observacao_manual(
     que o lote for liberado de verdade, o efeito para sozinho de contar,
     sem precisar remover esta linha.
     """
-    lote = normaliza_lote(payload.lote)
+    lote = _normaliza_lote_modulo(payload.lote)
     if not lote:
         raise HTTPException(status_code=400, detail="Lote inválido.")
 
@@ -3168,7 +3180,7 @@ def remover_lotes_observacao_manual(
 ):
     """Remove a observação manual de um lote. Restrito a admin/permissão
     de Configurações (ver app/auth.py:exigir_admin)."""
-    lote_norm = normaliza_lote(lote)
+    lote_norm = _normaliza_lote_modulo(lote)
     if not lote_norm:
         raise HTTPException(status_code=400, detail="Lote inválido.")
 
