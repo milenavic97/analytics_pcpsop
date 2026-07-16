@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   RefreshCw,
   AlertTriangle,
@@ -1779,34 +1780,62 @@ const textoPercentualV1 = (valor: number) =>
     URL.revokeObjectURL(url);
   }
 
-  async function editarObservacaoManual(lote: LoteRastreamento) {
-    if (!podeEditarObservacaoManual || !data) return;
+  const [modalObservacao, setModalObservacao] = useState<{ lote: string; motivoAtual: string } | null>(null);
+  const [motivoRascunho, setMotivoRascunho] = useState("");
+  const [salvandoObservacao, setSalvandoObservacao] = useState(false);
+  const [erroObservacao, setErroObservacao] = useState<string | null>(null);
 
-    const motivoAtual = lote.observacao_manual || "";
-    const novoMotivo = window.prompt(
-      motivoAtual
-        ? `Editar observação do lote ${lote.lote} (deixe em branco e confirme para remover):`
-        : `Observação manual para o lote ${lote.lote} (ex.: "Aguardando aprovação regulatória X para ser liberado"):`,
-      motivoAtual
-    );
+  function abrirModalObservacaoManual(lote: LoteRastreamento) {
+    if (!podeEditarObservacaoManual) return;
+    setErroObservacao(null);
+    setMotivoRascunho(lote.observacao_manual || "");
+    setModalObservacao({ lote: lote.lote, motivoAtual: lote.observacao_manual || "" });
+  }
 
-    // Cancelou o prompt: não faz nada.
-    if (novoMotivo === null) return;
+  function fecharModalObservacaoManual() {
+    if (salvandoObservacao) return;
+    setModalObservacao(null);
+    setErroObservacao(null);
+  }
 
+  async function confirmarObservacaoManual() {
+    if (!modalObservacao || !data) return;
+    const mesRef = data.mes ?? mesSelecionado;
+    const anoRef = data.ano ?? anoSelecionado;
+    const motivo = motivoRascunho.trim();
+
+    setSalvandoObservacao(true);
+    setErroObservacao(null);
+    try {
+      if (motivo) {
+        await salvarLoteObservacaoManual(modalObservacao.lote, mesRef, anoRef, motivo);
+      } else if (modalObservacao.motivoAtual) {
+        await removerLoteObservacaoManual(modalObservacao.lote, mesRef, anoRef);
+      }
+      setModalObservacao(null);
+      await carregar(true, true);
+    } catch (erro: any) {
+      setErroObservacao(erro?.message || "Não foi possível salvar a observação.");
+    } finally {
+      setSalvandoObservacao(false);
+    }
+  }
+
+  async function removerObservacaoManualAtual() {
+    if (!modalObservacao || !data) return;
     const mesRef = data.mes ?? mesSelecionado;
     const anoRef = data.ano ?? anoSelecionado;
 
+    setSalvandoObservacao(true);
+    setErroObservacao(null);
     try {
-      if (novoMotivo.trim()) {
-        await salvarLoteObservacaoManual(lote.lote, mesRef, anoRef, novoMotivo.trim());
-      } else if (motivoAtual) {
-        await removerLoteObservacaoManual(lote.lote, mesRef, anoRef);
-      } else {
-        return;
-      }
+      await removerLoteObservacaoManual(modalObservacao.lote, mesRef, anoRef);
+      setModalObservacao(null);
       await carregar(true, true);
     } catch (erro: any) {
-      window.alert(erro?.message || "Não foi possível salvar a observação.");
+      setErroObservacao(erro?.message || "Não foi possível remover a observação.");
+    } finally {
+      setSalvandoObservacao(false);
     }
   }
 
@@ -2362,7 +2391,7 @@ const textoPercentualV1 = (valor: number) =>
                   </th>
                   <th className={thLeft}>Lote / OP</th>
                   <th className={thLeft}>Grupo</th>
-                  <th className={thLeft}>Destino Produto/Insumo</th>
+                  <th className={thLeft}>Status</th>
                   <th
                     className={thBase + " cursor-pointer select-none"}
                     onClick={() => setSortDataLib((s) => s === "asc" ? "desc" : s === "desc" ? null : "asc")}
@@ -2552,7 +2581,7 @@ const textoPercentualV1 = (valor: number) =>
                           {podeEditarObservacaoManual && !l.check_liberado && (
                             <button
                               type="button"
-                              onClick={() => editarObservacaoManual(l)}
+                              onClick={() => abrirModalObservacaoManual(l)}
                               title={
                                 l.observacao_manual
                                   ? "Editar ou remover observação manual"
@@ -2898,6 +2927,167 @@ const textoPercentualV1 = (valor: number) =>
           </div>
         </div>
       )}
+
+      {modalObservacao &&
+        createPortal(
+          <div
+            onClick={(event) => {
+              if (event.target === event.currentTarget) fecharModalObservacaoManual();
+            }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 9999,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+              backdropFilter: "blur(4px)",
+              background: "rgba(0,0,0,0.4)",
+            }}
+          >
+            <div
+              className="fade-in"
+              style={{
+                width: "100%",
+                maxWidth: 480,
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border)",
+                borderRadius: 16,
+                boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "space-between",
+                  padding: "20px 24px",
+                  borderBottom: "1px solid var(--border)",
+                }}
+              >
+                <div>
+                  <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+                    Observação manual
+                  </h2>
+                  <p
+                    className="font-mono"
+                    style={{ fontSize: 13, color: "var(--text-secondary)", margin: "4px 0 0" }}
+                  >
+                    Lote {modalObservacao.lote}
+                  </p>
+                </div>
+
+                <button
+                  onClick={fecharModalObservacaoManual}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--text-secondary)",
+                    padding: 4,
+                    display: "flex",
+                    borderRadius: 6,
+                  }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ padding: "20px 24px" }}>
+                <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+                  Use quando o motivo de não liberar este mês não se encaixa nas causas padrão
+                  (reprovação/desvio, atraso de produção, rendimento) — ex.: aguardando aprovação
+                  regulatória externa. O lote sai da conta normal do mês e entra no card{" "}
+                  <strong>Outros</strong>, até ser liberado de verdade.
+                </p>
+
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--text-secondary)",
+                    marginBottom: 6,
+                  }}
+                >
+                  Motivo
+                </label>
+                <textarea
+                  autoFocus
+                  value={motivoRascunho}
+                  onChange={(e) => setMotivoRascunho(e.target.value)}
+                  placeholder='Ex.: "Aguardando aprovação regulatória X para ser liberado"'
+                  rows={3}
+                  disabled={salvandoObservacao}
+                  className="text-sm outline-none"
+                  style={{
+                    width: "100%",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-primary)",
+                    color: "var(--text-primary)",
+                    padding: "10px 12px",
+                    resize: "vertical",
+                  }}
+                />
+
+                {erroObservacao && (
+                  <p style={{ fontSize: 12, color: "#DC2626", marginTop: 8 }}>{erroObservacao}</p>
+                )}
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  padding: "16px 24px",
+                  borderTop: "1px solid var(--border)",
+                  background: "var(--bg-primary)",
+                }}
+              >
+                {modalObservacao.motivoAtual ? (
+                  <button
+                    onClick={removerObservacaoManualAtual}
+                    disabled={salvandoObservacao}
+                    className="text-xs font-semibold transition-colors hover:underline"
+                    style={{ color: "#DC2626", background: "none", border: "none", cursor: "pointer" }}
+                  >
+                    Remover observação
+                  </button>
+                ) : (
+                  <span />
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={fecharModalObservacaoManual}
+                    disabled={salvandoObservacao}
+                    className="rounded-lg border px-3 py-2 text-xs font-semibold transition-colors hover:bg-black/5"
+                    style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={confirmarObservacaoManual}
+                    disabled={salvandoObservacao || !motivoRascunho.trim()}
+                    className="rounded-lg px-3 py-2 text-xs font-semibold text-white transition-opacity"
+                    style={{
+                      background: "var(--bg-sidebar)",
+                      opacity: salvandoObservacao || !motivoRascunho.trim() ? 0.5 : 1,
+                    }}
+                  >
+                    {salvandoObservacao ? "Salvando..." : "Salvar"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

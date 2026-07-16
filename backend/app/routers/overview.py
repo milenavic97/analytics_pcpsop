@@ -3099,16 +3099,19 @@ def criar_lotes_observacao_manual(
     if not (1 <= payload.mes <= 12):
         raise HTTPException(status_code=400, detail="Mês inválido.")
 
-    supabase.table("f_lotes_observacoes_manuais").upsert(
-        {
-            "lote": lote,
-            "mes": payload.mes,
-            "ano": payload.ano,
-            "motivo": motivo,
-            "criado_por": perfil.get("email") or perfil.get("usuario") or perfil.get("nome"),
-        },
-        on_conflict="lote,mes,ano",
-    ).execute()
+    try:
+        supabase.table("f_lotes_observacoes_manuais").upsert(
+            {
+                "lote": lote,
+                "mes": payload.mes,
+                "ano": payload.ano,
+                "motivo": motivo,
+                "criado_por": perfil.get("email") or perfil.get("usuario") or perfil.get("nome"),
+            },
+            on_conflict="lote,mes,ano",
+        ).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar observação: {str(e)[:300]}")
 
     return {"status": "ok", "lote": lote, "mes": payload.mes, "ano": payload.ano}
 
@@ -3126,14 +3129,17 @@ def remover_lotes_observacao_manual(
     if not lote_norm:
         raise HTTPException(status_code=400, detail="Lote inválido.")
 
-    (
-        supabase.table("f_lotes_observacoes_manuais")
-        .delete()
-        .eq("lote", lote_norm)
-        .eq("mes", mes)
-        .eq("ano", ano)
-        .execute()
-    )
+    try:
+        (
+            supabase.table("f_lotes_observacoes_manuais")
+            .delete()
+            .eq("lote", lote_norm)
+            .eq("mes", mes)
+            .eq("ano", ano)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao remover observação: {str(e)[:300]}")
 
     return {"status": "ok"}
 
@@ -4855,6 +4861,11 @@ def _calcular_rastreamento_lotes_impl(
             item["desvio_destino_consolidado"] = observacao_manual_lote
             item["destino"] = observacao_manual_lote
             item["destino_produto_insumo"] = observacao_manual_lote
+            # Zera a data de liberação exibida: o lote não entra na conta
+            # do mês, então mostrar uma data prevista dentro do mês (que
+            # não vai acontecer) confundiria quem está lendo a tabela.
+            item["data_lib"] = None
+            item["data_lib_display"] = None
 
         resultado.append(item)
 
