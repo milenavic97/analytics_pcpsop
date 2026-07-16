@@ -2151,6 +2151,24 @@ def get_disponibilidade_mensal(
         mes: sum(entradas_previstas_por_linha[linha].get(mes, 0.0) for linha in LINHAS)
         for mes in range(1, 13)
     }
+
+    # Garantia final, sem condição nenhuma no meio: o mês atual SEMPRE bate
+    # com o card "Lotes de [mês]" (Rastreamento de Lotes), busca ao vivo,
+    # não importa se o ajuste por linha acima deu certo ou não. Isso evita
+    # cair de volta no valor cru (sem descontar reprovação/atraso/rendimento/
+    # outros) sempre que "ajustado_mes_atual_disp" vier vazio por qualquer
+    # motivo (rodada não encontrada, exceção silenciosa, etc.) -- este bloco
+    # não depende de nenhuma condição anterior ter funcionado.
+    try:
+        rastreamento_mes_atual_disp = get_rastreamento_lotes(mes=None, ano=None, force=False)
+        valor_card_mes_atual = rastreamento_mes_atual_disp.get("mes_cx_plano_atual_tendencia")
+        valor_card_mes_atual = float(valor_card_mes_atual) if valor_card_mes_atual is not None else None
+    except Exception:
+        valor_card_mes_atual = None
+
+    if valor_card_mes_atual is not None:
+        entradas_previstas[_mes_atual()] = valor_card_mes_atual
+
     entradas_previstas_por_grupo: dict[int, dict[str, float]] = {}
 
     saidas_reais: dict[int, float] = {}
