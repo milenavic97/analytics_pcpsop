@@ -51,6 +51,7 @@ interface LoteRastreamento {
   qtd_produzida_tb: number;
   qtd_produzida_cx: number;
   qtd_liberada_cx: number;
+  qtd_quarentena_cx?: number | null;
   qtd_gap_cx?: number;
   qtd_gap_cx_float?: number;
   qtd_perda_rendimento_cx?: number;
@@ -1833,7 +1834,7 @@ const textoPercentualV1 = (valor: number) =>
       ? lotesFiltrados.filter((l) => selecionados.has(l.lote))
       : lotesFiltrados;
 
-    const headers = ["Lote","OP","Grupo","Status gap","Destino/Motivo","Data Lib. V1","Data Lib. atual","Lavagem","Envase","Embalagem","Liberado","Tubetes","Caixas","Liberado (cx)","Rendimento (%)","Em Desvio"];
+    const headers = ["Lote","OP","Grupo","Status gap","Destino/Motivo","Data Lib. V1","Data Lib. atual","Lavagem","Envase","Embalagem","Liberado","Tubetes","Caixas","Quarentena (98)","Liberado (cx)","Rendimento (%)","Em Desvio"];
     const rows = alvo.map((l) => {
       const r = calcularRendimento(l);
       return [
@@ -1850,6 +1851,7 @@ const textoPercentualV1 = (valor: number) =>
         l.check_liberado ? "Sim" : "Não",
         l.qtd_prevista_tb,
         l.qtd_prevista_cx,
+        l.qtd_quarentena_cx ?? "",
         l.qtd_liberada_cx,
         r !== null ? r.toFixed(1) : "",
         l.em_desvio ? "Sim" : "Não",
@@ -2612,6 +2614,9 @@ const textoPercentualV1 = (valor: number) =>
                   </th>
                   <th className={thBase}>Tubetes</th>
                   <th className={thBase}>Caixas</th>
+                  <th className={thBase} title="Saldo em quarentena (armazém 98) -- já reflete o rendimento real, antes da liberação formal">
+                    98 (Quarentena)
+                  </th>
                   <th className={thBase}>Liberado (cx)</th>
                   <th
                     className={thBase + " cursor-pointer select-none"}
@@ -2904,6 +2909,18 @@ const textoPercentualV1 = (valor: number) =>
                         style={{ color: "var(--text-primary)" }}
                       >
                         {l.qtd_prevista_cx > 0 ? fmt(l.qtd_prevista_cx) : "—"}
+                      </td>
+
+                      <td
+                        className="px-3 py-3 text-right text-sm font-semibold"
+                        style={{ color: l.qtd_quarentena_cx != null ? "#7C3AED" : "var(--text-secondary)" }}
+                        title={
+                          l.qtd_quarentena_cx != null
+                            ? "Saldo físico em quarentena -- usado no Plano Atualizado em vez do planejado"
+                            : undefined
+                        }
+                      >
+                        {l.qtd_quarentena_cx != null ? fmt(l.qtd_quarentena_cx) : "—"}
                       </td>
 
                       <td

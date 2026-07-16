@@ -1137,6 +1137,54 @@ def _sd3_lote_mes_atual_overview() -> dict[str, float]:
     return por_lote
 
 
+def _estoque_quarentena_por_lote() -> dict[str, float]:
+    """
+    Saldo em quarentena (armazém 98 da SB8/f_estoque_saldo) por lote, no
+    snapshot mais recente disponível.
+
+    Usado pro Rastreamento de Lotes: um lote que já passou por
+    envase/embalagem e está fisicamente parado em quarentena (aguardando
+    liberação/CQ) já tem o rendimento real conhecido -- é diferente de um
+    lote ainda em produção, que só tem a quantidade PLANEJADA como
+    estimativa. Contar o planejado pra um lote já em quarentena ignora
+    perda/ganho de rendimento que já aconteceu de verdade e só ainda não
+    foi lançada como liberação formal.
+
+    Nunca levanta exceção -- se a tabela falhar por qualquer motivo, o
+    resto do cálculo segue normalmente sem esse ajuste (usa o planejado).
+    """
+    try:
+        ultima_data_ref = (
+            supabase.table("f_estoque_saldo")
+            .select("data_ref")
+            .eq("armazem", "98")
+            .order("data_ref", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows_data_ref = ultima_data_ref.data or []
+        if not rows_data_ref:
+            return {}
+        data_ref_mais_recente = rows_data_ref[0].get("data_ref")
+
+        rows = _select_all(
+            supabase.table("f_estoque_saldo")
+            .select("lote, saldo_lote")
+            .eq("armazem", "98")
+            .eq("data_ref", data_ref_mais_recente)
+        )
+    except Exception:
+        return {}
+
+    por_lote: dict[str, float] = {}
+    for r in rows:
+        lote = _normaliza_lote_overview(r.get("lote"))
+        if not lote:
+            continue
+        por_lote[lote] = por_lote.get(lote, 0.0) + _to_float(r.get("saldo_lote"))
+    return por_lote
+
+
 # ────────────────────────────────────────────────────────────
 # Cache passivo do total "Plano atualizado" já reconciliado do mês atual
 # (mesma conta do card do Rastreamento de Lotes / Ver conciliação).
@@ -1295,10 +1343,14 @@ def _planejamento_liberacao_mes_atual_ajustado_por_linha() -> dict[str, float]:
         if item.get("check_liberado"):
             totais[linha] += _to_float(item.get("qtd_liberada_cx"))
         else:
-            # Cobre tanto o lote normal do mês quanto o promovido PRA DENTRO
-            # (migration 010) -- ambos chegam aqui com qtd_prevista_cx
-            # preenchido corretamente, sem precisar de tratamento especial.
-            totais[linha] += _to_float(item.get("qtd_prevista_cx"))
+            # Usa qtd_tendencia_atual_cx (não qtd_prevista_cx): reflete o
+            # plano atual de verdade, incluindo a troca por saldo de
+            # quarentena quando o lote já estiver fisicamente parado lá
+            # (ver _estoque_quarentena_por_lote) -- qtd_prevista_cx fica
+            # reservado pro V1 congelado, nunca deve mudar por isso. Cobre
+            # tanto o lote normal do mês quanto o promovido PRA DENTRO
+            # (migration 010), que já vem com esse campo preenchido igual.
+            totais[linha] += _to_float(item.get("qtd_tendencia_atual_cx"))
 
     # Rede de segurança: se ainda sobrar uma diferença pequena (ex.:
     # arredondamento, ou alguma causa de "outros" que não é por lote
@@ -3574,6 +3626,13 @@ def _calcular_rastreamento_lotes_impl(
     if mes_analise == _mes_atual() and ano_analise == _ano_atual():
         observacoes_manuais_mes = _lotes_observacoes_manuais_mes(mes_analise, ano_analise)
 
+    # Saldo em quarentena (armazém 98) por lote -- só faz sentido pro mês
+    # corrente (é sempre uma "foto" de agora, não existe "quarentena de
+    # março" retroativa). Ver _estoque_quarentena_por_lote.
+    estoque_quarentena_lote: dict[str, float] = {}
+    if mes_analise == _mes_atual() and ano_analise == _ano_atual():
+        estoque_quarentena_lote = _estoque_quarentena_por_lote()
+
     # Lotes adicionados manualmente (ver migration 009 e os endpoints
     # POST/DELETE /overview/lotes-manuais-rastreamento logo acima desta
     # função). Ao contrário da observação manual, não é restrito ao mês
@@ -5186,6 +5245,7 @@ def _calcular_rastreamento_lotes_impl(
             "qtd_produzida_tb": qtd_produzida_tb,
             "qtd_produzida_cx": qtd_produzida_cx,
             "qtd_liberada_cx": qtd_liberada_cx,
+            "qtd_quarentena_cx": round(estoque_quarentena_lote.get(lote, 0.0)) if lote in estoque_quarentena_lote else None,
             "qtd_gap_cx": qtd_gap_cx,
             "qtd_gap_cx_float": qtd_gap_cx_float,
             "qtd_perda_rendimento_cx": qtd_perda_rendimento_cx,
@@ -5229,7 +5289,11 @@ def _calcular_rastreamento_lotes_impl(
             "ano_previsto_atual": previsao_atual_ref.get("ano_previsto") if previsao_atual_ref else None,
             "esta_no_plano_atual_mes": bool(previsoes_atuais_mes),
             "qtd_prevista_atual_cx": round(sum(_to_float(p.get("qtd_prevista_cx")) for p in previsoes_atuais_mes)) if previsoes_atuais_mes else 0,
-            "qtd_tendencia_atual_cx": qtd_liberada_cx if check_liberado else (round(sum(_to_float(p.get("qtd_prevista_cx")) for p in previsoes_atuais_mes)) if previsoes_atuais_mes else 0),
+            "qtd_tendencia_atual_cx": (
+                qtd_liberada_cx if check_liberado
+                else round(estoque_quarentena_lote[lote]) if (lote in estoque_quarentena_lote and sd3_lote_map.get(lote, 0.0) <= 0)
+                else (round(sum(_to_float(p.get("qtd_prevista_cx")) for p in previsoes_atuais_mes)) if previsoes_atuais_mes else 0)
+            ),
             "rodada_atual_id": previsao_atual_ref.get("rodada_id") if previsao_atual_ref else None,
             "rodada_atual_mes": previsao_atual_ref.get("rodada_mes") if previsao_atual_ref else None,
             "rodada_atual_versao": previsao_atual_ref.get("rodada_versao") if previsao_atual_ref else None,
@@ -5664,6 +5728,19 @@ def _calcular_rastreamento_lotes_impl(
         if mes_int(r_atual.get("mes")) != mes_analise or ano_int(r_atual.get("ano")) != ano_analise:
             continue
         plano_atual_mes_map[lote_atual] = plano_atual_mes_map.get(lote_atual, 0.0) + _to_float(r_atual.get("qtd_prevista"))
+
+    # Quarentena (armazém 98): um lote que já passou por envase/embalagem e
+    # está fisicamente parado ali já tem o rendimento real conhecido -- usa
+    # essa quantidade em vez da planejada (o rendimento real, positivo ou
+    # negativo, já aconteceu de verdade, só ainda não virou liberação
+    # formal). Só vale pra quem ainda não liberou -- assim que liberar, o
+    # real da SD3 (mais abaixo) já assume sozinho.
+    for lote_quarentena, qtd_quarentena in estoque_quarentena_lote.items():
+        if lote_quarentena not in plano_atual_mes_map:
+            continue
+        if sd3_lote_map.get(lote_quarentena, 0.0) > 0:
+            continue
+        plano_atual_mes_map[lote_quarentena] = qtd_quarentena
 
     # Promoção pro mês corrente (ver migration 010), lado DESTINO: soma a
     # quantidade do lote promovido no plano atual deste mês, como se fosse
