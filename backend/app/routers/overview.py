@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Query, BackgroundTasks
+from fastapi import APIRouter, Query, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
 from app.database import supabase
+from app.auth import exigir_admin
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from threading import Lock
@@ -2607,6 +2609,7 @@ _RASTREAMENTO_LOTES_LOCK = Lock()
 def get_rastreamento_lotes(
     mes: int | None = Query(default=None, ge=1, le=12),
     ano: int | None = Query(default=None),
+    force: bool = Query(default=False),
 ):
     """
     Wrapper com cache em cima de _calcular_rastreamento_lotes_impl, que é
@@ -2620,6 +2623,14 @@ def get_rastreamento_lotes(
     alguma mudar (ex.: você sobe uma SD3 nova), recalcula na próxima chamada.
     Isso também deixa a thread de aquecimento em background e o uso real
     sempre "se encontrarem": o cache não expira sozinho no meio do caminho.
+
+    force=True (usado pelo botão "Atualizar" do Rastreamento no front):
+    pula a leitura do cache e recalcula na hora, mesmo que a chave de versão
+    não tenha mudado. Antes, o front já mandava esse parâmetro (e um
+    comentário lá dizia "essa chamada ignora cache de propósito"), mas o
+    endpoint nunca aceitou esse parâmetro -- FastAPI descarta silenciosamente
+    query params não declarados, então "Atualizar" nunca forçava nada de
+    verdade, só reaproveitava o mesmo cache de qualquer chamada normal.
     """
     mes_ref = mes if mes is not None else _mes_atual()
     ano_ref = ano if ano is not None else _ano_atual()
@@ -2627,10 +2638,11 @@ def get_rastreamento_lotes(
     chave = f"{ano_ref}-{mes_ref}-{versao}"
     agora = time.time()
 
-    with _RASTREAMENTO_LOTES_LOCK:
-        cache = _RASTREAMENTO_LOTES_CACHE.get(chave)
-        if cache is not None and (agora - cache[0]) <= _RASTREAMENTO_LOTES_CACHE_TTL_SEGUNDOS:
-            return cache[1]
+    if not force:
+        with _RASTREAMENTO_LOTES_LOCK:
+            cache = _RASTREAMENTO_LOTES_CACHE.get(chave)
+            if cache is not None and (agora - cache[0]) <= _RASTREAMENTO_LOTES_CACHE_TTL_SEGUNDOS:
+                return cache[1]
 
     resultado = _calcular_rastreamento_lotes_impl(mes, ano)
 
@@ -3024,6 +3036,108 @@ def get_overview_causas_anuais(
     }
 
 
+# ────────────────────────────────────────────────────────────
+# Observações manuais de lotes do mês corrente (ver migration
+# 008_lotes_observacoes_manuais.sql para o racional completo).
+# ────────────────────────────────────────────────────────────
+
+def _lotes_observacoes_manuais_mes(mes: int, ano: int) -> dict[str, str]:
+    """Lote normalizado -> motivo da observação manual, só para mes/ano
+    pedidos. Nunca levanta exceção -- se a tabela falhar por qualquer
+    motivo, o resto do cálculo segue normalmente sem esse ajuste."""
+    try:
+        linhas = _select_all(
+            supabase.table("f_lotes_observacoes_manuais")
+            .select("lote, motivo")
+            .eq("mes", mes)
+            .eq("ano", ano)
+        )
+    except Exception:
+        return {}
+
+    resultado: dict[str, str] = {}
+    for linha in linhas:
+        lote = normaliza_lote(linha.get("lote"))
+        motivo = str(linha.get("motivo") or "").strip()
+        if lote and motivo:
+            resultado[lote] = motivo
+    return resultado
+
+
+class LoteObservacaoManualInput(BaseModel):
+    lote: str
+    mes: int
+    ano: int
+    motivo: str
+
+
+@router.post("/lotes-observacao-manual")
+def criar_lotes_observacao_manual(
+    payload: LoteObservacaoManualInput,
+    perfil: dict = Depends(exigir_admin),
+):
+    """
+    Marca um lote do mês/ano informado com uma observação manual (ex.:
+    "Aguardando aprovação regulatória X"). Restrito a admin/permissão de
+    Configurações (ver app/auth.py:exigir_admin).
+
+    O lote passa a: (1) mostrar essa observação no lugar do destino padrão
+    na tela; (2) sair das causas padrão (saldo/atraso) da visão mensal;
+    (3) entrar no card "Outros" -- só enquanto ainda não tiver produção
+    real registrada no mês (ver _calcular_rastreamento_lotes_impl). Assim
+    que o lote for liberado de verdade, o efeito para sozinho de contar,
+    sem precisar remover esta linha.
+    """
+    lote = normaliza_lote(payload.lote)
+    if not lote:
+        raise HTTPException(status_code=400, detail="Lote inválido.")
+
+    motivo = payload.motivo.strip()
+    if not motivo:
+        raise HTTPException(status_code=400, detail="Motivo é obrigatório.")
+
+    if not (1 <= payload.mes <= 12):
+        raise HTTPException(status_code=400, detail="Mês inválido.")
+
+    supabase.table("f_lotes_observacoes_manuais").upsert(
+        {
+            "lote": lote,
+            "mes": payload.mes,
+            "ano": payload.ano,
+            "motivo": motivo,
+            "criado_por": perfil.get("email") or perfil.get("usuario") or perfil.get("nome"),
+        },
+        on_conflict="lote,mes,ano",
+    ).execute()
+
+    return {"status": "ok", "lote": lote, "mes": payload.mes, "ano": payload.ano}
+
+
+@router.delete("/lotes-observacao-manual/{lote}")
+def remover_lotes_observacao_manual(
+    lote: str,
+    mes: int = Query(...),
+    ano: int = Query(...),
+    perfil: dict = Depends(exigir_admin),
+):
+    """Remove a observação manual de um lote. Restrito a admin/permissão
+    de Configurações (ver app/auth.py:exigir_admin)."""
+    lote_norm = normaliza_lote(lote)
+    if not lote_norm:
+        raise HTTPException(status_code=400, detail="Lote inválido.")
+
+    (
+        supabase.table("f_lotes_observacoes_manuais")
+        .delete()
+        .eq("lote", lote_norm)
+        .eq("mes", mes)
+        .eq("ano", ano)
+        .execute()
+    )
+
+    return {"status": "ok"}
+
+
 def _calcular_rastreamento_lotes_impl(
     mes: int | None = Query(default=None, ge=1, le=12),
     ano: int | None = Query(default=None),
@@ -3067,6 +3181,18 @@ def _calcular_rastreamento_lotes_impl(
 
     mes_analise = mes or _mes_atual()
     ano_analise = ano or _ano_atual()
+
+    # Observações manuais (ver migration 008_lotes_observacoes_manuais.sql e
+    # os endpoints POST/DELETE /overview/lotes-observacao-manual logo acima
+    # desta função): mecanismo sempre restrito ao mês corrente de verdade --
+    # nunca afeta uma consulta de mês passado/futuro, mesmo que exista uma
+    # linha cadastrada para outro mes/ano (não deveria existir, mas essa
+    # checagem é a garantia). Buscado aqui, cedo, pra já poder tagueado cada
+    # lote no loop logo abaixo; a checagem de "ainda ativa" (sem produção
+    # real lançada) é feita mais abaixo, depois que sd3_lote_map existe.
+    observacoes_manuais_mes: dict[str, str] = {}
+    if mes_analise == _mes_atual() and ano_analise == _ano_atual():
+        observacoes_manuais_mes = _lotes_observacoes_manuais_mes(mes_analise, ano_analise)
 
     ESTADOS_DESVIO_FECHADOS = {
         "CONCLUIDO",
@@ -4718,6 +4844,18 @@ def _calcular_rastreamento_lotes_impl(
         }
         item["status_operacional"] = status_operacional_lote(item)
 
+        # Observação manual (ver migration 008): só sobrescreve o destino
+        # exibido e o motivo enquanto ainda estiver "ativa" (sem produção
+        # real no mês) -- assim que o lote liberar de verdade, some sozinho
+        # sem precisar remover o cadastro (a linha na tabela pode continuar
+        # existindo, só para de fazer efeito).
+        observacao_manual_lote = observacoes_manuais_mes.get(lote)
+        if observacao_manual_lote and sd3_lote_map.get(lote, 0.0) <= 0:
+            item["observacao_manual"] = observacao_manual_lote
+            item["desvio_destino_consolidado"] = observacao_manual_lote
+            item["destino"] = observacao_manual_lote
+            item["destino_produto_insumo"] = observacao_manual_lote
+
         resultado.append(item)
 
     _marcar("fim_loop_lotes")
@@ -4941,6 +5079,27 @@ def _calcular_rastreamento_lotes_impl(
         if mes_int(r_atual.get("mes")) != mes_analise or ano_int(r_atual.get("ano")) != ano_analise:
             continue
         plano_atual_mes_map[lote_atual] = plano_atual_mes_map.get(lote_atual, 0.0) + _to_float(r_atual.get("qtd_prevista"))
+
+    # "Ativa" = ainda sem produção real lançada no mês (observacoes_manuais_mes
+    # já foi buscado lá no início da função, antes do loop de lotes, pra dar
+    # tempo de tagueado cada item); assim que o lote liberar de verdade
+    # (sd3_lote_map > 0), o efeito para sozinho de contar, sem precisar
+    # remover a observação.
+    lotes_com_observacao_manual_ativa = {
+        lote for lote in observacoes_manuais_mes
+        if sd3_lote_map.get(lote, 0.0) <= 0
+    }
+
+    # Quantidade que sai do plano atual (saldo/atraso) e vai para o card
+    # "Outros" -- some da conta normal antes de qualquer soma/saldo usar
+    # plano_atual_mes_map daqui pra baixo, então cobre tanto o "plano atual
+    # puro" quanto o saldo bruto de uma vez só.
+    mes_cx_outros_card = round(sum(
+        plano_atual_mes_map.get(lote, 0.0)
+        for lote in lotes_com_observacao_manual_ativa
+    ))
+    for lote in lotes_com_observacao_manual_ativa:
+        plano_atual_mes_map.pop(lote, None)
 
     # Real usado na visão mensal: somente liberações de lotes ligados ao Gantt/MPS
     # de junho (V1 ou versão atual do mês). Entradas reais fora do plano do mês
@@ -5254,21 +5413,34 @@ def _calcular_rastreamento_lotes_impl(
     # Reconciliação: a "Diferença vs V1" exibida no topo (card "Ver conciliação")
     # tem que bater exatamente com a soma das causas mostradas logo abaixo
     # (reprovação/desvio + atraso de produção + perda de rendimento - ganho de
-    # rendimento). Antes, a diferença vinha de um cálculo agregado independente
-    # (previsto_v1 - realizado - saldo, cada parcela arredondada em separado),
-    # que podia divergir da soma das causas em 1 cx -- arredondamento acontecendo
-    # em pontos diferentes do cálculo (ex.: mostrava -176 no topo mas 177 cx na
-    # causa "Perda rendimento" logo abaixo, sem nenhuma outra causa pra explicar
-    # a diferença de 1 cx). Recalculamos aqui, depois que todos os cards de causa
-    # já estão no valor final (inclusive a blindagem do atraso de produção acima),
-    # para os números sempre fecharem entre si.
+    # rendimento + outros). Antes, a diferença vinha de um cálculo agregado
+    # independente (previsto_v1 - realizado - saldo, cada parcela arredondada
+    # em separado), que podia divergir da soma das causas em 1 cx --
+    # arredondamento acontecendo em pontos diferentes do cálculo (ex.:
+    # mostrava -176 no topo mas 177 cx na causa "Perda rendimento" logo
+    # abaixo, sem nenhuma outra causa pra explicar a diferença de 1 cx).
+    # Recalculamos aqui, depois que todos os cards de causa já estão no
+    # valor final (inclusive a blindagem do atraso de produção acima e o
+    # card "Outros" de observações manuais), para os números sempre
+    # fecharem entre si.
     mes_cx_diferenca_vs_v1 = round(
         mes_cx_reprovacao_desvio_card
         + mes_cx_atraso_producao_card
         + mes_cx_perda_rendimento_card
         - mes_cx_ganho_rendimento
+        + mes_cx_outros_card
     )
     mes_cx_plano_atual_tendencia = mes_cx_previsto_v1 - mes_cx_diferenca_vs_v1
+
+    # O saldo exibido no subtítulo do card ("Real X cx + saldo Y cx") precisa
+    # sempre fechar com o total acima -- sem isso, mes_cx_saldo_tendencia
+    # ficava com o valor provisório calculado lá em cima (antes da
+    # reconciliação/blindagem final), podendo divergir bastante do total já
+    # ajustado (ex.: total reconciliado sobe/desce mas o saldo mostrado no
+    # subtítulo continuava intocado, fazendo "Real + saldo" não bater com o
+    # card principal). Recalculado aqui, no mesmo lugar/momento que o total
+    # final, pelas mesmas regras já usadas no frontend como fallback.
+    mes_cx_saldo_tendencia = max(mes_cx_plano_atual_tendencia - mes_cx_realizado, 0)
 
     _marcar("fim_tudo")
 
@@ -5310,8 +5482,13 @@ def _calcular_rastreamento_lotes_impl(
             "atraso_producao": mes_cx_atraso_producao_card,
             "rendimento": mes_cx_perda_rendimento_card,
             "ganho_rendimento": mes_cx_ganho_rendimento,
-            "outros": 0,
+            "outros": mes_cx_outros_card,
         },
+        "mes_cx_outros_card": mes_cx_outros_card,
+        "lotes_observacao_manual": [
+            {"lote": lote, "motivo": observacoes_manuais_mes[lote]}
+            for lote in lotes_com_observacao_manual_ativa
+        ],
         # Mantém o detalhamento operacional do mês para compatibilidade e auditoria.
         "mes_gap_por_etapa": {
             "desvio": round(mes_reprovacao_desvio + mes_desvio_aberto),

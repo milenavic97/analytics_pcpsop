@@ -1291,6 +1291,37 @@ def _recalcular_cache_aging_estoque_background(base_id: str, log_id: str | None 
                 pass
 
 
+def _recalcular_cache_reconciliacao_mes_atual_background(base_id: str, log_id: str | None = None) -> None:
+    """
+    Recalcula o cache do "Plano Atualizado" do mês atual (usado na barra do
+    mês atual do gráfico Demanda vs Disponibilidade da Overview) logo depois
+    que um upload termina com sucesso -- mesmo motivo e mesmo padrão de
+    _recalcular_cache_aging_estoque_background logo acima, só que para o
+    cache de app.routers.overview (ver _MES_ATUAL_RECONCILIADO_CACHE lá).
+
+    Sem isso, o card "Lotes de [mês]" (que sempre recalcula na hora) já
+    mostra o dado novo, mas a barra do mês atual no gráfico só alcança até
+    5 minutos depois, quando a thread de aquecimento periódica roda de novo
+    -- gerando a divergência temporária entre os dois números.
+
+    Roda em background (chamado via BackgroundTasks), não bloqueia a resposta
+    do upload. Se falhar, só loga -- nunca derruba o upload em si, e o
+    próximo ciclo da thread de aquecimento (até 5 min) cobre o caso de erro.
+    """
+    try:
+        from app.routers import overview
+
+        overview.atualizar_cache_reconciliacao_mes_atual()
+    except Exception as e:
+        import logging
+
+        logging.getLogger("uvicorn.error").warning(
+            "Falha ao recalcular cache de reconciliação do mês atual após upload de %s: %s",
+            base_id,
+            str(e)[:300],
+        )
+
+
 async def _recalcular_cache_ordens_background(base_id: str, log_id: str | None = None) -> dict:
     """
     Atualiza o snapshot de Ordens no backend depois que a Programação mensal entra.
@@ -1486,6 +1517,11 @@ async def upload_base(
         if status_final == "sucesso":
             background_tasks.add_task(
                 _recalcular_cache_aging_estoque_background,
+                base_id,
+                log_id,
+            )
+            background_tasks.add_task(
+                _recalcular_cache_reconciliacao_mes_atual_background,
                 base_id,
                 log_id,
             )

@@ -19,8 +19,11 @@ import {
   ChevronsUpDown,
   ChevronUp,
   ChevronDown,
+  Search,
+  Pencil,
 } from "lucide-react";
 import { clearApiCache, getRastreamentoLotes, getRastreamentoLotesCacheVersao } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface DesvioInfo {
   serial?: string | null;
@@ -71,6 +74,7 @@ interface LoteRastreamento {
   destino?: string | null;
   destino_produto_insumo?: string | null;
   desvio_destino_produto_insumo?: string | null;
+  observacao_manual?: string | null;
   qtd_desvios?: number | null;
   desvios?: DesvioInfo[] | null;
   desvio_reprovacao?: boolean;
@@ -718,6 +722,36 @@ async function buscarRastreamentoLotesDireto(params: Record<string, any>): Promi
   return (await res.json()) as RastreamentoData;
 }
 
+async function salvarLoteObservacaoManual(
+  lote: string,
+  mes: number,
+  ano: number,
+  motivo: string
+): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/overview/lotes-observacao-manual`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ lote, mes, ano, motivo }),
+  });
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null);
+    throw new Error(detalhe?.detail || `Erro ao salvar observação (${res.status})`);
+  }
+}
+
+async function removerLoteObservacaoManual(lote: string, mes: number, ano: number): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(
+    `${API_URL}/overview/lotes-observacao-manual/${encodeURIComponent(lote)}?mes=${mes}&ano=${ano}`,
+    { method: "DELETE", headers: authHeaders }
+  );
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null);
+    throw new Error(detalhe?.detail || `Erro ao remover observação (${res.status})`);
+  }
+}
+
 
 // Cache em memória do módulo.
 // Diferente do localStorage, ele permanece vivo enquanto a SPA está aberta.
@@ -764,6 +798,8 @@ interface RastreamentoMtdLoadPayload {
 }
 
 export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto: number, mtd_cx_liberado: number, payload?: RastreamentoMtdLoadPayload) => void } = {}) {
+  const { hasPermission } = useAuth();
+  const podeEditarObservacaoManual = hasPermission("configuracoes");
   const hojeBase = new Date();
   const mesInicial = hojeBase.getMonth() + 1;
   const anoInicial = hojeBase.getFullYear();
@@ -781,6 +817,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   const [filtroEtapa, setFiltroEtapa] = useState("");
   const [filtroEmbalado, setFiltroEmbalado] = useState("");
   const [filtroVisaoPlano, setFiltroVisaoPlano] = useState("");
+  const [buscaLote, setBuscaLote] = useState("");
   const [apenasAtrasados, setApenasAtrasados] = useState(false);
   const [modalAuditoria, setModalAuditoria] = useState(false);
   // Modal "Perda Produção" removido de propósito: mostrava os lotes que
@@ -1150,6 +1187,24 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
     if (filtroEtapa === "ATRASADO" && (!l.atrasado || l.check_liberado)) return false;
     if (filtroEtapa && filtroEtapa !== "ATRASADO" && !loteCorrespondeAoFiltro(l, filtroEtapa)) return false;
+
+    if (buscaLote.trim()) {
+      const alvo = buscaLote.trim().toLowerCase();
+      const campos = [
+        l.lote,
+        l.ordem_op,
+        l.grupo,
+        l.destino,
+        l.destino_produto_insumo,
+        l.desvio_destino,
+        l.desvio_destino_consolidado,
+        l.desvio_destino_produto_insumo,
+      ];
+      const encontrou = campos.some((campo) =>
+        String(campo ?? "").toLowerCase().includes(alvo)
+      );
+      if (!encontrou) return false;
+    }
 
     return true;
   });
@@ -1724,6 +1779,37 @@ const textoPercentualV1 = (valor: number) =>
     URL.revokeObjectURL(url);
   }
 
+  async function editarObservacaoManual(lote: LoteRastreamento) {
+    if (!podeEditarObservacaoManual || !data) return;
+
+    const motivoAtual = lote.observacao_manual || "";
+    const novoMotivo = window.prompt(
+      motivoAtual
+        ? `Editar observação do lote ${lote.lote} (deixe em branco e confirme para remover):`
+        : `Observação manual para o lote ${lote.lote} (ex.: "Aguardando aprovação regulatória X para ser liberado"):`,
+      motivoAtual
+    );
+
+    // Cancelou o prompt: não faz nada.
+    if (novoMotivo === null) return;
+
+    const mesRef = data.mes ?? mesSelecionado;
+    const anoRef = data.ano ?? anoSelecionado;
+
+    try {
+      if (novoMotivo.trim()) {
+        await salvarLoteObservacaoManual(lote.lote, mesRef, anoRef, novoMotivo.trim());
+      } else if (motivoAtual) {
+        await removerLoteObservacaoManual(lote.lote, mesRef, anoRef);
+      } else {
+        return;
+      }
+      await carregar(true, true);
+    } catch (erro: any) {
+      window.alert(erro?.message || "Não foi possível salvar a observação.");
+    }
+  }
+
   function calcularRendimento(lote: LoteRastreamento) {
     const planejadoCx = Number(lote.qtd_prevista_cx || 0);
     const liberadoCx = Number(lote.qtd_liberada_cx || 0);
@@ -2194,6 +2280,37 @@ const textoPercentualV1 = (valor: number) =>
           Exportar {selecionados.size > 0 ? `(${selecionados.size})` : ""}
         </button>
 
+        <div className="relative">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
+            style={{ color: "var(--text-secondary)" }}
+          />
+          <input
+            type="text"
+            value={buscaLote}
+            onChange={(e) => setBuscaLote(e.target.value)}
+            placeholder="Buscar lote, OP, grupo ou destino..."
+            className="rounded-lg border py-2 pl-8 pr-8 text-sm outline-none"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-primary)",
+              background: "var(--bg-secondary)",
+              minWidth: 260,
+            }}
+          />
+          {buscaLote && (
+            <button
+              onClick={() => setBuscaLote("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2"
+              style={{ color: "var(--text-secondary)" }}
+              aria-label="Limpar busca"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
         <p className="pb-2 text-xs" style={{ color: "var(--text-secondary)" }}>
           {lotesFiltrados.length} lote
           {lotesFiltrados.length !== 1 ? "s" : ""}
@@ -2388,46 +2505,66 @@ const textoPercentualV1 = (valor: number) =>
                         className="px-3 py-3 text-sm"
                         style={{ color: "var(--text-primary)" }}
                       >
-                        {(getDesvioDestino(l) || l.motivo_gap || l.status_gap) ? (
-                          <span
-                            className="inline-flex max-w-[260px] items-center rounded-full px-2 py-1 text-[11px] font-semibold"
-                            title={(getDesvioDestino(l) || l.motivo_gap || l.status_gap) || undefined}
-                            style={{
-                              background:
-                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                  .toUpperCase()
-                                  .includes("REPROV") ||
-                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                  .toUpperCase()
-                                  .includes("DESCARTE")
-                                  ? "#FEE2E2"
+                        <div className="flex items-center gap-1.5">
+                          {(getDesvioDestino(l) || l.motivo_gap || l.status_gap) ? (
+                            <span
+                              className="inline-flex max-w-[260px] items-center rounded-full px-2 py-1 text-[11px] font-semibold"
+                              title={(getDesvioDestino(l) || l.motivo_gap || l.status_gap) || undefined}
+                              style={{
+                                background: l.observacao_manual
+                                  ? "#EDE9FE"
                                   : String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                        .toUpperCase()
-                                        .includes("APROV")
-                                    ? "#DCFCE7"
-                                    : "#F3F4F6",
-                              color:
-                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                  .toUpperCase()
-                                  .includes("REPROV") ||
-                                String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                  .toUpperCase()
-                                  .includes("DESCARTE")
-                                  ? "#991B1B"
+                                      .toUpperCase()
+                                      .includes("REPROV") ||
+                                    String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
+                                      .toUpperCase()
+                                      .includes("DESCARTE")
+                                    ? "#FEE2E2"
+                                    : String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
+                                          .toUpperCase()
+                                          .includes("APROV")
+                                      ? "#DCFCE7"
+                                      : "#F3F4F6",
+                                color: l.observacao_manual
+                                  ? "#5B21B6"
                                   : String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
-                                        .toUpperCase()
-                                        .includes("APROV")
-                                    ? "#166534"
-                                    : "var(--text-secondary)",
-                            }}
-                          >
-                            <span className="truncate">
-                              {getDesvioDestino(l) || l.motivo_gap || l.status_gap}
+                                      .toUpperCase()
+                                      .includes("REPROV") ||
+                                    String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
+                                      .toUpperCase()
+                                      .includes("DESCARTE")
+                                    ? "#991B1B"
+                                    : String(getDesvioDestino(l) || l.motivo_gap || l.status_gap)
+                                          .toUpperCase()
+                                          .includes("APROV")
+                                      ? "#166534"
+                                      : "var(--text-secondary)",
+                              }}
+                            >
+                              <span className="truncate">
+                                {getDesvioDestino(l) || l.motivo_gap || l.status_gap}
+                              </span>
                             </span>
-                          </span>
-                        ) : (
-                          "—"
-                        )}
+                          ) : (
+                            "—"
+                          )}
+
+                          {podeEditarObservacaoManual && !l.check_liberado && (
+                            <button
+                              type="button"
+                              onClick={() => editarObservacaoManual(l)}
+                              title={
+                                l.observacao_manual
+                                  ? "Editar ou remover observação manual"
+                                  : "Adicionar observação manual (ex.: aguardando aprovação externa)"
+                              }
+                              className="shrink-0 rounded p-0.5 transition-colors hover:bg-black/5"
+                              style={{ color: "var(--text-secondary)" }}
+                            >
+                              <Pencil size={12} />
+                            </button>
+                          )}
+                        </div>
                       </td>
 
                       <td
