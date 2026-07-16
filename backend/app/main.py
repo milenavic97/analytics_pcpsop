@@ -250,6 +250,38 @@ def iniciar_preaquecimento_cache_em_background():
     _agendar_preaquecimento_cache()
     _agendar_sincronizacao_cogtive()
     _agendar_calculo_curva_abc()
+    _agendar_recalculo_cache_overview_no_boot()
+
+
+def _agendar_recalculo_cache_overview_no_boot() -> None:
+    """
+    Reconstrói o cache_overview (payload combinado de /overview/resumo, que
+    inclui disponibilidade_mensal) uma vez, sempre que o processo sobe --
+    ou seja, todo `flyctl deploy`/restart já cobre isso sozinho.
+
+    Motivo: esse cache só se invalida quando a VERSÃO DOS DADOS muda (upload
+    novo, upload_log, etc.) -- nunca quando o CÓDIGO muda. Sem isso, uma
+    correção de lógica só passava a valer pra quem usa a ferramenta depois
+    de alguém subir uma planilha nova ou forçar manualmente
+    /overview/resumo/recalcular -- mesmo com o deploy já feito, o payload
+    guardado continuava sendo o de antes da correção, pra todo mundo.
+
+    Roda em thread separada (não bloqueia o startup nem os health checks do
+    Fly) e só uma vez, não fica repetindo feito os outros loops acima.
+    """
+    def _rodar():
+        time.sleep(8)  # dá tempo do app terminar de subir de vez
+        try:
+            from app.routers.overview import _recalcular_cache_overview_background
+            _recalcular_cache_overview_background()
+        except Exception as e:
+            logger.warning("Falha ao recalcular cache_overview no boot: %s", str(e)[:300])
+
+    threading.Thread(
+        target=_rodar,
+        name="recalculo-cache-overview-no-boot",
+        daemon=True,
+    ).start()
 
 
 @app.post("/integracao/cogtive/sincronizar-agora")
