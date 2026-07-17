@@ -5723,6 +5723,27 @@ def _calcular_rastreamento_lotes_impl(
         check_envase_promovido = apts_promovido.get("ENVASE", {}).get("qtd", 0) > 0
         check_embalagem_promovido = apts_promovido.get("EMBALAGEM", {}).get("qtd", 0) > 0
         sku_pa_promovido = apts_promovido.get("EMBALAGEM", {}).get("sku", "") or None
+
+        # Mesma prioridade usada pro lote normal (ver bloco de perda de
+        # rendimento mais acima): quarentena (saldo físico, mais concreta)
+        # tem prioridade sobre o ajuste manual (estimativa) -- ver
+        # migrations não numerada de quarentena e 012_lotes_ajuste_planejado.
+        # Faltava aqui porque o lote promovido é montado num bloco de
+        # código totalmente separado do loop normal.
+        qtd_ajustada_promovido = ajustes_planejado_mes.get(lote_promovido)
+        qtd_referencia_promovido = (
+            estoque_quarentena_lote[lote_promovido] if lote_promovido in estoque_quarentena_lote
+            else qtd_ajustada_promovido if qtd_ajustada_promovido is not None
+            else None
+        )
+        qtd_tendencia_promovido = (
+            round(qtd_referencia_promovido) if qtd_referencia_promovido is not None
+            else qtd_cx_promovido
+        )
+        qtd_perda_rendimento_promovido = (
+            max(qtd_cx_promovido - qtd_tendencia_promovido, 0)
+            if qtd_referencia_promovido is not None else 0
+        )
         item_promovido = {
             "lote": lote_promovido,
             "grupo": dados_promocao.get("grupo"),
@@ -5734,8 +5755,8 @@ def _calcular_rastreamento_lotes_impl(
             "qtd_liberada_cx": 0,
             "qtd_gap_cx": 0,
             "qtd_gap_cx_float": 0.0,
-            "qtd_perda_rendimento_cx": 0,
-            "qtd_perda_rendimento_cx_float": 0.0,
+            "qtd_perda_rendimento_cx": qtd_perda_rendimento_promovido,
+            "qtd_perda_rendimento_cx_float": float(qtd_perda_rendimento_promovido),
             "considerar_previsto_ate_hoje": True,
             "sku_pa": sku_pa_promovido,
             "linha": None,
@@ -5766,7 +5787,7 @@ def _calcular_rastreamento_lotes_impl(
             "desvio_fonte": None,
             "reprogramado": False,
             "atraso_producao": False,
-            "perda_rendimento": False,
+            "perda_rendimento": qtd_perda_rendimento_promovido > 0,
             "status_gap": tag_promovido_de,
             "motivo_gap": f"Lote {tag_promovido_de.lower()}.",
             "data_lib_atual": None,
@@ -5775,7 +5796,8 @@ def _calcular_rastreamento_lotes_impl(
             "ano_previsto_atual": ano_analise,
             "esta_no_plano_atual_mes": True,
             "qtd_prevista_atual_cx": qtd_cx_promovido,
-            "qtd_tendencia_atual_cx": qtd_cx_promovido,
+            "qtd_prevista_ajustada_cx": round(qtd_ajustada_promovido) if qtd_ajustada_promovido is not None else None,
+            "qtd_tendencia_atual_cx": qtd_tendencia_promovido,
             "rodada_atual_id": None,
             "rodada_atual_mes": None,
             "rodada_atual_versao": None,
@@ -6039,9 +6061,16 @@ def _calcular_rastreamento_lotes_impl(
     for lote_promovido, dados_promocao in lotes_promovidos_para_dentro.items():
         if lote_promovido in lotes_manuais_por_codigo:
             continue
-        plano_atual_mes_map[lote_promovido] = plano_atual_mes_map.get(lote_promovido, 0.0) + _to_float(
-            dados_promocao.get("qtd_caixas")
+        # Mesma prioridade do item exibido na tabela: quarentena (saldo
+        # físico) > ajuste manual (migration 012) > quantidade original da
+        # promoção -- sem isso, editar "Caixas Planejadas" de um lote
+        # promovido não refletia no Plano Atualizado do mês.
+        qtd_promocao_map = (
+            estoque_quarentena_lote[lote_promovido] if lote_promovido in estoque_quarentena_lote
+            else ajustes_planejado_mes[lote_promovido] if lote_promovido in ajustes_planejado_mes
+            else _to_float(dados_promocao.get("qtd_caixas"))
         )
+        plano_atual_mes_map[lote_promovido] = plano_atual_mes_map.get(lote_promovido, 0.0) + qtd_promocao_map
 
     # "Ativa" = ainda sem produção real lançada no mês (observacoes_manuais_mes
     # já foi buscado lá no início da função, antes do loop de lotes, pra dar
