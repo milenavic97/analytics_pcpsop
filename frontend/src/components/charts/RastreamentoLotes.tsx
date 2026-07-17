@@ -3037,16 +3037,13 @@ const textoPercentualV1 = (valor: number) =>
                         style={{ color: l.qtd_prevista_ajustada_cx != null ? "#B45309" : "var(--text-primary)" }}
                       >
                         <div className="flex items-center justify-end gap-1">
-                          {l.qtd_prevista_ajustada_cx != null && (
-                            <span
-                              className="text-xs font-normal line-through"
-                              style={{ color: "var(--text-secondary)" }}
-                              title="Valor planejado original (V1), antes do ajuste manual"
-                            >
-                              {fmt(l.qtd_prevista_cx)}
-                            </span>
-                          )}
-                          <span title={l.qtd_prevista_ajustada_cx != null ? "Ajustado manualmente" : undefined}>
+                          <span
+                            title={
+                              l.qtd_prevista_ajustada_cx != null
+                                ? `Ajustado manualmente (original V1: ${fmt(l.qtd_prevista_cx)} cx)`
+                                : undefined
+                            }
+                          >
                             {l.qtd_prevista_ajustada_cx != null
                               ? fmt(l.qtd_prevista_ajustada_cx)
                               : l.qtd_prevista_cx > 0 ? fmt(l.qtd_prevista_cx) : "—"}
