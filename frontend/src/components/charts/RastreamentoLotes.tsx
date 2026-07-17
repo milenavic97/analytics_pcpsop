@@ -247,12 +247,14 @@ interface RastreamentoData {
   mes_cx_ganho_rendimento?: number;
   mes_cx_perdas_brutas_vs_v1?: number;
   mes_cx_reconciliado_v1?: number;
+  mes_cx_lotes_manuais_card?: number;
   mes_perdas_vs_v1_por_causa?: {
     reprovacao_desvio?: number;
     atraso_producao?: number;
     rendimento?: number;
     ganho_rendimento?: number;
     outros?: number;
+    lotes_manuais?: number;
   };
   mes_gap_por_etapa?: {
     desvio?: number;
@@ -1302,6 +1304,9 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     // no card (observação manual ativa) -- ver overview.py, "outros" só
     // conta lote com observacao_manual preenchida.
     if (filtro === "OBSERVACAO_MANUAL") return Boolean(l.observacao_manual);
+    // Card "Lotes manuais": mesmo critério do backend (ver migration 009 --
+    // lote adicionado manualmente ao rastreamento, fora do Gantt/MPS).
+    if (filtro === "LOTE_MANUAL") return Boolean(l.lote_manual);
     if (ETAPAS_FISICAS.has(filtro)) return etapaFisicaLote(l) === filtro;
     return statusPrincipalLote(l) === filtro;
   }
@@ -1695,6 +1700,15 @@ const textoPercentualV1 = (valor: number) =>
           color: "#7C2D12",
           icon: AlertTriangle,
           filtro: "OBSERVACAO_MANUAL",
+        }]
+      : []),
+    ...((data?.mes_cx_lotes_manuais_card ?? 0) > 0
+      ? [{
+          label: "Lotes manuais",
+          value: data?.mes_cx_lotes_manuais_card ?? 0,
+          color: "#16A34A",
+          icon: Plus,
+          filtro: "LOTE_MANUAL",
         }]
       : []),
   ];
