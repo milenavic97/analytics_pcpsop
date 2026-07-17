@@ -1510,6 +1510,17 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
       }
 
       const emDesvio = Boolean(lote.em_desvio);
+      // Mesmo motivo do ajuste de rendimento logo acima: lote com
+      // observação manual ativa (ex.: "aguardando ANVISA") ou promovido
+      // pra outro mês já saiu da conta principal (vai pro card "Outros")
+      // -- não pode contar aqui em nenhuma etapa física, senão essa rede
+      // de segurança local "ressuscitava" o lote sempre que o valor do
+      // backend para aquela etapa específica ficava baixo/zerado (ex.:
+      // "lavagem" foi a 0 no backend depois de excluir o único lote que
+      // estava lá, mas essa contagem local ainda somava ele de volta).
+      if (lote.observacao_manual || lote.promovido_para) {
+        continue;
+      }
       if (lote.check_embalagem) {
         acumulado.embalagem += previstoCxFloat;
         if (emDesvio) acumulado.embalagem_em_desvio += previstoCxFloat;
