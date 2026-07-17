@@ -1499,6 +1499,15 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         if (lote.perda_rendimento) acumulado.rendimento += perdaRendimentoCxFloat;
         continue;
       }
+      // Lote ainda não liberado, mas com perda de rendimento já conhecida
+      // (quarentena/armazém 98, ou ajuste manual -- ver migrations de
+      // quarentena e 012_lotes_ajuste_planejado.sql): conta aqui também,
+      // senão esse recalculo local "esquecia" dessas perdas (só olhava
+      // pra lote já liberado) e sobrescrevia o valor certo que vem do
+      // backend com um número menor, faltando exatamente essa parte.
+      if (lote.perda_rendimento) {
+        acumulado.rendimento += perdaRendimentoCxFloat;
+      }
 
       const emDesvio = Boolean(lote.em_desvio);
       if (lote.check_embalagem) {
