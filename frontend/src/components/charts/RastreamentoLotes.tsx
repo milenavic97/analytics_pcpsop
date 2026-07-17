@@ -1888,7 +1888,7 @@ const textoPercentualV1 = (valor: number) =>
       ? lotesFiltrados.filter((l) => selecionados.has(l.lote))
       : lotesFiltrados;
 
-    const headers = ["Lote","OP","Grupo","Status gap","Destino/Motivo","Data Lib. V1","Data Lib. atual","Lavagem","Envase","Embalagem","Liberado","Tubetes","Caixas","Quarentena (98)","Liberado (cx)","Rendimento (%)","Em Desvio"];
+    const headers = ["Lote","OP","Grupo","Status gap","Destino/Motivo","Data Lib. V1","Data Lib. atual","Lavagem","Envase","Embalagem","Liberado","Tubetes","Caixas Planejadas (V1 original)","Caixas Planejadas (ajustado)","Quarentena (98)","Liberado (cx)","Rendimento (%)","Em Desvio"];
     const rows = alvo.map((l) => {
       const r = calcularRendimento(l);
       return [
@@ -1905,6 +1905,7 @@ const textoPercentualV1 = (valor: number) =>
         l.check_liberado ? "Sim" : "Não",
         l.qtd_prevista_tb,
         l.qtd_prevista_cx,
+        l.qtd_prevista_ajustada_cx ?? l.qtd_prevista_cx,
         l.qtd_quarentena_cx ?? "",
         l.qtd_liberada_cx,
         r !== null ? r.toFixed(1) : "",
