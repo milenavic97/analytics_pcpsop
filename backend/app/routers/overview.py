@@ -6970,6 +6970,14 @@ RASTREAMENTO_CACHE_BASES = [
     "mrp_etapas",
     "programacao_ops",
     "liberacao_diaria",
+    # Faltava esta: é a base de onde vem o saldo em quarentena (armazém 98
+    # da SB8, ver _estoque_quarentena_por_lote). Sem ela aqui, subir uma
+    # planilha de estoque nova nunca mudava a "versão dos dados" que o
+    # cache do Rastreamento de Lotes observa -- o card "Perda Rendimento"
+    # (e o Plano Atualizado) podiam continuar usando o saldo de quarentena
+    # de ANTES do upload por tempo indeterminado, até alguma OUTRA base
+    # mudar e coincidentemente forçar um recálculo.
+    "estoque_saldo",
 ]
 
 
