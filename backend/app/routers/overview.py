@@ -6096,8 +6096,18 @@ def _calcular_rastreamento_lotes_impl(
     # "Outros" -- some da conta normal antes de qualquer soma/saldo usar
     # plano_atual_mes_map daqui pra baixo, então cobre tanto o "plano atual
     # puro" quanto o saldo bruto de uma vez só.
+    #
+    # IMPORTANTE: soma pela quantidade V1/exibida de cada lote (qtd_prevista_cx,
+    # a mesma que aparece na coluna "Caixas Planejadas"), não pelo valor bruto
+    # em plano_atual_mes_map. Achamos um caso real (5 lotes "aguardando
+    # ANVISA" somando 1.360 cx na coluna, mas o card Outros mostrando 1.450)
+    # -- a rodada MRP atual tinha uma quantidade diferente da V1 exibida pra
+    # pelo menos um desses lotes (provavelmente linha duplicada/atualização
+    # de rodada), fazendo o card branco "Outros" divergir do que a pessoa vê
+    # na tabela. Usar a quantidade exibida garante que os dois sempre batem.
+    qtd_exibida_por_lote = {item["lote"]: _to_float(item.get("qtd_prevista_cx")) for item in lotes_mes}
     mes_cx_outros_card = round(sum(
-        plano_atual_mes_map.get(lote, 0.0)
+        qtd_exibida_por_lote.get(lote, plano_atual_mes_map.get(lote, 0.0))
         for lote in lotes_com_observacao_manual_ativa | lotes_promovidos_para_fora_ativos
     ))
     for lote in lotes_com_observacao_manual_ativa | lotes_promovidos_para_fora_ativos:
