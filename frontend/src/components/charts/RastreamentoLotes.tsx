@@ -49,6 +49,7 @@ interface LoteRastreamento {
   grupo: string;
   qtd_prevista_tb: number;
   qtd_prevista_cx: number;
+  qtd_prevista_ajustada_cx?: number | null;
   qtd_produzida_tb: number;
   qtd_produzida_cx: number;
   qtd_liberada_cx: number;
@@ -850,6 +851,31 @@ async function criarLoteAlias(loteErrado: string, loteCorreto: string): Promise<
   if (!res.ok) {
     const detalhe = await res.json().catch(() => null);
     throw new Error(detalhe?.detail || `Erro ao salvar de-para (${res.status})`);
+  }
+}
+
+async function salvarAjustePlanejado(lote: string, mes: number, ano: number, qtdCaixas: number): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/overview/lotes-ajuste-planejado`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ lote, mes, ano, qtd_caixas: qtdCaixas }),
+  });
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null);
+    throw new Error(detalhe?.detail || `Erro ao salvar ajuste (${res.status})`);
+  }
+}
+
+async function removerAjustePlanejado(lote: string, mes: number, ano: number): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(
+    `${API_URL}/overview/lotes-ajuste-planejado/${encodeURIComponent(lote)}?mes=${mes}&ano=${ano}`,
+    { method: "DELETE", headers: authHeaders }
+  );
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null);
+    throw new Error(detalhe?.detail || `Erro ao remover ajuste (${res.status})`);
   }
 }
 
@@ -2066,6 +2092,37 @@ const textoPercentualV1 = (valor: number) =>
     }
   }
 
+  async function editarCaixasPlanejadas(lote: LoteRastreamento) {
+    if (!data || !podeEditarObservacaoManual) return;
+    const mesRef = data.mes ?? mesSelecionado;
+    const anoRef = data.ano ?? anoSelecionado;
+    const valorAtual = lote.qtd_prevista_ajustada_cx ?? lote.qtd_prevista_cx;
+    const novoValor = window.prompt(
+      `Ajustar caixas planejadas do lote ${lote.lote} (original: ${fmt(lote.qtd_prevista_cx)} cx).\n\n` +
+        `Isso não muda o Planejado V1 (congelado) -- só o Plano Atualizado do mês, ` +
+        `e o que aparece nesta coluna. Deixe em branco e confirme pra voltar ao valor original.`,
+      String(valorAtual)
+    );
+    if (novoValor === null) return;
+
+    try {
+      if (novoValor.trim() === "") {
+        if (lote.qtd_prevista_ajustada_cx == null) return;
+        await removerAjustePlanejado(lote.lote, mesRef, anoRef);
+      } else {
+        const numero = Number(novoValor.replace(",", "."));
+        if (!Number.isFinite(numero) || numero < 0) {
+          window.alert("Digite um número válido (0 ou mais).");
+          return;
+        }
+        await salvarAjustePlanejado(lote.lote, mesRef, anoRef, numero);
+      }
+      await carregar(true, true);
+    } catch (erro: any) {
+      window.alert(erro?.message || "Não foi possível salvar o ajuste.");
+    }
+  }
+
   function calcularRendimento(lote: LoteRastreamento) {
     const planejadoCx = Number(lote.qtd_prevista_cx || 0);
     const liberadoCx = Number(lote.qtd_liberada_cx || 0);
@@ -2628,7 +2685,8 @@ const textoPercentualV1 = (valor: number) =>
                       style={{ cursor: "pointer", accentColor: "var(--bg-sidebar)" }}
                     />
                   </th>
-                  <th className={thLeft}>Lote / OP</th>
+                  <th className={thLeft}>OP</th>
+                  <th className={thLeft}>Lote</th>
                   <th className={thLeft}>Grupo</th>
                   <th className={thLeft}>Status</th>
                   <th
@@ -2647,7 +2705,9 @@ const textoPercentualV1 = (valor: number) =>
                     Etapas
                   </th>
                   <th className={thBase}>Tubetes</th>
-                  <th className={thBase}>Caixas</th>
+                  <th className={thBase} title="Clica no lápis pra ajustar manualmente, quando já se sabe que o rendimento vai ficar abaixo do planejado original">
+                    Caixas Planejadas
+                  </th>
                   <th className={thBase} title="Saldo em quarentena (armazém 98) -- já reflete o rendimento real, antes da liberação formal">
                     98 (Quarentena)
                   </th>
@@ -2699,6 +2759,13 @@ const textoPercentualV1 = (valor: number) =>
                           style={{ cursor: "pointer" }}
                         />
                       </td>
+                      <td
+                        className="px-3 py-3 font-mono text-xs"
+                        style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}
+                      >
+                        {l.ordem_op ? `OP ${l.ordem_op}` : "—"}
+                      </td>
+
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1.5">
                           {(l.em_desvio ||
@@ -2729,15 +2796,6 @@ const textoPercentualV1 = (valor: number) =>
                             {l.lote}
                           </span>
                         </div>
-
-                        {l.ordem_op && (
-                          <p
-                            className="mt-0.5 font-mono text-[11px]"
-                            style={{ color: "var(--text-secondary)" }}
-                          >
-                            OP {l.ordem_op}
-                          </p>
-                        )}
 
                         <DesvioBadge lote={l} />
 
@@ -2952,9 +3010,35 @@ const textoPercentualV1 = (valor: number) =>
 
                       <td
                         className="px-3 py-3 text-right text-sm font-semibold"
-                        style={{ color: "var(--text-primary)" }}
+                        style={{ color: l.qtd_prevista_ajustada_cx != null ? "#B45309" : "var(--text-primary)" }}
                       >
-                        {l.qtd_prevista_cx > 0 ? fmt(l.qtd_prevista_cx) : "—"}
+                        <div className="flex items-center justify-end gap-1">
+                          {l.qtd_prevista_ajustada_cx != null && (
+                            <span
+                              className="text-xs font-normal line-through"
+                              style={{ color: "var(--text-secondary)" }}
+                              title="Valor planejado original (V1), antes do ajuste manual"
+                            >
+                              {fmt(l.qtd_prevista_cx)}
+                            </span>
+                          )}
+                          <span title={l.qtd_prevista_ajustada_cx != null ? "Ajustado manualmente" : undefined}>
+                            {l.qtd_prevista_ajustada_cx != null
+                              ? fmt(l.qtd_prevista_ajustada_cx)
+                              : l.qtd_prevista_cx > 0 ? fmt(l.qtd_prevista_cx) : "—"}
+                          </span>
+                          {podeEditarObservacaoManual && (
+                            <button
+                              type="button"
+                              onClick={() => editarCaixasPlanejadas(l)}
+                              title="Ajustar caixas planejadas manualmente"
+                              className="shrink-0 rounded p-0.5 transition-colors hover:bg-black/5"
+                              style={{ color: "var(--text-secondary)" }}
+                            >
+                              <Pencil size={11} />
+                            </button>
+                          )}
+                        </div>
                       </td>
 
                       <td

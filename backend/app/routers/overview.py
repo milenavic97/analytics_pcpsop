@@ -2667,8 +2667,15 @@ def _versao_dados_rastreamento_lotes() -> str:
     # De-para de lote (ver migration 011): idem -- criar/remover um alias
     # não passa pelo upload_log.
     versao_alias = _ultima_atualizacao_tabela("f_lotes_alias", "criado_em")
+    # Ajuste manual de caixas planejadas (ver migration 012): idem.
+    versao_ajuste_planejado = _ultima_atualizacao_tabela("f_lotes_ajuste_planejado", "criado_em")
     versao = "|".join(f"{base}:{versions.get(base) or '-'}" for base in RASTREAMENTO_CACHE_BASES)
-    versao = f"{versao}|obs_manuais:{versao_obs_manuais or '-'}|promocoes:{versao_promocoes or '-'}|alias:{versao_alias or '-'}"
+    versao = (
+        f"{versao}|obs_manuais:{versao_obs_manuais or '-'}"
+        f"|promocoes:{versao_promocoes or '-'}"
+        f"|alias:{versao_alias or '-'}"
+        f"|ajuste_planejado:{versao_ajuste_planejado or '-'}"
+    )
 
     with _RASTREAMENTO_LOTES_VERSAO_LOCK:
         _RASTREAMENTO_LOTES_VERSAO_CACHE["criado_em"] = agora
@@ -3201,6 +3208,30 @@ def _resolver_alias_lote(lote: str, mapa_alias: dict[str, str]) -> str:
     return mapa_alias.get(lote, lote)
 
 
+def _lotes_ajuste_planejado_mes(mes: int, ano: int) -> dict[str, float]:
+    """Lote normalizado -> quantidade de caixas ajustada manualmente (ver
+    migration 012), só para mes/ano pedidos. Nunca levanta exceção -- se a
+    tabela falhar por qualquer motivo, o resto do cálculo segue
+    normalmente sem esse ajuste."""
+    try:
+        linhas = _select_all(
+            supabase.table("f_lotes_ajuste_planejado")
+            .select("lote, qtd_caixas")
+            .eq("mes", mes)
+            .eq("ano", ano)
+        )
+    except Exception:
+        return {}
+
+    resultado: dict[str, float] = {}
+    for linha in linhas:
+        lote = _normaliza_lote_modulo(linha.get("lote"))
+        qtd = linha.get("qtd_caixas")
+        if lote and qtd is not None:
+            resultado[lote] = _to_float(qtd)
+    return resultado
+
+
 def _lotes_observacoes_manuais_mes(mes: int, ano: int) -> dict[str, str]:
     """Lote normalizado -> motivo da observação manual, só para mes/ano
     pedidos. Nunca levanta exceção -- se a tabela falhar por qualquer
@@ -3686,6 +3717,90 @@ def remover_lote_alias(
     return {"status": "ok"}
 
 
+# ────────────────────────────────────────────────────────────
+# Ajuste manual de caixas planejadas por lote (ver migration
+# 012_lotes_ajuste_planejado.sql para o racional completo).
+# ────────────────────────────────────────────────────────────
+
+class LoteAjustePlanejadoInput(BaseModel):
+    lote: str
+    mes: int
+    ano: int
+    qtd_caixas: float
+
+
+@router.post("/lotes-ajuste-planejado")
+def criar_lote_ajuste_planejado(
+    payload: LoteAjustePlanejadoInput,
+    perfil: dict = Depends(exigir_admin),
+):
+    """
+    Ajusta manualmente a quantidade de caixas planejadas exibida/usada
+    pra um lote específico do mês (ex.: rendimento esperado menor que o
+    planejado original, decidido antes da liberação). Restrito a
+    admin/permissão de Configurações (ver app/auth.py:exigir_admin).
+
+    O "Planejado V1" (congelado) NUNCA muda -- só a coluna "Caixas
+    Planejadas" exibida e o Plano Atualizado do mês. Se o lote também
+    tiver saldo em quarentena (mais concreto, fisicamente contado), a
+    quarentena tem prioridade sobre este ajuste manual.
+    """
+    lote = _normaliza_lote_modulo(payload.lote)
+    if not lote:
+        raise HTTPException(status_code=400, detail="Lote inválido.")
+
+    if not (1 <= payload.mes <= 12):
+        raise HTTPException(status_code=400, detail="Mês inválido.")
+
+    if payload.qtd_caixas < 0:
+        raise HTTPException(status_code=400, detail="Quantidade não pode ser negativa.")
+
+    try:
+        supabase.table("f_lotes_ajuste_planejado").upsert(
+            {
+                "lote": lote,
+                "mes": payload.mes,
+                "ano": payload.ano,
+                "qtd_caixas": payload.qtd_caixas,
+                "criado_por": perfil.get("email") or perfil.get("usuario") or perfil.get("nome"),
+            },
+            on_conflict="lote,mes,ano",
+        ).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar ajuste: {str(e)[:300]}")
+
+    return {"status": "ok", "lote": lote, "mes": payload.mes, "ano": payload.ano}
+
+
+@router.delete("/lotes-ajuste-planejado/{lote}")
+def remover_lote_ajuste_planejado(
+    lote: str,
+    mes: int = Query(...),
+    ano: int = Query(...),
+    perfil: dict = Depends(exigir_admin),
+):
+    """Remove o ajuste manual, voltando o lote a usar o planejado
+    original. Restrito a admin/permissão de Configurações (ver
+    app/auth.py:exigir_admin)."""
+    lote_norm = _normaliza_lote_modulo(lote)
+    if not lote_norm:
+        raise HTTPException(status_code=400, detail="Lote inválido.")
+
+    try:
+        (
+            supabase.table("f_lotes_ajuste_planejado")
+            .delete()
+            .eq("lote", lote_norm)
+            .eq("mes", mes)
+            .eq("ano", ano)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao remover ajuste: {str(e)[:300]}")
+
+    return {"status": "ok"}
+
+
 def _calcular_rastreamento_lotes_impl(
     mes: int | None = Query(default=None, ge=1, le=12),
     ano: int | None = Query(default=None),
@@ -3748,6 +3863,12 @@ def _calcular_rastreamento_lotes_impl(
     estoque_quarentena_lote: dict[str, float] = {}
     if mes_analise == _mes_atual() and ano_analise == _ano_atual():
         estoque_quarentena_lote = _estoque_quarentena_por_lote()
+
+    # Ajuste manual de caixas planejadas (ver migration 012) -- ao contrário
+    # da quarentena, não é restrito ao mês corrente: faz sentido ajustar um
+    # lote de um mês futuro/passado também (decisão tomada antes da
+    # liberação, não depende de "foto de agora").
+    ajustes_planejado_mes = _lotes_ajuste_planejado_mes(mes_analise, ano_analise)
 
     # Lotes adicionados manualmente (ver migration 009 e os endpoints
     # POST/DELETE /overview/lotes-manuais-rastreamento logo acima desta
@@ -5309,21 +5430,26 @@ def _calcular_rastreamento_lotes_impl(
         )
 
         # Perda por rendimento: caixas previstas V1 menos caixas liberadas
-        # (SD3), OU -- se ainda não liberou, mas já está fisicamente em
-        # quarentena (armazém 98) -- previstas menos o saldo real de
-        # quarentena. O rendimento real já aconteceu fisicamente antes da
-        # liberação formal; sem isso, um lote parado em quarentena com
-        # rendimento abaixo do previsto ficava contando o valor cheio no
-        # Plano Atualizado até a liberação formal entrar na SD3 (quando aí
-        # sim vira liberação real e usa o SD3, não mais a quarentena).
-        # Ganho de rendimento continua só positivo/pós-liberação (linha
-        # separada mais abaixo) -- aqui só a perda.
+        # (SD3), OU -- se ainda não liberou -- menos a melhor referência
+        # disponível de quantidade real esperada: quarentena (saldo físico
+        # já contado, prioridade) ou, na falta dela, o ajuste manual (ver
+        # migration 012, estimativa decidida antes da liberação). O
+        # rendimento (real ou estimado) já é conhecido antes da liberação
+        # formal; sem isso, o lote ficava contando o valor cheio do V1 no
+        # Plano Atualizado até a liberação formal entrar na SD3. Ganho de
+        # rendimento continua só positivo/pós-liberação (linha separada
+        # mais abaixo) -- aqui só a perda.
         qtd_quarentena_lote = estoque_quarentena_lote.get(lote) if not check_liberado else None
+        qtd_referencia_pendente = (
+            qtd_quarentena_lote if qtd_quarentena_lote is not None
+            else ajustes_planejado_mes.get(lote) if not check_liberado
+            else None
+        )
         qtd_perda_rendimento_cx = (
             max(qtd_prevista_cx - qtd_liberada_cx, 0)
             if check_liberado
-            else max(qtd_prevista_cx - round(qtd_quarentena_lote), 0)
-            if qtd_quarentena_lote is not None
+            else max(qtd_prevista_cx - round(qtd_referencia_pendente), 0)
+            if qtd_referencia_pendente is not None
             else 0
         )
         # Mesmo racional do qtd_gap_cx_float acima: versão em float, sem
@@ -5331,8 +5457,8 @@ def _calcular_rastreamento_lotes_impl(
         qtd_perda_rendimento_cx_float = (
             max(qtd_prevista_cx_float - qtd_liberada_cx_float, 0.0)
             if check_liberado
-            else max(qtd_prevista_cx_float - qtd_quarentena_lote, 0.0)
-            if qtd_quarentena_lote is not None
+            else max(qtd_prevista_cx_float - qtd_referencia_pendente, 0.0)
+            if qtd_referencia_pendente is not None
             else 0.0
         )
         perda_rendimento = qtd_perda_rendimento_cx > 0
@@ -5431,9 +5557,13 @@ def _calcular_rastreamento_lotes_impl(
             "ano_previsto_atual": previsao_atual_ref.get("ano_previsto") if previsao_atual_ref else None,
             "esta_no_plano_atual_mes": bool(previsoes_atuais_mes),
             "qtd_prevista_atual_cx": round(sum(_to_float(p.get("qtd_prevista_cx")) for p in previsoes_atuais_mes)) if previsoes_atuais_mes else 0,
+            "qtd_prevista_ajustada_cx": round(ajustes_planejado_mes[lote]) if lote in ajustes_planejado_mes else None,
             "qtd_tendencia_atual_cx": (
                 qtd_liberada_cx if check_liberado
+                # Quarentena (saldo físico contado) tem prioridade sobre o
+                # ajuste manual (estimativa) -- ver migration 012.
                 else round(estoque_quarentena_lote[lote]) if (lote in estoque_quarentena_lote and sd3_lote_map.get(lote, 0.0) <= 0)
+                else round(ajustes_planejado_mes[lote]) if lote in ajustes_planejado_mes
                 else (round(sum(_to_float(p.get("qtd_prevista_cx")) for p in previsoes_atuais_mes)) if previsoes_atuais_mes else 0)
             ),
             "rodada_atual_id": previsao_atual_ref.get("rodada_id") if previsao_atual_ref else None,
@@ -5582,6 +5712,17 @@ def _calcular_rastreamento_lotes_impl(
             f"Promovido de {MES_LABELS[int(mes_orig) - 1]}/{ano_orig}"
             if mes_orig and ano_orig else "Promovido de outro mês"
         )
+        # O progresso físico real (lavagem/envase/embalagem) não reseta só
+        # porque a expectativa de entrega mudou de mês -- um lote promovido
+        # já pode ter passado por várias etapas no mês de origem. Busca o
+        # mesmo apt_map (apontamentos por lote) que qualquer lote normal
+        # usa aqui embaixo, só "check_liberado" continua sempre False (é
+        # literalmente o motivo dele estar pendente e ter sido promovido).
+        apts_promovido = apt_map.get(lote_promovido, {})
+        check_lavagem_promovido = apts_promovido.get("LAVAGEM", {}).get("qtd", 0) > 0
+        check_envase_promovido = apts_promovido.get("ENVASE", {}).get("qtd", 0) > 0
+        check_embalagem_promovido = apts_promovido.get("EMBALAGEM", {}).get("qtd", 0) > 0
+        sku_pa_promovido = apts_promovido.get("EMBALAGEM", {}).get("sku", "") or None
         item_promovido = {
             "lote": lote_promovido,
             "grupo": dados_promocao.get("grupo"),
@@ -5596,15 +5737,15 @@ def _calcular_rastreamento_lotes_impl(
             "qtd_perda_rendimento_cx": 0,
             "qtd_perda_rendimento_cx_float": 0.0,
             "considerar_previsto_ate_hoje": True,
-            "sku_pa": None,
+            "sku_pa": sku_pa_promovido,
             "linha": None,
             "data_lib": None,
             "data_lib_display": None,
             "data_inicio": None,
             "data_fim": None,
-            "check_lavagem": False,
-            "check_envase": False,
-            "check_embalagem": False,
+            "check_lavagem": check_lavagem_promovido,
+            "check_envase": check_envase_promovido,
+            "check_embalagem": check_embalagem_promovido,
             "check_liberado": False,
             "atrasado": False,
             "equipamento_atual": None,
@@ -6512,6 +6653,7 @@ def _overview_cache_version() -> tuple[str, dict[str, str | None]]:
     versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
     versao_promocoes = _ultima_atualizacao_tabela("f_lotes_promocoes_mes", "criado_em")
     versao_alias = _ultima_atualizacao_tabela("f_lotes_alias", "criado_em")
+    versao_ajuste_planejado = _ultima_atualizacao_tabela("f_lotes_ajuste_planejado", "criado_em")
 
     partes = [
         OVERVIEW_CACHE_LOGIC_VERSION,
@@ -6522,6 +6664,7 @@ def _overview_cache_version() -> tuple[str, dict[str, str | None]]:
         f"obs_manuais:{versao_obs_manuais or '-'}",
         f"promocoes:{versao_promocoes or '-'}",
         f"alias:{versao_alias or '-'}",
+        f"ajuste_planejado:{versao_ajuste_planejado or '-'}",
     ]
 
     for base in OVERVIEW_CACHE_BASES:
@@ -6849,6 +6992,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
     versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
     versao_promocoes = _ultima_atualizacao_tabela("f_lotes_promocoes_mes", "criado_em")
     versao_alias = _ultima_atualizacao_tabela("f_lotes_alias", "criado_em")
+    versao_ajuste_planejado = _ultima_atualizacao_tabela("f_lotes_ajuste_planejado", "criado_em")
 
     partes = [
         "rastreamento-cache-v9-reprovacao-historica-convive-com-desvio-atual",
@@ -6859,6 +7003,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
         f"obs_manuais:{versao_obs_manuais or '-'}",
         f"promocoes:{versao_promocoes or '-'}",
         f"alias:{versao_alias or '-'}",
+        f"ajuste_planejado:{versao_ajuste_planejado or '-'}",
     ]
 
     for base in RASTREAMENTO_CACHE_BASES:
