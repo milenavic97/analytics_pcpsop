@@ -5880,6 +5880,15 @@ def _calcular_rastreamento_lotes_impl(
                 continue
             if apenas_em_desvio and not item.get("em_desvio"):
                 continue
+            # Lote com observação manual ativa (ex.: "aguardando aprovação
+            # ANVISA") ou promovido pra outro mês já saiu da conta do Plano
+            # Atualizado (vai pro card "Outros") -- sem isso aqui, os cards
+            # de status físico (Embalados/Envasados/Lavados/Não iniciados)
+            # continuavam somando o lote e nunca fechavam com o total de
+            # "Plano Atualizado" (13.365), ficando maior por causa dos
+            # lotes que já saíram da conta principal.
+            if item.get("observacao_manual") or item.get("promovido_para"):
+                continue
             total += _to_float(
                 item.get("qtd_gap_cx_float")
                 if item.get("qtd_gap_cx_float") is not None
