@@ -1611,22 +1611,6 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
     const combinado = aplicarFallbackOperacionalDosLotes(baseMes, statusOperacionalMesPelosLotes);
 
-    // DEBUG TEMPORÁRIO -- remover depois de achar o bug do card "Embalados
-    // não liberados" divergindo do backend. Mostra, no exato instante em que
-    // a tela recalcula esse card, qual valor bruto veio do backend
-    // (data.mes_gap_por_etapa.embalagem), qual valor o fallback dos lotes
-    // calculou, e qual valor final foi decidido -- pra comparar direto com
-    // o JSON da aba Rede sem depender de timing entre prints separados.
-    // eslint-disable-next-line no-console
-    console.log("[DEBUG embalagem]", {
-      backend_mes_gap_por_etapa_embalagem: data?.mes_gap_por_etapa?.embalagem,
-      baseMes_embalagem: baseMes.embalagem,
-      fallbackLotes_embalagem: statusOperacionalMesPelosLotes.embalagem,
-      combinado_embalagem_antes_override_atraso: combinado.embalagem,
-      perdaProducaoReprogramadosSimples,
-      combinado_atraso_producao: combinado.atraso_producao,
-    });
-
     if (perdaProducaoReprogramadosSimples > combinado.atraso_producao) {
       return recalcularTotalGapPorEtapa({
         ...combinado,
@@ -1842,20 +1826,39 @@ const textoPercentualV1 = (valor: number) =>
   // iniciados") -- lá 1 cx não muda leitura nenhuma, e a soma dos cards
   // sempre bate com o previsto total.
   //
-  // Importante: este painel só mostra Liberados + as 4 etapas físicas.
-  // Reprovação/desvio, atraso de produção e rendimento saíram daqui (já
-  // aparecem na fileira sempre visível acima) -- por isso o "previsto" de
-  // referência para ESTES cards precisa descontar essas 3 fatias do V1
-  // total, senão a comparação acha uma "sobra" enorme (o tamanho das 3
-  // categorias removidas) e distorce o card de maior volume tentando
-  // absorver isso como se fosse um simples arredondamento de 1 cx.
-  const totalPrevistoCardsFisicos = Math.max(
-    totalPrevistoAcompanhamento
-      - gapPorStatusAcompanhamento.reprovacao_desvio
-      - gapPorStatusAcompanhamento.atraso_producao
-      - gapPorStatusAcompanhamento.rendimento,
-    0,
-  );
+  // Importante: o "previsto total" de referência AQUI precisa ser o Plano
+  // Atualizado (mesPlanoAtualTendencia/mtdPrevistoV1), não o V1 congelado
+  // (mesPrevistoV1/totalPrevistoAcompanhamento) -- esse último já reflete
+  // promoções, ajustes de planejado e quarentena que tiraram/adicionaram
+  // caixas do mês, exatamente o que o card "Diferença vs V1" existe pra
+  // mostrar. Usar o V1 congelado aqui fazia esse "delta" inteiro (centenas/
+  // milhares de cx, não 1) ser tratado como sobra de arredondamento e
+  // despejado de uma vez no maior card -- foi o que inflou "Embalados não
+  // liberados" de 5.600 para 6.969 (diferença de 1.369 cx, idêntica ao gap
+  // entre V1 e Plano Atualizado descontadas as 3 perdas principais).
+  //
+  // Mês completo: mesPlanoAtualTendencia já é "Realizado + saldo pendente"
+  // (confere: mes_cx_saldo_tendencia = mesPlanoAtualTendencia - mesRealizado,
+  // e esse saldo já é, por definição, só o que ainda está progredindo
+  // fisicamente -- lote reprovado/atrasado/com perda de rendimento não entra
+  // nele). Por isso, aqui NÃO se subtrai reprovação/atraso/rendimento de novo
+  // -- diferente do V1 congelado (que inclui esses lotes no total original e
+  // por isso precisa descontá-los pra comparar só com as etapas físicas).
+  //
+  // Previsto até hoje (MTD): mantido como estava (mtdPrevistoV1 com o
+  // desconto das 3 perdas) -- não tínhamos dado ao vivo pra confirmar se
+  // mtd_cx_previsto tem a mesma natureza de "já líquido" do Plano Atualizado
+  // ou se é mais parecido com o V1 congelado. Vale confirmar com um JSON de
+  // um dia em que "Previsto até hoje" estiver selecionado antes de mexer aqui.
+  const totalPrevistoCardsFisicos = apenasAtrasados
+    ? Math.max(
+        mtdPrevistoV1
+          - gapPorStatusAcompanhamento.reprovacao_desvio
+          - gapPorStatusAcompanhamento.atraso_producao
+          - gapPorStatusAcompanhamento.rendimento,
+        0,
+      )
+    : Math.max(mesPlanoAtualTendencia, 0);
 
   const somaCardsAcompanhamento = statusAcompanhamentoBruto.reduce((acc, c) => acc + c.value, 0);
   const deltaArredondamentoAcompanhamento =
