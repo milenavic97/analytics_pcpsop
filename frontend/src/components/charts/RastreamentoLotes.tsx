@@ -1261,6 +1261,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     // só porque já teve apontamento de envase.
     if (loteEhReprovacaoOuDescarte(l)) return "REPROVACAO_DESVIO";
     if (l.atraso_producao || l.reprogramado || l.status_gap === "Atraso de produção") return "ATRASO_PRODUCAO";
+    // Lote com observação manual ativa (ex.: "aguardando liberação da ANVISA")
+    // ou promovido pra outro mês já saiu da conta principal e vai pro card
+    // "Outros" -- mesmo critério usado em calcularStatusOperacionalPelosLotes
+    // e em etapaFisicaLote logo abaixo. Precisa vir antes de "DESVIO" e das
+    // etapas físicas, senão o lote aparece categorizado como se ainda
+    // estivesse rodando normalmente.
+    if (l.observacao_manual || l.promovido_para) return "OBSERVACAO_MANUAL";
     if (l.em_desvio) return "DESVIO";
     if (l.perda_rendimento) return "RENDIMENTO";
     if (l.check_liberado) return "LIBERADO";
@@ -1275,10 +1282,19 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   // fallback acima. Um lote embalado que caiu em desvio continua contando
   // como "embalado" pro filtro/card dessa etapa; a etiqueta de desvio na
   // linha da tabela continua aparecendo, só não vira uma categoria à parte.
+  //
+  // Lote com observação manual ativa (ex.: "aguardando liberação da ANVISA")
+  // ou promovido pra outro mês NÃO conta em nenhuma etapa física -- ele já
+  // saiu da conta principal (vai pro card "Outros"), igual já acontecia em
+  // calcularStatusOperacionalPelosLotes. Sem essa exclusão aqui, o lote
+  // sumia do TOTAL do card (que já vinha certo do backend/fallback) mas
+  // continuava aparecendo na lista ao clicar no card -- por isso a soma dos
+  // lotes listados nunca batia com o número do card.
   function etapaFisicaLote(l: LoteRastreamento): string | null {
     if (l.check_liberado) return null;
     if (loteEhReprovacaoOuDescarte(l)) return null;
     if (l.atraso_producao || l.reprogramado || l.status_gap === "Atraso de produção") return null;
+    if (l.observacao_manual || l.promovido_para) return null;
     if (l.check_embalagem) return "EMBALAGEM";
     if (l.check_envase) return "ENVASE";
     if (l.check_lavagem) return "LAVAGEM";
