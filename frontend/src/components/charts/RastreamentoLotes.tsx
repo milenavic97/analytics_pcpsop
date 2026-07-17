@@ -1611,6 +1611,22 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
 
     const combinado = aplicarFallbackOperacionalDosLotes(baseMes, statusOperacionalMesPelosLotes);
 
+    // DEBUG TEMPORÁRIO -- remover depois de achar o bug do card "Embalados
+    // não liberados" divergindo do backend. Mostra, no exato instante em que
+    // a tela recalcula esse card, qual valor bruto veio do backend
+    // (data.mes_gap_por_etapa.embalagem), qual valor o fallback dos lotes
+    // calculou, e qual valor final foi decidido -- pra comparar direto com
+    // o JSON da aba Rede sem depender de timing entre prints separados.
+    // eslint-disable-next-line no-console
+    console.log("[DEBUG embalagem]", {
+      backend_mes_gap_por_etapa_embalagem: data?.mes_gap_por_etapa?.embalagem,
+      baseMes_embalagem: baseMes.embalagem,
+      fallbackLotes_embalagem: statusOperacionalMesPelosLotes.embalagem,
+      combinado_embalagem_antes_override_atraso: combinado.embalagem,
+      perdaProducaoReprogramadosSimples,
+      combinado_atraso_producao: combinado.atraso_producao,
+    });
+
     if (perdaProducaoReprogramadosSimples > combinado.atraso_producao) {
       return recalcularTotalGapPorEtapa({
         ...combinado,
