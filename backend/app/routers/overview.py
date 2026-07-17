@@ -2664,8 +2664,11 @@ def _versao_dados_rastreamento_lotes() -> str:
     # o mês de destino (e o de origem) continuavam servindo o cálculo de
     # antes da promoção indefinidamente.
     versao_promocoes = _ultima_atualizacao_tabela("f_lotes_promocoes_mes", "criado_em")
+    # De-para de lote (ver migration 011): idem -- criar/remover um alias
+    # não passa pelo upload_log.
+    versao_alias = _ultima_atualizacao_tabela("f_lotes_alias", "criado_em")
     versao = "|".join(f"{base}:{versions.get(base) or '-'}" for base in RASTREAMENTO_CACHE_BASES)
-    versao = f"{versao}|obs_manuais:{versao_obs_manuais or '-'}|promocoes:{versao_promocoes or '-'}"
+    versao = f"{versao}|obs_manuais:{versao_obs_manuais or '-'}|promocoes:{versao_promocoes or '-'}|alias:{versao_alias or '-'}"
 
     with _RASTREAMENTO_LOTES_VERSAO_LOCK:
         _RASTREAMENTO_LOTES_VERSAO_CACHE["criado_em"] = agora
@@ -3169,6 +3172,35 @@ def _normaliza_lote_modulo(value) -> str:
     return str(value or "").strip().upper()
 
 
+def _lotes_alias_mapa() -> dict[str, str]:
+    """
+    Lote ERRADO normalizado -> lote CORRETO normalizado (ver migration
+    011_lotes_alias.sql). É uma tabela pequena e global (não filtra por
+    mes/ano) -- pode ser lida uma vez por cálculo e reaproveitada. Nunca
+    levanta exceção -- se a tabela falhar por qualquer motivo, o resto do
+    cálculo segue normalmente sem esse ajuste (usa o código como veio).
+    """
+    try:
+        linhas = _select_all(
+            supabase.table("f_lotes_alias").select("lote_errado, lote_correto")
+        )
+    except Exception:
+        return {}
+
+    mapa: dict[str, str] = {}
+    for linha in linhas:
+        errado = _normaliza_lote_modulo(linha.get("lote_errado"))
+        correto = _normaliza_lote_modulo(linha.get("lote_correto"))
+        if errado and correto:
+            mapa[errado] = correto
+    return mapa
+
+
+def _resolver_alias_lote(lote: str, mapa_alias: dict[str, str]) -> str:
+    """Aplica o de-para se existir; senão devolve o código como veio."""
+    return mapa_alias.get(lote, lote)
+
+
 def _lotes_observacoes_manuais_mes(mes: int, ano: int) -> dict[str, str]:
     """Lote normalizado -> motivo da observação manual, só para mes/ano
     pedidos. Nunca levanta exceção -- se a tabela falhar por qualquer
@@ -3570,6 +3602,90 @@ def remover_promocao_lote(
     return {"status": "ok"}
 
 
+# ────────────────────────────────────────────────────────────
+# De-para de código de lote (ver migration 011_lotes_alias.sql
+# para o racional completo).
+# ────────────────────────────────────────────────────────────
+
+class LoteAliasInput(BaseModel):
+    lote_errado: str
+    lote_correto: str
+
+
+@router.get("/lotes-alias")
+def listar_lotes_alias(perfil: dict = Depends(exigir_admin)):
+    """Lista todos os de-paras cadastrados. Restrito a admin/permissão de
+    Configurações (ver app/auth.py:exigir_admin)."""
+    try:
+        linhas = _select_all(
+            supabase.table("f_lotes_alias")
+            .select("lote_errado, lote_correto, criado_por, criado_em")
+            .order("criado_em", desc=True)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao listar de-paras: {str(e)[:300]}")
+
+    return {"alias": linhas}
+
+
+@router.post("/lotes-alias")
+def criar_lote_alias(
+    payload: LoteAliasInput,
+    perfil: dict = Depends(exigir_admin),
+):
+    """
+    Cadastra um de-para permanente: toda vez que "lote_errado" aparecer em
+    qualquer base (apontamento, SD3, desvio, etc.), o sistema passa a
+    tratar como se fosse "lote_correto" (o código do planejamento) daqui
+    pra frente -- em todas as telas, não só na Overview. Restrito a
+    admin/permissão de Configurações (ver app/auth.py:exigir_admin).
+
+    Não corrige o dado bruto em nenhuma tabela de origem -- só ensina o
+    backend a "casar" os dois códigos na hora de juntar informação.
+    """
+    lote_errado = _normaliza_lote_modulo(payload.lote_errado)
+    lote_correto = _normaliza_lote_modulo(payload.lote_correto)
+
+    if not lote_errado or not lote_correto:
+        raise HTTPException(status_code=400, detail="Os dois códigos de lote são obrigatórios.")
+
+    if lote_errado == lote_correto:
+        raise HTTPException(status_code=400, detail="Os códigos são iguais -- não faz sentido criar um de-para.")
+
+    try:
+        supabase.table("f_lotes_alias").upsert(
+            {
+                "lote_errado": lote_errado,
+                "lote_correto": lote_correto,
+                "criado_por": perfil.get("email") or perfil.get("usuario") or perfil.get("nome"),
+            },
+            on_conflict="lote_errado",
+        ).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar de-para: {str(e)[:300]}")
+
+    return {"status": "ok", "lote_errado": lote_errado, "lote_correto": lote_correto}
+
+
+@router.delete("/lotes-alias/{lote_errado}")
+def remover_lote_alias(
+    lote_errado: str,
+    perfil: dict = Depends(exigir_admin),
+):
+    """Remove um de-para. Restrito a admin/permissão de Configurações
+    (ver app/auth.py:exigir_admin)."""
+    lote_norm = _normaliza_lote_modulo(lote_errado)
+    if not lote_norm:
+        raise HTTPException(status_code=400, detail="Lote inválido.")
+
+    try:
+        supabase.table("f_lotes_alias").delete().eq("lote_errado", lote_norm).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao remover de-para: {str(e)[:300]}")
+
+    return {"status": "ok"}
+
+
 def _calcular_rastreamento_lotes_impl(
     mes: int | None = Query(default=None, ge=1, le=12),
     ano: int | None = Query(default=None),
@@ -3649,6 +3765,13 @@ def _calcular_rastreamento_lotes_impl(
     lotes_promovidos_para_fora = _lotes_promovidos_origem_mes(mes_analise, ano_analise)
     lotes_promovidos_para_dentro = _lotes_promovidos_destino_mes(mes_analise, ano_analise)
 
+    # De-para de código de lote (ver migration 011_lotes_alias.sql):
+    # buscado uma vez aqui, aplicado em TODO lugar que normaliza um código
+    # de lote nesta função (via normaliza_lote logo abaixo) -- assim um
+    # erro de digitação no apontamento real (Cogtive) não impede o lote de
+    # "casar" com o planejamento (Gantt/MPS/MRP).
+    lotes_alias_mapa = _lotes_alias_mapa()
+
     ESTADOS_DESVIO_FECHADOS = {
         "CONCLUIDO",
         "CONCLUÍDO",
@@ -3670,7 +3793,13 @@ def _calcular_rastreamento_lotes_impl(
     }
 
     def normaliza_lote(value) -> str:
-        return str(value or "").strip().upper()
+        bruto = str(value or "").strip().upper()
+        # Aplica o de-para (migration 011): se "bruto" for um código
+        # conhecido como errado, troca pelo código correto do
+        # planejamento -- em TODA chamada desta função, sem precisar
+        # tratar em cada um dos vários lugares que normalizam lote nesta
+        # função.
+        return lotes_alias_mapa.get(bruto, bruto)
 
     def normaliza_sku(value) -> str:
         texto = str(value or "").strip()
@@ -6382,6 +6511,7 @@ def _overview_cache_version() -> tuple[str, dict[str, str | None]]:
     # snapshot de antes da edição indefinidamente.
     versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
     versao_promocoes = _ultima_atualizacao_tabela("f_lotes_promocoes_mes", "criado_em")
+    versao_alias = _ultima_atualizacao_tabela("f_lotes_alias", "criado_em")
 
     partes = [
         OVERVIEW_CACHE_LOGIC_VERSION,
@@ -6391,6 +6521,7 @@ def _overview_cache_version() -> tuple[str, dict[str, str | None]]:
         f"hoje:{_hoje_br().isoformat()}",
         f"obs_manuais:{versao_obs_manuais or '-'}",
         f"promocoes:{versao_promocoes or '-'}",
+        f"alias:{versao_alias or '-'}",
     ]
 
     for base in OVERVIEW_CACHE_BASES:
@@ -6717,6 +6848,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
     versions = _rastreamento_upload_versions()
     versao_obs_manuais = _ultima_atualizacao_tabela("f_lotes_observacoes_manuais", "criado_em")
     versao_promocoes = _ultima_atualizacao_tabela("f_lotes_promocoes_mes", "criado_em")
+    versao_alias = _ultima_atualizacao_tabela("f_lotes_alias", "criado_em")
 
     partes = [
         "rastreamento-cache-v9-reprovacao-historica-convive-com-desvio-atual",
@@ -6726,6 +6858,7 @@ def _rastreamento_cache_version(mes: int | None = None, ano: int | None = None) 
         f"hoje:{_hoje_br().isoformat()}",
         f"obs_manuais:{versao_obs_manuais or '-'}",
         f"promocoes:{versao_promocoes or '-'}",
+        f"alias:{versao_alias or '-'}",
     ]
 
     for base in RASTREAMENTO_CACHE_BASES:

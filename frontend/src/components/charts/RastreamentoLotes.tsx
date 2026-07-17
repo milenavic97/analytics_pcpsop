@@ -26,6 +26,7 @@ import {
   Trash2,
   ArrowUpCircle,
   Undo2,
+  Link as LinkIcon,
 } from "lucide-react";
 import { clearApiCache, getRastreamentoLotes, getRastreamentoLotesCacheVersao } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -836,6 +837,19 @@ async function removerPromocaoLote(lote: string, mesOrigem: number, anoOrigem: n
   if (!res.ok) {
     const detalhe = await res.json().catch(() => null);
     throw new Error(detalhe?.detail || `Erro ao remover promoção (${res.status})`);
+  }
+}
+
+async function criarLoteAlias(loteErrado: string, loteCorreto: string): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/overview/lotes-alias`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ lote_errado: loteErrado, lote_correto: loteCorreto }),
+  });
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null);
+    throw new Error(detalhe?.detail || `Erro ao salvar de-para (${res.status})`);
   }
 }
 
@@ -2032,6 +2046,26 @@ const textoPercentualV1 = (valor: number) =>
     }
   }
 
+  async function corrigirCodigoLote(lote: LoteRastreamento) {
+    if (!podeEditarObservacaoManual) return;
+    const loteCorreto = window.prompt(
+      `O código "${lote.lote}" aparece errado em algum apontamento (ex.: erro de digitação na Cogtive)?\n\n` +
+        `Digite o código CORRETO (o que está certo no planejamento/Gantt/MPS). ` +
+        `A partir de agora, "${lote.lote}" sempre vai ser tratado como esse código correto, em todas as telas.`,
+      ""
+    );
+    if (loteCorreto === null || !loteCorreto.trim()) return;
+    if (!window.confirm(`Confirma: sempre que aparecer "${lote.lote}", tratar como "${loteCorreto.trim().toUpperCase()}"?`)) {
+      return;
+    }
+    try {
+      await criarLoteAlias(lote.lote, loteCorreto.trim());
+      await carregar(true, true);
+    } catch (erro: any) {
+      window.alert(erro?.message || "Não foi possível salvar o de-para.");
+    }
+  }
+
   function calcularRendimento(lote: LoteRastreamento) {
     const planejadoCx = Number(lote.qtd_prevista_cx || 0);
     const liberadoCx = Number(lote.qtd_liberada_cx || 0);
@@ -2840,6 +2874,18 @@ const textoPercentualV1 = (valor: number) =>
                               style={{ color: "#B45309" }}
                             >
                               <Undo2 size={12} />
+                            </button>
+                          )}
+
+                          {podeEditarObservacaoManual && (
+                            <button
+                              type="button"
+                              onClick={() => corrigirCodigoLote(l)}
+                              title='Corrigir código deste lote (de-para permanente, ex.: erro de digitação na Cogtive)'
+                              className="shrink-0 rounded p-0.5 transition-colors hover:bg-black/5"
+                              style={{ color: "#6B7280" }}
+                            >
+                              <LinkIcon size={12} />
                             </button>
                           )}
                         </div>
