@@ -1012,10 +1012,11 @@ function ModalRendimentoAno({
 export function OverviewPage() {
   const [cacheInicial] = useState<OverviewPageSnapshot | null>(() => readOverviewPageCache())
 
-  // Seletor Clássico/Executivo -- em teste, não comunicado ainda ao time.
-  // Default sempre "classico": ninguém deve ver a versão nova sem escolher.
-  // Não persiste entre sessões de propósito (cada abertura começa no Clássico).
-  const [versaoOverview, setVersaoOverview] = useState<"classico" | "executivo">("classico")
+  // Seletor Clássico/Executivo -- combinado com o usuário: o padrão agora é
+  // a versão Executivo (é a versão que o time deve ver ao abrir a Overview).
+  // Quem quiser a versão antiga clica em "Voltar para versão anterior".
+  // Não persiste entre sessões de propósito -- cada abertura começa igual.
+  const [versaoOverview, setVersaoOverview] = useState<"classico" | "executivo">("executivo")
 
   const [modalLib, setModalLib]               = useState(false)
   const [modalFatOrc, setModalFatOrc]         = useState(false)
@@ -1495,7 +1496,7 @@ export function OverviewPage() {
             <button
               type="button"
               onClick={() => setVersaoOverview((v) => (v === "classico" ? "executivo" : "classico"))}
-              title="Clique para testar a nova versão"
+              title={versaoOverview === "classico" ? "Clique para testar a nova versão" : "Clique para voltar à versão anterior"}
               className="inline-flex items-center gap-1.5 rounded-2xl border px-3.5 py-2 text-xs font-bold shadow-sm transition"
               style={
                 versaoOverview === "classico"

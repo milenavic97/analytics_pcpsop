@@ -9,7 +9,6 @@ import {
   ShieldCheck,
   DollarSign,
   AlertTriangle,
-  PackageCheck,
 } from "lucide-react"
 
 export const APP_PAGES = [
@@ -18,13 +17,6 @@ export const APP_PAGES = [
     label: "Overview",
     path: "/overview",
     icon: LayoutDashboard,
-  },
-
-  {
-    id: "liberacao-executiva",
-    label: "Liberação Executiva",
-    path: "/liberacao-executiva",
-    icon: PackageCheck,
   },
 
   {
