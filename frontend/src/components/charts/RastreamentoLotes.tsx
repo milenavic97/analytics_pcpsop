@@ -945,7 +945,7 @@ type CascataMesStep = {
 function CascataMesChart({ steps }: { steps: CascataMesStep[] }) {
   const width = 1080
   const height = 165
-  const margin = { top: 20, right: 34, bottom: 40, left: 74 }
+  const margin = { top: 20, right: 90, bottom: 40, left: 74 }
   const plotHeight = 88
   const plotWidth = width - margin.left - margin.right
 
@@ -1700,8 +1700,14 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         acumulado.embalagem += etapaFisicaCxFloat;
         if (emDesvio) acumulado.embalagem_em_desvio += etapaFisicaCxFloat;
       } else if (lote.check_envase) {
-        acumulado.envase += etapaFisicaCxFloat;
-        if (emDesvio) acumulado.envase_em_desvio += etapaFisicaCxFloat;
+        // "Envasados não embalados" usa o volume REAL já envasado
+        // (apontamento de produção, qtd_produzida_cx) -- é o número que
+        // muda em tempo real conforme a produção avança, diferente da
+        // tendência (que só muda quando entra em quarentena/ajuste
+        // manual). Mesmo critério do backend em _soma_etapa_fisica.
+        const qtdEnvasadaReal = Number(lote.qtd_produzida_cx ?? 0);
+        acumulado.envase += qtdEnvasadaReal;
+        if (emDesvio) acumulado.envase_em_desvio += qtdEnvasadaReal;
       } else if (lote.check_lavagem) {
         acumulado.lavagem += etapaFisicaCxFloat;
         if (emDesvio) acumulado.lavagem_em_desvio += etapaFisicaCxFloat;
@@ -1709,7 +1715,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         acumulado.nao_iniciado += etapaFisicaCxFloat;
         if (emDesvio) acumulado.nao_iniciado_em_desvio += etapaFisicaCxFloat;
       }
-      if (emDesvio) acumulado.desvio_aberto += etapaFisicaCxFloat;
+      if (emDesvio) acumulado.desvio_aberto += (lote.check_envase ? Number(lote.qtd_produzida_cx ?? 0) : etapaFisicaCxFloat);
     }
 
     // normalizarGapPorEtapa já arredonda cada campo (uma vez, no total) e
