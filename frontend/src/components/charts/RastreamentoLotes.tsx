@@ -1887,18 +1887,32 @@ const textoPercentualV1 = (valor: number) =>
       )
     : Math.max(mesPlanoAtualTendencia, 0);
 
-  const somaCardsAcompanhamento = statusAcompanhamentoBruto.reduce((acc, c) => acc + c.value, 0);
+  // "Liberados" (índice 0) é sempre a soma EXATA da coluna "Liberado (cx)"
+  // da tabela -- não pode sofrer ajuste de arredondamento. Antes, o resíduo
+  // de arredondamento (normalmente 1 cx) podia cair nele quando ele fosse o
+  // maior card, fazendo "Liberados" mostrar um valor diferente da soma real
+  // da coluna que a pessoa vê na tabela logo abaixo. Agora o resíduo só é
+  // redistribuído entre os 4 cards físicos (Embalados/Envasados/Lavados/
+  // Não iniciados), nunca em "Liberados".
+  const totalLiberadoExato = statusAcompanhamentoBruto[0]?.value ?? 0;
+  const cardsFisicosBruto = statusAcompanhamentoBruto.slice(1);
+  const somaCardsFisicosBruto = cardsFisicosBruto.reduce((acc, c) => acc + c.value, 0);
+  const totalPrevistoCardsFisicosAlvo = Math.max(totalPrevistoCardsFisicos - totalLiberadoExato, 0);
   const deltaArredondamentoAcompanhamento =
-    totalPrevistoCardsFisicos > 0
-      ? Math.round(totalPrevistoCardsFisicos) - Math.round(somaCardsAcompanhamento)
+    totalPrevistoCardsFisicosAlvo > 0
+      ? Math.round(totalPrevistoCardsFisicosAlvo) - Math.round(somaCardsFisicosBruto)
       : 0;
 
   const statusAcompanhamento = (() => {
     if (deltaArredondamentoAcompanhamento === 0) return statusAcompanhamentoBruto;
-    const indiceMaior = statusAcompanhamentoBruto.reduce(
-      (melhorIdx, c, idx, arr) => (c.value > arr[melhorIdx].value ? idx : melhorIdx),
-      0,
-    );
+    // Procura o maior valor SOMENTE entre os cards físicos (índices 1 em
+    // diante) -- índice 0 ("Liberados") nunca é candidato.
+    let indiceMaior = 1;
+    for (let idx = 2; idx < statusAcompanhamentoBruto.length; idx++) {
+      if (statusAcompanhamentoBruto[idx].value > statusAcompanhamentoBruto[indiceMaior].value) {
+        indiceMaior = idx;
+      }
+    }
     return statusAcompanhamentoBruto.map((c, idx) =>
       idx === indiceMaior ? { ...c, value: Math.max(c.value + deltaArredondamentoAcompanhamento, 0) } : c,
     );
