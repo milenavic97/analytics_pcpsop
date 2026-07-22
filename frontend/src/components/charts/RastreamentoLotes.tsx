@@ -3311,7 +3311,7 @@ const textoPercentualV1 = (valor: number) =>
                       style={{ color: "var(--text-primary)" }}
                     >
                       {fmt(item.value)}
-                      {item.suffix === "" ? "" : " cx"}
+                      {" cx"}
                     </p>
                   </div>
                 ))}
