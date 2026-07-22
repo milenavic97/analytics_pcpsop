@@ -929,6 +929,135 @@ interface RastreamentoMtdLoadPayload {
   fonte: "mtd_resumo_liberacao" | "fallback";
 }
 
+// Cascata "Acompanhamento do mês": mesma lógica visual da cascata anual da
+// Overview (Executivo), só que com os valores mensais que já alimentam os
+// cards logo abaixo (perdasMes) -- cálculo 100% dinâmico, reaproveitando as
+// mesmas variáveis que os cards mostram, sem buscar nem calcular nada de
+// novo. Cards com valor 0 não entram na cascata (mesmo critério dos cards).
+type CascataMesStep = {
+  id: string
+  label: string
+  kind: "total" | "delta"
+  value: number
+  color: string
+}
+
+function CascataMesChart({ steps }: { steps: CascataMesStep[] }) {
+  const width = 1080
+  const height = 165
+  const margin = { top: 20, right: 34, bottom: 40, left: 74 }
+  const plotHeight = 88
+  const plotWidth = width - margin.left - margin.right
+
+  const totalBarWidth = 34
+  const stepWidth = 26
+  const minDeltaVisualHeight = 1.2
+
+  type Processed = CascataMesStep & { index: number; before: number; after: number; displayValue: number }
+
+  let running = 0
+  const bars: Processed[] = steps.map((step, index) => {
+    if (step.kind === "total") {
+      const after = Number(step.value || 0)
+      running = after
+      return { ...step, index, before: 0, after, displayValue: after }
+    }
+    const before = running
+    const delta = Number(step.value || 0)
+    const after = running + delta
+    running = after
+    return { ...step, index, before, after, displayValue: delta }
+  })
+
+  const maxLevel = Math.max(...bars.flatMap((bar) => [bar.before, bar.after]), 1)
+  const maxValue = Math.ceil((maxLevel * 1.08) / 1000) * 1000
+  const y = (value: number) => margin.top + ((maxValue - value) / maxValue) * plotHeight
+  const baselineY = y(0)
+  const x = (index: number) => margin.left + (index * plotWidth) / Math.max(bars.length - 1, 1)
+
+  const getConnectorTargetX = (index: number) => {
+    const next = bars[index + 1]
+    if (!next) return x(index)
+    return x(index + 1) - (next.kind === "total" ? totalBarWidth : stepWidth) / 2
+  }
+
+  if (bars.length < 2) return null
+
+  return (
+    <div className="overflow-x-auto px-4 pb-3 pt-2">
+      <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[1080px]">
+        <rect x="0" y="0" width={width} height={height} rx="14" fill="#FFFFFF" />
+
+        {bars.map((bar, index) => {
+          const isTotal = bar.kind === "total"
+          const isPositiveDelta = !isTotal && bar.displayValue > 0
+          const isNegativeDelta = !isTotal && bar.displayValue < 0
+          const next = bars[index + 1]
+          const currentX = x(index)
+          const valueLabel = isTotal
+            ? `${fmt(bar.after)} cx`
+            : `${isPositiveDelta ? "+" : "-"}${fmt(Math.abs(bar.displayValue))} cx`
+
+          if (isTotal) {
+            const yTop = y(bar.after)
+            const barHeight = baselineY - yTop
+            const xx = currentX - totalBarWidth / 2
+            const connectorX1 = currentX + totalBarWidth / 2
+            const connectorX2 = getConnectorTargetX(index)
+
+            return (
+              <g key={bar.id}>
+                <rect x={xx} y={yTop} width={totalBarWidth} height={Math.max(barHeight, 1)} rx={4} fill={bar.color} opacity={0.92} />
+                {next && (
+                  <line x1={connectorX1} x2={connectorX2} y1={yTop} y2={yTop} stroke="#CBD5E1" strokeWidth="1.4" strokeDasharray="4 5" />
+                )}
+                <text x={currentX} y={yTop - 7} textAnchor="middle" fontSize="10" fontWeight="900" fill={bar.color}>
+                  {valueLabel}
+                </text>
+                <text x={currentX} y={height - 16} textAnchor="middle" fontSize="9" fontWeight="900" fill="#0F172A">
+                  {bar.label}
+                </text>
+              </g>
+            )
+          }
+
+          const beforeY = y(bar.before)
+          const afterY = y(bar.after)
+          const rawDeltaHeight = Math.abs(beforeY - afterY)
+          const deltaHeight = Math.max(minDeltaVisualHeight, rawDeltaHeight)
+          const top = rawDeltaHeight < minDeltaVisualHeight ? (beforeY + afterY) / 2 - deltaHeight / 2 : Math.min(beforeY, afterY)
+          const xx = currentX - stepWidth / 2
+          const connectorX1 = currentX + stepWidth / 2
+          const connectorX2 = getConnectorTargetX(index)
+
+          return (
+            <g key={bar.id}>
+              <line x1={currentX} x2={currentX} y1={beforeY} y2={afterY} stroke={bar.color} strokeWidth="1" strokeDasharray="3 4" opacity="0.18" />
+              <rect x={xx} y={top} width={stepWidth} height={deltaHeight} rx={2.5} fill={bar.color} opacity={0.96} />
+              {next && (
+                <line x1={connectorX1} x2={connectorX2} y1={afterY} y2={afterY} stroke="#CBD5E1" strokeWidth="1.4" strokeDasharray="4 5" />
+              )}
+              <text
+                x={currentX}
+                y={isNegativeDelta ? top + deltaHeight + 22 : top - 6}
+                textAnchor="middle"
+                fontSize="9"
+                fontWeight="900"
+                fill={isPositiveDelta ? "#16A34A" : isNegativeDelta ? "#DC2626" : bar.color}
+              >
+                {valueLabel}
+              </text>
+              <text x={currentX} y={height - 16} textAnchor="middle" fontSize="9" fontWeight="900" fill="#0F172A">
+                {bar.label}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto: number, mtd_cx_liberado: number, payload?: RastreamentoMtdLoadPayload) => void } = {}) {
   const { hasPermission } = useAuth();
   const podeEditarObservacaoManual = hasPermission("configuracoes");
@@ -1790,6 +1919,36 @@ const textoPercentualV1 = (valor: number) =>
 
   const mesCardsCount = 3 + perdasMes.length;
 
+  // Cascata "Acompanhamento do mês": mesmos valores dos cards acima --
+  // cards com valor 0/negativo já ficam de fora (perdasMes só inclui
+  // "Outras perdas/ajustes", "Lotes manuais" e "Lotes de outro mês" quando
+  // > 0), então basta filtrar aqui os que zeraram por algum motivo.
+  // Sinal do delta: "Ganho rendimento", "Lotes manuais" e "Lotes de outro
+  // mês" somam ao plano atualizado (mesma regra usada no backend pra
+  // calcular mes_cx_plano_atual_tendencia); as demais causas são perdas.
+  const cascataMesSteps: CascataMesStep[] = (() => {
+    const ganhoFiltros = new Set(["LIBERADO", "LOTE_MANUAL", "LOTE_PROMOVIDO"]);
+    const steps: CascataMesStep[] = [
+      { id: "v1", label: "Planejado V1", kind: "total", value: mesPrevistoV1, color: "#1D4ED8" },
+    ];
+
+    perdasMes.forEach((item) => {
+      if (!item.value || item.value <= 0) return;
+      const ehGanho = ganhoFiltros.has(item.filtro);
+      steps.push({
+        id: item.filtro,
+        label: item.label,
+        kind: "delta",
+        value: ehGanho ? item.value : -item.value,
+        color: item.color,
+      });
+    });
+
+    steps.push({ id: "atual", label: "Plano atualizado", kind: "total", value: mesPlanoAtualTendencia, color: "#0F766E" });
+
+    return steps;
+  })();
+
   // Só as etapas físicas aqui -- reprovação/desvio, atraso de produção e
   // rendimento já aparecem na fileira sempre visível (perdasMes) logo acima
   // deste painel, com o mesmo clique-pra-filtrar. Repetir esses 3 cards aqui
@@ -2000,7 +2159,7 @@ const textoPercentualV1 = (valor: number) =>
       ? lotesFiltrados.filter((l) => selecionados.has(l.lote))
       : lotesFiltrados;
 
-    const headers = ["Lote","OP","Grupo","Status gap","Destino/Motivo","Data Lib. V1","Data Lib. atual","Lavagem","Envase","Embalagem","Liberado","Tubetes","Caixas Planejadas (V1 original)","Caixas Planejadas (ajustado)","Quarentena (98)","Liberado (cx)","Rendimento (%)","Em Desvio"];
+    const headers = ["Lote","OP","Grupo","Status gap","Destino/Motivo","Data Lib. V1","Data Lib. atual","Lavagem","Envase","Embalagem","Liberado","Tubetes","Caixas Planejadas (V1 original)","Caixas Planejadas (ajustado)","Qtd. Envasada","Quarentena (98)","Liberado (cx)","Rendimento (%)","Em Desvio"];
     const rows = alvo.map((l) => {
       const r = calcularRendimento(l);
       return [
@@ -2018,6 +2177,7 @@ const textoPercentualV1 = (valor: number) =>
         l.qtd_prevista_tb,
         l.qtd_prevista_cx,
         l.qtd_prevista_ajustada_cx ?? l.qtd_prevista_cx,
+        l.qtd_produzida_cx || "",
         l.qtd_quarentena_cx ?? "",
         l.qtd_liberada_cx,
         r !== null ? r.toFixed(1) : "",
@@ -2425,7 +2585,7 @@ const textoPercentualV1 = (valor: number) =>
                   Visão mensal
                 </p>
                 <h3 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>
-                  Planejado de liberação do mês
+                  Acompanhamento do mês
                 </h3>
               </div>
 
@@ -2438,6 +2598,8 @@ const textoPercentualV1 = (valor: number) =>
                 Ver conciliação
               </button>
             </div>
+
+            <CascataMesChart steps={cascataMesSteps} />
 
             <div className="overflow-x-auto">
               <div
@@ -2835,6 +2997,9 @@ const textoPercentualV1 = (valor: number) =>
                   <th className={thBase} title="Clica no lápis pra ajustar manualmente, quando já se sabe que o rendimento vai ficar abaixo do planejado original">
                     Caixas Planejadas
                   </th>
+                  <th className={thBase} title="Quantidade real que já saiu do envase (apontamento de produção, etapa ENVASE) -- a diferença pro planejado já é a perda de rendimento; independe de o lote já estar em quarentena ou liberado">
+                    Qtd. Envasada
+                  </th>
                   <th className={thBase} title="Saldo em quarentena (armazém 98) -- já reflete o rendimento real, antes da liberação formal">
                     98 (Quarentena)
                   </th>
@@ -3163,6 +3328,14 @@ const textoPercentualV1 = (valor: number) =>
                             </button>
                           )}
                         </div>
+                      </td>
+
+                      <td
+                        className="px-3 py-3 text-right text-sm font-semibold"
+                        style={{ color: "var(--text-primary)" }}
+                        title="Quantidade real que já saiu do envase (apontamento de produção) -- independe de quarentena/liberação"
+                      >
+                        {l.qtd_produzida_cx > 0 ? fmt(l.qtd_produzida_cx) : "—"}
                       </td>
 
                       <td

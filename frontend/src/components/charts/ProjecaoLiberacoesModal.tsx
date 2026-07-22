@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
-import { X, Gauge } from "lucide-react"
+import { X } from "lucide-react"
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -70,17 +70,6 @@ interface ChartPoint {
   atingimento: number | null
 }
 
-interface SimuladorSegundoSemestreResponse {
-  ano: number
-  previsto_h1_v1_cx: number
-  real_h1_cx: number
-  taxa_realizacao_h1_pct: number
-  previsto_h2_atual_cx: number
-  projecao_simulada_h2_cx: number
-  delta_h2_cx: number
-  detalhe_previsto_h1_por_mes: Record<string, { qtd_cx: number; versao: string | null }>
-}
-
 import { getAuthHeaders } from "../../lib/authHeaders"
 
 const MES_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
@@ -114,27 +103,6 @@ async function getProjecaoLiberacoesFresh(signal?: AbortSignal): Promise<Projeca
   }
 
   return response.json() as Promise<ProjecaoLiberacoesResponse>
-}
-
-async function getSimuladorSegundoSemestre(signal?: AbortSignal): Promise<SimuladorSegundoSemestreResponse> {
-  const authHeaders = await getAuthHeaders()
-  const response = await fetch(`${API_URL}/overview/simulador-segundo-semestre?_t=${Date.now()}`, {
-    method: "GET",
-    cache: "no-store",
-    signal,
-    headers: {
-      ...authHeaders,
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      Pragma: "no-cache",
-      Expires: "0",
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error(`Erro ao carregar simulador do 2º semestre: ${response.status}`)
-  }
-
-  return response.json() as Promise<SimuladorSegundoSemestreResponse>
 }
 
 const COR_REAL = "#27336D"
@@ -685,112 +653,6 @@ function LegendToggleItem({
   )
 }
 
-// Simulador: aplica a taxa de realização observada no 1º semestre (V1 de
-// cada mês -- Jan usa a V3, combinado com o usuário como base oficial do
-// orçamento -- vs. real liberado na SD3) em cima do previsto atual do 2º
-// semestre. Painel próprio, aberto por um botão, pra não poluir a tela
-// principal do modal por padrão.
-function SimuladorSegundoSemestrePainel({ dados }: { dados: SimuladorSegundoSemestreResponse }) {
-  const deltaTb = dados.delta_h2_cx * TUBETES_POR_CAIXA
-  const corTaxa = corPct(dados.taxa_realizacao_h1_pct)
-
-  return (
-    <div
-      style={{
-        marginTop: 14,
-        padding: "16px 18px",
-        border: "1px solid var(--border)",
-        borderRadius: 12,
-        background: "var(--bg-primary)",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <Gauge size={16} color={COR_REAL} />
-        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
-          Simulador: perda histórica do 1º semestre aplicada ao 2º semestre
-        </p>
-      </div>
-
-      <p style={{ margin: "0 0 14px", fontSize: 12, color: "var(--text-secondary)" }}>
-        Compara o planejado (V1 de cada mês -- Jan usa a V3) com o realmente liberado (SD3) de Jan a Jun,
-        e aplica essa mesma taxa de realização em cima do previsto atual de Jul a Dez.
-      </p>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 12 }}>
-        <div>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", margin: "0 0 4px" }}>
-            Previsto H1 (V1)
-          </p>
-          <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-            {fmt(dados.previsto_h1_v1_cx)} cx
-          </p>
-        </div>
-
-        <div>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", margin: "0 0 4px" }}>
-            Real H1 (SD3)
-          </p>
-          <p style={{ fontSize: 16, fontWeight: 700, color: COR_REAL, margin: 0 }}>
-            {fmt(dados.real_h1_cx)} cx
-          </p>
-        </div>
-
-        <div>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", margin: "0 0 4px" }}>
-            Taxa de realização H1
-          </p>
-          <p style={{ fontSize: 16, fontWeight: 700, color: corTaxa, margin: 0 }}>
-            {fmtPct(dados.taxa_realizacao_h1_pct)}
-          </p>
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-          gap: 10,
-          paddingTop: 12,
-          borderTop: "1px dashed var(--border)",
-        }}
-      >
-        <div>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", margin: "0 0 4px" }}>
-            Previsto H2 (Gantt/MPS atual)
-          </p>
-          <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-            {fmt(dados.previsto_h2_atual_cx)} cx
-          </p>
-        </div>
-
-        <div>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", margin: "0 0 4px" }}>
-            Projeção simulada H2
-          </p>
-          <p style={{ fontSize: 18, fontWeight: 800, color: COR_VERMELHO, margin: 0 }}>
-            {fmt(dados.projecao_simulada_h2_cx)} cx
-          </p>
-          <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "2px 0 0" }}>
-            {fmt(dados.projecao_simulada_h2_cx * TUBETES_POR_CAIXA)} tubetes
-          </p>
-        </div>
-
-        <div>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", margin: "0 0 4px" }}>
-            Diferença vs. previsto atual
-          </p>
-          <p style={{ fontSize: 16, fontWeight: 700, color: COR_VERMELHO, margin: 0 }}>
-            -{fmt(dados.delta_h2_cx)} cx
-          </p>
-          <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "2px 0 0" }}>
-            -{fmt(deltaTb)} tubetes
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
   const [data, setData] = useState<ProjecaoLiberacoesResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -800,11 +662,6 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
   const [showOrcado, setShowOrcado] = useState(true)
   const [showV1, setShowV1] = useState(true)
   const [showAtingimento, setShowAtingimento] = useState(true)
-
-  const [simuladorAberto, setSimuladorAberto] = useState(false)
-  const [simuladorDados, setSimuladorDados] = useState<SimuladorSegundoSemestreResponse | null>(null)
-  const [simuladorCarregando, setSimuladorCarregando] = useState(false)
-  const [simuladorErro, setSimuladorErro] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -848,32 +705,6 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
       document.body.style.overflow = ""
     }
   }, [open])
-
-  // Simulador só busca quando a pessoa abre o painel (clique no botão),
-  // não junto com a carga inicial do modal -- é uma consulta à parte,
-  // sem necessidade de disparar sempre que o modal abrir.
-  function abrirSimulador() {
-    setSimuladorAberto(true)
-    if (simuladorDados || simuladorCarregando) return
-
-    setSimuladorCarregando(true)
-    setSimuladorErro(null)
-
-    const controller = new AbortController()
-    getSimuladorSegundoSemestre(controller.signal)
-      .then((response) => setSimuladorDados(response))
-      .catch((error: unknown) => {
-        const errorName =
-          typeof error === "object" && error !== null && "name" in error
-            ? String((error as { name?: string }).name || "")
-            : ""
-        if (errorName !== "AbortError") {
-          console.error(error)
-          setSimuladorErro("Não foi possível carregar o simulador.")
-        }
-      })
-      .finally(() => setSimuladorCarregando(false))
-  }
 
   const linha1Data = useMemo(() => {
     if (!data?.linhas?.length) return []
@@ -942,84 +773,23 @@ export function ProjecaoLiberacoesModal({ open, onClose }: Props) {
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button
-              type="button"
-              onClick={abrirSimulador}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                border: `1px solid ${COR_REAL}`,
-                background: simuladorAberto ? COR_REAL : "transparent",
-                color: simuladorAberto ? "#FFFFFF" : COR_REAL,
-                borderRadius: 8,
-                padding: "6px 12px",
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-              title="Simular o 2º semestre pela perda histórica do 1º semestre"
-            >
-              <Gauge size={14} />
-              Simulador 2º semestre
-            </button>
-
-            <button
-              onClick={onClose}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: "var(--text-secondary)",
-                padding: 4,
-                display: "flex",
-                borderRadius: 6,
-              }}
-            >
-              <X size={20} />
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "var(--text-secondary)",
+              padding: 4,
+              display: "flex",
+              borderRadius: 6,
+            }}
+          >
+            <X size={20} />
+          </button>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
-          {simuladorAberto && (
-            simuladorCarregando ? (
-              <div
-                style={{
-                  marginBottom: 18,
-                  padding: "16px 18px",
-                  border: "1px solid var(--border)",
-                  borderRadius: 12,
-                  background: "var(--bg-primary)",
-                  fontSize: 13,
-                  color: "var(--text-secondary)",
-                }}
-              >
-                Calculando simulador...
-              </div>
-            ) : simuladorErro ? (
-              <div
-                style={{
-                  marginBottom: 18,
-                  padding: "16px 18px",
-                  border: "1px solid #F2C94C",
-                  borderRadius: 12,
-                  background: "#FFF8E1",
-                  fontSize: 13,
-                  color: "#B45309",
-                }}
-              >
-                {simuladorErro}
-              </div>
-            ) : simuladorDados ? (
-              <div style={{ marginBottom: 18 }}>
-                <SimuladorSegundoSemestrePainel dados={simuladorDados} />
-              </div>
-            ) : null
-          )}
-
           {loading ? (
             <div
               style={{
