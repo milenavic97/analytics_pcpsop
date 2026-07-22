@@ -98,6 +98,7 @@ interface LoteRastreamento {
   data_fim_atual?: string | null;
   mes_previsto_atual?: number | null;
   ano_previsto_atual?: number | null;
+  qtd_tendencia_atual_cx?: number | null;
 }
 
 interface ResumoLiberacao {
@@ -1277,6 +1278,24 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
     return "NAO_INICIADO";
   }
 
+  // Quantidade de referência pra somar nos cards de ETAPA FÍSICA (embalagem/
+  // envase/lavagem/não iniciado). Usa a mesma base que o backend já usa pro
+  // card "Plano Atualizado" (qtd_tendencia_atual_cx -- prioriza quarentena/
+  // ajuste manual sobre o planejado V1 bruto), em vez do planejado V1 puro.
+  // Sem isso, esses 4 cards físicos somavam pelo V1 bruto enquanto o "Plano
+  // Atualizado" já descontava a quarentena -- os dois nunca fechavam entre
+  // si, e a diferença toda (não é só 1 cx de arredondamento) acabava sendo
+  // jogada inteira no card de maior valor (normalmente "Liberados"), que é
+  // exatamente o sintoma visto em produção: "Liberados" ficando bem abaixo
+  // da soma real da coluna "Liberado (cx)" da tabela.
+  function qtdReferenciaEtapaFisica(l: LoteRastreamento): number {
+    const tendencia = l.qtd_tendencia_atual_cx;
+    if (tendencia != null && Number.isFinite(Number(tendencia))) {
+      return Number(tendencia);
+    }
+    return Number(l.qtd_prevista_cx_float ?? l.qtd_prevista_cx ?? 0);
+  }
+
   // Etapa física do lote, independente de estar ou não em desvio aberto --
   // mesmo critério usado no backend (_etapa_fisica_lote) e no recálculo de
   // fallback acima. Um lote embalado que caiu em desvio continua contando
@@ -1502,6 +1521,10 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
           ?? lote.qtd_perda_rendimento_cx
           ?? Math.max(previstoCxFloat - liberadoCxFloat, 0),
       );
+      // Quantidade usada nos 4 cards de etapa física: prioriza quarentena/
+      // ajuste manual (qtd_tendencia_atual_cx), igual o "Plano Atualizado"
+      // do backend -- ver qtdReferenciaEtapaFisica acima.
+      const etapaFisicaCxFloat = qtdReferenciaEtapaFisica(lote);
 
       if (loteEhReprovacaoOuDescarte(lote)) {
         acumulado.reprovacao_desvio += previstoCxFloat;
@@ -1538,19 +1561,19 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         continue;
       }
       if (lote.check_embalagem) {
-        acumulado.embalagem += previstoCxFloat;
-        if (emDesvio) acumulado.embalagem_em_desvio += previstoCxFloat;
+        acumulado.embalagem += etapaFisicaCxFloat;
+        if (emDesvio) acumulado.embalagem_em_desvio += etapaFisicaCxFloat;
       } else if (lote.check_envase) {
-        acumulado.envase += previstoCxFloat;
-        if (emDesvio) acumulado.envase_em_desvio += previstoCxFloat;
+        acumulado.envase += etapaFisicaCxFloat;
+        if (emDesvio) acumulado.envase_em_desvio += etapaFisicaCxFloat;
       } else if (lote.check_lavagem) {
-        acumulado.lavagem += previstoCxFloat;
-        if (emDesvio) acumulado.lavagem_em_desvio += previstoCxFloat;
+        acumulado.lavagem += etapaFisicaCxFloat;
+        if (emDesvio) acumulado.lavagem_em_desvio += etapaFisicaCxFloat;
       } else {
-        acumulado.nao_iniciado += previstoCxFloat;
-        if (emDesvio) acumulado.nao_iniciado_em_desvio += previstoCxFloat;
+        acumulado.nao_iniciado += etapaFisicaCxFloat;
+        if (emDesvio) acumulado.nao_iniciado_em_desvio += etapaFisicaCxFloat;
       }
-      if (emDesvio) acumulado.desvio_aberto += previstoCxFloat;
+      if (emDesvio) acumulado.desvio_aberto += etapaFisicaCxFloat;
     }
 
     // normalizarGapPorEtapa já arredonda cada campo (uma vez, no total) e
@@ -1844,6 +1867,10 @@ const textoPercentualV1 = (valor: number) =>
   // nele). Por isso, aqui NÃO se subtrai reprovação/atraso/rendimento de novo
   // -- diferente do V1 congelado (que inclui esses lotes no total original e
   // por isso precisa descontá-los pra comparar só com as etapas físicas).
+  // Agora que os cards físicos somam pela mesma base quarentena-ajustada do
+  // Plano Atualizado (qtdReferenciaEtapaFisica), esse ajuste de
+  // arredondamento volta a ser mesmo só um resíduo de poucos cx, não mais
+  // uma diferença de centenas escondida aqui.
   //
   // Previsto até hoje (MTD): mantido como estava (mtdPrevistoV1 com o
   // desconto das 3 perdas) -- não tínhamos dado ao vivo pra confirmar se
