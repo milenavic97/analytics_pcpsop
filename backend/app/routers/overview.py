@@ -2862,6 +2862,81 @@ def _qtd_sd3_por_lote_simples(ano: int, lotes: set[str]) -> dict[str, float]:
     return resultado
 
 
+def _qtd_envasado_por_lote_ano() -> dict[str, float]:
+    """
+    Soma o quanto já foi ENVASADO (apontamento real de produção, etapa
+    ENVASE) por lote -- segundo critério de prioridade nos cards
+    Reprovação e Rendimento da versão Executivo (regra combinada com o
+    usuário: liberado > envasado > planejado).
+
+    f_apontamentos não tem coluna de ano/data confiável pra filtro direto
+    (mesmo padrão já usado em _calcular_rastreamento_lotes_impl, que
+    também lê essa tabela sem filtrar por ano) -- então lê a tabela
+    inteira e soma por lote. qtd_produzida vem em tubetes, convertido
+    aqui pra caixas.
+    """
+    try:
+        rows = _select_all(
+            supabase.table("f_apontamentos")
+            .select("lote, etapa, qtd_produzida, tipo_evento")
+        )
+    except Exception:
+        rows = []
+
+    resultado: dict[str, float] = {}
+    for row in rows:
+        tipo_evento = str(row.get("tipo_evento") or "").strip().upper()
+        if tipo_evento not in {"PRODUÇÃO", "PRODUCAO"}:
+            continue
+
+        etapa = str(row.get("etapa") or "").strip().upper()
+        if etapa != "ENVASE":
+            continue
+
+        lote = _normalizar_lote_desvio_simples(row.get("lote"))
+        if not lote:
+            continue
+
+        qtd_tb = _to_float(row.get("qtd_produzida"))
+        if qtd_tb <= 0:
+            continue
+
+        resultado[lote] = resultado.get(lote, 0.0) + (qtd_tb / TUBETES_POR_CAIXA)
+
+    return resultado
+
+
+def _qtd_prioritaria_lote(
+    lote: str,
+    sd3_map: dict[str, float],
+    envasado_map: dict[str, float],
+    fallback_cx: float | None = None,
+) -> tuple[float, str]:
+    """
+    Resolve a quantidade oficial de um lote pela prioridade de negócio
+    combinada com o usuário:
+      1) liberado (SD3), se > 0;
+      2) senão, envasado (apontamento real de produção, etapa ENVASE), se > 0;
+      3) senão, o fallback informado (planejado/Gantt ou valor fixo), se houver.
+
+    Retorna (qtd_cx, fonte), com fonte em {"liberado", "envasado",
+    "planejado", "nenhum"} -- "nenhum" quando não há liberado, nem
+    envasado, nem fallback.
+    """
+    qtd_liberado = _to_float(sd3_map.get(lote, 0.0))
+    if qtd_liberado > 0:
+        return qtd_liberado, "liberado"
+
+    qtd_envasado = _to_float(envasado_map.get(lote, 0.0))
+    if qtd_envasado > 0:
+        return qtd_envasado, "envasado"
+
+    if fallback_cx:
+        return _to_float(fallback_cx), "planejado"
+
+    return 0.0, "nenhum"
+
+
 @router.get("/lotes-descartados-ano")
 def get_lotes_descartados_ano(ano: int | None = Query(default=None)):
     """
@@ -2872,9 +2947,17 @@ def get_lotes_descartados_ano(ano: int | None = Query(default=None)):
     filtra pelos grupos com destino Descartado, pegando a união dos lotes
     (um lote não conta duas vezes mesmo se aparecer em mais de um desvio).
 
-    Quantidade: tenta SD3 (liberado real) primeiro; se o lote ainda não foi
-    liberado (SD3 vazio), usa a quantidade prevista que o próprio histórico
-    de desvios já carrega por lote; se nem isso, cai pro padrão de 600 cx.
+    Quantidade (regra combinada com o usuário -- prioridade de negócio):
+      1) liberado (SD3), se já tiver sido liberado;
+      2) senão, envasado (apontamento real de produção) -- cobre o caso
+         mais comum: lote reprovado por qualidade que já passou pelo
+         envase antes de ser descartado, então a perda real é a
+         quantidade envasada, não o valor planejado fixo;
+      3) senão, cai pro planejado que o próprio histórico de desvios já
+         carrega por lote, ou pro padrão de 600 cx.
+
+    O campo "fonte_qtd" no retorno mostra qual critério foi usado em cada
+    lote, pra dar transparência no modal.
     """
     ano_ref = ano or date.today().year
 
@@ -2906,14 +2989,20 @@ def get_lotes_descartados_ano(ano: int | None = Query(default=None)):
             }
 
     qtd_sd3 = _qtd_sd3_por_lote_simples(ano_ref, set(lotes_info.keys()))
+    qtd_envasado_todos = _qtd_envasado_por_lote_ano()
+    qtd_envasado = {
+        lote: qtd for lote, qtd in qtd_envasado_todos.items() if lote in lotes_info
+    }
 
     itens: list[dict[str, Any]] = []
     total_cx = 0
 
     for lote, info in lotes_info.items():
-        qtd_cx = round(qtd_sd3.get(lote, 0.0))
-        if qtd_cx <= 0:
-            qtd_cx = _qtd_oficial_descarte_cx_simples(info.get("qtd_prevista")) or 600
+        fallback_planejado = _qtd_oficial_descarte_cx_simples(info.get("qtd_prevista")) or 600
+        qtd_cx_bruto, fonte_qtd = _qtd_prioritaria_lote(
+            lote, qtd_sd3, qtd_envasado, fallback_planejado
+        )
+        qtd_cx = round(qtd_cx_bruto)
 
         total_cx += qtd_cx
         itens.append({
@@ -2922,6 +3011,7 @@ def get_lotes_descartados_ano(ano: int | None = Query(default=None)):
             "motivo": info["motivo"],
             "destino": "Reprovado - Destino: Descarte",
             "qtd_cx": qtd_cx,
+            "fonte_qtd": fonte_qtd,
         })
 
     itens.sort(key=lambda x: -_to_float(x.get("qtd_cx")))
@@ -2978,10 +3068,25 @@ def get_rendimento_ano(ano: int | None = Query(default=None)):
     """
     Card/detalhe de Rendimento (ganho/perda) da versão Executivo -- compara
     direto quantidade planejada no Gantt/MPS (mesma rodada validada da tela
-    MPS: f_mrp_rodadas + f_mrp_etapas) vs quantidade liberada na SD3, lote a
-    lote, pro ano inteiro. Rápido de propósito: só 2 consultas no total
-    (uma no Gantt, uma na SD3) -- nunca roda o rastreamento de lotes mês a
+    MPS: f_mrp_rodadas + f_mrp_etapas) vs a quantidade real do lote, lote a
+    lote, pro ano inteiro. Rápido de propósito: poucas consultas no total
+    (Gantt, SD3, apontamento) -- nunca roda o rastreamento de lotes mês a
     mês, que foi o que travou as tentativas anteriores da cascata.
+
+    Quantidade real (regra combinada com o usuário -- mesma prioridade do
+    card de Reprovação, pra bater com ele):
+      1) liberado (SD3), se já tiver sido liberado;
+      2) senão, envasado (apontamento real de produção) -- cobre o lote
+         que já passou pelo envase mas ainda não foi liberado formalmente;
+      3) se não tiver nem liberado nem envasado, o lote "ainda não chegou
+         lá" -- não entra na conta, não é ganho nem perda.
+
+    Exemplo: lote planejado 300 cx, envasado 295 cx, ainda não liberado.
+    Rendimento usa os 295 cx (envasado) contra o planejado -> perda de
+    rendimento de 5 cx. Se esse mesmo lote for reprovado por qualidade,
+    o card de Reprovação também usa os 295 cx envasados como perda por
+    qualidade -- os 5 cx e os 295 cx não se sobrepõem, medem coisas
+    diferentes do mesmo lote.
     """
     ano_ref = ano or _ano_atual()
 
@@ -2991,6 +3096,7 @@ def get_rendimento_ano(ano: int | None = Query(default=None)):
     rodada = _buscar_rodada_mrp_atual()
     planejado_por_lote = _montar_lotes_mrp_overview(rodada)
     liberado_por_lote = _qtd_sd3_por_lote_ano(ano_ref)
+    envasado_por_lote = _qtd_envasado_por_lote_ano()
 
     itens: list[dict[str, Any]] = []
     ganho_total = 0.0
@@ -2998,14 +3104,21 @@ def get_rendimento_ano(ano: int | None = Query(default=None)):
 
     for lote, info in planejado_por_lote.items():
         qtd_planejada = round(_to_float(info.get("qtd_cx")))
-        qtd_liberada = round(liberado_por_lote.get(lote, 0.0))
-
-        # Só entra na conta se já foi liberado -- lote ainda não liberado não
-        # é ganho nem perda de rendimento, é só "ainda não chegou lá".
-        if qtd_liberada <= 0 or qtd_planejada <= 0:
+        if qtd_planejada <= 0:
             continue
 
-        delta = qtd_liberada - qtd_planejada
+        qtd_real_bruto, fonte_qtd = _qtd_prioritaria_lote(
+            lote, liberado_por_lote, envasado_por_lote
+        )
+        qtd_real = round(qtd_real_bruto)
+
+        # Só entra na conta se já tiver liberado ou envasado -- lote ainda
+        # sem nenhum dos dois não é ganho nem perda de rendimento, é só
+        # "ainda não chegou lá".
+        if qtd_real <= 0:
+            continue
+
+        delta = qtd_real - qtd_planejada
         if delta == 0:
             continue
 
@@ -3017,8 +3130,9 @@ def get_rendimento_ano(ano: int | None = Query(default=None)):
         itens.append({
             "lote": lote,
             "qtd_planejada_cx": qtd_planejada,
-            "qtd_liberada_cx": qtd_liberada,
+            "qtd_liberada_cx": qtd_real,
             "delta_cx": delta,
+            "fonte_qtd": fonte_qtd,
         })
 
     itens.sort(key=lambda x: x["delta_cx"])
@@ -3044,6 +3158,14 @@ def get_overview_causas_anuais(
     (uma por mês) e só somava depois no navegador. Mesma lógica/dado já
     validado hoje no Rastreamento de Lotes (mes_perdas_vs_v1_por_causa) --
     NÃO usa nada de liberacao_executiva.py.
+
+    IMPORTANTE: este endpoint (get_overview_causas_anuais) usa a
+    classificação PRÓPRIA e mais completa de _calcular_rastreamento_lotes_impl
+    (status_gap/desvio_reprovacao/qtd_perda_rendimento_cx), que não foi
+    alterada por esta mudança de priorização liberado/envasado/planejado.
+    Os dois endpoints leves (get_lotes_descartados_ano e get_rendimento_ano,
+    logo acima) podem divergir um pouco deste até uma futura unificação --
+    combinado que essa unificação fica para uma próxima entrega.
 
     Regra de negócio (definida com o usuário):
       - Reprov. lote e Rendimento (perda/ganho) são causas fechadas/auditáveis,
@@ -4992,6 +5114,14 @@ def _calcular_rastreamento_lotes_impl(
         if pertence_ao_gantt_mes_atual:
             continue
 
+        # Lote promovido pro mês atual (ver migration 010): já tem uma linha
+        # própria mais abaixo (item_promovido) que reconhece a liberação real
+        # via SD3 -- não deve aparecer aqui como "fora do Gantt", senão a
+        # liberação dele nunca conta no total de liberado do mês, mesmo já
+        # tendo sido confirmada na SD3.
+        if lote_sd3 in lotes_promovidos_para_dentro:
+            continue
+
         previsto = previsoes[0] if previsoes else {}
         desvios = desvios_lote_map.get(lote_sd3, [])
         desvio = desvio_principal(desvios)
@@ -5744,6 +5874,35 @@ def _calcular_rastreamento_lotes_impl(
             max(qtd_cx_promovido - qtd_tendencia_promovido, 0)
             if qtd_referencia_promovido is not None else 0
         )
+
+        # Se o lote promovido já liberou de verdade na SD3 do mês de destino,
+        # a liberação real manda -- não pode continuar travado em "pendente"
+        # pra sempre só porque veio de uma promoção manual. Antes, esse bloco
+        # ignorava sd3_lote_map por completo e fixava check_liberado=False e
+        # qtd_liberada_cx=0 sempre, então um lote promovido que liberasse
+        # depois nunca contava como liberado no card/soma do mês, mesmo com
+        # a SD3 confirmando a liberação (ficava preso na lista "fora do
+        # Gantt" no modal de conciliação em vez de contar no total do mês).
+        qtd_liberada_promovido_float = _to_float(sd3_lote_map.get(lote_promovido, 0.0))
+        check_liberado_promovido = qtd_liberada_promovido_float > 0
+        qtd_liberada_promovido_cx = round(qtd_liberada_promovido_float)
+
+        if check_liberado_promovido:
+            qtd_gap_promovido = max(qtd_cx_promovido - qtd_liberada_promovido_cx, 0)
+            qtd_gap_promovido_float = max(qtd_cx_promovido - qtd_liberada_promovido_float, 0.0)
+            qtd_perda_rendimento_promovido = qtd_gap_promovido
+            perda_rendimento_promovido_flag = qtd_perda_rendimento_promovido > 0
+            status_gap_promovido = "Perda por rendimento" if perda_rendimento_promovido_flag else "Liberado"
+            motivo_gap_promovido = f"Lote {tag_promovido_de.lower()}, liberado na SD3."
+            destino_exibido_promovido = tag_promovido_de
+        else:
+            qtd_gap_promovido = 0
+            qtd_gap_promovido_float = 0.0
+            perda_rendimento_promovido_flag = qtd_perda_rendimento_promovido > 0
+            status_gap_promovido = tag_promovido_de
+            motivo_gap_promovido = f"Lote {tag_promovido_de.lower()}."
+            destino_exibido_promovido = tag_promovido_de
+
         item_promovido = {
             "lote": lote_promovido,
             "grupo": dados_promocao.get("grupo"),
@@ -5752,9 +5911,9 @@ def _calcular_rastreamento_lotes_impl(
             "qtd_prevista_cx_float": _to_float(dados_promocao.get("qtd_caixas")),
             "qtd_produzida_tb": 0,
             "qtd_produzida_cx": 0,
-            "qtd_liberada_cx": 0,
-            "qtd_gap_cx": 0,
-            "qtd_gap_cx_float": 0.0,
+            "qtd_liberada_cx": qtd_liberada_promovido_cx,
+            "qtd_gap_cx": qtd_gap_promovido,
+            "qtd_gap_cx_float": qtd_gap_promovido_float,
             "qtd_perda_rendimento_cx": qtd_perda_rendimento_promovido,
             "qtd_perda_rendimento_cx_float": float(qtd_perda_rendimento_promovido),
             "considerar_previsto_ate_hoje": True,
@@ -5767,7 +5926,7 @@ def _calcular_rastreamento_lotes_impl(
             "check_lavagem": check_lavagem_promovido,
             "check_envase": check_envase_promovido,
             "check_embalagem": check_embalagem_promovido,
-            "check_liberado": False,
+            "check_liberado": check_liberado_promovido,
             "atrasado": False,
             "equipamento_atual": None,
             "ordem_op": None,
@@ -5781,15 +5940,15 @@ def _calcular_rastreamento_lotes_impl(
             "desvio_dias": None,
             "desvio_setor": None,
             "desvio_destino": None,
-            "desvio_destino_consolidado": tag_promovido_de,
+            "desvio_destino_consolidado": destino_exibido_promovido,
             "desvio_reprovacao": False,
             "desvio_historico_fechado": False,
             "desvio_fonte": None,
             "reprogramado": False,
             "atraso_producao": False,
-            "perda_rendimento": qtd_perda_rendimento_promovido > 0,
-            "status_gap": tag_promovido_de,
-            "motivo_gap": f"Lote {tag_promovido_de.lower()}.",
+            "perda_rendimento": perda_rendimento_promovido_flag,
+            "status_gap": status_gap_promovido,
+            "motivo_gap": motivo_gap_promovido,
             "data_lib_atual": None,
             "data_fim_atual": None,
             "mes_previsto_atual": mes_analise,
@@ -5797,7 +5956,7 @@ def _calcular_rastreamento_lotes_impl(
             "esta_no_plano_atual_mes": True,
             "qtd_prevista_atual_cx": qtd_cx_promovido,
             "qtd_prevista_ajustada_cx": round(qtd_ajustada_promovido) if qtd_ajustada_promovido is not None else None,
-            "qtd_tendencia_atual_cx": qtd_tendencia_promovido,
+            "qtd_tendencia_atual_cx": qtd_liberada_promovido_cx if check_liberado_promovido else qtd_tendencia_promovido,
             "rodada_atual_id": None,
             "rodada_atual_mes": None,
             "rodada_atual_versao": None,
@@ -5806,8 +5965,8 @@ def _calcular_rastreamento_lotes_impl(
             "rodada_mes": None,
             "rodada_versao": None,
             "promovido_de": tag_promovido_de,
-            "destino": tag_promovido_de,
-            "destino_produto_insumo": tag_promovido_de,
+            "destino": destino_exibido_promovido,
+            "destino_produto_insumo": destino_exibido_promovido,
         }
         item_promovido["status_operacional"] = status_operacional_lote(item_promovido)
         resultado.append(item_promovido)
@@ -5822,6 +5981,24 @@ def _calcular_rastreamento_lotes_impl(
         x.get("lote") or "",
     ))
 
+    # Lotes promovidos pro mês corrente (ver migration 010): a quantidade
+    # PLANEJADA ORIGINAL desses lotes NUNCA fez parte do plano V1 deste mês
+    # -- eles vieram de outro mês. Antes, eles entravam somados dentro de
+    # "Planejado V1" (mes_cx_previsto_v1/mtd_cx_previsto/total_cx_previsto)
+    # só por estarem na lista "resultado", inflando o V1 congelado do mês
+    # com uma quantidade que nunca foi planejada pra cá (ex.: V1 aparecendo
+    # como 17.250 cx quando o V1 real do Gantt de julho é 17.050 cx). Esse
+    # conjunto marca esses lotes pra excluir das somas de V1/previsto; a
+    # contribuição real deles (liberado > quarentena > planejado, a mesma
+    # prioridade de sempre) continua entrando no Plano Atualizado através
+    # do card específico "Lotes de outro mês" mais abaixo -- nunca se perde,
+    # só deixa de ser contado como se fosse parte do V1 original do mês.
+    lotes_promovidos_no_mes_set = {
+        item.get("lote")
+        for item in resultado
+        if item.get("fonte_baseline") == "promovido"
+    }
+
     lotes_mtd = [
         r for r in resultado
         if r.get("considerar_previsto_ate_hoje")
@@ -5832,7 +6009,10 @@ def _calcular_rastreamento_lotes_impl(
         if not r["data_lib"] or r["data_lib"] > hoje_iso
     ]
 
-    mtd_cx_previsto = sum(r["qtd_prevista_cx"] for r in lotes_mtd)
+    mtd_cx_previsto = sum(
+        r["qtd_prevista_cx"] for r in lotes_mtd
+        if r.get("lote") not in lotes_promovidos_no_mes_set
+    )
     # Soma floats e arredonda só no final — evita acúmulo de round() por lote
     mtd_cx_liberado = round(sum(
         sd3_lote_map.get(normaliza_lote(r.get("lote")), 0.0)
@@ -5889,11 +6069,24 @@ def _calcular_rastreamento_lotes_impl(
             # lotes que já saíram da conta principal.
             if item.get("observacao_manual") or item.get("promovido_para"):
                 continue
-            total += _to_float(
-                item.get("qtd_gap_cx_float")
-                if item.get("qtd_gap_cx_float") is not None
-                else item.get("qtd_prevista_cx_float", item.get("qtd_prevista_cx", 0))
-            )
+            # Prioriza qtd_tendencia_atual_cx (mesma regra do card "Plano
+            # Atualizado": quarentena/ajuste manual > planejado) em vez do
+            # gap bruto vs V1. Antes, estes 4 cards físicos somavam pelo
+            # planejado V1 cheio mesmo quando o lote já tinha saldo real
+            # menor contado em quarentena -- os cards físicos nunca fechavam
+            # com o "Plano Atualizado" (que já usa a quantidade ajustada), e
+            # a diferença toda acabava sendo jogada no card "Liberados" pelo
+            # ajuste de arredondamento do frontend, fazendo "Liberados"
+            # aparecer bem abaixo do "Real" mostrado no Plano Atualizado.
+            qtd_tendencia = item.get("qtd_tendencia_atual_cx")
+            if qtd_tendencia is not None:
+                total += _to_float(qtd_tendencia)
+            else:
+                total += _to_float(
+                    item.get("qtd_gap_cx_float")
+                    if item.get("qtd_gap_cx_float") is not None
+                    else item.get("qtd_prevista_cx_float", item.get("qtd_prevista_cx", 0))
+                )
         return total
 
     mtd_reprovacao_desvio = _soma_gap_status("Reprovação/desvio")
@@ -5993,10 +6186,22 @@ def _calcular_rastreamento_lotes_impl(
     # Esta visão NÃO depende da data_lib <= hoje; ela mostra o impacto esperado no mês fechado.
     lotes_mes = resultado
 
-    def _soma_mes_gap_status(status: str) -> float:
+    # Lotes promovidos de outro mês (ver migration 010) NÃO fazem parte do
+    # V1 congelado deste mês -- eles só passaram a existir aqui por causa da
+    # promoção manual. Combinado com o usuário: "Planejado V1" tem que
+    # continuar sendo só o V1 original do mês (sem os promovidos), e o
+    # volume desses lotes entra à parte, no card próprio "Lotes de outro
+    # mês" (ver mes_cx_lotes_promovidos_card mais abaixo) -- por isso as
+    # causas por status (reprovação/desvio, atraso, rendimento, etapas
+    # físicas) daqui pra baixo excluem os lotes promovidos: a perda/ganho
+    # deles já é representada inteira dentro do próprio card de promovidos,
+    # não precisa (e não deve) também aparecer picotada nessas outras causas.
+    lotes_mes_v1 = [r for r in lotes_mes if r.get("fonte_baseline") != "promovido"]
+
+    def _soma_mes_gap_status(status: str, lotes_base: list[dict] | None = None) -> float:
         return sum(
             r["qtd_gap_cx_float"]
-            for r in lotes_mes
+            for r in (lotes_base if lotes_base is not None else lotes_mes_v1)
             if r.get("status_gap") == status
             and not r.get("check_liberado")
         )
@@ -6010,17 +6215,17 @@ def _calcular_rastreamento_lotes_impl(
     # saber da perda, não a coluna Status da tabela.
     mes_perda_rendimento = sum(
         r.get("qtd_perda_rendimento_cx_float", 0.0)
-        for r in lotes_mes
+        for r in lotes_mes_v1
         if r.get("qtd_perda_rendimento_cx_float", 0.0) > 0
     )
-    mes_embalagem = _soma_etapa_fisica(lotes_mes, "embalagem")
-    mes_embalagem_em_desvio = _soma_etapa_fisica(lotes_mes, "embalagem", apenas_em_desvio=True)
-    mes_envase = _soma_etapa_fisica(lotes_mes, "envase")
-    mes_envase_em_desvio = _soma_etapa_fisica(lotes_mes, "envase", apenas_em_desvio=True)
-    mes_lavagem = _soma_etapa_fisica(lotes_mes, "lavagem")
-    mes_lavagem_em_desvio = _soma_etapa_fisica(lotes_mes, "lavagem", apenas_em_desvio=True)
-    mes_nao_iniciado = _soma_etapa_fisica(lotes_mes, "nao_iniciado")
-    mes_nao_iniciado_em_desvio = _soma_etapa_fisica(lotes_mes, "nao_iniciado", apenas_em_desvio=True)
+    mes_embalagem = _soma_etapa_fisica(lotes_mes_v1, "embalagem")
+    mes_embalagem_em_desvio = _soma_etapa_fisica(lotes_mes_v1, "embalagem", apenas_em_desvio=True)
+    mes_envase = _soma_etapa_fisica(lotes_mes_v1, "envase")
+    mes_envase_em_desvio = _soma_etapa_fisica(lotes_mes_v1, "envase", apenas_em_desvio=True)
+    mes_lavagem = _soma_etapa_fisica(lotes_mes_v1, "lavagem")
+    mes_lavagem_em_desvio = _soma_etapa_fisica(lotes_mes_v1, "lavagem", apenas_em_desvio=True)
+    mes_nao_iniciado = _soma_etapa_fisica(lotes_mes_v1, "nao_iniciado")
+    mes_nao_iniciado_em_desvio = _soma_etapa_fisica(lotes_mes_v1, "nao_iniciado", apenas_em_desvio=True)
 
     # Idem ao mtd_desvio_aberto acima: agora é só informativo, soma das 4
     # etapas que também estão em desvio -- não entra somado à parte em
@@ -6037,7 +6242,10 @@ def _calcular_rastreamento_lotes_impl(
     # Tendência atual = tudo que já liberou na SD3 + o que a versão atual ainda prevê
     # para o mês e ainda não liberou. Isso inclui lotes novos da versão atual, mesmo
     # que não existissem na V1.
-    mes_cx_previsto_v1 = round(sum(r["qtd_prevista_cx"] for r in lotes_mes))
+    mes_cx_previsto_v1 = round(sum(
+        r["qtd_prevista_cx"] for r in lotes_mes
+        if r.get("lote") not in lotes_promovidos_no_mes_set
+    ))
 
     plano_atual_mes_map: dict[str, float] = {}
     for r_atual in rows_gantt_ano_atual:
@@ -6190,6 +6398,15 @@ def _calcular_rastreamento_lotes_impl(
         lote_mes = normaliza_lote(r_mes.get("lote"))
         if not lote_mes:
             continue
+        # Lote promovido (ver lotes_promovidos_no_mes_set acima): não entra
+        # no V1 do mês -- sua quantidade planejada original nunca foi
+        # planejamento de julho, é de outro mês. Sem essa exclusão, a
+        # reconciliação por lote (reduções/acréscimos) tratava o lote
+        # promovido como se ele tivesse "reduzido" do V1 quando na real ele
+        # nunca fez parte do V1 pra começo de conversa.
+        if r_mes.get("lote") in lotes_promovidos_no_mes_set:
+            resultado_por_lote[lote_mes] = r_mes
+            continue
         v1_mes_map[lote_mes] = v1_mes_map.get(lote_mes, 0.0) + _to_float(r_mes.get("qtd_prevista_cx_float", r_mes.get("qtd_prevista_cx")))
         resultado_por_lote[lote_mes] = r_mes
 
@@ -6262,7 +6479,10 @@ def _calcular_rastreamento_lotes_impl(
     )
     mes_cx_reconciliado_v1 = mes_cx_previsto_v1
 
-    total_cx_previsto = sum(r["qtd_prevista_cx"] for r in resultado)
+    total_cx_previsto = sum(
+        r["qtd_prevista_cx"] for r in resultado
+        if r.get("lote") not in lotes_promovidos_no_mes_set
+    )
     # Soma em float antes de arredondar — evita acúmulo de erros de round() por lote
     total_cx_sd3_mes = round(sum(sd3_lote_map.values()))
     # total_cx_liberado: soma os floats dos lotes do plano de maio e arredonda só no final
@@ -6460,12 +6680,39 @@ def _calcular_rastreamento_lotes_impl(
         dados_manual["qtd_caixas"] for dados_manual in lotes_manuais_por_codigo.values()
     ))
 
+    # Lotes promovidos pro mês corrente (ver migration 010 e
+    # lotes_promovidos_no_mes_set acima): mesmo mecanismo do card de lotes
+    # manuais -- a quantidade planejada original desses lotes já foi
+    # excluída do V1 do mês (mes_cx_previsto_v1), então a contribuição real
+    # deles (liberado > quarentena > planejado, via qtd_tendencia_atual_cx)
+    # só entra no total "Plano Atualizado" se for somada aqui também,
+    # subtraída na fórmula da diferença (subtrair aumenta o total final).
+    # Sem isso, essa quantidade some do meio do caminho: não conta mais
+    # como V1, mas também não aparece como acréscimo em lugar nenhum.
+    mes_cx_lotes_promovidos_card = round(sum(
+        _to_float(item.get("qtd_tendencia_atual_cx"))
+        for item in resultado
+        if item.get("fonte_baseline") == "promovido"
+    ))
+    lotes_promovidos_detalhe = [
+        {
+            "lote": item.get("lote"),
+            "motivo": item.get("promovido_de"),
+            "qtd_cx": round(_to_float(item.get("qtd_tendencia_atual_cx"))),
+            "qtd_planejada_cx": item.get("qtd_prevista_cx"),
+            "check_liberado": bool(item.get("check_liberado")),
+        }
+        for item in resultado
+        if item.get("fonte_baseline") == "promovido"
+    ]
+
     mes_cx_diferenca_vs_v1 = round(
         mes_cx_reprovacao_desvio_card
         + mes_cx_atraso_producao_card
         + mes_cx_perda_rendimento_card
         - mes_cx_ganho_rendimento
         - mes_cx_lotes_manuais_card
+        - mes_cx_lotes_promovidos_card
         + mes_cx_outros_card
     )
     mes_cx_plano_atual_tendencia = mes_cx_previsto_v1 - mes_cx_diferenca_vs_v1
@@ -6522,9 +6769,12 @@ def _calcular_rastreamento_lotes_impl(
             "ganho_rendimento": mes_cx_ganho_rendimento,
             "outros": mes_cx_outros_card,
             "lotes_manuais": mes_cx_lotes_manuais_card,
+            "lotes_promovidos": mes_cx_lotes_promovidos_card,
         },
         "mes_cx_outros_card": mes_cx_outros_card,
         "mes_cx_lotes_manuais_card": mes_cx_lotes_manuais_card,
+        "mes_cx_lotes_promovidos_card": mes_cx_lotes_promovidos_card,
+        "lotes_promovidos_detalhe": lotes_promovidos_detalhe,
         "lotes_observacao_manual": [
             {"lote": lote, "motivo": observacoes_manuais_mes[lote]}
             for lote in lotes_com_observacao_manual_ativa
