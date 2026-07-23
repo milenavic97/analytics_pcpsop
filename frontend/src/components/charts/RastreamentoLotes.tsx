@@ -2418,14 +2418,38 @@ const textoPercentualV1 = (valor: number) =>
 
   function calcularRendimento(lote: LoteRastreamento) {
     const planejadoCx = Number(lote.qtd_prevista_cx || 0);
-    const liberadoCx = Number(lote.qtd_liberada_cx || 0);
     const baseRendimento = Math.max(planejadoCx - Number(retemPorLote || 0), 0);
 
-    if (!lote.check_liberado || liberadoCx <= 0 || baseRendimento <= 0) {
+    if (baseRendimento <= 0) {
       return null;
     }
 
-    return (liberadoCx / baseRendimento) * 100;
+    // Mesma prioridade usada no backend (qtd_tendencia_atual_cx /
+    // qtd_perda_rendimento_cx): liberado > quarentena > ajuste manual >
+    // envasado real. Antes, esta coluna só calculava rendimento quando o
+    // lote já estava formalmente liberado -- um lote já em quarentena (ou
+    // já envasado, sem quarentena/ajuste) ficava sempre com "—" aqui,
+    // mesmo que o rendimento real já fosse conhecido e já estivesse sendo
+    // contado nos cards "Perda rendimento" lá em cima. Nunca cai no
+    // planejado como fallback aqui -- isso mostraria ~100% pra um lote que
+    // sequer começou a rodar.
+    let qtdReal: number | null = null;
+
+    if (lote.check_liberado) {
+      qtdReal = Number(lote.qtd_liberada_cx || 0);
+    } else if (lote.qtd_quarentena_cx != null && Number(lote.qtd_quarentena_cx) > 0) {
+      qtdReal = Number(lote.qtd_quarentena_cx);
+    } else if (lote.qtd_prevista_ajustada_cx != null) {
+      qtdReal = Number(lote.qtd_prevista_ajustada_cx);
+    } else if (Number(lote.qtd_produzida_cx || 0) > 0) {
+      qtdReal = Number(lote.qtd_produzida_cx);
+    }
+
+    if (qtdReal === null || qtdReal <= 0) {
+      return null;
+    }
+
+    return (qtdReal / baseRendimento) * 100;
   }
 
   function getRendimentoStatus(rendimento: number | null) {
