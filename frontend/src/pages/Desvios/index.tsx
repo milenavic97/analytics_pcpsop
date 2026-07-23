@@ -8,6 +8,8 @@ import {
   History,
   Trash2,
   Upload,
+  Undo2,
+  CheckCircle2,
 } from "lucide-react"
 
 import {
@@ -19,6 +21,10 @@ import {
   uploadDesvios,
   limparDesvios,
 } from "@/services/api"
+import { getAuthHeaders } from "@/lib/authHeaders"
+
+const API_URL = String(import.meta.env.VITE_API_URL || "https://dfl-sop-api.fly.dev").replace(/\/$/, "")
+const MES_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 type Evento = {
   id?: string
@@ -37,6 +43,26 @@ type Snapshot = {
   total_desvios: number
 }
 
+type LoteDesvio = {
+  lote: string
+  data_lib?: string | null
+  mes_lib?: number | string | null
+  ano_lib?: number | string | null
+  grupo_produto?: string | null
+  linha?: string | null
+  qtd_prevista?: number | null
+}
+
+type LoteRevertido = {
+  lote: string
+  serial_nc?: string | null
+  mes_origem?: number | null
+  ano_origem?: number | null
+  mes_liberacao: number
+  ano_liberacao: number
+  motivo?: string | null
+}
+
 type Desvio = {
   serial: string
   estado?: string
@@ -46,6 +72,7 @@ type Desvio = {
   dias_desvio?: number
   qtd_lotes: number
   lotes_texto: string
+  lotes?: LoteDesvio[]
   meses_lib_texto?: string
   grupos_produto_texto?: string
   linhas_texto?: string
@@ -57,6 +84,7 @@ type HistoricoDesvio = Desvio & {
   primeiro_upload?: string | null
   ultimo_upload?: string | null
   fechado_detectado_em?: string | null
+  lotes_revertidos?: LoteRevertido[]
 }
 
 type Resumo = {
@@ -99,6 +127,10 @@ function matchDestinoHistorico(destino: string | undefined, filtro: string) {
   }
 
   return destinoNorm.includes(filtroNorm)
+}
+
+function ehDestinoDescartado(destino?: string | null) {
+  return normalizarTextoFiltro(destino).includes("DESCART")
 }
 
 function csvEscape(valor: unknown) {
@@ -234,6 +266,41 @@ function formatDataHora(valor?: string | null) {
     .replace(",", " às")
 }
 
+async function reverterLoteReprovado(
+  lote: string,
+  mesLiberacao: number,
+  anoLiberacao: number,
+  motivo: string
+): Promise<void> {
+  const authHeaders = await getAuthHeaders()
+  const res = await fetch(`${API_URL}/desvios/lotes-reprovados/reverter`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      lote,
+      mes_liberacao: mesLiberacao,
+      ano_liberacao: anoLiberacao,
+      motivo: motivo || null,
+    }),
+  })
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null)
+    throw new Error(detalhe?.detail || `Erro ao marcar lote como liberado (${res.status})`)
+  }
+}
+
+async function removerReversaoLoteReprovado(lote: string): Promise<void> {
+  const authHeaders = await getAuthHeaders()
+  const res = await fetch(
+    `${API_URL}/desvios/lotes-reprovados/reverter/${encodeURIComponent(lote)}`,
+    { method: "DELETE", headers: authHeaders }
+  )
+  if (!res.ok) {
+    const detalhe = await res.json().catch(() => null)
+    throw new Error(detalhe?.detail || `Erro ao desfazer reversão (${res.status})`)
+  }
+}
+
 export default function DesviosPage() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -254,6 +321,18 @@ export default function DesviosPage() {
   const [filtroSituacaoHistorico, setFiltroSituacaoHistorico] = useState("TODOS")
   const [filtroDestinoHistorico, setFiltroDestinoHistorico] = useState("TODOS")
   const [historicoSelecionado, setHistoricoSelecionado] = useState<Set<string>>(new Set())
+
+  // Reversão de lote reprovado/descartado -- ver migration
+  // 013_lotes_reprovacao_revertida.sql. Modal aberto ao clicar num lote
+  // descartado, pra marcar que ele foi liberado de verdade depois.
+  const hoje = new Date()
+  const [modalReverter, setModalReverter] = useState<{ lote: string; serial: string } | null>(null)
+  const [mesReverterForm, setMesReverterForm] = useState(hoje.getMonth() + 1)
+  const [anoReverterForm, setAnoReverterForm] = useState(hoje.getFullYear())
+  const [motivoReverterForm, setMotivoReverterForm] = useState("")
+  const [salvandoReversao, setSalvandoReversao] = useState(false)
+  const [erroReversao, setErroReversao] = useState<string | null>(null)
+  const [desfazendoLote, setDesfazendoLote] = useState<string | null>(null)
 
   async function carregar() {
     try {
@@ -343,6 +422,59 @@ export default function DesviosPage() {
       )
     } finally {
       setLoading(false)
+    }
+  }
+
+  function abrirModalReverter(lote: string, serial: string) {
+    setModalReverter({ lote, serial })
+    setMesReverterForm(hoje.getMonth() + 1)
+    setAnoReverterForm(hoje.getFullYear())
+    setMotivoReverterForm("")
+    setErroReversao(null)
+  }
+
+  function fecharModalReverter() {
+    if (salvandoReversao) return
+    setModalReverter(null)
+    setErroReversao(null)
+  }
+
+  async function confirmarReversao() {
+    if (!modalReverter) return
+
+    setSalvandoReversao(true)
+    setErroReversao(null)
+    try {
+      await reverterLoteReprovado(
+        modalReverter.lote,
+        mesReverterForm,
+        anoReverterForm,
+        motivoReverterForm.trim()
+      )
+      setModalReverter(null)
+      await carregar()
+    } catch (err) {
+      setErroReversao(
+        err instanceof Error ? err.message : "Não foi possível marcar o lote como liberado."
+      )
+    } finally {
+      setSalvandoReversao(false)
+    }
+  }
+
+  async function desfazerReversao(lote: string) {
+    if (!window.confirm(`Desfazer a reversão do lote ${lote}? Ele volta a contar como reprovação/desvio normalmente.`)) {
+      return
+    }
+
+    setDesfazendoLote(lote)
+    try {
+      await removerReversaoLoteReprovado(lote)
+      await carregar()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Não foi possível desfazer a reversão.")
+    } finally {
+      setDesfazendoLote(null)
     }
   }
 
@@ -543,6 +675,66 @@ export default function DesviosPage() {
     })
     return lotes.size
   }, [historicoSafe])
+
+  function renderColunaLotes(item: HistoricoDesvio) {
+    const descartado = ehDestinoDescartado(item.destino)
+    const lotesDetalhados = item.lotes
+
+    // Sem a lista detalhada por lote (endpoint antigo/sem essa quebra) ou
+    // NC não descartado: mantém o comportamento simples de sempre.
+    if (!descartado || !lotesDetalhados?.length) {
+      return <div className="line-clamp-3">{item.lotes_texto || "-"}</div>
+    }
+
+    const revertidosPorLote = new Map(
+      (item.lotes_revertidos || []).map((r) => [r.lote, r])
+    )
+
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {lotesDetalhados.map((loteInfo) => {
+          const reversao = revertidosPorLote.get(loteInfo.lote)
+
+          if (reversao) {
+            return (
+              <span
+                key={loteInfo.lote}
+                title={`Revertido: conta em ${MES_LABELS[(reversao.mes_liberacao || 1) - 1]}/${reversao.ano_liberacao}${reversao.motivo ? ` -- ${reversao.motivo}` : ""}`}
+                className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"
+              >
+                <CheckCircle2 size={12} />
+                {loteInfo.lote}
+                <span className="text-emerald-500">
+                  → {MES_LABELS[(reversao.mes_liberacao || 1) - 1]}/{reversao.ano_liberacao}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => desfazerReversao(loteInfo.lote)}
+                  disabled={desfazendoLote === loteInfo.lote}
+                  title="Desfazer reversão"
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  <Undo2 size={11} />
+                </button>
+              </span>
+            )
+          }
+
+          return (
+            <button
+              key={loteInfo.lote}
+              type="button"
+              onClick={() => abrirModalReverter(loteInfo.lote, item.serial)}
+              title="Marcar este lote como liberado depois (reverte a reprovação)"
+              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
+            >
+              {loteInfo.lote}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -781,6 +973,7 @@ export default function DesviosPage() {
 
             <p className="text-sm text-slate-500">
               Todos os desvios que já apareceram no ano selecionado, inclusive os fechados que não constam mais no Interact.
+              {" "}Clique num lote descartado pra marcar que ele foi liberado depois.
             </p>
           </div>
 
@@ -892,7 +1085,7 @@ export default function DesviosPage() {
                   </td>
                   <td className="px-4 py-4 text-slate-700">{item.qtd_lotes}</td>
                   <td className="max-w-[360px] px-4 py-4 text-slate-700">
-                    <div className="line-clamp-3">{item.lotes_texto || "-"}</div>
+                    {renderColunaLotes(item)}
                   </td>
                   <td className="px-4 py-4 text-slate-700">{item.meses_lib_texto || "-"}</td>
                   <td className="px-4 py-4 text-slate-700">{item.linhas_texto || "-"}</td>
@@ -952,6 +1145,107 @@ export default function DesviosPage() {
                 className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
               >
                 Excluir dados
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalReverter && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) fecharModalReverter()
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start gap-4">
+              <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
+                <CheckCircle2 size={22} />
+              </div>
+
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-slate-900">
+                  Marcar lote como liberado
+                </h3>
+
+                <p className="mt-1 font-mono text-sm text-slate-500">
+                  Lote {modalReverter.lote} · NC {modalReverter.serial}
+                </p>
+
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Esse lote estava contando como perda por reprovação/desvio. Ao confirmar, ele
+                  para de contar como perda e passa a entrar no plano do mês escolhido abaixo.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-500">
+                  Mês de liberação
+                </label>
+                <select
+                  value={mesReverterForm}
+                  onChange={(e) => setMesReverterForm(Number(e.target.value))}
+                  disabled={salvandoReversao}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#17375E]"
+                >
+                  {MES_LABELS.map((label, idx) => (
+                    <option key={label} value={idx + 1}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-500">
+                  Ano
+                </label>
+                <input
+                  type="number"
+                  value={anoReverterForm}
+                  onChange={(e) => setAnoReverterForm(Number(e.target.value))}
+                  disabled={salvandoReversao}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#17375E]"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-1 block text-xs font-semibold text-slate-500">
+                Motivo (opcional)
+              </label>
+              <textarea
+                value={motivoReverterForm}
+                onChange={(e) => setMotivoReverterForm(e.target.value)}
+                disabled={salvandoReversao}
+                rows={2}
+                placeholder="Ex.: Reprocessado e reanalisado, liberado após reanálise."
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#17375E]"
+              />
+            </div>
+
+            {erroReversao && (
+              <p className="mt-3 text-sm text-red-600">{erroReversao}</p>
+            )}
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={fecharModalReverter}
+                disabled={salvandoReversao}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+
+              <button
+                onClick={confirmarReversao}
+                disabled={salvandoReversao}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {salvandoReversao ? "Salvando..." : "Confirmar"}
               </button>
             </div>
           </div>
