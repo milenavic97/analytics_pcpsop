@@ -1803,16 +1803,33 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   );
 
   const mesPrevistoV1 = Number(data?.mes_cx_previsto_v1 ?? data?.total_cx_previsto ?? 0);
-  const mesPlanoAtualTendencia = Number(
+  const mesPlanoAtualTendenciaBackend = Number(
     data?.mes_cx_plano_atual_tendencia ?? data?.total_cx_liberado ?? 0,
   );
   const mesRealizado = Number(data?.mes_cx_realizado ?? data?.total_cx_liberado ?? 0);
-  const mesDiferencaVsV1 = Number(
-    data?.mes_cx_diferenca_vs_v1 ?? mesPrevistoV1 - mesPlanoAtualTendencia,
-  );
   const mesSaldoTendencia = Number(
-    data?.mes_cx_saldo_tendencia ?? Math.max(mesPlanoAtualTendencia - mesRealizado, 0),
+    data?.mes_cx_saldo_tendencia ?? Math.max(mesPlanoAtualTendenciaBackend - mesRealizado, 0),
   );
+
+  // "Real" canônico: soma exata de qtd_liberada_cx de cada lote já
+  // liberado do mês completo -- o MESMO número que o card "Liberados"
+  // mostra (ver totalLiberadoAcompanhamento mais abaixo, que agora só
+  // referencia este valor). Antes, "Real" aqui e "Liberados" lá embaixo
+  // vinham de contas diferentes -- uma no backend (soma em float,
+  // arredondada só uma vez no final) e outra no frontend (soma dos
+  // valores já arredondados por lote, o que a pessoa vê na tabela) --
+  // podendo divergir 1-2 cx entre si. Isso é inaceitável: uma pessoa não
+  // pode ver dois números diferentes representando a mesma coisa na
+  // mesma tela. A partir daqui, "Plano atualizado" e "Diferença vs V1"
+  // também são recalculados a partir deste valor único, garantindo que
+  // "Real X + saldo Y" sempre feche exatamente com o total mostrado.
+  const mesRealizadoExato = (data?.lotes ?? []).reduce((acc, lote) => {
+    if (!lote.check_liberado) return acc;
+    return acc + Number(lote.qtd_liberada_cx ?? 0);
+  }, 0);
+
+  const mesPlanoAtualTendencia = mesRealizadoExato + mesSaldoTendencia;
+  const mesDiferencaVsV1 = mesPrevistoV1 - mesPlanoAtualTendencia;
   const mesAcrescimoPlanoAtual = Number(data?.mes_cx_acrescimo_plano_atual ?? 0);
   const mesGanhoRendimento = Number(data?.mes_cx_ganho_rendimento ?? data?.mes_perdas_vs_v1_por_causa?.ganho_rendimento ?? 0);
   const mesPerdasBrutasVsV1 = Number(
@@ -1999,19 +2016,18 @@ const textoPercentualV1 = (valor: number) =>
 
   // "Liberados" precisa bater, casa a casa, com a soma manual da coluna
   // "Liberado (cx)" da tabela -- outra ferramenta da empresa soma essa
-  // mesma coluna e os dois números precisam ser idênticos. Antes, este
-  // card usava mesRealizado/mtdLiberado (um total calculado pelo backend
-  // somando os valores em float e arredondando só uma vez no final -- o
-  // jeito estatisticamente mais preciso), mas isso quase sempre diverge
-  // em 1-2 cx de uma soma manual da coluna, porque a coluna mostra cada
-  // lote já arredondado individualmente. Somando aqui os mesmos valores
-  // JÁ ARREDONDADOS de cada lote (idêntico ao que a pessoa vê e somaria
-  // na tabela), o card fecha exatamente com essa soma manual, sempre.
-  const totalLiberadoAcompanhamento = (data?.lotes ?? []).reduce((acc, lote) => {
-    if (apenasAtrasados && !lote.considerar_previsto_ate_hoje) return acc;
-    if (!lote.check_liberado) return acc;
-    return acc + Number(lote.qtd_liberada_cx ?? 0);
-  }, 0);
+  // mesma coluna e os dois números precisam ser idênticos. Reusa
+  // mesRealizadoExato (mesma soma canônica usada em "Plano atualizado" e
+  // "Diferença vs V1" mais acima) pro "mês completo"; só recalcula
+  // separado pro filtro "previsto até hoje", que soma um subconjunto
+  // diferente de lotes (só os com data prevista já vencida).
+  const totalLiberadoAcompanhamento = apenasAtrasados
+    ? (data?.lotes ?? []).reduce((acc, lote) => {
+        if (!lote.considerar_previsto_ate_hoje) return acc;
+        if (!lote.check_liberado) return acc;
+        return acc + Number(lote.qtd_liberada_cx ?? 0);
+      }, 0)
+    : mesRealizadoExato;
   const totalPrevistoAcompanhamento = apenasAtrasados ? mtdPrevistoV1 : mesPrevistoV1;
   const textoPercentualLiberado = totalPrevistoAcompanhamento > 0
     ? `${fmtPercent((totalLiberadoAcompanhamento / totalPrevistoAcompanhamento) * 100)}% do previsto ${apenasAtrasados ? "até hoje" : "no mês (V1)"}`
@@ -2688,7 +2704,7 @@ const textoPercentualV1 = (valor: number) =>
                       {fmt(mesPlanoAtualTendencia)} cx
                     </p>
                     <p className="truncate text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
-                      Real {fmt(mesRealizado)} cx + saldo {fmt(mesSaldoTendencia)} cx
+                      Real {fmt(mesRealizadoExato)} cx + saldo {fmt(mesSaldoTendencia)} cx
                     </p>
                   </div>
                 </div>
