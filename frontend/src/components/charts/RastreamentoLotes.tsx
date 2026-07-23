@@ -52,6 +52,8 @@ interface LoteRastreamento {
   qtd_prevista_ajustada_cx?: number | null;
   qtd_produzida_tb: number;
   qtd_produzida_cx: number;
+  qtd_envasada_tb?: number;
+  qtd_envasada_cx?: number;
   qtd_liberada_cx: number;
   qtd_quarentena_cx?: number | null;
   qtd_gap_cx?: number;
@@ -1700,12 +1702,13 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         acumulado.embalagem += etapaFisicaCxFloat;
         if (emDesvio) acumulado.embalagem_em_desvio += etapaFisicaCxFloat;
       } else if (lote.check_envase) {
-        // "Envasados não embalados" usa o volume REAL já envasado
-        // (apontamento de produção, qtd_produzida_cx) -- é o número que
+        // "Envasados não embalados" usa o volume REAL já envasado -- ver
+        // qtd_envasada_cx (estritamente etapa ENVASE, sem o fallback pra
+        // embalagem/lavagem que qtd_produzida_cx tem). É o número que
         // muda em tempo real conforme a produção avança, diferente da
         // tendência (que só muda quando entra em quarentena/ajuste
         // manual). Mesmo critério do backend em _soma_etapa_fisica.
-        const qtdEnvasadaReal = Number(lote.qtd_produzida_cx ?? 0);
+        const qtdEnvasadaReal = Number(lote.qtd_envasada_cx ?? 0);
         acumulado.envase += qtdEnvasadaReal;
         if (emDesvio) acumulado.envase_em_desvio += qtdEnvasadaReal;
       } else if (lote.check_lavagem) {
@@ -1715,7 +1718,7 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
         acumulado.nao_iniciado += etapaFisicaCxFloat;
         if (emDesvio) acumulado.nao_iniciado_em_desvio += etapaFisicaCxFloat;
       }
-      if (emDesvio) acumulado.desvio_aberto += (lote.check_envase ? Number(lote.qtd_produzida_cx ?? 0) : etapaFisicaCxFloat);
+      if (emDesvio) acumulado.desvio_aberto += (lote.check_envase ? Number(lote.qtd_envasada_cx ?? 0) : etapaFisicaCxFloat);
     }
 
     // normalizarGapPorEtapa já arredonda cada campo (uma vez, no total) e
@@ -1994,7 +1997,21 @@ const textoPercentualV1 = (valor: number) =>
     },
   ];
 
-  const totalLiberadoAcompanhamento = apenasAtrasados ? mtdLiberado : mesRealizado;
+  // "Liberados" precisa bater, casa a casa, com a soma manual da coluna
+  // "Liberado (cx)" da tabela -- outra ferramenta da empresa soma essa
+  // mesma coluna e os dois números precisam ser idênticos. Antes, este
+  // card usava mesRealizado/mtdLiberado (um total calculado pelo backend
+  // somando os valores em float e arredondando só uma vez no final -- o
+  // jeito estatisticamente mais preciso), mas isso quase sempre diverge
+  // em 1-2 cx de uma soma manual da coluna, porque a coluna mostra cada
+  // lote já arredondado individualmente. Somando aqui os mesmos valores
+  // JÁ ARREDONDADOS de cada lote (idêntico ao que a pessoa vê e somaria
+  // na tabela), o card fecha exatamente com essa soma manual, sempre.
+  const totalLiberadoAcompanhamento = (data?.lotes ?? []).reduce((acc, lote) => {
+    if (apenasAtrasados && !lote.considerar_previsto_ate_hoje) return acc;
+    if (!lote.check_liberado) return acc;
+    return acc + Number(lote.qtd_liberada_cx ?? 0);
+  }, 0);
   const totalPrevistoAcompanhamento = apenasAtrasados ? mtdPrevistoV1 : mesPrevistoV1;
   const textoPercentualLiberado = totalPrevistoAcompanhamento > 0
     ? `${fmtPercent((totalLiberadoAcompanhamento / totalPrevistoAcompanhamento) * 100)}% do previsto ${apenasAtrasados ? "até hoje" : "no mês (V1)"}`
@@ -2183,7 +2200,7 @@ const textoPercentualV1 = (valor: number) =>
         l.qtd_prevista_tb,
         l.qtd_prevista_cx,
         l.qtd_prevista_ajustada_cx ?? l.qtd_prevista_cx,
-        l.qtd_produzida_cx || "",
+        l.qtd_envasada_cx || "",
         l.qtd_quarentena_cx ?? "",
         l.qtd_liberada_cx,
         r !== null ? r.toFixed(1) : "",
@@ -2441,8 +2458,8 @@ const textoPercentualV1 = (valor: number) =>
       qtdReal = Number(lote.qtd_quarentena_cx);
     } else if (lote.qtd_prevista_ajustada_cx != null) {
       qtdReal = Number(lote.qtd_prevista_ajustada_cx);
-    } else if (Number(lote.qtd_produzida_cx || 0) > 0) {
-      qtdReal = Number(lote.qtd_produzida_cx);
+    } else if (Number(lote.qtd_envasada_cx || 0) > 0) {
+      qtdReal = Number(lote.qtd_envasada_cx);
     }
 
     if (qtdReal === null || qtdReal <= 0) {
@@ -3365,7 +3382,7 @@ const textoPercentualV1 = (valor: number) =>
                         style={{ color: "var(--text-primary)" }}
                         title="Quantidade real que já saiu do envase (apontamento de produção) -- independe de quarentena/liberação"
                       >
-                        {l.qtd_produzida_cx > 0 ? fmt(l.qtd_produzida_cx) : "—"}
+                        {Number(l.qtd_envasada_cx || 0) > 0 ? fmt(l.qtd_envasada_cx) : "—"}
                       </td>
 
                       <td
