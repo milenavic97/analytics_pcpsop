@@ -54,6 +54,8 @@ interface LoteRastreamento {
   qtd_produzida_cx: number;
   qtd_envasada_tb?: number;
   qtd_envasada_cx?: number;
+  qtd_embalada_tb?: number;
+  qtd_embalada_cx?: number;
   qtd_liberada_cx: number;
   qtd_quarentena_cx?: number | null;
   qtd_gap_cx?: number;
@@ -312,6 +314,67 @@ interface RastreamentoData {
 function fmt(n?: number | null) {
   if (n === null || n === undefined) return "—";
   return new Intl.NumberFormat("pt-BR").format(Math.round(n));
+}
+
+// "Qtd atualizada" (versão nova da tabela): pega o valor do estágio mais
+// avançado que o lote já alcançou -- liberado (se tiver) > embalado (se
+// tiver e não liberado) > envasado (se tiver e não embalado) > planejado
+// (se ainda não tiver nada). É a melhor estimativa de quanto esse lote
+// vai contribuir pra liberação do mês, atualizada estágio a estágio.
+function qtdAtualizadaLote(lote: LoteRastreamento): number {
+  if (lote.check_liberado) return Number(lote.qtd_liberada_cx || 0);
+  if (Number(lote.qtd_embalada_cx || 0) > 0) return Number(lote.qtd_embalada_cx);
+  if (Number(lote.qtd_envasada_cx || 0) > 0) return Number(lote.qtd_envasada_cx);
+  return Number(lote.qtd_prevista_ajustada_cx ?? lote.qtd_prevista_cx ?? 0);
+}
+
+const ETAPAS_PROGRESSAO = [
+  { key: "prevista", label: "Prog" },
+  { key: "envasada", label: "Env" },
+  { key: "embalada", label: "Emb" },
+  { key: "liberada", label: "Lib" },
+] as const;
+
+// Mini gráfico de barras por lote: uma barra por estágio (Programada,
+// Envasada, Embalada, Liberada), altura proporcional ao planejado. A
+// barra do estágio que define a "Qtd atualizada" fica destacada em azul;
+// as demais ficam cinza. Substitui as 4 colunas numéricas separadas da
+// versão clássica por uma visão de relance do quanto o lote já avançou.
+function BarraProgressao({ lote }: { lote: LoteRastreamento }) {
+  const planejado = Number(lote.qtd_prevista_ajustada_cx ?? lote.qtd_prevista_cx ?? 0);
+  const atual = qtdAtualizadaLote(lote);
+  const maxAltura = 30;
+
+  const valores: Record<string, number> = {
+    prevista: planejado,
+    envasada: Number(lote.qtd_envasada_cx || 0),
+    embalada: Number(lote.qtd_embalada_cx || 0),
+    liberada: Number(lote.qtd_liberada_cx || 0),
+  };
+
+  return (
+    <div style={{ display: "flex", justifyContent: "center", gap: 7 }}>
+      {ETAPAS_PROGRESSAO.map((etapa) => {
+        const valor = valores[etapa.key];
+        const ref = planejado || 1;
+        const altura = valor > 0 ? Math.max(4, Math.round((valor / ref) * maxAltura)) : 2;
+        const destaque = valor === atual && valor > 0;
+        const cor = valor === 0 ? "var(--border)" : destaque ? "#2563EB" : "var(--text-muted)";
+
+        return (
+          <div key={etapa.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, width: 20 }}>
+            <span style={{ fontSize: 9, color: "var(--text-muted)", lineHeight: 1 }}>
+              {valor > 0 ? fmt(valor) : "—"}
+            </span>
+            <div style={{ width: 10, height: maxAltura, display: "flex", alignItems: "flex-end" }}>
+              <div style={{ width: "100%", height: altura, background: cor, borderRadius: 2 }} />
+            </div>
+            <span style={{ fontSize: 9, color: "var(--text-muted)", lineHeight: 1 }}>{etapa.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function fmtPercent(n?: number | null) {
@@ -1089,6 +1152,14 @@ export function RastreamentoLotes({ onMtdLoad }: { onMtdLoad?: (mtd_cx_previsto:
   // a versão anterior do MPS/Gantt (Vn-1, não sempre V1), o que fica pra uma
   // próxima entrega. Por ora o card só filtra a tabela abaixo, sem modal.
   const [acompanhamentoHojeAberto, setAcompanhamentoHojeAberto] = useState(false);
+  // Versão nova da tela: sem os 7 cards do topo (a cascata já conta essa
+  // história), cards de status espaçados (padrão dos cards da Overview),
+  // e tabela mais limpa com uma coluna "Progressão" (barrinhas por etapa)
+  // + "Qtd atualizada" (liberado > embalado > envasado > planejado) no
+  // lugar das 4 colunas separadas de quantidade. Padrão continua sendo a
+  // versão clássica; a pessoa escolhe testar a nova e pode voltar quando
+  // quiser -- nenhum cálculo muda, só a apresentação visual.
+  const [versaoTabela, setVersaoTabela] = useState<"classica" | "nova">("classica");
   const [retemPorLote, setRetemPorLote] = useState(0.7);
   const [sortRendimento, setSortRendimento] = useState<"asc" | "desc" | null>(null);
   const [sortDataLib, setSortDataLib] = useState<"asc" | "desc" | null>(null);
@@ -2652,18 +2723,35 @@ const textoPercentualV1 = (valor: number) =>
                 </h3>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setModalAuditoria(true)}
-                className="rounded-xl border px-3 py-2 text-xs font-semibold transition-colors hover:bg-black/5"
-                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-              >
-                Ver conciliação
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVersaoTabela((v) => (v === "classica" ? "nova" : "classica"))}
+                  title={versaoTabela === "classica" ? "Testar a nova versão da tabela" : "Voltar para versão anterior"}
+                  className="rounded-xl border px-3 py-2 text-xs font-bold transition-colors"
+                  style={
+                    versaoTabela === "classica"
+                      ? { borderColor: "#BFDBFE", background: "#EFF6FF", color: "#1D4ED8" }
+                      : { borderColor: "var(--border)", background: "#FFFFFF", color: "var(--text-secondary)" }
+                  }
+                >
+                  {versaoTabela === "classica" ? "Nova versão" : "Voltar para versão anterior"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setModalAuditoria(true)}
+                  className="rounded-xl border px-3 py-2 text-xs font-semibold transition-colors hover:bg-black/5"
+                  style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+                >
+                  Ver conciliação
+                </button>
+              </div>
             </div>
 
             <CascataMesChart steps={cascataMesSteps} />
 
+            {versaoTabela === "classica" && (
             <div className="overflow-x-auto">
               <div
                 className="grid gap-px"
@@ -2772,6 +2860,7 @@ const textoPercentualV1 = (valor: number) =>
                 ))}
               </div>
             </div>
+            )}
           </div>
 
           <div className={`card overflow-hidden p-0 shadow-none ${acompanhamentoHojeAberto ? "rounded-b-none border-b-0" : ""}`}>
@@ -2833,6 +2922,7 @@ const textoPercentualV1 = (valor: number) =>
 
             {acompanhamentoHojeAberto && (
               <>
+            {versaoTabela === "classica" ? (
             <div
               className="grid grid-cols-2 gap-px sm:grid-cols-3 lg:grid-cols-5"
               style={{ background: "var(--border)" }}
@@ -2893,6 +2983,41 @@ const textoPercentualV1 = (valor: number) =>
                 </button>
               ))}
             </div>
+            ) : (
+            <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-5" style={{ background: "#FFFFFF" }}>
+              {statusAcompanhamento.map((k) => (
+                <button
+                  key={k.label}
+                  type="button"
+                  onClick={() => {
+                    setFiltroEtapa(filtroEtapa === k.filtro ? "" : k.filtro);
+                    setFiltroEmbalado("");
+                    setSelecionados(new Set());
+                  }}
+                  className="rounded-xl p-3 text-left transition-all"
+                  style={{
+                    background: "var(--bg-secondary, #FAFBFD)",
+                    boxShadow: filtroEtapa === k.filtro ? `inset 0 0 0 2px ${k.color}` : "none",
+                    opacity: k.value === 0 ? 0.45 : 1,
+                    cursor: k.value === 0 ? "default" : "pointer",
+                  }}
+                >
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                    <k.icon size={13} style={{ color: k.color }} />
+                    {k.label}
+                  </p>
+                  <p className="text-lg font-semibold leading-tight" style={{ color: "var(--text-primary)" }}>
+                    {fmt(k.value)} <span className="text-xs font-normal" style={{ color: "var(--text-muted)" }}>cx</span>
+                  </p>
+                  {Boolean((k as any).emDesvio) && (
+                    <p className="mt-0.5 text-[10px]" style={{ color: "#DC2626" }}>
+                      {fmt((k as any).emDesvio)} em desvio
+                    </p>
+                  )}
+                </button>
+              ))}
+            </div>
+            )}
               </>
             )}
           </div>
@@ -3019,6 +3144,7 @@ const textoPercentualV1 = (valor: number) =>
             </div>
           )}
           <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
+            {versaoTabela === "classica" ? (
             <table className="w-full min-w-[1180px] border-separate border-spacing-0">
               <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
                 <tr
@@ -3453,6 +3579,97 @@ const textoPercentualV1 = (valor: number) =>
                 )}
               </tbody>
             </table>
+            ) : (
+            <table className="w-full min-w-[820px]" style={{ borderCollapse: "collapse" }}>
+              <thead style={{ position: "sticky", top: 0, zIndex: 10, background: "#FFFFFF" }}>
+                <tr style={{ borderBottom: "0.5px solid var(--border)" }}>
+                  <th className={thLeft}>Lote</th>
+                  <th className={thLeft}>Grupo</th>
+                  <th className={thBase}>Data lib.</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                    Progressão
+                  </th>
+                  <th className={thBase} title="Liberado, se tiver. Senão embalado, senão envasado, senão o planejado.">
+                    Qtd atualizada
+                  </th>
+                  <th className={thBase}>Rendimento</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {lotesFiltrados.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-sm" style={{ color: "var(--text-secondary)" }}>
+                      Nenhum lote encontrado.
+                    </td>
+                  </tr>
+                ) : (
+                  lotesFiltrados.map((l, i) => {
+                    const rendimentoLote = calcularRendimento(l);
+                    const statusLote = getRendimentoStatus(rendimentoLote);
+                    const emReprovacao = loteEhReprovacaoOuDescarte(l);
+
+                    return (
+                      <tr
+                        key={l.lote}
+                        style={{
+                          borderBottom: "0.5px solid var(--border)",
+                          background: i % 2 === 0 ? "#FCFCFB" : "#FFFFFF",
+                        }}
+                      >
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                              {l.lote}
+                            </span>
+                          </div>
+                          {(emReprovacao || l.em_desvio) && (
+                            <span
+                              className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                              title={getDesvioTooltip(l)}
+                              style={
+                                emReprovacao
+                                  ? { background: "#FEE2E2", color: "#991B1B" }
+                                  : { background: "#FEF3C7", color: "#92400E" }
+                              }
+                            >
+                              <AlertTriangle size={10} />
+                              {emReprovacao ? "Reprovado" : "Em desvio"}
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="px-3 py-3 text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+                          {l.grupo || "—"}
+                        </td>
+
+                        <td className="px-3 py-3 text-right text-sm" style={{ color: "var(--text-secondary)" }}>
+                          {fmtData(l.data_lib)}
+                        </td>
+
+                        <td className="px-3 py-3">
+                          <BarraProgressao lote={l} />
+                        </td>
+
+                        <td className="px-3 py-3 text-right text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {fmt(qtdAtualizadaLote(l))}
+                        </td>
+
+                        <td className="px-3 py-3 text-right">
+                          <span
+                            className="inline-flex items-center rounded-full border px-2 py-1 text-xs font-bold"
+                            style={{ background: statusLote.bg, borderColor: statusLote.border, color: statusLote.color }}
+                          >
+                            {rendimentoLote === null ? "—" : `${rendimentoLote.toFixed(1).replace(".", ",")}%`}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+            )}
           </div>
         </div>
       )}
